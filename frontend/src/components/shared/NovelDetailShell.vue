@@ -148,11 +148,13 @@
               <!-- Content -->
               <component
                 v-else
+                ref="sectionRef"
                 :is="currentComponent"
                 v-bind="componentProps"
                 :class="componentContainerClass"
                 @edit="handleSectionEdit"
                 @add="startAddChapter"
+                @regenerate="handleRegenerate"
               />
             </div>
           </div>
@@ -376,6 +378,8 @@ const originalBodyOverflow = ref('')
 
 const novel = computed(() => !props.isAdmin ? novelStore.currentProject as NovelProject | null : null)
 
+const sectionRef = ref<any>(null)
+
 const formattedTitle = computed(() => {
   const title = overviewMeta.title || '加载中...'
   return title.startsWith('《') && title.endsWith('》') ? title : `《${title}》`
@@ -453,6 +457,10 @@ const switchSection = (section: SectionKey) => {
     isSidebarOpen.value = false
   }
   loadSection(section)
+  // 章节大纲需要 chapters 数据来判断完成状态
+  if (section === 'chapter_outline') {
+    loadSection('chapters')
+  }
 }
 
 const goBack = () => router.push(props.isAdmin ? '/admin' : '/workspace')
@@ -483,7 +491,7 @@ const componentProps = computed(() => {
     case 'relationships':
       return { data: data || null, editable }
     case 'chapter_outline':
-      return { outline: data?.chapter_outline || [], editable }
+      return { outline: data?.chapter_outline || [], chapters: sectionData.chapters?.chapters || [], editable }
     case 'chapters':
       return { chapters: data?.chapters || [], isAdmin: props.isAdmin }
     default:
@@ -537,6 +545,31 @@ const handleSave = async (data: { field: string; content: any }) => {
     isModalOpen.value = false
   } catch (error) {
     console.error('保存变更失败:', error)
+  }
+}
+
+const handleRegenerate = async (payload: { chapterNumbers?: number[] }) => {
+  if (props.isAdmin) return
+  await ensureProjectLoaded()
+  const project = novel.value
+  if (!project) return
+
+  sectionRef.value?.setRegenerating?.(true)
+  try {
+    const result = await NovelAPI.regenerateOutlines(project.id, payload.chapterNumbers)
+    // 用返回的最新大纲直接更新 sectionData，避免额外请求
+    if (sectionData.chapter_outline) {
+      sectionData.chapter_outline = { ...sectionData.chapter_outline, chapter_outline: result.chapter_outline }
+    } else {
+      sectionData.chapter_outline = { chapter_outline: result.chapter_outline }
+    }
+    // 标记哪些章节是新生成的
+    sectionRef.value?.markRegenerated?.(result.updated_chapters, result.total_target)
+  } catch (error) {
+    console.error('重新生成大纲失败:', error)
+    alert(error instanceof Error ? error.message : '重新生成大纲失败')
+  } finally {
+    sectionRef.value?.setRegenerating?.(false)
   }
 }
 

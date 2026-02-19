@@ -51,6 +51,9 @@ from .foreshadowing import (
     ForeshadowingAnalysis,
 )
 
+# 新增：实体注册表模型
+from .entity_registry import EntityRegistry, EntityAlias
+
 __all__ = [
     # 基础模型
     "AdminSetting",
@@ -91,4 +94,7 @@ __all__ = [
     "ForeshadowingReminder",
     "ForeshadowingStatusHistory",
     "ForeshadowingAnalysis",
+    # 实体注册表模型
+    "EntityRegistry",
+    "EntityAlias",
 ]

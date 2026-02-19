@@ -3,7 +3,9 @@
 
 import logging
 from logging.config import dictConfig
+from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,9 @@ from .db.session import AsyncSessionLocal
 from .api.routers import api_router
 
 
+LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 dictConfig(
     {
         "version": 1,
@@ -22,44 +27,73 @@ dictConfig(
         "formatters": {
             "default": {
                 "format": "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
-            }
+            },
+            "verbose": {
+                "format": "%(asctime)s [%(levelname)s] %(name)s %(funcName)s:%(lineno)d - %(message)s",
+            },
         },
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
-            }
+            },
+            "file_app": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": str(LOG_DIR / "app.log"),
+                "maxBytes": 10 * 1024 * 1024,
+                "backupCount": 5,
+                "encoding": "utf-8",
+                "formatter": "verbose",
+            },
+            "file_llm": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": str(LOG_DIR / "llm.log"),
+                "maxBytes": 20 * 1024 * 1024,
+                "backupCount": 10,
+                "encoding": "utf-8",
+                "formatter": "verbose",
+            },
         },
         "loggers": {
             "backend": {
                 "level": settings.logging_level,
-                "handlers": ["console"],
+                "handlers": ["console", "file_app"],
                 "propagate": False,
             },
             "app": {
                 "level": settings.logging_level,
-                "handlers": ["console"],
+                "handlers": ["console", "file_app"],
                 "propagate": False,
             },
             "backend.app": {
                 "level": settings.logging_level,
-                "handlers": ["console"],
+                "handlers": ["console", "file_app"],
                 "propagate": False,
             },
             "backend.api": {
                 "level": settings.logging_level,
-                "handlers": ["console"],
+                "handlers": ["console", "file_app"],
                 "propagate": False,
             },
             "backend.services": {
                 "level": settings.logging_level,
-                "handlers": ["console"],
+                "handlers": ["console", "file_app"],
+                "propagate": False,
+            },
+            "app.utils.llm_tool": {
+                "level": "DEBUG",
+                "handlers": ["console", "file_llm"],
+                "propagate": False,
+            },
+            "app.services.llm_service": {
+                "level": "DEBUG",
+                "handlers": ["console", "file_llm"],
                 "propagate": False,
             },
         },
         "root": {
             "level": "WARNING",
-            "handlers": ["console"],
+            "handlers": ["console", "file_app"],
         },
     }
 )

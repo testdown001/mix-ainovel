@@ -165,17 +165,19 @@ class ConsistencyService:
         project_id: str,
         chapter_text: str,
         user_id: int,
-        include_foreshadowing: bool = True
+        include_foreshadowing: bool = True,
+        entity_registry_info: Optional[str] = None,
     ) -> ConsistencyCheckResult:
         """
         检查章节一致性
-        
+
         Args:
             project_id: 项目ID
             chapter_text: 章节内容
             user_id: 用户ID
             include_foreshadowing: 是否检查伏笔一致性
-            
+            entity_registry_info: 实体注册表信息文本（可选）
+
         Returns:
             ConsistencyCheckResult
         """
@@ -186,6 +188,14 @@ class ConsistencyService:
         
         # 获取检查所需的上下文
         context = await self._get_check_context(project_id, include_foreshadowing)
+
+        # 注入实体注册表信息（三维检查增强）
+        if entity_registry_info:
+            existing_state = context.get("character_state", "")
+            context["character_state"] = (
+                f"{existing_state}\n\n## 实体注册表\n{entity_registry_info}"
+                if existing_state else f"## 实体注册表\n{entity_registry_info}"
+            )
         
         # 构建检查提示词
         prompt = CONSISTENCY_CHECK_PROMPT.format(

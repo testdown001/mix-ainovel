@@ -152,7 +152,7 @@ const novelStore = useNovelStore()
 const isGenerating = ref(false)
 const progress = ref(0)
 const timeElapsed = ref(0)
-const maxTime = 180 // 180秒超时
+const maxTime = 1800 // 1800秒（30分钟）：thinking 模式下蓝图生成可能需要 20-30 分钟
 
 let progressTimer: NodeJS.Timeout | null = null
 let timeoutTimer: NodeJS.Timeout | null = null
@@ -174,6 +174,8 @@ const loadingText = computed(() => {
     '生成情节发展脉络...',
     '完善世界观设定...',
     '优化章节安排...',
+    'AI 正在深度思考中，请耐心等待...',
+    '仍在创作中，复杂蓝图需要更多时间...',
     '最后润色细节...'
   ]
 
@@ -207,12 +209,7 @@ const generateBlueprint = async () => {
     }
   }, 100)
 
-  // 60秒超时
-  timeoutTimer = setTimeout(() => {
-    clearTimers()
-    isGenerating.value = false
-    globalAlert.showError('生成超时，请稍后重试。如果问题持续，请检查网络连接。', '生成超时')
-  }, maxTime * 1000)
+  // 超时由 API 层 AbortController 处理，此处不再设独立 setTimeout
 
   try {
     // 直接调用store中的API

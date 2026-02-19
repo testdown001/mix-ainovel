@@ -23,6 +23,7 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
+        timeout: 1800000, // 30 分钟，蓝图生成等长任务需要
       }
     }
   }

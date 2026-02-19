@@ -14,6 +14,9 @@ from .prompt_service import PromptService
 
 logger = logging.getLogger(__name__)
 
+CHAPTER_MIN_WORDS = 2000
+CHAPTER_MAX_WORDS = 5000
+
 
 class PreviewGenerationService:
     """预演-正式两阶段生成服务"""
@@ -221,6 +224,8 @@ class PreviewGenerationService:
         Returns:
             完整的章节正文
         """
+        target_word_count = max(CHAPTER_MIN_WORDS, min(CHAPTER_MAX_WORDS, target_word_count))
+
         prompt = f"""你是一位资深网文作者，现在需要将章节预览扩写成完整的章节正文。
 
 [蓝图上下文]
@@ -248,8 +253,9 @@ class PreviewGenerationService:
 [风格提示]
 {style_hint or '无特殊要求'}
 
-[目标字数]
-{target_word_count} 字左右
+[字数硬约束]
+- 正文字数必须在 {CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字之间（含边界）
+- 建议目标字数：{target_word_count} 字左右
 
 请严格按照预览中的情节点顺序，扩写成完整的章节正文。
 
@@ -308,6 +314,7 @@ class PreviewGenerationService:
             "retries": 0,
             "status": "pending"
         }
+        target_word_count = max(CHAPTER_MIN_WORDS, min(CHAPTER_MAX_WORDS, target_word_count))
         
         # 阶段 1：生成预览
         for retry in range(max_preview_retries + 1):

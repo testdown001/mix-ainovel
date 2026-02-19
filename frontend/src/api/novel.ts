@@ -3,8 +3,9 @@ import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
 
 // API 配置
-// 在生产环境中使用相对路径，在开发环境中使用绝对路径
-export const API_BASE_URL = import.meta.env.MODE === 'production' ? '' : 'http://127.0.0.1:8000'
+// 开发环境使用相对路径，由 Vite 代理转发到后端（vite.config.ts 中配置）
+// 生产环境同样使用相对路径，由反向代理（nginx 等）转发
+export const API_BASE_URL = ''
 export const API_PREFIX = '/api'
 
 // 统一的请求处理函数
@@ -88,6 +89,12 @@ export interface ChapterOutline {
   chapter_number: number
   title: string
   summary: string
+}
+
+export interface RegenerateOutlinesResponse {
+  updated_chapters: number[]
+  total_target: number
+  chapter_outline: ChapterOutline[]
 }
 
 export interface ChapterVersion {
@@ -209,9 +216,21 @@ export class NovelAPI {
   }
 
   static async generateBlueprint(projectId: string): Promise<BlueprintGenerationResponse> {
-    return request(`${NOVELS_BASE}/${projectId}/blueprint/generate`, {
-      method: 'POST'
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 2_100_000) // 35 分钟超时（thinking 模式下蓝图生成可能需要 20-30 分钟）
+    try {
+      return await request(`${NOVELS_BASE}/${projectId}/blueprint/generate`, {
+        method: 'POST',
+        signal: controller.signal,
+      })
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error('蓝图生成超时（已等待35分钟），请重试。如果持续超时请联系管理员。')
+      }
+      throw err
+    } finally {
+      clearTimeout(timeoutId)
+    }
   }
 
   static async saveBlueprint(projectId: string, blueprint: Blueprint): Promise<NovelProject> {
@@ -290,6 +309,18 @@ export class NovelAPI {
       body: JSON.stringify({
         start_chapter: startChapter,
         num_chapters: numChapters
+      })
+    })
+  }
+
+  static async regenerateOutlines(
+    projectId: string,
+    chapterNumbers?: number[]
+  ): Promise<RegenerateOutlinesResponse> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/regenerate-outlines`, {
+      method: 'POST',
+      body: JSON.stringify({
+        chapter_numbers: chapterNumbers || null
       })
     })
   }

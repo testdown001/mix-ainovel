@@ -19,9 +19,30 @@ logger = logging.getLogger(__name__)
 
 class ForeshadowingService:
     """伏笔管理服务"""
+
+    _RESOLVED_STATUSES = {"revealed", "resolved", "paid_off", "done", "complete", "completed"}
+    _UNRESOLVED_STATUSES = {"planted", "developing", "partial", "open", "pending", "active"}
     
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    def _normalize_status(self, status: Optional[str]) -> str:
+        text = (status or "").strip().lower()
+        if not text:
+            return "planted"
+        if text in self._RESOLVED_STATUSES:
+            return "revealed"
+        if text == "abandoned":
+            return "abandoned"
+        if text in self._UNRESOLVED_STATUSES:
+            return "planted"
+        return text
+
+    def _is_resolved(self, status: Optional[str]) -> bool:
+        return self._normalize_status(status) == "revealed"
+
+    def _is_unresolved(self, status: Optional[str]) -> bool:
+        return self._normalize_status(status) == "planted"
     
     async def create_foreshadowing(
         self,
@@ -62,16 +83,25 @@ class ForeshadowingService:
     ) -> tuple[List[Foreshadowing], int]:
         """获取伏笔列表"""
         query = select(Foreshadowing).where(Foreshadowing.project_id == project_id)
+        normalized_status = self._normalize_status(status) if status else None
         
-        if status:
-            query = query.where(Foreshadowing.status == status)
+        if normalized_status == "planted":
+            query = query.where(Foreshadowing.status.in_(sorted(self._UNRESOLVED_STATUSES)))
+        elif normalized_status == "revealed":
+            query = query.where(Foreshadowing.status.in_(sorted(self._RESOLVED_STATUSES)))
+        elif normalized_status:
+            query = query.where(Foreshadowing.status == normalized_status)
         if foreshadowing_type:
             query = query.where(Foreshadowing.type == foreshadowing_type)
         
         # 获取总数
         count_query = select(func.count()).select_from(Foreshadowing).where(Foreshadowing.project_id == project_id)
-        if status:
-            count_query = count_query.where(Foreshadowing.status == status)
+        if normalized_status == "planted":
+            count_query = count_query.where(Foreshadowing.status.in_(sorted(self._UNRESOLVED_STATUSES)))
+        elif normalized_status == "revealed":
+            count_query = count_query.where(Foreshadowing.status.in_(sorted(self._RESOLVED_STATUSES)))
+        elif normalized_status:
+            count_query = count_query.where(Foreshadowing.status == normalized_status)
         if foreshadowing_type:
             count_query = count_query.where(Foreshadowing.type == foreshadowing_type)
         
@@ -99,7 +129,7 @@ class ForeshadowingService:
         if not foreshadowing:
             raise ValueError(f"伏笔不存在: {foreshadowing_id}")
         
-        foreshadowing.status = "resolved"
+        foreshadowing.status = "revealed"
         foreshadowing.resolved_chapter_id = resolved_chapter_id
         foreshadowing.resolved_chapter_number = resolved_chapter_number
         
@@ -145,7 +175,7 @@ class ForeshadowingService:
         query = select(Foreshadowing).where(
             and_(
                 Foreshadowing.project_id == project_id,
-                Foreshadowing.status == "open",
+                Foreshadowing.status.in_(sorted(self._UNRESOLVED_STATUSES)),
             )
         ).order_by(Foreshadowing.chapter_number)
         
@@ -219,14 +249,18 @@ class ForeshadowingService:
         
         # 统计
         total = len(foreshadowings)
-        resolved_count = sum(1 for f in foreshadowings if f.status == "resolved")
-        unresolved_count = sum(1 for f in foreshadowings if f.status == "open")
+        resolved_count = sum(1 for f in foreshadowings if self._is_resolved(f.status))
+        unresolved_count = sum(
+            1
+            for f in foreshadowings
+            if self._is_unresolved(f.status)
+        )
         abandoned_count = sum(1 for f in foreshadowings if f.status == "abandoned")
         
         # 计算平均回收距离
         resolution_distances = []
         for f in foreshadowings:
-            if f.status == "resolved" and f.resolved_chapter_number:
+            if self._is_resolved(f.status) and f.resolved_chapter_number:
                 distance = f.resolved_chapter_number - f.chapter_number
                 resolution_distances.append(distance)
         

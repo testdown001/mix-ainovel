@@ -14,5 +14,6 @@ class LLMConfig(Base):
     llm_provider_url: Mapped[str | None] = mapped_column(Text())
     llm_provider_api_key: Mapped[str | None] = mapped_column(Text())
     llm_provider_model: Mapped[str | None] = mapped_column(Text())
+    llm_provider_api_format: Mapped[str | None] = mapped_column(Text())
 
     user: Mapped["User"] = relationship("User", back_populates="llm_config")

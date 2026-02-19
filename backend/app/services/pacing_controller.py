@@ -9,18 +9,19 @@ import math
 
 class PacingController:
     """节奏控制器 - 规划和调控故事情绪曲线"""
-    
+
     def __init__(self, total_chapters: int, story_structure: str = "three_act"):
         """
         初始化节奏控制器
-        
+
         Args:
             total_chapters: 总章节数
-            story_structure: 故事结构类型（three_act, hero_journey, custom）
+            story_structure: 故事结构类型（three_act, hero_journey, custom, strand_weave）
         """
         self.total_chapters = total_chapters
         self.story_structure = story_structure
         self.emotion_curve = []
+        self._strand_weave_service = None
     
     def plan_emotion_curve(
         self,
@@ -54,6 +55,8 @@ class PacingController:
             curve = self._plan_three_act_curve(min_intensity, max_intensity, num_peaks)
         elif self.story_structure == "hero_journey":
             curve = self._plan_hero_journey_curve(min_intensity, max_intensity)
+        elif self.story_structure == "strand_weave":
+            curve = self._plan_strand_weave_curve(min_intensity, max_intensity, num_peaks)
         else:
             curve = self._plan_wave_curve(min_intensity, max_intensity, num_peaks)
         
@@ -241,6 +244,67 @@ class PacingController:
         
         return curve
     
+    def _plan_strand_weave_curve(
+        self,
+        min_intensity: float,
+        max_intensity: float,
+        num_peaks: int,
+    ) -> List[Dict]:
+        """规划 Strand Weave 线团编织的情绪曲线"""
+        from .strand_weave_service import StrandWeaveService
+        from ..core.config import settings
+
+        sws = StrandWeaveService(
+            total_chapters=self.total_chapters,
+            quest_ratio=getattr(settings, "strand_quest_ratio", 0.60),
+            fire_ratio=getattr(settings, "strand_fire_ratio", 0.25),
+            constellation_ratio=getattr(settings, "strand_constellation_ratio", 0.15),
+            interleave_interval=getattr(settings, "strand_interleave_interval", 4),
+        )
+        strands = sws.plan_strands()
+        self._strand_weave_service = sws
+
+        curve = []
+        # 情绪强度映射：Quest 中高、Fire 高、Constellation 低中
+        strand_intensity_base = {
+            "quest": 6.0,
+            "fire": 8.0,
+            "constellation": 4.0,
+        }
+
+        for chapter in range(1, self.total_chapters + 1):
+            progress = (chapter - 1) / max(self.total_chapters - 1, 1)
+            strand = strands[chapter - 1]
+
+            base = strand_intensity_base.get(strand.strand_type, 5.0)
+            # 整体线性增长趋势
+            growth = (max_intensity - min_intensity) * 0.3 * progress
+            # 微小波动
+            wave = 0.5 * math.sin(progress * num_peaks * math.pi)
+            intensity = base + growth + wave
+            intensity = max(min_intensity, min(max_intensity, intensity))
+
+            if progress < 0.15:
+                phase = "exposition"
+            elif progress < 0.75:
+                phase = "rising_action"
+            elif progress < 0.90:
+                phase = "climax"
+            else:
+                phase = "resolution"
+
+            curve.append({
+                'chapter_number': chapter,
+                'emotion_intensity': round(intensity, 1),
+                'narrative_phase': phase,
+                'is_peak': intensity >= 8.0,
+                'is_valley': intensity <= 3.5,
+                'strand_type': strand.strand_type,
+                'strand_weight': strand.strand_weight,
+            })
+
+        return curve
+
     def get_chapter_pacing(self, chapter_number: int) -> Dict:
         """
         获取指定章节的节奏信息
@@ -284,8 +348,15 @@ class PacingController:
             'prev_intensity': prev_intensity,
             'next_intensity': next_intensity,
             'pacing_advice': pacing_advice,
+            'strand_info': self._get_strand_info(chapter_number),
         }
     
+    def _get_strand_info(self, chapter_number: int):
+        """获取章节的线团信息（仅在 strand_weave 模式下有效）。"""
+        if self._strand_weave_service and self.story_structure == "strand_weave":
+            return self._strand_weave_service.get_chapter_strand(chapter_number)
+        return None
+
     def _generate_pacing_advice(
         self,
         current_intensity: float,

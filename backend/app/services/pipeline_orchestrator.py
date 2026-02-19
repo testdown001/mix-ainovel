@@ -31,9 +31,24 @@ from ..services.reader_simulator_service import ReaderSimulatorService, ReaderTy
 from ..services.self_critique_service import CritiqueDimension, SelfCritiqueService
 from ..services.vector_store_service import VectorStoreService
 from ..services.writer_context_builder import WriterContextBuilder
-from ..utils.json_utils import remove_think_tags, unwrap_markdown_json
+from ..services.platinum_writing_context import (
+    PLATINUM_WRITING_BRIEF_FALLBACK,
+    build_foreshadowing_urgency_brief,
+    build_hook_continuity_brief,
+    build_platinum_rhythm_brief,
+)
+from ..utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
 
 logger = logging.getLogger(__name__)
+
+CHAPTER_MIN_WORDS = 2000
+CHAPTER_MAX_WORDS = 5000
+CHAPTER_RECOMMENDED_WORDS = 3000
+CHAPTER_WORD_COUNT_RULE = (
+    f"本章正文必须在 {CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字之间（含边界）。"
+    f"推荐目标约 {CHAPTER_RECOMMENDED_WORDS} 字，建议按开头钩子 10%、剧情发展 50%、"
+    "高潮爆点 33%、结尾钩子 7% 分配。"
+)
 
 
 @dataclass
@@ -55,6 +70,12 @@ class PipelineConfig:
     rag_mode: str = "simple"
     enable_foreshadowing: bool = False
     enable_faction: bool = False
+    enable_anti_hallucination: bool = False
+    rag_retrieval_mode: str = "vector"
+    pacing_model: str = "default"
+    enable_humanization: bool = False
+    humanization_threshold: int = 70
+    enable_fingerprint: bool = False
 
 
 class PipelineOrchestrator:
@@ -108,6 +129,10 @@ class PipelineOrchestrator:
 
         all_characters = [c.get("name") for c in blueprint_dict.get("characters", []) if c.get("name")]
 
+        pattern_constraint = self._build_pattern_differentiation(
+            history_context.get("completed_chapters", [])
+        )
+
         chapter_mission = await self._generate_chapter_mission(
             blueprint_dict=blueprint_dict,
             previous_summary=history_context["previous_summary"],
@@ -118,6 +143,7 @@ class PipelineOrchestrator:
             introduced_characters=[],
             all_characters=all_characters,
             user_id=user_id,
+            pattern_constraint=pattern_constraint,
         )
 
         allowed_new_characters = chapter_mission.get("allowed_new_characters", []) if chapter_mission else []
@@ -144,6 +170,20 @@ class PipelineOrchestrator:
             len(allowed_new_characters),
             len(forbidden_characters),
         )
+
+        mission_brief_text = None
+        if chapter_mission:
+            mission_brief_text = await self._generate_mission_brief(
+                chapter_mission=chapter_mission,
+                previous_summary=history_context["previous_summary"],
+                previous_tail=history_context["previous_tail"],
+                outline_title=outline_title,
+                outline_summary=outline_summary,
+                writing_notes=writing_notes,
+                introduced_characters=introduced_characters,
+                forbidden_characters=forbidden_characters,
+                user_id=user_id,
+            )
 
         enhanced_flow = None
         enhanced_context = None
@@ -176,6 +216,7 @@ class PipelineOrchestrator:
                     writing_notes=writing_notes,
                     pov_character=self._resolve_pov_character(chapter_mission),
                     user_id=user_id,
+                    retrieval_mode=config.rag_retrieval_mode,
                 )
             else:
                 rag_context = await self._get_rag_context(
@@ -184,6 +225,7 @@ class PipelineOrchestrator:
                     outline_summary=outline_summary,
                     writing_notes=writing_notes,
                     user_id=user_id,
+                    retrieval_mode=config.rag_retrieval_mode,
                 )
                 rag_stats = {
                     "mode": "simple",
@@ -197,11 +239,97 @@ class PipelineOrchestrator:
         if not writer_prompt:
             raise HTTPException(status_code=500, detail="缺少写作提示词，请联系管理员配置")
 
+        total_chapters = max(
+            chapter_number,
+            max((item.chapter_number for item in project.outlines), default=chapter_number),
+        )
+        platinum_writing_brief = (
+            await self.prompt_service.get_prompt("platinum_writing_brief")
+            or PLATINUM_WRITING_BRIEF_FALLBACK
+        )
+
+        # 题材自适应：加载 genre profile
+        genre_profile = None
+        genre_prompt_injection = ""
+        genre_pacing_config = None
+        if getattr(settings, "enable_genre_adaptation", True):
+            genre_name = blueprint_dict.get("genre") or ""
+            if genre_name:
+                from .genre_profile_service import GenreProfileService
+                genre_profile = GenreProfileService.get_profile(genre_name)
+                if genre_profile:
+                    genre_prompt_injection = GenreProfileService.build_genre_prompt_injection(genre_profile)
+                    genre_pacing_config = genre_profile.get("pacing_config")
+
+        # Strand Weave：获取线团分配
+        strand_info = None
+        if config.pacing_model == "strand_weave":
+            from .strand_weave_service import StrandWeaveService
+            sws_kwargs = {}
+            if genre_pacing_config:
+                sws_kwargs = {
+                    "quest_ratio": genre_pacing_config.get("quest_ratio", settings.strand_quest_ratio),
+                    "fire_ratio": genre_pacing_config.get("fire_ratio", settings.strand_fire_ratio),
+                    "constellation_ratio": genre_pacing_config.get("constellation_ratio", settings.strand_constellation_ratio),
+                }
+            else:
+                sws_kwargs = {
+                    "quest_ratio": settings.strand_quest_ratio,
+                    "fire_ratio": settings.strand_fire_ratio,
+                    "constellation_ratio": settings.strand_constellation_ratio,
+                }
+            strand_service = StrandWeaveService(
+                total_chapters=total_chapters,
+                interleave_interval=settings.strand_interleave_interval,
+                **sws_kwargs,
+            )
+            strand_service.plan_strands()
+            strand_info = strand_service.get_chapter_strand(chapter_number)
+
+        platinum_rhythm_brief = build_platinum_rhythm_brief(
+            chapter_number=chapter_number,
+            total_chapters=total_chapters,
+            outline_title=outline_title,
+            outline_summary=outline_summary,
+            chapter_mission=chapter_mission,
+            genre_pacing_config=genre_pacing_config,
+            strand_info=strand_info,
+        )
+        foreshadowing_urgency_brief = await build_foreshadowing_urgency_brief(
+            session=self.session,
+            project_id=project_id,
+            chapter_number=chapter_number,
+        )
+        hook_continuity_brief = build_hook_continuity_brief(
+            previous_summary=history_context["previous_summary"],
+            previous_tail=history_context["previous_tail"],
+            chapter_mission=chapter_mission,
+        )
+
+        # ---- 作者风格指纹 ----
+        fingerprint_context: Optional[str] = None
+        if config.enable_fingerprint:
+            try:
+                from .author_fingerprint_service import AuthorFingerprintService
+                fp_service = AuthorFingerprintService()
+                # 从已完成章节的选中版本提取全文
+                chapter_texts = [
+                    ch.selected_version.content
+                    for ch in project.chapters
+                    if ch.chapter_number < chapter_number
+                    and ch.selected_version
+                    and ch.selected_version.content
+                ]
+                fingerprint_context = fp_service.get_or_extract(project_id, chapter_texts)
+            except Exception as e:
+                logger.warning("风格指纹提取失败（不影响生成）: %s", e)
+
         prompt_sections = self._build_prompt_sections(
             writer_blueprint=writer_blueprint,
             previous_summary=history_context["previous_summary"],
             previous_tail=history_context["previous_tail"],
             chapter_mission=chapter_mission,
+            mission_brief_text=mission_brief_text,
             rag_context=rag_context,
             knowledge_context=knowledge_context,
             outline_title=outline_title,
@@ -210,6 +338,13 @@ class PipelineOrchestrator:
             forbidden_characters=forbidden_characters,
             project_memory_text=project_memory_text,
             memory_context=memory_context,
+            platinum_writing_brief=platinum_writing_brief,
+            platinum_rhythm_brief=platinum_rhythm_brief,
+            foreshadowing_urgency_brief=foreshadowing_urgency_brief,
+            hook_continuity_brief=hook_continuity_brief,
+            story_skeleton=history_context.get("story_skeleton"),
+            genre_prompt_injection=genre_prompt_injection,
+            fingerprint_context=fingerprint_context,
         )
 
         if enhanced_flow and enhanced_context:
@@ -242,6 +377,7 @@ class PipelineOrchestrator:
                     memory_context=memory_context,
                     enhanced_context=enhanced_context,
                     config=config,
+                    genre_profile=genre_profile,
                 )
             )
 
@@ -263,6 +399,16 @@ class PipelineOrchestrator:
         if versions:
             best_version = versions[best_version_index]
             best_content = best_version["content"]
+
+            if ai_review_result and (ai_review_result.get("flaws") or ai_review_result.get("suggestions")):
+                best_content, revision_report = await self._revise_with_review_feedback(
+                    best_content,
+                    critical_flaws=ai_review_result.get("flaws") or [],
+                    refinement_suggestions=ai_review_result.get("suggestions") or "",
+                    chapter_mission=chapter_mission,
+                    user_id=user_id,
+                )
+                review_summaries["review_driven_revision"] = revision_report
 
             if enhanced_flow and config.enable_six_dimension:
                 review_result = await enhanced_flow.post_generation_review(
@@ -303,6 +449,53 @@ class PipelineOrchestrator:
                 )
                 review_summaries["consistency"] = consistency_report
 
+            if config.enable_anti_hallucination:
+                try:
+                    from .anti_hallucination_service import AntiHallucinationService
+                    ah_service = AntiHallucinationService(self.session, self.llm_service)
+                    ah_report = await ah_service.check_chapter(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_text=best_content,
+                        user_id=user_id,
+                    )
+                    review_summaries["anti_hallucination"] = {
+                        "passed": ah_report.passed,
+                        "registered_count": ah_report.registered_count,
+                        "warning_count": ah_report.warning_count,
+                        "critical_count": ah_report.critical_count,
+                        "report": AntiHallucinationService.format_report_for_review(ah_report),
+                    }
+                except Exception as e:
+                    logger.warning("反幻觉检查失败（不影响生成）: %s", e)
+                    review_summaries["anti_hallucination"] = {"error": str(e)}
+
+            # ---- 人味化扫描与修复 ----
+            if config.enable_humanization:
+                try:
+                    from .humanization_service import HumanizationService
+                    h_service = HumanizationService(self.session, self.llm_service)
+                    h_report = h_service.scan(best_content)
+                    humanized = False
+                    if h_report.score < config.humanization_threshold:
+                        logger.info(
+                            "人味分数 %d < 阈值 %d，触发 LLM 修复",
+                            h_report.score, config.humanization_threshold,
+                        )
+                        best_content = await h_service.humanize(
+                            best_content, h_report, user_id=user_id,
+                        )
+                        humanized = True
+                    review_summaries["humanization"] = {
+                        "score": h_report.score,
+                        "issues_count": len(h_report.issues),
+                        "humanized": humanized,
+                        "details": h_report.to_dict(),
+                    }
+                except Exception as e:
+                    logger.warning("人味化检查失败（不影响生成）: %s", e)
+                    review_summaries["humanization"] = {"error": str(e)}
+
             if config.enable_optimizer:
                 best_content, optimizer_report = await self._run_optimizer(best_content, user_id=user_id)
                 review_summaries["optimizer"] = optimizer_report
@@ -314,6 +507,20 @@ class PipelineOrchestrator:
                 )
                 if enrichment_report:
                     review_summaries["enrichment"] = enrichment_report
+
+            recent_openings = [
+                ch["summary"][:200]
+                for ch in history_context.get("completed_chapters", [])
+                if ch.get("summary")
+            ][-3:]
+            quality_report = await self._run_quality_detection(
+                best_content,
+                chapter_number=chapter_number,
+                chapter_mission=chapter_mission,
+                previous_chapters_openings=recent_openings,
+                user_id=user_id,
+            )
+            review_summaries["quality_detection"] = quality_report
 
             best_version["content"] = best_content
             best_version.setdefault("metadata", {})["review_summaries"] = review_summaries
@@ -353,18 +560,39 @@ class PipelineOrchestrator:
         config = PipelineConfig(preset=preset)
         config.version_count = await self._resolve_version_count(flow_config.get("versions"))
 
-        if preset in ("enhanced", "ultimate"):
+        # 从全局配置读取新功能默认值
+        config.rag_retrieval_mode = getattr(settings, "rag_retrieval_mode", "vector")
+        config.pacing_model = getattr(settings, "pacing_model", "default")
+
+        # 从全局配置读取人味化默认值
+        if getattr(settings, "enable_humanization", True):
+            config.enable_humanization = True
+            config.humanization_threshold = getattr(settings, "humanization_threshold", 70)
+        if getattr(settings, "enable_author_fingerprint", True):
+            config.enable_fingerprint = True
+
+        if preset in ("enhanced", "ultimate", "platinum"):
             config.enable_constitution = True
             config.enable_persona = True
             config.enable_foreshadowing = True
             config.enable_faction = True
             config.rag_mode = "two_stage"
+            # enhanced+ 预设启用反幻觉
+            if getattr(settings, "enable_entity_registry", True):
+                config.enable_anti_hallucination = True
 
         if preset == "enhanced":
             config.enable_six_dimension = True
 
         if preset == "ultimate":
             config.enable_memory = True
+
+        if preset == "platinum":
+            config.enable_memory = True
+            config.enable_six_dimension = True
+            config.enable_self_critique = True
+            config.enable_reader_sim = True
+            config.enable_consistency = True
 
         if preset == "basic":
             config.enable_rag = True
@@ -382,6 +610,12 @@ class PipelineOrchestrator:
 
         if flow_config.get("rag_mode"):
             config.rag_mode = str(flow_config["rag_mode"])
+
+        if flow_config.get("rag_retrieval_mode"):
+            config.rag_retrieval_mode = str(flow_config["rag_retrieval_mode"])
+
+        if flow_config.get("pacing_model"):
+            config.pacing_model = str(flow_config["pacing_model"])
 
         if preset == "ultimate":
             config.enable_preview = False
@@ -462,6 +696,9 @@ class PipelineOrchestrator:
                     if outlines_map.get(existing.chapter_number)
                     else f"第{existing.chapter_number}章",
                     "summary": existing.real_summary,
+                    "opening_excerpt": existing.selected_version.content[:150] if existing.selected_version.content else "",
+                    "ending_excerpt": existing.selected_version.content[-150:] if existing.selected_version.content and len(existing.selected_version.content) > 150 else (existing.selected_version.content or ""),
+                    "chapter_mission_patterns": self._extract_mission_patterns(existing.selected_version),
                 }
             )
             completed_summaries.append(existing.real_summary or "")
@@ -471,11 +708,14 @@ class PipelineOrchestrator:
                 previous_summary_text = existing.real_summary or ""
                 previous_tail_excerpt = self._extract_tail_excerpt(existing.selected_version.content)
 
+        story_skeleton = self._build_story_skeleton(completed_chapters, chapter_number)
+
         return {
             "completed_chapters": completed_chapters,
             "completed_summaries": completed_summaries,
             "previous_summary": previous_summary_text or "暂无（这是第一章）",
             "previous_tail": previous_tail_excerpt or "暂无（这是第一章）",
+            "story_skeleton": story_skeleton,
         }
 
     @staticmethod
@@ -488,6 +728,49 @@ class PipelineOrchestrator:
         return stripped[-limit:]
 
     @staticmethod
+    def _build_story_skeleton(
+        completed_chapters: List[Dict[str, Any]],
+        current_chapter: int,
+    ) -> Optional[str]:
+        """从历史章节中采样构建故事骨架，为 Writer 提供长程上下文。
+
+        采样策略：
+        - ≤5章：全部包含
+        - >5章：第1章 + 每隔N章采样 + 最近2章（最近2章已有专门的 previous_summary，此处不重复）
+        """
+        if not completed_chapters or len(completed_chapters) <= 1:
+            return None
+
+        sorted_chapters = sorted(completed_chapters, key=lambda c: c["chapter_number"])
+
+        # 排除最近一章（已有 [上一章摘要] 覆盖）
+        candidates = [c for c in sorted_chapters if c["chapter_number"] < current_chapter - 1]
+        if not candidates:
+            return None
+
+        if len(candidates) <= 5:
+            sampled = candidates
+        else:
+            # 第1章必选 + 均匀采样中间 + 倒数第2章
+            sampled = [candidates[0]]
+            step = max(2, len(candidates) // 4)
+            for i in range(step, len(candidates) - 1, step):
+                sampled.append(candidates[i])
+            if candidates[-1] not in sampled:
+                sampled.append(candidates[-1])
+
+        lines = []
+        for ch in sampled:
+            num = ch["chapter_number"]
+            title = ch.get("title", f"第{num}章")
+            summary = ch.get("summary", "")
+            if summary and len(summary) > 150:
+                summary = summary[:150] + "…"
+            lines.append(f"第{num}章 {title}：{summary}")
+
+        return "\n".join(lines)
+
+    @staticmethod
     def _normalize_blueprint(blueprint_dict: Dict[str, Any]) -> Dict[str, Any]:
         if "relationships" in blueprint_dict and blueprint_dict["relationships"]:
             for relation in blueprint_dict["relationships"]:
@@ -496,6 +779,86 @@ class PipelineOrchestrator:
                 if "character_to" in relation:
                     relation["to"] = relation.pop("character_to")
         return blueprint_dict
+
+    @staticmethod
+    def _extract_mission_patterns(selected_version) -> Dict[str, str]:
+        """从 version metadata 中提取 opening_hook_type、chapter_end_style、satisfaction_design.type。"""
+        if not selected_version:
+            return {}
+        metadata = getattr(selected_version, "metadata_", None) or {}
+        mission = metadata.get("chapter_mission") or {}
+        if not mission:
+            return {}
+        result: Dict[str, str] = {}
+        if mission.get("opening_hook_type"):
+            result["opening_hook_type"] = mission["opening_hook_type"]
+        if mission.get("chapter_end_style"):
+            result["chapter_end_style"] = mission["chapter_end_style"]
+        sat = mission.get("satisfaction_design")
+        if isinstance(sat, dict) and sat.get("type"):
+            result["satisfaction_type"] = sat["type"]
+        return result
+
+    @staticmethod
+    def _build_pattern_differentiation(completed_chapters: List[Dict[str, Any]]) -> str:
+        """分析最近章节的开头/结尾/爽感模式，生成差异化约束文本。"""
+        if not completed_chapters:
+            return ""
+
+        sorted_chapters = sorted(completed_chapters, key=lambda c: c["chapter_number"])
+        constraints: List[str] = []
+
+        # 分析最近3章的开头类型和结尾类型
+        recent_3 = sorted_chapters[-3:]
+        opening_types = [
+            c["chapter_mission_patterns"].get("opening_hook_type", "")
+            for c in recent_3
+            if c.get("chapter_mission_patterns")
+        ]
+        opening_types = [t for t in opening_types if t]
+        if len(opening_types) >= 2 and len(set(opening_types)) == 1:
+            constraints.append(f"最近{len(opening_types)}章开头均为「{opening_types[0]}」类型，本章必须使用不同的开头类型。")
+
+        ending_types = [
+            c["chapter_mission_patterns"].get("chapter_end_style", "")
+            for c in recent_3
+            if c.get("chapter_mission_patterns")
+        ]
+        ending_types = [t for t in ending_types if t]
+        if len(ending_types) >= 2 and len(set(ending_types)) == 1:
+            constraints.append(f"最近{len(ending_types)}章结尾均为「{ending_types[0]}」风格，本章必须使用不同的结尾风格。")
+
+        # 分析最近5章的爽感模式
+        recent_5 = sorted_chapters[-5:]
+        sat_types = [
+            c["chapter_mission_patterns"].get("satisfaction_type", "")
+            for c in recent_5
+            if c.get("chapter_mission_patterns")
+        ]
+        sat_types = [t for t in sat_types if t and t != "无（蓄力中）"]
+        if len(sat_types) >= 3:
+            from collections import Counter
+            counter = Counter(sat_types)
+            most_common_type, most_common_count = counter.most_common(1)[0]
+            if most_common_count >= 3:
+                constraints.append(f"最近5章中「{most_common_type}」爽感出现{most_common_count}次，本章应尝试不同类型的爽感设计。")
+
+        # 对比最近3章开头摘录，检测开头模式雷同
+        opening_excerpts = [
+            c.get("opening_excerpt", "")[:80]
+            for c in recent_3
+            if c.get("opening_excerpt")
+        ]
+        if opening_excerpts:
+            constraints.append(
+                "近期章节开头摘录供参考（避免相似开头）：\n"
+                + "\n".join(f"- 第{c['chapter_number']}章：「{c.get('opening_excerpt', '')[:80]}…」" for c in recent_3 if c.get("opening_excerpt"))
+            )
+
+        if not constraints:
+            return ""
+
+        return "[模式差异化约束]\n" + "\n".join(constraints)
 
     async def _generate_chapter_mission(
         self,
@@ -509,6 +872,7 @@ class PipelineOrchestrator:
         introduced_characters: List[str],
         all_characters: List[str],
         user_id: int,
+        pattern_constraint: str = "",
     ) -> Optional[dict]:
         plan_prompt = await self.prompt_service.get_prompt("chapter_plan")
         if not plan_prompt:
@@ -535,6 +899,8 @@ class PipelineOrchestrator:
 [写作指令]
 {writing_notes}
 """
+        if pattern_constraint:
+            plan_input += f"\n{pattern_constraint}\n"
 
         try:
             response = await self.llm_service.get_llm_response(
@@ -545,12 +911,78 @@ class PipelineOrchestrator:
                 timeout=120.0,
             )
             cleaned = remove_think_tags(response)
+            if not cleaned:
+                logger.info("导演脚本: remove_think_tags 后为空，回退原始响应 (len=%d)", len(response))
+                cleaned = response
             normalized = unwrap_markdown_json(cleaned)
-            mission = json.loads(normalized)
+            if not normalized:
+                logger.warning("导演脚本: unwrap_markdown_json 结果为空")
+                return None
+            try:
+                mission = json.loads(normalized)
+            except json.JSONDecodeError:
+                mission = json.loads(repair_json(normalized))
             logger.info("章节导演脚本生成完成: macro_beat=%s", mission.get("macro_beat"))
             return mission
         except Exception as exc:
             logger.warning("生成章节导演脚本失败，将使用默认模式: %s", exc)
+            return None
+
+    async def _generate_mission_brief(
+        self,
+        *,
+        chapter_mission: dict,
+        previous_summary: str,
+        previous_tail: str,
+        outline_title: str,
+        outline_summary: str,
+        writing_notes: str,
+        introduced_characters: List[str],
+        forbidden_characters: List[str],
+        user_id: int,
+    ) -> Optional[str]:
+        """将 ChapterMission JSON 转换为人类可读的创作任务书。"""
+        brief_prompt = await self.prompt_service.get_prompt("mission_brief")
+        if not brief_prompt:
+            logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
+            return None
+
+        brief_input = f"""[章节导演脚本]
+{json.dumps(chapter_mission, ensure_ascii=False, indent=2)}
+
+[上一章摘要]
+{previous_summary}
+
+[上一章结尾]
+{previous_tail}
+
+[当前章节目标]
+标题：{outline_title}
+摘要：{outline_summary}
+写作要求：{writing_notes}
+
+[已登场角色]
+{", ".join(introduced_characters) if introduced_characters else "暂无"}
+
+[禁止角色]
+{", ".join(forbidden_characters) if forbidden_characters else "无"}"""
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt=brief_prompt,
+                conversation_history=[{"role": "user", "content": brief_input}],
+                temperature=0.3,
+                user_id=user_id,
+                timeout=120.0,
+            )
+            cleaned = remove_think_tags(response)
+            if not cleaned or not cleaned.strip():
+                logger.warning("创作任务书生成结果为空，回退原始 JSON")
+                return None
+            logger.info("创作任务书生成完成 (len=%d)", len(cleaned))
+            return cleaned.strip()
+        except Exception as exc:
+            logger.warning("生成创作任务书失败，将回退原始 JSON: %s", exc)
             return None
 
     async def _get_rag_context(
@@ -561,6 +993,7 @@ class PipelineOrchestrator:
         outline_summary: str,
         writing_notes: str,
         user_id: int,
+        retrieval_mode: str = "vector",
     ) -> Dict[str, Any]:
         if not settings.vector_store_enabled:
             return {"chunks": [], "summaries": []}
@@ -581,6 +1014,7 @@ class PipelineOrchestrator:
             project_id=project_id,
             query_text=rag_query or outline_title or outline_summary,
             user_id=user_id,
+            retrieval_mode=retrieval_mode,
         )
         return {
             "chunks": rag_context.chunk_texts() if rag_context.chunks else [],
@@ -595,6 +1029,7 @@ class PipelineOrchestrator:
         writing_notes: str,
         pov_character: Optional[str],
         user_id: int,
+        retrieval_mode: str = "vector",
     ) -> Tuple[Optional[str], Dict[str, Any]]:
         if not settings.vector_store_enabled:
             return None, {"mode": "two_stage", "enabled": False}
@@ -614,6 +1049,7 @@ class PipelineOrchestrator:
             pov_character=pov_character,
             user_guidance=writing_notes,
             top_k=settings.vector_top_k_chunks,
+            retrieval_mode=retrieval_mode,
         )
         context_text = self._format_filtered_context(filtered)
         stats = filtered.stats or {}
@@ -654,6 +1090,7 @@ class PipelineOrchestrator:
         previous_summary: str,
         previous_tail: str,
         chapter_mission: Optional[dict],
+        mission_brief_text: Optional[str],
         rag_context: Optional[Dict[str, Any]],
         knowledge_context: Optional[str],
         outline_title: str,
@@ -662,27 +1099,46 @@ class PipelineOrchestrator:
         forbidden_characters: List[str],
         project_memory_text: Optional[str],
         memory_context: Optional[str],
+        platinum_writing_brief: Optional[str],
+        platinum_rhythm_brief: Optional[str],
+        foreshadowing_urgency_brief: Optional[str],
+        hook_continuity_brief: Optional[str],
+        story_skeleton: Optional[str] = None,
+        genre_prompt_injection: Optional[str] = None,
+        fingerprint_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
-        mission_text = json.dumps(chapter_mission, ensure_ascii=False, indent=2) if chapter_mission else "无导演脚本"
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
 
+        # --- TIER 1: 核心指令（利用首因效应，放在最前面）---
         sections: List[Tuple[str, str]] = [
-            ("[世界蓝图](JSON，已裁剪)", blueprint_text),
+            ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
         ]
 
-        if project_memory_text:
-            sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
-        if memory_context:
-            sections.append(("[记忆层上下文]", memory_context))
+        if mission_brief_text:
+            sections.append(("[创作任务书](本章写作的核心执行指南，必须严格遵循)", mission_brief_text))
+        elif chapter_mission:
+            mission_text = json.dumps(chapter_mission, ensure_ascii=False, indent=2)
+            sections.append(("[章节导演脚本](JSON)", mission_text))
+
+        sections.append(("[章节字数要求]", CHAPTER_WORD_COUNT_RULE))
+
+        # --- TIER 2: 上下文参考（中间位置）---
+        if story_skeleton:
+            sections.append(("[故事骨架](前情关键节点采样，帮助你把握全局走向)", story_skeleton))
 
         sections.extend(
             [
                 ("[上一章摘要]", previous_summary or "暂无（这是第一章）"),
                 ("[上一章结尾]", previous_tail or "暂无（这是第一章）"),
-                ("[章节导演脚本](JSON)", mission_text),
+                ("[世界蓝图](JSON，已裁剪)", blueprint_text),
             ]
         )
+
+        if project_memory_text:
+            sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
+        if memory_context:
+            sections.append(("[记忆层上下文]", memory_context))
 
         if knowledge_context:
             sections.append(("[RAG精筛上下文](含POV裁剪)", knowledge_context))
@@ -693,12 +1149,20 @@ class PipelineOrchestrator:
             sections.append(("[检索到的剧情上下文](Markdown)", rag_chunks_text))
             sections.append(("[检索到的章节摘要](Markdown)", rag_summaries_text))
 
-        sections.extend(
-            [
-                ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
-                ("[禁止角色](本章不允许提及)", forbidden_text),
-            ]
-        )
+        # --- TIER 3: 补充约束（利用近因效应，放在最后面）---
+        if genre_prompt_injection:
+            sections.append(("[题材写作约束]", genre_prompt_injection))
+        if fingerprint_context:
+            sections.append(("[作者风格指纹]", fingerprint_context))
+        if platinum_rhythm_brief:
+            sections.append(("[白金节奏控制](Quest/Fire/Constellation)", platinum_rhythm_brief))
+        if foreshadowing_urgency_brief:
+            sections.append(("[高优先级伏笔提醒]", foreshadowing_urgency_brief))
+        if hook_continuity_brief:
+            sections.append(("[追更钩子连续性]", hook_continuity_brief))
+        if platinum_writing_brief:
+            sections.append(("[白金写作准则](硬约束)", platinum_writing_brief))
+        sections.append(("[禁止角色](本章不允许提及)", forbidden_text))
 
         return sections
 
@@ -723,6 +1187,42 @@ class PipelineOrchestrator:
             return None
         return chapter_mission.get("pov") or chapter_mission.get("pov_character")
 
+    @staticmethod
+    def _resolve_temperature(chapter_mission: Optional[dict]) -> float:
+        """根据章节类型动态选择生成温度。
+
+        爽点章 0.85 / 刀子章 0.75 / 蓄力章 0.65 / 过渡章 0.60 / 默认 0.75
+        """
+        if not chapter_mission:
+            return 0.75
+
+        macro_beat = (chapter_mission.get("macro_beat") or "").lower()
+        sat_type = (chapter_mission.get("satisfaction_design") or {}).get("type", "")
+
+        # 爽点章：包含爽感设计或明确的高潮/爆发节拍
+        if sat_type and sat_type != "无（蓄力中）":
+            return 0.85
+        for kw in ("高潮", "爆发", "反转", "逆袭", "决战", "爽"):
+            if kw in macro_beat:
+                return 0.85
+
+        # 刀子章：虐心、离别、牺牲
+        for kw in ("虐", "刀", "离别", "牺牲", "背叛", "死亡", "失去"):
+            if kw in macro_beat:
+                return 0.75
+
+        # 蓄力章：铺垫、布局、积蓄
+        for kw in ("蓄力", "铺垫", "布局", "积蓄", "准备", "酝酿"):
+            if kw in macro_beat:
+                return 0.65
+
+        # 过渡章：衔接、过渡、日常
+        for kw in ("过渡", "衔接", "日常", "休整", "喘息"):
+            if kw in macro_beat:
+                return 0.60
+
+        return 0.75
+
     async def _generate_single_version(
         self,
         *,
@@ -742,11 +1242,13 @@ class PipelineOrchestrator:
         memory_context: Optional[str],
         enhanced_context: Optional[Dict[str, Any]],
         config: PipelineConfig,
+        genre_profile: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {
             "chapter_mission": chapter_mission,
             "style_hint": style_hint,
             "pipeline": {"preset": config.preset},
+            "resolved_temperature": self._resolve_temperature(chapter_mission),
         }
 
         content = ""
@@ -769,22 +1271,29 @@ class PipelineOrchestrator:
             if style_hint:
                 final_prompt_input += f"\n\n[版本风格提示]\n{style_hint}"
 
+            resolved_temp = self._resolve_temperature(chapter_mission)
             response = await self.llm_service.get_llm_response(
                 system_prompt=writer_prompt,
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
-                temperature=0.9,
+                temperature=resolved_temp,
                 user_id=user_id,
                 timeout=600.0,
                 response_format=None,
             )
             cleaned = remove_think_tags(response)
-            content = unwrap_markdown_json(cleaned)
+            content = unwrap_markdown_json(cleaned or response)
+
+        omniscient_tolerance = "medium"
+        if genre_profile:
+            from .genre_profile_service import GenreProfileService
+            omniscient_tolerance = GenreProfileService.get_omniscient_tolerance(genre_profile)
 
         guardrail_result = self.guardrails.check(
             generated_text=content,
             forbidden_characters=forbidden_characters,
             allowed_new_characters=allowed_new_characters,
             pov=chapter_mission.get("pov") if chapter_mission else None,
+            omniscient_tolerance=omniscient_tolerance,
         )
         guardrail_metadata = {"passed": guardrail_result.passed, "violations": []}
 
@@ -809,13 +1318,15 @@ class PipelineOrchestrator:
         except Exception:
             parsed_json = None
 
+        final_text = sanitize_chapter_plain_text(extracted_text or content)
+
         metadata["guardrail"] = guardrail_metadata
         if parsed_json is not None:
             metadata["parsed_json"] = parsed_json
 
         return {
             "index": index,
-            "content": extracted_text or content,
+            "content": final_text,
             "metadata": metadata,
         }
 
@@ -892,6 +1403,9 @@ class PipelineOrchestrator:
                 response_format=None,
             )
             cleaned = remove_think_tags(response)
+            if not cleaned.strip():
+                logger.warning("护栏重写结果去除 think 标签后为空，回退到原文")
+                return original_text
             return cleaned
         except Exception as exc:
             logger.warning("自动修复失败，返回原文: %s", exc)
@@ -959,6 +1473,71 @@ class PipelineOrchestrator:
             "suggestions": ai_review_result.refinement_suggestions,
         }
 
+    async def _revise_with_review_feedback(
+        self,
+        chapter_content: str,
+        *,
+        critical_flaws: List[str],
+        refinement_suggestions: str,
+        chapter_mission: Optional[dict],
+        user_id: int,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """利用 AI 评审的 critical_flaws 和 refinement_suggestions 做定向修订。"""
+        if not critical_flaws and not refinement_suggestions:
+            return chapter_content, {"applied": False, "reason": "no_feedback"}
+
+        flaws_text = "\n".join(f"- {flaw}" for flaw in critical_flaws) if critical_flaws else "无"
+        mission_hint = ""
+        if chapter_mission:
+            macro_beat = chapter_mission.get("macro_beat_description", "")
+            if macro_beat:
+                mission_hint = f"\n本章核心任务：{macro_beat}"
+
+        revision_prompt = f"""你是一位资深网文编辑。以下章节已经由评审员指出了关键问题和改进建议。
+请根据这些反馈对章节进行定向修订。
+
+**修订原则：**
+1. 只修改评审指出的问题，不改变整体情节走向和结构
+2. 保持原有字数规模（±10%）
+3. 修改要自然融入，不能有明显修补痕迹
+4. 保持原文的叙事风格和语气{mission_hint}
+
+[关键缺陷]
+{flaws_text}
+
+[改进建议]
+{refinement_suggestions or "无"}
+
+[原章节内容]
+{chapter_content}
+
+直接输出修改后的完整章节，不要输出其他内容。"""
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一位擅长根据编辑反馈精修文章的网文作者。",
+                conversation_history=[{"role": "user", "content": revision_prompt}],
+                temperature=0.5,
+                user_id=user_id,
+                timeout=300.0,
+            )
+            cleaned = remove_think_tags(response)
+            if not cleaned or not cleaned.strip():
+                logger.warning("审查反馈修订结果为空，保留原文")
+                return chapter_content, {"applied": False, "reason": "empty_response"}
+
+            final = sanitize_chapter_plain_text(cleaned.strip())
+            logger.info("审查反馈修订完成: flaws=%d, original_len=%d, revised_len=%d",
+                        len(critical_flaws), len(chapter_content), len(final))
+            return final, {
+                "applied": True,
+                "flaws_count": len(critical_flaws),
+                "has_suggestions": bool(refinement_suggestions),
+            }
+        except Exception as exc:
+            logger.warning("审查反馈修订失败，保留原文: %s", exc)
+            return chapter_content, {"applied": False, "reason": str(exc)}
+
     async def _run_self_critique(
         self,
         chapter_content: str,
@@ -969,12 +1548,14 @@ class PipelineOrchestrator:
         service = SelfCritiqueService(self.session, self.llm_service, self.prompt_service)
         critique = await service.critique_and_revise_loop(
             chapter_content=chapter_content,
-            max_iterations=1,
-            target_score=75.0,
+            max_iterations=2,
+            target_score=80.0,
             dimensions=[
                 CritiqueDimension.LOGIC,
                 CritiqueDimension.CHARACTER,
                 CritiqueDimension.WRITING,
+                CritiqueDimension.PACING,
+                CritiqueDimension.DIALOGUE,
             ],
             context=context,
             user_id=user_id,
@@ -1049,6 +1630,7 @@ class PipelineOrchestrator:
             "environment": "optimize_environment",
             "psychology": "optimize_psychology",
             "rhythm": "optimize_rhythm",
+            "coolpoint": "optimize_coolpoint",
         }
 
         optimized_content = chapter_content
@@ -1072,9 +1654,18 @@ class PipelineOrchestrator:
                     timeout=600.0,
                 )
                 cleaned = remove_think_tags(response)
+                if not cleaned:
+                    logger.info("优化维度 %s: remove_think_tags 后为空，回退原始响应", dimension)
+                    cleaned = response
                 normalized = unwrap_markdown_json(cleaned)
                 try:
                     parsed = json.loads(normalized)
+                except json.JSONDecodeError:
+                    try:
+                        parsed = json.loads(repair_json(normalized))
+                    except json.JSONDecodeError:
+                        parsed = None
+                if parsed:
                     optimized_content = parsed.get("optimized_content", cleaned)
                     notes.append(
                         {
@@ -1082,7 +1673,7 @@ class PipelineOrchestrator:
                             "notes": parsed.get("optimization_notes", "优化完成"),
                         }
                     )
-                except json.JSONDecodeError:
+                else:
                     optimized_content = cleaned
                     notes.append({"dimension": dimension, "notes": "优化完成（响应格式非标准JSON）"})
             except Exception as exc:
@@ -1112,6 +1703,90 @@ class PipelineOrchestrator:
             "enrichment_ratio": result.enrichment_ratio,
             "enrichment_type": result.enrichment_type,
         }
+
+    async def _run_quality_detection(
+        self,
+        chapter_content: str,
+        *,
+        chapter_number: int,
+        chapter_mission: Optional[dict],
+        previous_chapters_openings: List[str],
+        user_id: int,
+    ) -> Dict[str, Any]:
+        """分析爽点密度和模式重复，返回质量诊断报告（不修改内容）。"""
+        opening_300 = chapter_content[:300] if len(chapter_content) > 300 else chapter_content
+        ending_300 = chapter_content[-300:] if len(chapter_content) > 300 else chapter_content
+
+        recent_patterns = ""
+        if previous_chapters_openings:
+            recent_patterns = "\n".join(
+                f"第{i+1}个近期章节开头：{op[:200]}"
+                for i, op in enumerate(previous_chapters_openings[-3:])
+            )
+
+        expected_beat = ""
+        if chapter_mission:
+            expected_beat = chapter_mission.get("macro_beat_description", "")
+            sat_type = chapter_mission.get("satisfaction_design", {}).get("type", "")
+            if sat_type:
+                expected_beat += f"（爽感类型：{sat_type}）"
+
+        detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的两个维度，输出JSON。
+
+## 分析维度
+
+### 1. 爽点密度
+检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。
+- coolpoint_score (0-10)：爽点密度评分
+- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）
+- coolpoint_issue：如果评分<6，指出具体问题
+
+### 2. 模式重复
+对比本章开头/结尾与近期章节是否存在套路化重复。
+- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）
+- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）
+- within_chapter_repetition：章节内部的句式/词汇重复
+
+[本章开头300字]
+{opening_300}
+
+[本章结尾300字]
+{ending_300}
+
+[本章预期]
+{expected_beat or "无特定预期"}
+
+[近期章节开头对比]
+{recent_patterns or "无（这是前几章）"}
+
+输出严格JSON格式：
+{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": []}}"""
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一位擅长量化分析网文质量的编辑。只输出JSON，不要其他内容。",
+                conversation_history=[{"role": "user", "content": detection_prompt}],
+                temperature=0.2,
+                user_id=user_id,
+                timeout=60.0,
+            )
+            cleaned = remove_think_tags(response)
+            normalized = unwrap_markdown_json(cleaned or response)
+            try:
+                result = json.loads(normalized)
+            except json.JSONDecodeError:
+                result = json.loads(repair_json(normalized))
+
+            logger.info(
+                "质量检测完成: chapter=%d coolpoint=%s repetition=%s",
+                chapter_number,
+                result.get("coolpoint_score"),
+                result.get("repetition_score"),
+            )
+            return result
+        except Exception as exc:
+            logger.warning("质量检测失败: %s", exc)
+            return {"error": str(exc), "coolpoint_score": -1, "repetition_score": -1}
 
     @staticmethod
     def _build_stage_flags(config: PipelineConfig) -> Dict[str, bool]:

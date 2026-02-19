@@ -119,6 +119,30 @@ class VectorStoreService:
             CREATE INDEX IF NOT EXISTS idx_rag_summaries_project
             ON rag_summaries(project_id, chapter_number)
             """,
+            # BM25 倒排索引表
+            """
+            CREATE TABLE IF NOT EXISTS rag_bm25_index (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                chunk_id TEXT NOT NULL,
+                chapter_number INTEGER NOT NULL,
+                term TEXT NOT NULL,
+                tf REAL NOT NULL,
+                created_at INTEGER DEFAULT (unixepoch())
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_bm25_project_term
+            ON rag_bm25_index(project_id, term)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS rag_bm25_doc_stats (
+                project_id TEXT PRIMARY KEY,
+                total_docs INTEGER DEFAULT 0,
+                avg_doc_len REAL DEFAULT 0,
+                updated_at INTEGER DEFAULT (unixepoch())
+            )
+            """,
         ]
 
         try:
@@ -315,6 +339,21 @@ class VectorStoreService:
                     item.get("chunk_index"),
                 )
 
+        # 同步 BM25 索引（仅在 hybrid 模式下）
+        if getattr(settings, "rag_retrieval_mode", "vector") == "hybrid":
+            try:
+                from .bm25_index_service import BM25IndexService
+                bm25 = BM25IndexService(self._client)
+                for item in payload:
+                    await bm25.index_chunk(
+                        project_id=item["project_id"],
+                        chunk_id=item["id"],
+                        chapter_number=item["chapter_number"],
+                        content=item.get("content", ""),
+                    )
+            except Exception as exc:
+                logger.warning("BM25 索引同步失败（不影响向量写入）: %s", exc)
+
     async def upsert_summaries(
         self,
         *,
@@ -396,6 +435,14 @@ class VectorStoreService:
         try:
             await self._client.execute(chunk_sql, params)  # type: ignore[union-attr]
             await self._client.execute(summary_sql, params)  # type: ignore[union-attr]
+            # 同步清理 BM25 索引
+            if getattr(settings, "rag_retrieval_mode", "vector") == "hybrid":
+                try:
+                    from .bm25_index_service import BM25IndexService
+                    bm25 = BM25IndexService(self._client)
+                    await bm25.delete_by_chapters(project_id, list(chapter_numbers))
+                except Exception as bm25_exc:
+                    logger.warning("BM25 索引清理失败: %s", bm25_exc)
             logger.info(
                 "已删除章节向量: project=%s chapters=%s",
                 project_id,

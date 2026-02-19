@@ -3,11 +3,13 @@
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.session import get_session
 from ...services.foreshadowing_service import ForeshadowingService
 from ...models.foreshadowing import Foreshadowing, ForeshadowingReminder, ForeshadowingAnalysis
+from ...models.novel import Chapter, ChapterOutline, NovelProject
 from ...core.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,87 @@ class AnalysisResponse(BaseModel):
     unresolved_ratio: Optional[float]
     overall_quality_score: Optional[float]
     recommendations: List[str]
+
+
+class ForeshadowingSummaryItem(BaseModel):
+    id: str
+    description: str
+    planted_chapter: int
+    planted_chapter_title: str
+    expected_payoff_chapter: Optional[int] = None
+    actual_payoff_chapter: Optional[int] = None
+    status: str
+    importance: str
+    urgency: Optional[float] = None
+    tier: Optional[str] = None
+
+
+class ForeshadowingSummaryResponse(BaseModel):
+    project_id: str
+    project_title: str
+    total_foreshadowings: int
+    planted_count: int
+    paid_off_count: int
+    overdue_count: int
+    foreshadowings: List[ForeshadowingSummaryItem]
+
+
+RESOLVED_STATUSES = {"revealed", "resolved", "paid_off", "done", "complete", "completed"}
+UNRESOLVED_STATUSES = {"planted", "developing", "partial", "open", "pending", "active"}
+
+
+def _normalize_status(status: Optional[str]) -> str:
+    value = (status or "").strip().lower()
+    if value in RESOLVED_STATUSES:
+        return "revealed"
+    if value == "abandoned":
+        return "abandoned"
+    if value in UNRESOLVED_STATUSES:
+        return "planted"
+    return "planted"
+
+
+def _importance_to_ui(importance: Optional[str]) -> str:
+    value = (importance or "").strip().lower()
+    if value in {"major", "core", "long"}:
+        return "long"
+    if value in {"subtle", "decor", "short"}:
+        return "short"
+    return "medium"
+
+
+def _importance_to_weight(importance: Optional[str]) -> float:
+    value = (importance or "").strip().lower()
+    if value in {"major", "core", "long"}:
+        return 3.0
+    if value in {"subtle", "decor", "short"}:
+        return 1.0
+    return 2.0
+
+
+def _importance_to_tier(importance: Optional[str]) -> str:
+    value = (importance or "").strip().lower()
+    if value in {"major", "core", "long"}:
+        return "核心"
+    if value in {"subtle", "decor", "short"}:
+        return "装饰"
+    return "支线"
+
+
+def _calculate_urgency(
+    planted_chapter: int,
+    target_chapter: Optional[int],
+    current_chapter: int,
+    importance: Optional[str],
+) -> Optional[float]:
+    weight = _importance_to_weight(importance)
+    if target_chapter is None:
+        return round(weight, 2)
+    if target_chapter <= planted_chapter:
+        return round(weight * 2.0, 2)
+    elapsed = max(0, current_chapter - planted_chapter)
+    window = target_chapter - planted_chapter
+    return round((elapsed / window) * weight, 2)
 
 
 @router.post("/{project_id}/foreshadowings", response_model=ForeshadowingResponse)
@@ -156,6 +239,114 @@ async def list_foreshadowings(
         }
     except Exception as e:
         logger.exception(f"获取伏笔列表失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{project_id}/foreshadowings/summary", response_model=ForeshadowingSummaryResponse)
+async def get_foreshadowing_summary(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user = Depends(get_current_user),
+):
+    """获取伏笔管理聚合数据（数据库驱动）。"""
+    try:
+        project_result = await session.execute(
+            select(NovelProject).where(
+                NovelProject.id == project_id,
+                NovelProject.user_id == current_user.id,
+            )
+        )
+        project = project_result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(status_code=404, detail="项目不存在")
+
+        service = ForeshadowingService(session)
+        foreshadowings, _ = await service.get_foreshadowings(
+            project_id=project_id,
+            limit=1000,
+            offset=0,
+        )
+
+        outlines_result = await session.execute(
+            select(ChapterOutline.chapter_number, ChapterOutline.title).where(ChapterOutline.project_id == project_id)
+        )
+        outline_title_map = {
+            chapter_number: (title or f"第{chapter_number}章")
+            for chapter_number, title in outlines_result.all()
+        }
+
+        current_chapter = await session.scalar(
+            select(func.max(Chapter.chapter_number)).where(
+                Chapter.project_id == project_id,
+                Chapter.selected_version_id.is_not(None),
+            )
+        )
+        current_chapter = int(current_chapter or 0)
+
+        planted_count = 0
+        paid_off_count = 0
+        overdue_count = 0
+        items: List[ForeshadowingSummaryItem] = []
+
+        for foreshadowing in foreshadowings:
+            normalized_status = _normalize_status(foreshadowing.status)
+            if normalized_status == "revealed":
+                ui_status = "paid_off"
+            else:
+                is_overdue = False
+                if normalized_status == "abandoned":
+                    is_overdue = True
+                elif (
+                    foreshadowing.target_reveal_chapter
+                    and current_chapter > foreshadowing.target_reveal_chapter
+                ):
+                    is_overdue = True
+                ui_status = "overdue" if is_overdue else "planted"
+
+            if ui_status == "paid_off":
+                paid_off_count += 1
+            elif ui_status == "overdue":
+                overdue_count += 1
+            else:
+                planted_count += 1
+
+            items.append(
+                ForeshadowingSummaryItem(
+                    id=str(foreshadowing.id),
+                    description=foreshadowing.content,
+                    planted_chapter=foreshadowing.chapter_number,
+                    planted_chapter_title=outline_title_map.get(
+                        foreshadowing.chapter_number,
+                        f"第{foreshadowing.chapter_number}章",
+                    ),
+                    expected_payoff_chapter=foreshadowing.target_reveal_chapter,
+                    actual_payoff_chapter=foreshadowing.resolved_chapter_number,
+                    status=ui_status,
+                    importance=_importance_to_ui(foreshadowing.importance),
+                    urgency=_calculate_urgency(
+                        planted_chapter=foreshadowing.chapter_number,
+                        target_chapter=foreshadowing.target_reveal_chapter,
+                        current_chapter=current_chapter,
+                        importance=foreshadowing.importance,
+                    ),
+                    tier=_importance_to_tier(foreshadowing.importance),
+                )
+            )
+
+        items.sort(key=lambda item: (item.planted_chapter, item.id))
+        return ForeshadowingSummaryResponse(
+            project_id=project_id,
+            project_title=project.title,
+            total_foreshadowings=len(items),
+            planted_count=planted_count,
+            paid_off_count=paid_off_count,
+            overdue_count=overdue_count,
+            foreshadowings=items,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"获取伏笔汇总失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

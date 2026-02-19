@@ -154,6 +154,106 @@ class Settings(BaseSettings):
         description="章节分块重叠字数",
     )
 
+    # -------------------- 反幻觉与实体一致性 --------------------
+    enable_entity_registry: bool = Field(
+        default=True,
+        env="ENABLE_ENTITY_REGISTRY",
+        description="是否启用实体注册表",
+    )
+    entity_confidence_auto_threshold: float = Field(
+        default=0.8,
+        env="ENTITY_CONFIDENCE_AUTO_THRESHOLD",
+        description="实体自动注册的置信度阈值",
+    )
+    entity_confidence_warn_threshold: float = Field(
+        default=0.5,
+        env="ENTITY_CONFIDENCE_WARN_THRESHOLD",
+        description="实体警告的置信度阈值",
+    )
+
+    # -------------------- 题材自适应 --------------------
+    enable_genre_adaptation: bool = Field(
+        default=True,
+        env="ENABLE_GENRE_ADAPTATION",
+        description="是否启用题材自适应系统",
+    )
+
+    # -------------------- 混合 RAG 检索 --------------------
+    rag_retrieval_mode: str = Field(
+        default="vector",
+        env="RAG_RETRIEVAL_MODE",
+        description="RAG 检索模式：vector / hybrid",
+    )
+    rag_bm25_weight: float = Field(
+        default=0.4,
+        env="RAG_BM25_WEIGHT",
+        description="BM25 在 RRF 融合中的权重",
+    )
+    rag_reranker_enabled: bool = Field(
+        default=False,
+        env="RAG_RERANKER_ENABLED",
+        description="是否启用 Reranker 重排序",
+    )
+    rag_reranker_api_url: Optional[str] = Field(
+        default=None,
+        env="RAG_RERANKER_API_URL",
+        description="Reranker API 服务地址",
+    )
+    rag_reranker_api_key: Optional[str] = Field(
+        default=None,
+        env="RAG_RERANKER_API_KEY",
+        description="Reranker API Key",
+    )
+    rag_reranker_model: str = Field(
+        default="jina-reranker-v2-base-multilingual",
+        env="RAG_RERANKER_MODEL",
+        description="Reranker 模型名称",
+    )
+
+    # -------------------- Strand Weave 节奏模型 --------------------
+    pacing_model: str = Field(
+        default="default",
+        env="PACING_MODEL",
+        description="节奏模型：default / strand_weave",
+    )
+    strand_quest_ratio: float = Field(
+        default=0.60,
+        env="STRAND_QUEST_RATIO",
+        description="Quest 线团占比",
+    )
+    strand_fire_ratio: float = Field(
+        default=0.25,
+        env="STRAND_FIRE_RATIO",
+        description="Fire 线团占比",
+    )
+    strand_constellation_ratio: float = Field(
+        default=0.15,
+        env="STRAND_CONSTELLATION_RATIO",
+        description="Constellation 线团占比",
+    )
+    strand_interleave_interval: int = Field(
+        default=4,
+        env="STRAND_INTERLEAVE_INTERVAL",
+        description="线团交织间隔章节数",
+    )
+
+    # -------------------- 反 AI 检测与人味化 --------------------
+    enable_humanization: bool = Field(
+        default=True,
+        env="ENABLE_HUMANIZATION",
+        description="是否启用 AI 指纹扫描与人味化修复",
+    )
+    humanization_threshold: int = Field(
+        default=70,
+        env="HUMANIZATION_THRESHOLD",
+        description="人味分数低于此阈值时触发 LLM 修复（0-100）",
+    )
+    enable_author_fingerprint: bool = Field(
+        default=True,
+        env="ENABLE_AUTHOR_FINGERPRINT",
+        description="是否启用跨章作者风格指纹",
+    )
+
     # -------------------- Linux.do OAuth 配置 --------------------
     linuxdo_client_id: Optional[str] = Field(default=None, env="LINUXDO_CLIENT_ID", description="Linux.do OAuth Client ID")
     linuxdo_client_secret: Optional[str] = Field(

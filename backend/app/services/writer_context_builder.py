@@ -14,16 +14,23 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Set
 
 
-def _detect_names(all_names: List[str], texts: List[str]) -> Set[str]:
+def _detect_names(all_names: List[str], texts: List[str], alias_map: Optional[Dict[str, str]] = None) -> Set[str]:
     """
     从文本列表中检测出现过的角色名。
-    使用简单的字符串匹配，后续可升级为 NER。
+    支持别名→正式名映射，确保别名也能被正确识别。
     """
     found = set()
     combined_text = "\n".join(t for t in texts if t)
     for name in all_names:
         if name and name in combined_text:
             found.add(name)
+
+    # 通过别名映射检测：如果文本中出现了别名，则认为其正式名已出现
+    if alias_map:
+        for alias, canonical in alias_map.items():
+            if alias in combined_text and canonical in all_names:
+                found.add(canonical)
+
     return found
 
 
@@ -64,6 +71,7 @@ class WriterContextBuilder:
         outline_summary: str,
         writing_notes: str,
         allowed_new_characters: Optional[List[str]] = None,
+        alias_map: Optional[Dict[str, str]] = None,
     ) -> Dict:
         """
         构建 Writer 可见的上下文。
@@ -76,6 +84,7 @@ class WriterContextBuilder:
             outline_summary: 当前章节摘要
             writing_notes: 写作指令
             allowed_new_characters: 导演脚本指定的本章允许登场的新角色
+            alias_map: 别名→正式名映射表（来自实体注册表）
 
         Returns:
             包含裁剪后蓝图和角色信息的字典
@@ -85,12 +94,12 @@ class WriterContextBuilder:
             c.get("name") for c in blueprint.get("characters", []) if c.get("name")
         ]
 
-        # 2. 检测已登场角色（从已完成章节中）
-        introduced = _detect_names(all_names, completed_summaries + [previous_tail])
+        # 2. 检测已登场角色（从已完成章节中，支持别名匹配）
+        introduced = _detect_names(all_names, completed_summaries + [previous_tail], alias_map=alias_map)
 
-        # 3. 检测本章计划提及的角色（从大纲/写作指令中）
+        # 3. 检测本章计划提及的角色（从大纲/写作指令中，支持别名匹配）
         planned = _detect_names(
-            all_names, [outline_title, outline_summary, writing_notes]
+            all_names, [outline_title, outline_summary, writing_notes], alias_map=alias_map
         )
 
         # 4. 合并允许的角色集合

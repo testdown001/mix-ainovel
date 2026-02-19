@@ -87,10 +87,25 @@
       "title": "string",
       "summary": "string"
     }
+  ],
+  "foreshadowings": [
+    {
+      "name": "string",
+      "description": "string",
+      "planted_chapter": "int",
+      "target_chapter": "int",
+      "tier": "核心|支线|装饰",
+      "type": "question|mystery|hint|clue|setup",
+      "reveal_method": "string",
+      "reveal_impact": "string",
+      "related_characters": ["string"],
+      "related_plots": ["string"]
+    }
   ]
 }
 ```
 
 3. **你的 chapter_outline 中的章节的数量必须严格遵守给你的输入的章节数量要求**
+4. `foreshadowings` 必须给出可执行的伏笔清单（至少 5 条，覆盖前中后期章节），并确保 `target_chapter >= planted_chapter`。
 
 例如用户之前讨论的结果为长篇（300-800章）,那么你生成的章节数量就必须是300-800之间。

@@ -284,47 +284,23 @@ const hasChapterInProgress = (chapterNumber: number) => {
 const availableVersions = computed(() => {
   // 优先使用新生成的版本（对象数组格式）
   if (chapterGenerationResult.value?.versions) {
-    console.log('使用生成结果版本:', chapterGenerationResult.value.versions)
     return chapterGenerationResult.value.versions
   }
 
   // 使用章节已有的版本（字符串数组格式，需要转换为对象数组）
   if (selectedChapter.value?.versions && Array.isArray(selectedChapter.value.versions)) {
-    console.log('原始章节版本 (字符串数组):', selectedChapter.value.versions)
+    // 后端 versions 为纯文本字符串数组（已由 _normalize_version_content 提取），
+    // 直接包装为 ChapterVersion 对象即可
+    const convertedVersions = selectedChapter.value.versions
+      .filter(v => v && typeof v === 'string')
+      .map((versionString, index) => ({
+        content: versionString,
+        style: `版本 ${index + 1}`
+      }))
 
-    // 将字符串数组转换为ChapterVersion对象数组
-    const convertedVersions = selectedChapter.value.versions.map((versionString, index) => {
-      console.log(`版本 ${index} 原始字符串:`, versionString)
-
-      try {
-        // 解析JSON字符串
-        const versionObj = JSON.parse(versionString)
-        console.log(`版本 ${index} 解析后的对象:`, versionObj)
-
-        // 提取content字段作为实际内容
-        const actualContent = versionObj.content || versionString
-
-        console.log(`版本 ${index} 实际内容:`, actualContent.substring(0, 100) + '...')
-
-        return {
-          content: actualContent,
-          style: '标准' // 默认风格
-        }
-      } catch (error) {
-        // 如果JSON解析失败，直接使用原始字符串
-        console.log(`版本 ${index} JSON解析失败，使用原始字符串:`, error)
-        return {
-          content: versionString,
-          style: '标准'
-        }
-      }
-    })
-
-    console.log('转换后的版本对象:', convertedVersions)
     return convertedVersions
   }
 
-  console.log('没有可用版本，selectedChapter:', selectedChapter.value)
   return []
 })
 
@@ -447,6 +423,13 @@ const generateChapter = async (chapterNumber: number) => {
     globalAlert.showError(`生成章节失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
   } finally {
     generatingChapter.value = null
+    // 无论成功或失败，都重新加载项目以确保 UI 与后端同步
+    // 防止轮询竞态条件：在生成期间的最后一次轮询可能返回过期数据并覆盖新状态
+    try {
+      await novelStore.loadProject(props.id, true)
+    } catch {
+      // 静默失败，不影响主流程
+    }
   }
 }
 

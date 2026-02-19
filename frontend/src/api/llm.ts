@@ -9,12 +9,14 @@ export interface LLMConfig {
   llm_provider_url: string | null;
   llm_provider_api_key: string | null;
   llm_provider_model: string | null;
+  llm_provider_api_format: string | null;
 }
 
 export interface LLMConfigCreate {
   llm_provider_url?: string;
   llm_provider_api_key?: string;
   llm_provider_model?: string;
+  llm_provider_api_format?: string;
 }
 
 const getHeaders = () => {

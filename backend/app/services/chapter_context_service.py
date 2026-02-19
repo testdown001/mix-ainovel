@@ -66,6 +66,7 @@ class ChapterContextService:
         user_id: int,
         top_k_chunks: Optional[int] = None,
         top_k_summaries: Optional[int] = None,
+        retrieval_mode: str = "vector",
     ) -> ChapterRAGContext:
         """根据章节摘要构造检索向量，并返回 RAG 上下文。"""
         query = self._normalize(query_text)
@@ -78,6 +79,31 @@ class ChapterContextService:
         if not embedding:
             logger.warning("检索查询向量生成失败: project=%s chapter_query=%s", project_id, query)
             return ChapterRAGContext(query=query, chunks=[], summaries=[])
+
+        # 混合检索模式
+        if retrieval_mode == "hybrid":
+            try:
+                from .hybrid_retrieval_service import HybridRetrievalService
+                hybrid = HybridRetrievalService(
+                    vector_store=self._vector_store,
+                    llm_service=self._llm_service,
+                )
+                hybrid_results = await hybrid.hybrid_search(
+                    project_id=project_id,
+                    query_text=query,
+                    query_embedding=embedding,
+                    top_k=top_k_chunks or settings.vector_top_k_chunks,
+                    user_id=user_id,
+                )
+                chunks = hybrid_results.get("chunks", [])
+                summaries = hybrid_results.get("summaries", [])
+                logger.info(
+                    "混合检索完成: project=%s chunks=%d summaries=%d",
+                    project_id, len(chunks), len(summaries),
+                )
+                return ChapterRAGContext(query=query, chunks=chunks, summaries=summaries)
+            except Exception as exc:
+                logger.warning("混合检索失败，回退到纯向量检索: %s", exc)
 
         chunks = await self._vector_store.query_chunks(
             project_id=project_id,

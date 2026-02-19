@@ -99,7 +99,7 @@
       <p class="md-body-large" style="color: var(--md-on-surface);">
         {{ activeTab === 'all' ? '暂无伏笔记录' : `暂无${statusTabs.find(t => t.key === activeTab)?.label}的伏笔` }}
       </p>
-      <p class="md-body-medium" style="color: var(--md-on-surface-variant);">系统会自动从章节内容中识别伏笔</p>
+      <p class="md-body-medium" style="color: var(--md-on-surface-variant);">系统会基于蓝图与章节数据自动维护伏笔</p>
     </div>
 
     <!-- Foreshadowing List -->
@@ -257,7 +257,7 @@ const fetchData = async () => {
   error.value = null
   
   try {
-    const response = await fetch(`/api/analytics/${projectId}/foreshadowing`, {
+    const response = await fetch(`/api/novels/${projectId}/foreshadowings/summary`, {
       headers: {
         'Authorization': `Bearer ${authStore.token}`,
         'Content-Type': 'application/json'
@@ -268,7 +268,7 @@ const fetchData = async () => {
       let errorMessage = '获取伏笔数据失败'
       try {
         const errorData = await response.json()
-        // 处琅22错误（参数校验失败）
+        // 处理 422 错误（参数校验失败）
         if (response.status === 422 && errorData.detail) {
           if (Array.isArray(errorData.detail)) {
             // FastAPI验证错误格式

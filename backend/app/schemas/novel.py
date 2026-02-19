@@ -68,6 +68,19 @@ class Relationship(BaseModel):
     description: str
 
 
+class BlueprintForeshadowing(BaseModel):
+    name: str = ""
+    description: str = ""
+    planted_chapter: int = Field(..., ge=1)
+    target_chapter: Optional[int] = Field(default=None, ge=1)
+    tier: str = "支线"
+    type: str = "hint"
+    reveal_method: Optional[str] = None
+    reveal_impact: Optional[str] = None
+    related_characters: List[str] = []
+    related_plots: List[str] = []
+
+
 class Blueprint(BaseModel):
     title: str
     target_audience: str = ""
@@ -80,6 +93,7 @@ class Blueprint(BaseModel):
     characters: List[Dict[str, Any]] = []
     relationships: List[Relationship] = []
     chapter_outline: List[ChapterOutline] = []
+    foreshadowings: List[BlueprintForeshadowing] = []
     
     class Config:
         from_attributes = True
@@ -137,7 +151,7 @@ class GenerateChapterRequest(BaseModel):
 
 
 class FlowConfig(BaseModel):
-    preset: str = Field(default="basic", description="basic|enhanced|ultimate|custom")
+    preset: str = Field(default="basic", description="basic|enhanced|ultimate|platinum|custom")
     versions: Optional[int] = Field(default=None, description="生成版本数量")
     enable_preview: Optional[bool] = Field(default=None, description="是否启用预演生成")
     enable_optimizer: Optional[bool] = Field(default=None, description="是否启用优化器")
@@ -209,6 +223,18 @@ class GenerateOutlineRequest(BaseModel):
     num_chapters: int
 
 
+class RegenerateOutlinesRequest(BaseModel):
+    """重新生成未完成章节大纲的请求体。"""
+    chapter_numbers: Optional[List[int]] = None  # 为空时自动选取所有未完成章节
+
+
+class RegenerateOutlinesResponse(BaseModel):
+    """重新生成大纲的响应体，包含更新的章节编号。"""
+    updated_chapters: List[int]
+    total_target: int
+    chapter_outline: List[ChapterOutline]
+
+
 class BlueprintPatch(BaseModel):
     one_sentence_summary: Optional[str] = None
     full_synopsis: Optional[str] = None
@@ -216,6 +242,7 @@ class BlueprintPatch(BaseModel):
     characters: Optional[List[Dict[str, Any]]] = None
     relationships: Optional[List[Relationship]] = None
     chapter_outline: Optional[List[ChapterOutline]] = None
+    foreshadowings: Optional[List[BlueprintForeshadowing]] = None
 
 
 class EditChapterRequest(BaseModel):

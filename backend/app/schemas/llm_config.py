@@ -8,6 +8,7 @@ class LLMConfigBase(BaseModel):
     llm_provider_url: Optional[HttpUrl] = Field(default=None, description="自定义 LLM 服务地址")
     llm_provider_api_key: Optional[str] = Field(default=None, description="自定义 LLM API Key")
     llm_provider_model: Optional[str] = Field(default=None, description="自定义模型名称")
+    llm_provider_api_format: Optional[str] = Field(default=None, description="API 请求格式：auto、openai、anthropic、anyrouter、gemini、openai-responses")
 
 
 class LLMConfigCreate(LLMConfigBase):

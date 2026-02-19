@@ -1,11 +1,12 @@
 # AIMETA P=LLM服务_大模型调用封装|R=API调用_流式生成|NR=不含业务逻辑|E=LLMService|X=internal|A=服务类|D=openai,httpx|S=net|RD=./README.ai
+import asyncio
 import logging
 import os
 from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import HTTPException, status
-from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalServerError
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalServerError, PermissionDeniedError, AuthenticationError, NotFoundError, BadRequestError
 
 from ..core.config import settings
 from ..repositories.llm_config_repository import LLMConfigRepository
@@ -14,7 +15,7 @@ from ..repositories.user_repository import UserRepository
 from ..services.admin_setting_service import AdminSettingService
 from ..services.prompt_service import PromptService
 from ..services.usage_service import UsageService
-from ..utils.llm_tool import ChatMessage, LLMClient
+from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,12 @@ class LLMService:
         *,
         temperature: float = 0.7,
         user_id: Optional[int] = None,
-        timeout: float = 300.0,
+        timeout: float = 1500.0,
         response_format: Optional[str] = "json_object",
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
+        max_retries: int = 2,
+        thinking_budget: Optional[int] = None,
     ) -> str:
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
         return await self._stream_and_collect(
@@ -57,6 +60,8 @@ class LLMService:
             response_format=response_format,
             max_tokens=max_tokens,
             top_p=top_p,
+            max_retries=max_retries,
+            thinking_budget=thinking_budget,
         )
 
     async def generate(
@@ -66,7 +71,7 @@ class LLMService:
         system_prompt: Optional[str] = None,
         temperature: float = 0.7,
         user_id: Optional[int] = None,
-        timeout: float = 300.0,
+        timeout: float = 1500.0,
         max_tokens: Optional[int] = None,
         response_format: Optional[str] = None,
         top_p: Optional[float] = None,
@@ -89,7 +94,7 @@ class LLMService:
         *,
         temperature: float = 0.2,
         user_id: Optional[int] = None,
-        timeout: float = 180.0,
+        timeout: float = 900.0,
         system_prompt: Optional[str] = None,
     ) -> str:
         if not system_prompt:
@@ -104,6 +109,93 @@ class LLMService:
         ]
         return await self._stream_and_collect(messages, temperature=temperature, user_id=user_id, timeout=timeout)
 
+    # 网络瞬断类异常，可安全重试
+    _RETRYABLE_ERRORS = (
+        httpx.RemoteProtocolError,
+        httpx.ReadError,
+        httpx.ReadTimeout,
+        APIConnectionError,
+        APITimeoutError,
+    )
+    # 进程级缓存：记录不支持 response_format 的 provider 组合（base_url|model）
+    _UNSUPPORTED_RESPONSE_FORMAT_TARGETS: set[str] = set()
+
+    @staticmethod
+    def _is_claude_model(model_name: Optional[str]) -> bool:
+        """判断模型名称是否为 Claude 系列。"""
+        return bool(model_name and model_name.lower().startswith("claude"))
+
+    @staticmethod
+    def _extract_provider_error_detail(exc: Exception) -> str:
+        """尽可能提取服务商返回的可读错误信息。"""
+        response = getattr(exc, "response", None)
+        if response is not None:
+            try:
+                payload = response.json()
+                if isinstance(payload, dict):
+                    error_data = payload.get("error")
+                    if isinstance(error_data, dict):
+                        message = error_data.get("message_zh") or error_data.get("message")
+                        if isinstance(message, str) and message.strip():
+                            return message
+                    message = payload.get("message")
+                    if isinstance(message, str) and message.strip():
+                        return message
+            except Exception:
+                pass
+            try:
+                text = response.text
+                if isinstance(text, str) and text.strip():
+                    return text[:2000]
+            except Exception:
+                pass
+        return str(exc)
+
+    @classmethod
+    def _is_response_format_unsupported_error(cls, exc: Exception) -> bool:
+        """判断是否为服务商不支持 response_format 的请求错误。"""
+        detail = (cls._extract_provider_error_detail(exc) or "").lower()
+        # 场景0: 代理/网关吞掉了上游错误详情，返回空消息 400
+        # 此时最可能的原因就是 json_object 格式不兼容，重试无害
+        if not detail.strip():
+            return True
+        # 场景1: 消息中不含 "json" 但请求了 json_object 格式
+        if "json_object" in detail and "must contain" in detail:
+            return True
+        if "response_format" not in detail and "response format" not in detail:
+            return False
+        return any(
+            marker in detail
+            for marker in (
+                "invalid",
+                "unsupported",
+                "not support",
+                "illegal",
+                "unknown",
+                "不合法",
+                "不支持",
+                "无效",
+            )
+        )
+
+    def _resolve_api_format(self, api_format_setting: Optional[str], base_url: Optional[str], model_name: Optional[str]) -> str:
+        """根据配置决定使用哪种 API 格式。
+
+        返回值：
+        - "openai"    → OpenAI 兼容格式 (/v1/chat/completions)
+        - "anthropic" → 原生 Anthropic Messages API (/v1/messages, x-api-key 认证)
+        - "anyrouter" → Claude Code 兼容代理 (/v1/messages?beta=true, Bearer 认证 + 固定 system)
+        - "gemini"    → Google Gemini 原生 API (streamGenerateContent)
+        - "openai-responses" → OpenAI Responses API (/v1/responses)
+        """
+        fmt = (api_format_setting or "auto").strip().lower()
+        if fmt in ("openai", "anthropic", "anyrouter", "gemini", "openai-responses"):
+            return fmt
+        # auto: Claude 模型走 anthropic 格式，其他走 openai 格式
+        if self._is_claude_model(model_name):
+            return "anthropic"
+        return "openai"
+
     async def _stream_and_collect(
         self,
         messages: List[Dict[str, str]],
@@ -114,74 +206,304 @@ class LLMService:
         response_format: Optional[str] = None,
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
+        max_retries: int = 2,
+        thinking_budget: Optional[int] = None,
     ) -> str:
         config = await self._resolve_llm_config(user_id)
-        client = LLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-
         chat_messages = [ChatMessage(role=msg["role"], content=msg["content"]) for msg in messages]
 
-        full_response = ""
-        finish_reason = None
+        model_name = config.get("model") or ""
+        # 用户级 api_format 优先于系统级
+        api_format_setting = config.get("api_format") or await self._get_config_value("llm.api_format")
+        api_format = self._resolve_api_format(api_format_setting, config.get("base_url"), model_name)
+
+        # Claude thinking 模型（opus-4 / opus-4-6 等）不兼容 temperature/top_p
+        # 当通过 OpenAI/Anthropic 代理调用时，代理可能自动开启 thinking，
+        # 此时传入 temperature!=1.0 会导致空响应或报错
+        _is_claude_thinking_model = any(
+            kw in model_name.lower()
+            for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4")
+        )
+        effective_temperature = temperature
+        effective_top_p = top_p
+        effective_response_format = response_format
+        response_format_target = f"{(config.get('base_url') or '').rstrip('/')}|{model_name}"
+        if (
+            api_format == "openai"
+            and effective_response_format is not None
+            and response_format_target in self._UNSUPPORTED_RESPONSE_FORMAT_TARGETS
+        ):
+            logger.info(
+                "已知该服务商组合不支持 response_format，直接跳过: base_url=%s model=%s response_format=%s",
+                config.get("base_url"),
+                model_name,
+                effective_response_format,
+            )
+            effective_response_format = None
+        if _is_claude_thinking_model and api_format != "anyrouter":
+            if temperature is not None and temperature != 1.0:
+                logger.info(
+                    "跳过 temperature=%.2f（Claude thinking 模型不兼容），model=%s format=%s",
+                    temperature, model_name, api_format,
+                )
+                effective_temperature = None
+            if top_p is not None:
+                logger.info("跳过 top_p=%.2f（Claude thinking 模型不兼容），model=%s", top_p, model_name)
+                effective_top_p = None
+            if response_format is not None:
+                logger.info("跳过 response_format=%s（Claude thinking 模型不兼容），model=%s", response_format, model_name)
+                effective_response_format = None
 
         logger.info(
-            "Streaming LLM response: model=%s user_id=%s messages=%d",
-            config.get("model"),
+            "Streaming LLM response: base_url=%s model=%s user_id=%s messages=%d format=%s",
+            config.get("base_url"),
+            model_name,
             user_id,
             len(messages),
+            api_format,
         )
 
-        try:
-            async for part in client.stream_chat(
-                messages=chat_messages,
-                model=config.get("model"),
-                temperature=temperature,
-                timeout=int(timeout),
-                response_format=response_format,
-                max_tokens=max_tokens,
-                top_p=top_p,
-            ):
-                if part.get("content"):
-                    full_response += part["content"]
-                if part.get("finish_reason"):
-                    finish_reason = part["finish_reason"]
-        except InternalServerError as exc:
-            detail = "AI 服务内部错误，请稍后重试"
-            response = getattr(exc, "response", None)
-            if response is not None:
-                try:
-                    payload = response.json()
-                    error_data = payload.get("error", {}) if isinstance(payload, dict) else {}
-                    detail = error_data.get("message_zh") or error_data.get("message") or detail
-                except Exception:
+        last_exc = None
+        response_format_fallback_applied = False
+        responses_endpoint_fallback_applied = False
+        for attempt in range(1, max_retries + 2):  # max_retries + 1 次总尝试
+            if api_format == "anyrouter":
+                client = AnyRouterLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+            elif api_format == "anthropic":
+                client = AnthropicLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+            elif api_format == "gemini":
+                client = GeminiLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+            elif api_format == "openai-responses":
+                client = OpenAIResponsesLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+            else:
+                client = LLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+            full_response = ""
+            finish_reason = None
+
+            try:
+                extra_kwargs = {}
+                if thinking_budget:
+                    extra_kwargs["thinking_budget"] = thinking_budget
+                async for part in client.stream_chat(
+                    messages=chat_messages,
+                    model=config.get("model"),
+                    temperature=effective_temperature,
+                    timeout=int(timeout),
+                    response_format=effective_response_format,
+                    max_tokens=max_tokens,
+                    top_p=effective_top_p,
+                    **extra_kwargs,
+                ):
+                    if part.get("content"):
+                        full_response += part["content"]
+                    if part.get("finish_reason"):
+                        finish_reason = part["finish_reason"]
+                # 流式读取正常完成，跳出重试循环
+                break
+
+            except InternalServerError as exc:
+                detail = "AI 服务内部错误，请稍后重试"
+                response = getattr(exc, "response", None)
+                if response is not None:
+                    try:
+                        payload = response.json()
+                        error_data = payload.get("error", {}) if isinstance(payload, dict) else {}
+                        detail = error_data.get("message_zh") or error_data.get("message") or detail
+                    except Exception:
+                        detail = str(exc) or detail
+                else:
                     detail = str(exc) or detail
-            else:
-                detail = str(exc) or detail
-            logger.error(
-                "LLM stream internal error: model=%s user_id=%s detail=%s",
-                config.get("model"),
-                user_id,
-                detail,
-                exc_info=exc,
-            )
-            raise HTTPException(status_code=503, detail=detail)
-        except (httpx.RemoteProtocolError, httpx.ReadTimeout, APIConnectionError, APITimeoutError) as exc:
-            if isinstance(exc, httpx.RemoteProtocolError):
-                detail = "AI 服务连接被意外中断，请稍后重试"
-            elif isinstance(exc, (httpx.ReadTimeout, APITimeoutError)):
-                detail = "AI 服务响应超时，请稍后重试"
-            else:
-                detail = "无法连接到 AI 服务，请稍后重试"
-            logger.error(
-                "LLM stream failed: model=%s user_id=%s detail=%s",
-                config.get("model"),
-                user_id,
-                detail,
-                exc_info=exc,
-            )
-            raise HTTPException(status_code=503, detail=detail) from exc
+                logger.error(
+                    "LLM stream internal error: base_url=%s model=%s user_id=%s detail=%s",
+                    config.get("base_url"), model_name, user_id, detail,
+                    exc_info=exc,
+                )
+                raise HTTPException(status_code=503, detail=detail)
+
+            except (PermissionDeniedError, AuthenticationError) as exc:
+                detail = "AI 服务鉴权失败：请求被拒绝，请检查 API Key 或服务商权限配置"
+                response = getattr(exc, "response", None)
+                if response is not None:
+                    try:
+                        payload = response.json()
+                        error_data = payload.get("error", {}) if isinstance(payload, dict) else {}
+                        detail = error_data.get("message") or detail
+                    except Exception:
+                        detail = str(exc) or detail
+                else:
+                    detail = str(exc) or detail
+                logger.error(
+                    "LLM鉴权/权限错误: base_url=%s model=%s user_id=%s error_type=%s detail=%s",
+                    config.get("base_url"), model_name, user_id,
+                    type(exc).__name__, detail,
+                    exc_info=exc,
+                )
+                raise HTTPException(status_code=403, detail=detail) from exc
+
+            except (NotFoundError, BadRequestError) as exc:
+                detail = self._extract_provider_error_detail(exc)
+                if (
+                    isinstance(exc, BadRequestError)
+                    and api_format in ("openai", "openai-responses")
+                    and effective_response_format is not None
+                    and not response_format_fallback_applied
+                    and self._is_response_format_unsupported_error(exc)
+                ):
+                    response_format_fallback_applied = True
+                    logger.warning(
+                        "检测到服务商不支持 response_format=%s，自动降级重试: base_url=%s model=%s attempt=%d/%d detail=%s",
+                        effective_response_format,
+                        config.get("base_url"),
+                        model_name,
+                        attempt,
+                        max_retries + 1,
+                        detail,
+                    )
+                    self._UNSUPPORTED_RESPONSE_FORMAT_TARGETS.add(response_format_target)
+                    effective_response_format = None
+                    continue
+                logger.error(
+                    "LLM请求错误: base_url=%s model=%s user_id=%s error_type=%s detail=%s",
+                    config.get("base_url"), model_name, user_id,
+                    type(exc).__name__, detail,
+                    exc_info=exc,
+                )
+                raise HTTPException(
+                    status_code=getattr(exc, "status_code", 400),
+                    detail=detail,
+                ) from exc
+
+            except httpx.HTTPStatusError as exc:
+                # httpx 客户端（Anthropic/Gemini/OpenAI-Responses）返回的 HTTP 错误
+                resp_status = exc.response.status_code
+                try:
+                    resp_body = exc.response.text[:500]
+                except Exception:
+                    resp_body = str(exc)
+                resp_body_lower = (resp_body or "").lower()
+
+                if resp_status in (429, 500, 502, 503, 529):
+                    # 可重试的服务端错误
+                    last_exc = exc
+                    logger.warning(
+                        "LLM HTTP %d (attempt %d/%d): base_url=%s model=%s body=%s",
+                        resp_status, attempt, max_retries + 1,
+                        config.get("base_url"), model_name, resp_body,
+                    )
+                    if attempt <= max_retries:
+                        wait = 2 ** attempt
+                        logger.info("将在 %ds 后重试 (attempt %d/%d)...", wait, attempt + 1, max_retries + 1)
+                        await asyncio.sleep(wait)
+                        continue
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"AI 服务持续出错 (HTTP {resp_status})，已重试 {max_retries} 次",
+                    ) from exc
+
+                if resp_status in (401, 403):
+                    detail = f"AI 服务鉴权失败: {resp_body}"
+                    logger.error("LLM auth error: base_url=%s model=%s detail=%s",
+                                 config.get("base_url"), model_name, detail)
+                    raise HTTPException(status_code=403, detail=detail) from exc
+
+                # response_format 降级：httpx 客户端（OpenAI-Responses/Anthropic）的 400 错误
+                if (
+                    resp_status == 400
+                    and effective_response_format is not None
+                    and not response_format_fallback_applied
+                ):
+                    response_format_fallback_applied = True
+                    logger.warning(
+                        "httpx 400 检测到可能的 response_format 不兼容，自动降级重试: "
+                        "base_url=%s model=%s api_format=%s body=%s",
+                        config.get("base_url"), model_name, api_format, resp_body,
+                    )
+                    self._UNSUPPORTED_RESPONSE_FORMAT_TARGETS.add(response_format_target)
+                    effective_response_format = None
+                    continue
+
+                # OpenAI Responses 兼容降级：部分代理暴露了 /responses 路径，
+                # 但上游模型并不真正支持，常见表现是 400 upstream_error / 空错误体。
+                if (
+                    api_format == "openai-responses"
+                    and not responses_endpoint_fallback_applied
+                    and resp_status in (400, 404, 405, 422)
+                    and (
+                        "upstream_error" in resp_body_lower
+                        or "unsupported" in resp_body_lower
+                        or "not support" in resp_body_lower
+                        or "not found" in resp_body_lower
+                        or "unknown" in resp_body_lower
+                        or not resp_body_lower.strip()
+                    )
+                ):
+                    responses_endpoint_fallback_applied = True
+                    api_format = "openai"
+                    logger.warning(
+                        "OpenAI-Responses 端点疑似不兼容，自动回退到 OpenAI chat/completions 重试: "
+                        "base_url=%s model=%s attempt=%d/%d status=%d body=%s",
+                        config.get("base_url"),
+                        model_name,
+                        attempt,
+                        max_retries + 1,
+                        resp_status,
+                        resp_body,
+                    )
+                    continue
+
+                if resp_status == 404:
+                    detail = f"AI 服务不支持该模型或接口: {resp_body}"
+                    logger.error("LLM not found: base_url=%s model=%s detail=%s",
+                                 config.get("base_url"), model_name, detail)
+                    raise HTTPException(status_code=404, detail=detail) from exc
+
+                detail = f"AI 服务请求错误 (HTTP {resp_status}): {resp_body}"
+                logger.error("LLM HTTP error: base_url=%s model=%s detail=%s",
+                             config.get("base_url"), model_name, detail)
+                raise HTTPException(status_code=502, detail=detail) from exc
+
+            except self._RETRYABLE_ERRORS as exc:
+                last_exc = exc
+                collected_chars = len(full_response)
+                logger.warning(
+                    "LLM stream interrupted (attempt %d/%d): base_url=%s model=%s user_id=%s "
+                    "error_type=%s error=%s collected_chars=%d",
+                    attempt, max_retries + 1,
+                    config.get("base_url"), model_name, user_id,
+                    type(exc).__name__, exc, collected_chars,
+                )
+
+                # 已收集到足够内容且看起来接近完成，直接返回已有内容
+                if collected_chars >= 200 and finish_reason is not None:
+                    logger.info(
+                        "LLM stream interrupted but has usable content (%d chars, finish_reason=%s), returning partial.",
+                        collected_chars, finish_reason,
+                    )
+                    break
+
+                if attempt <= max_retries:
+                    wait = 2 ** attempt  # 2s, 4s
+                    logger.info("将在 %ds 后重试 (attempt %d/%d)...", wait, attempt + 1, max_retries + 1)
+                    await asyncio.sleep(wait)
+                    continue
+
+                # 重试耗尽
+                if isinstance(exc, httpx.RemoteProtocolError):
+                    detail = f"AI 服务连接被意外中断（已重试 {max_retries} 次），请稍后重试"
+                elif isinstance(exc, (httpx.ReadTimeout, APITimeoutError)):
+                    detail = f"AI 服务响应超时（已重试 {max_retries} 次），请稍后重试"
+                else:
+                    detail = f"无法连接到 AI 服务（已重试 {max_retries} 次），请稍后重试"
+                logger.error(
+                    "LLM stream failed after %d retries: base_url=%s model=%s user_id=%s detail=%s",
+                    max_retries, config.get("base_url"), model_name, user_id, detail,
+                    exc_info=exc,
+                )
+                raise HTTPException(status_code=503, detail=detail) from exc
 
         logger.debug(
-            "LLM response collected: model=%s user_id=%s finish_reason=%s preview=%s",
+            "LLM response collected: base_url=%s model=%s user_id=%s finish_reason=%s preview=%s",
+            config.get("base_url"),
             config.get("model"),
             user_id,
             finish_reason,
@@ -214,7 +536,8 @@ class LLMService:
 
         await self.usage_service.increment("api_request_count")
         logger.info(
-            "LLM response success: model=%s user_id=%s chars=%d",
+            "LLM response success: base_url=%s model=%s user_id=%s chars=%d",
+            config.get("base_url"),
             config.get("model"),
             user_id,
             len(full_response),
@@ -229,6 +552,7 @@ class LLMService:
                     "api_key": config.llm_provider_api_key,
                     "base_url": config.llm_provider_url,
                     "model": config.llm_provider_model,
+                    "api_format": config.llm_provider_api_format,
                 }
 
         # 检查每日使用次数限制
@@ -246,7 +570,7 @@ class LLMService:
                 detail="未配置默认 LLM API Key，请联系管理员配置系统默认 API Key 或在个人设置中配置自定义 API Key"
             )
 
-        return {"api_key": api_key, "base_url": base_url, "model": model}
+        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
 
     async def get_embedding(
         self,
@@ -278,7 +602,7 @@ class LLMService:
                 response = await client.embeddings(model=target_model, prompt=text)
             except Exception as exc:  # pragma: no cover - 本地服务调用失败
                 logger.error(
-                    "Ollama 嵌入请求失败: model=%s base_url=%s error=%s",
+                    "Ollama 嵌入请求失败: model=%s url=%s/api/embeddings error=%s",
                     target_model,
                     base_url,
                     exc,
@@ -297,8 +621,23 @@ class LLMService:
                 embedding = list(embedding)
         else:
             config = await self._resolve_llm_config(user_id)
-            api_key = await self._get_config_value("embedding.api_key") or config["api_key"]
-            base_url = await self._get_config_value("embedding.base_url") or config.get("base_url")
+            embedding_api_key = await self._get_config_value("embedding.api_key")
+            embedding_base_url = await self._get_config_value("embedding.base_url")
+            api_key = embedding_api_key or config["api_key"]
+            base_url = embedding_base_url or config.get("base_url")
+
+            # 如果没有独立的 embedding 配置，且 LLM base_url 看起来不支持 embedding
+            # （非 OpenAI 官方地址），发出警告并跳过
+            if not embedding_api_key and not embedding_base_url and base_url:
+                base_lower = str(base_url).lower()
+                if not any(host in base_lower for host in ("api.openai.com", "openai.azure.com")):
+                    logger.warning(
+                        "未配置独立的嵌入模型（embedding.api_key / embedding.base_url），"
+                        "且当前 LLM 地址 %s 可能不支持 /embeddings 端点。"
+                        "请在管理面板配置嵌入模型或设置 EMBEDDING_BASE_URL 环境变量。",
+                        base_url,
+                    )
+                    return []
             client = AsyncOpenAI(api_key=api_key, base_url=base_url)
             try:
                 response = await client.embeddings.create(
@@ -307,9 +646,9 @@ class LLMService:
                 )
             except Exception as exc:  # pragma: no cover - 网络或鉴权失败
                 logger.error(
-                    "OpenAI 嵌入请求失败: model=%s base_url=%s user_id=%s error=%s",
+                    "OpenAI 嵌入请求失败: model=%s url=%s/embeddings user_id=%s error=%s",
                     target_model,
-                    base_url,
+                    str(base_url).rstrip("/"),
                     user_id,
                     exc,
                     exc_info=True,

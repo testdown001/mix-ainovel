@@ -123,7 +123,15 @@ class ChapterBlueprint(Base):
     
     # 节拍表（JSON格式，详细的场景节拍）
     beat_sheet: Mapped[Optional[dict]] = mapped_column(JSON)
-    
+
+    # === Strand Weave 线团信息 ===
+
+    # 线团类型：quest / fire / constellation
+    strand_type: Mapped[Optional[str]] = mapped_column(String(32))
+
+    # 线团权重：0.0 - 1.0
+    strand_weight: Mapped[Optional[float]] = mapped_column(Float)
+
     # === 状态追踪 ===
     
     # 是否已生成章节

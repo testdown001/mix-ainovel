@@ -69,6 +69,9 @@ SYSTEM_MESSAGE_NOVELIST = """你是一位富有经验的小说家，擅长创作
 
 # ==================== 章节生成 Prompt 模板 ====================
 
+CHAPTER_MIN_WORDS = 2000
+CHAPTER_MAX_WORDS = 5000
+
 def generate_chapter_prompt(
     project_info: dict,
     chapter_number: int,
@@ -117,6 +120,13 @@ def generate_chapter_prompt(
     if active_characters:
         character_constraint = f"\n\n**已登场角色**：{', '.join(active_characters)}\n"
         character_constraint += "如需引入新角色，请先通过对话或场景铺垫，再正式出场并介绍。"
+
+    raw_target_word_count = project_info.get("chapter_length", 3000)
+    try:
+        target_word_count = int(raw_target_word_count)
+    except (TypeError, ValueError):
+        target_word_count = 3000
+    target_word_count = max(CHAPTER_MIN_WORDS, min(CHAPTER_MAX_WORDS, target_word_count))
     
     prompt = f"""## 创作任务
 
@@ -155,7 +165,8 @@ def generate_chapter_prompt(
 - 确保情节有起承转合，但不要标注"起承转合"等字样
 
 #### 5. 字数要求
-正文字数：{project_info.get('chapter_length', 3000)} 字左右
+- 正文字数必须在 {CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字之间（含边界）
+- 建议目标字数：{target_word_count} 字左右
 
 ### 输出格式
 直接输出小说正文，无需任何标题、标签或说明。以自然的叙事开始，以自然的叙事结束。

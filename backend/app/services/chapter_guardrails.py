@@ -17,7 +17,7 @@ from typing import List, Optional, Set
 @dataclass
 class Violation:
     """违规记录"""
-    type: str  # forbidden_name | omniscient_cue | sudden_familiarity
+    type: str  # forbidden_name | omniscient_cue | sudden_familiarity | markdown_marker | trailing_camera
     severity: str  # high | medium | low
     description: str
     position: Optional[int] = None  # 违规位置（字符索引）
@@ -38,11 +38,14 @@ class GuardrailResult:
 class ChapterGuardrails:
     """
     章节护栏检查器。
-    
+
     检查维度：
     A) ForbiddenNameMention：正文出现 forbidden_characters 中任意名字（高优先级）
     B) OmniscientCue：出现全知视角的 cue 词（中优先级）
     C) SuddenFamiliarity：新角色首次出现前 120 字内没有介绍痕迹（中优先级）
+    D) MarkdownMarker：正文包含 Markdown 标签（中优先级）
+    E) UnregisteredEntity：出现未注册的实体名称（低优先级）
+    F) TrailingCamera：章末出现 POV 角色感知范围外的描写（高优先级）
     """
 
     # 全知视角 cue 词列表
@@ -87,12 +90,55 @@ class ChapterGuardrails:
         r"气质",
     ]
 
+    # Markdown 标签（正文禁止）
+    MARKDOWN_MARKERS = [
+        r"\*\*.+?\*\*",              # 粗体 **text**
+        r"^\s*---+\s*$",             # 分隔线 ---
+        r"^\s*#{1,6}\s+",            # 标题 # ##
+        r"^\s*```",                  # 代码块围栏
+        r"^\s*[-*+]\s+\S+",          # 列表项
+    ]
+
+    # 滞后镜头检测：POV 角色离开后描写身后画面的模式
+    # 分两步检测：1) 先检测"离场动作" 2) 再检测其后的"滞后描写"
+    DEPARTURE_CUES = [
+        r"转身(?:离开|走|往|朝|向)",
+        r"背(?:过身|转身)",
+        r"头也不回",
+        r"离开了",
+        r"走出了",
+        r"走远了",
+        r"闭上了眼",
+        r"失去了意识",
+        r"昏了过去",
+    ]
+    TRAILING_CAMERA_CUES = [
+        r"身后[，,]",
+        r"在[他她]身后",
+        r"在[他她]背后",
+        r"[他她]离开后",
+        r"[他她]走后",
+        r"[他她]走远后",
+        r"而[他她](?:已经)?(?:看不到|不知道|没有注意到)",
+        r"没有人(?:看到|注意到|发现)",
+        r"无人(?:看到|注意到|知道)",
+    ]
+
     def __init__(self):
         self._omniscient_pattern = re.compile(
             "|".join(self.OMNISCIENT_CUES), re.IGNORECASE
         )
         self._intro_pattern = re.compile(
             "|".join(self.INTRO_INDICATORS), re.IGNORECASE
+        )
+        self._markdown_pattern = re.compile(
+            "|".join(self.MARKDOWN_MARKERS), re.IGNORECASE | re.MULTILINE
+        )
+        self._departure_pattern = re.compile(
+            "|".join(self.DEPARTURE_CUES), re.IGNORECASE
+        )
+        self._trailing_camera_pattern = re.compile(
+            "|".join(self.TRAILING_CAMERA_CUES), re.IGNORECASE
         )
 
     def check(
@@ -101,6 +147,8 @@ class ChapterGuardrails:
         forbidden_characters: List[str],
         allowed_new_characters: Optional[List[str]] = None,
         pov: Optional[str] = None,
+        alias_map: Optional[dict] = None,
+        omniscient_tolerance: str = "medium",
     ) -> GuardrailResult:
         """
         执行护栏检查。
@@ -110,23 +158,39 @@ class ChapterGuardrails:
             forbidden_characters: 禁止出现的角色名列表
             allowed_new_characters: 本章允许登场的新角色列表
             pov: 本章视角角色名
+            alias_map: 别名→正式名映射表（用于增强角色名匹配）
+            omniscient_tolerance: 全知视角容忍度（strict/medium/loose）
 
         Returns:
             GuardrailResult: 检查结果
         """
         result = GuardrailResult(passed=True)
 
-        # A) 检测禁止角色名
-        self._check_forbidden_names(generated_text, forbidden_characters, result)
+        # 扩展禁止列表：通过别名映射添加别名
+        expanded_forbidden = list(forbidden_characters)
+        if alias_map:
+            for alias, canonical in alias_map.items():
+                if canonical in forbidden_characters and alias not in expanded_forbidden:
+                    expanded_forbidden.append(alias)
 
-        # B) 检测全知视角 cue
-        self._check_omniscient_cues(generated_text, result)
+        # A) 检测禁止角色名
+        self._check_forbidden_names(generated_text, expanded_forbidden, result)
+
+        # B) 检测全知视角 cue（根据容忍度调整）
+        if omniscient_tolerance != "loose":
+            self._check_omniscient_cues(generated_text, result)
 
         # C) 检测新角色登场协议
         if allowed_new_characters:
             self._check_character_introduction(
-                generated_text, allowed_new_characters, result
+                generated_text, allowed_new_characters, result, alias_map=alias_map,
             )
+
+        # D) 检测 Markdown 标签
+        self._check_markdown_markers(generated_text, result)
+
+        # F) 检测章末滞后镜头
+        self._check_trailing_camera(generated_text, result)
 
         return result
 
@@ -169,31 +233,46 @@ class ChapterGuardrails:
             )
 
     def _check_character_introduction(
-        self, text: str, new_characters: List[str], result: GuardrailResult
+        self, text: str, new_characters: List[str], result: GuardrailResult,
+        alias_map: Optional[dict] = None,
     ):
-        """检测新角色登场是否有介绍"""
+        """检测新角色登场是否有介绍（支持别名匹配）"""
         for name in new_characters:
             if not name:
                 continue
-            # 找到角色名首次出现的位置
-            pattern = re.compile(re.escape(name))
-            match = pattern.search(text)
-            if not match:
+            # 构建匹配名称列表：正式名 + 别名
+            names_to_check = [name]
+            if alias_map:
+                for alias, canonical in alias_map.items():
+                    if canonical == name and alias != name:
+                        names_to_check.append(alias)
+
+            # 找到任一名称的首次出现位置
+            first_pos = None
+            matched_name = name
+            for check_name in names_to_check:
+                pattern = re.compile(re.escape(check_name))
+                match = pattern.search(text)
+                if match and (first_pos is None or match.start() < first_pos):
+                    first_pos = match.start()
+                    matched_name = check_name
+
+            if first_pos is None:
                 continue  # 角色未出现，不算违规
 
-            pos = match.start()
             # 检查前 120 字是否有介绍性词汇
-            intro_range = max(0, pos - 120)
-            intro_text = text[intro_range:pos]
-            
+            intro_range = max(0, first_pos - 120)
+            intro_text = text[intro_range:first_pos]
+
             if not self._intro_pattern.search(intro_text):
-                context = self._extract_context(text, pos)
+                context = self._extract_context(text, first_pos)
                 result.add_violation(
                     Violation(
                         type="sudden_familiarity",
                         severity="medium",
-                        description=f"新角色「{name}」首次出现前缺少介绍性描写",
-                        position=pos,
+                        description=f"新角色「{name}」首次出现前缺少介绍性描写"
+                            + (f"（以「{matched_name}」出现）" if matched_name != name else ""),
+                        position=first_pos,
                         context=context,
                     )
                 )
@@ -203,6 +282,66 @@ class ChapterGuardrails:
         start = max(0, pos - window)
         end = min(len(text), pos + window)
         return f"...{text[start:end]}..."
+
+    def _check_markdown_markers(self, text: str, result: GuardrailResult):
+        """检测正文中的 Markdown 标签。"""
+        for match in self._markdown_pattern.finditer(text):
+            pos = match.start()
+            marker = match.group().strip()
+            context = self._extract_context(text, pos)
+            result.add_violation(
+                Violation(
+                    type="markdown_marker",
+                    severity="medium",
+                    description=f"正文包含 Markdown 标签「{marker[:20]}」",
+                    position=pos,
+                    context=context,
+                )
+            )
+
+    def _check_trailing_camera(self, text: str, result: GuardrailResult):
+        """
+        检测章末滞后镜头：POV 角色离场后，叙事留在原地描写身后画面。
+
+        检测逻辑：
+        1. 取正文最后 500 字作为章末区域
+        2. 在章末区域中找"离场动作"（转身离开/走出/闭眼等）
+        3. 在离场动作之后找"滞后描写"（身后/他走后/没有人看到等）
+        4. 如果两者同时出现且滞后描写在离场动作之后 → 违规
+        """
+        # 取章末区域
+        tail_size = 500
+        tail_start = max(0, len(text) - tail_size)
+        tail_text = text[tail_start:]
+
+        # 找章末区域中最后一个离场动作
+        last_departure = None
+        for match in self._departure_pattern.finditer(tail_text):
+            last_departure = match
+
+        if last_departure is None:
+            return
+
+        # 在离场动作之后找滞后描写
+        after_departure = tail_text[last_departure.end():]
+        trailing_match = self._trailing_camera_pattern.search(after_departure)
+
+        if trailing_match:
+            # 计算在原文中的实际位置
+            abs_pos = tail_start + last_departure.end() + trailing_match.start()
+            context = self._extract_context(text, abs_pos, window=80)
+            result.add_violation(
+                Violation(
+                    type="trailing_camera",
+                    severity="high",
+                    description=(
+                        f"章末滞后镜头：POV 角色「{last_departure.group()}」后，"
+                        f"出现了角色感知范围外的描写「{trailing_match.group()}」"
+                    ),
+                    position=abs_pos,
+                    context=context,
+                )
+            )
 
     def format_violations_for_rewrite(self, result: GuardrailResult) -> str:
         """

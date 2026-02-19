@@ -183,7 +183,8 @@ class KnowledgeRetrievalService:
         user_id: int,
         pov_character: Optional[str] = None,
         user_guidance: Optional[str] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        retrieval_mode: str = "vector",
     ) -> FilteredContext:
         """
         检索并过滤知识
@@ -215,6 +216,7 @@ class KnowledgeRetrievalService:
             queries=queries,
             top_k=top_k,
             user_id=user_id,
+            retrieval_mode=retrieval_mode,
         )
         
         # 4. 获取前文摘要
@@ -433,14 +435,44 @@ class KnowledgeRetrievalService:
         queries: List[str],
         top_k: int,
         user_id: int,
+        retrieval_mode: str = "vector",
     ) -> List[RetrievedKnowledge]:
         """从向量库检索"""
         if not self.vector_store_service or not queries:
             return []
-        
+
         retrieved = []
         for query in queries:
             try:
+                # 混合检索模式
+                if retrieval_mode == "hybrid":
+                    embedding = await self.llm_service.get_embedding(query, user_id=user_id)
+                    if not embedding:
+                        continue
+                    try:
+                        from .hybrid_retrieval_service import HybridRetrievalService
+                        hybrid = HybridRetrievalService(
+                            vector_store=self.vector_store_service,
+                            llm_service=self.llm_service,
+                        )
+                        hybrid_results = await hybrid.hybrid_search(
+                            project_id=project_id,
+                            query_text=query,
+                            query_embedding=embedding,
+                            top_k=top_k,
+                            user_id=user_id,
+                        )
+                        for chunk in hybrid_results.get("chunks", []):
+                            retrieved.append(RetrievedKnowledge(
+                                content=chunk.content,
+                                source="chapter",
+                                relevance_score=1.0 - chunk.score,
+                                chapter_number=chunk.chapter_number,
+                            ))
+                        continue
+                    except Exception as hybrid_exc:
+                        logger.warning("混合检索失败，回退纯向量: %s", hybrid_exc)
+
                 if hasattr(self.vector_store_service, "search"):
                     results = await self.vector_store_service.search(
                         project_id=project_id,

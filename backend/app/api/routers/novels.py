@@ -1,6 +1,7 @@
 # AIMETA P=小说API_项目和章节管理|R=小说CRUD_章节管理|NR=不含内容生成|E=route:GET_POST_/api/novels/*|X=http|A=小说CRUD_章节|D=fastapi,sqlalchemy|S=db|RD=./README.ai
 import json
 import logging
+import traceback
 from typing import Dict, List
 
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, status
@@ -25,7 +26,7 @@ from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
-from ...utils.json_utils import remove_think_tags, sanitize_json_like_text, unwrap_markdown_json
+from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 
 logger = logging.getLogger(__name__)
 
@@ -184,16 +185,18 @@ async def converse_with_concept(
     try:
         normalized = unwrap_markdown_json(llm_response)
         sanitized = sanitize_json_like_text(normalized)
-        parsed = json.loads(sanitized)
+        repaired = repair_json(sanitized)
+        parsed = json.loads(repaired)
     except json.JSONDecodeError as exc:
         logger.exception(
-            "Failed to parse concept converse response: project_id=%s user_id=%s error=%s\nOriginal response: %s\nNormalized: %s\nSanitized: %s",
+            "Failed to parse concept converse response: project_id=%s user_id=%s error=%s\nOriginal response: %s\nNormalized: %s\nSanitized: %s\nRepaired: %s",
             project_id,
             current_user.id,
             exc,
             llm_response[:1000],
             normalized[:1000] if 'normalized' in locals() else "N/A",
             sanitized[:1000] if 'sanitized' in locals() else "N/A",
+            repaired[:1000] if 'repaired' in locals() else "N/A",
         )
         raise HTTPException(
             status_code=500,
@@ -259,40 +262,107 @@ async def generate_blueprint(
         )
 
     system_prompt = _ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
+    logger.info("项目 %s 蓝图生成：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
+                project_id, len(system_prompt), len(formatted_history))
+
     blueprint_raw = await llm_service.get_llm_response(
         system_prompt=system_prompt,
         conversation_history=formatted_history,
-        temperature=0.3,
+        temperature=0.8,
         user_id=current_user.id,
-        timeout=480.0,
+        timeout=900.0,
+        max_retries=1,
+        max_tokens=16384,
+        thinking_budget=10240,
     )
+
+    logger.info("项目 %s 蓝图生成：LLM 调用完成，raw_len=%d", project_id, len(blueprint_raw))
     blueprint_raw = remove_think_tags(blueprint_raw)
+    logger.info("项目 %s 蓝图生成：think标签移除后 len=%d", project_id, len(blueprint_raw))
 
     blueprint_normalized = unwrap_markdown_json(blueprint_raw)
     blueprint_sanitized = sanitize_json_like_text(blueprint_normalized)
+    blueprint_repaired = repair_json(blueprint_sanitized)
+    logger.info(
+        "项目 %s 蓝图生成：JSON 清洗完成 normalized_len=%d sanitized_len=%d repaired_len=%d",
+        project_id, len(blueprint_normalized), len(blueprint_sanitized), len(blueprint_repaired),
+    )
+
     try:
-        blueprint_data = json.loads(blueprint_sanitized)
+        blueprint_data = json.loads(blueprint_repaired)
     except json.JSONDecodeError as exc:
         logger.error(
-            "项目 %s 蓝图生成 JSON 解析失败: %s\n原始响应: %s\n标准化后: %s\n清洗后: %s",
-            project_id,
-            exc,
-            blueprint_raw[:500],
-            blueprint_normalized[:500],
-            blueprint_sanitized[:500],
+            "项目 %s 蓝图生成 JSON 解析失败: %s\n原始响应(末尾500字): %s\n修复后(末尾500字): %s",
+            project_id, exc,
+            blueprint_raw[-500:],
+            blueprint_repaired[-500:],
         )
         raise HTTPException(
             status_code=500,
             detail=f"蓝图生成失败，AI 返回的内容格式不正确。请重试或联系管理员。错误详情: {str(exc)}"
         ) from exc
 
-    blueprint = Blueprint(**blueprint_data)
-    await novel_service.replace_blueprint(project_id, blueprint)
-    if blueprint.title:
-        project.title = blueprint.title
-        project.status = "blueprint_ready"
-        await session.commit()
-        logger.info("项目 %s 更新标题为 %s，并标记为 blueprint_ready", project_id, blueprint.title)
+    logger.info(
+        "项目 %s 蓝图生成：JSON 解析成功，顶层字段=%s",
+        project_id, list(blueprint_data.keys()) if isinstance(blueprint_data, dict) else type(blueprint_data).__name__,
+    )
+
+    # Pydantic 校验 Blueprint —— 容错处理
+    try:
+        blueprint = Blueprint(**blueprint_data)
+    except Exception as exc:
+        logger.error(
+            "项目 %s 蓝图 Pydantic 校验失败: %s\nblueprint_data 部分内容: title=%s, characters_count=%s, "
+            "chapter_outline_count=%s, relationships_count=%s\n%s",
+            project_id, exc,
+            blueprint_data.get("title"),
+            len(blueprint_data.get("characters", [])),
+            len(blueprint_data.get("chapter_outline", [])),
+            len(blueprint_data.get("relationships", [])),
+            traceback.format_exc(),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"蓝图数据结构校验失败: {str(exc)[:300]}。请重试或联系管理员。"
+        ) from exc
+
+    logger.info(
+        "项目 %s 蓝图生成：Pydantic 校验通过 title=%s characters=%d outlines=%d relationships=%d",
+        project_id, blueprint.title, len(blueprint.characters),
+        len(blueprint.chapter_outline), len(blueprint.relationships),
+    )
+
+    # 保存蓝图到数据库
+    try:
+        await novel_service.replace_blueprint(project_id, blueprint)
+    except Exception as exc:
+        logger.error(
+            "项目 %s 蓝图保存数据库失败: %s\n%s",
+            project_id, exc, traceback.format_exc(),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"蓝图保存失败: {str(exc)[:200]}。请重试或联系管理员。"
+        ) from exc
+
+    logger.info("项目 %s 蓝图生成：数据库保存完成", project_id)
+
+    # 更新项目标题和状态
+    try:
+        if blueprint.title:
+            project.title = blueprint.title
+            project.status = "blueprint_ready"
+            await session.commit()
+            logger.info("项目 %s 更新标题为 %s，并标记为 blueprint_ready", project_id, blueprint.title)
+    except Exception as exc:
+        logger.error(
+            "项目 %s 更新项目状态失败: %s\n%s",
+            project_id, exc, traceback.format_exc(),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"蓝图已生成但更新项目状态失败: {str(exc)[:200]}"
+        ) from exc
 
     ai_message = (
         "太棒了！我已经根据我们的对话整理出完整的小说蓝图。请确认是否进入写作阶段，或提出修改意见。"

@@ -118,6 +118,22 @@
           </button>
         </div>
       </div>
+      <div>
+        <label for="api-format" class="block text-sm font-medium text-gray-700">API 类型</label>
+        <select
+          id="api-format"
+          v-model="config.llm_provider_api_format"
+          class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+        >
+          <option value="">auto（自动识别）</option>
+          <option value="openai">OpenAI（兼容格式）</option>
+          <option value="anthropic">Anthropic（原生 API）</option>
+          <option value="anyrouter">AnyRouter（Claude Code 兼容代理）</option>
+          <option value="gemini">Gemini（Google 原生 API）</option>
+          <option value="openai-responses">OpenAI Responses（/v1/responses）</option>
+        </select>
+        <p class="mt-1 text-xs text-gray-500">选择 API 请求格式。Google Gemini 选 Gemini，Claude Code 中转站选 AnyRouter，官方 Anthropic API 选 Anthropic，OpenAI Responses API 选 OpenAI Responses，其他选 OpenAI 或 auto。</p>
+      </div>
       <div class="flex justify-end space-x-4 pt-4">
         <button type="button" @click="handleDelete" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">删除配置</button>
         <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">保存</button>
@@ -134,6 +150,7 @@ const config = ref<LLMConfigCreate>({
   llm_provider_url: '',
   llm_provider_api_key: '',
   llm_provider_model: '',
+  llm_provider_api_format: '',
 });
 
 const showApiKey = ref(false);
@@ -159,6 +176,7 @@ onMounted(async () => {
       llm_provider_url: existingConfig.llm_provider_url || '',
       llm_provider_api_key: existingConfig.llm_provider_api_key || '',
       llm_provider_model: existingConfig.llm_provider_model || '',
+      llm_provider_api_format: existingConfig.llm_provider_api_format || '',
     };
   }
 });
@@ -175,6 +193,7 @@ const handleDelete = async () => {
       llm_provider_url: '',
       llm_provider_api_key: '',
       llm_provider_model: '',
+      llm_provider_api_format: '',
     };
     alert('配置已删除！');
   }

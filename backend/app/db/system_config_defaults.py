@@ -39,6 +39,11 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="默认 LLM 模型名称。",
     ),
     SystemConfigDefault(
+        key="llm.api_format",
+        value_getter=lambda _: "auto",
+        description="LLM 请求格式：auto（自动识别）、openai（/v1/chat/completions）、anthropic（原生 /v1/messages，x-api-key 认证）、anyrouter（Claude Code 兼容代理，Bearer 认证）、gemini（Google Gemini 原生 API）、openai-responses（OpenAI Responses API /v1/responses）。",
+    ),
+    SystemConfigDefault(
         key="smtp.server",
         value_getter=lambda config: config.smtp_server,
         description="用于发送邮件验证码的 SMTP 服务器地址。",
