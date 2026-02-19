@@ -66,10 +66,17 @@ class ChapterIngestionService:
         )
         await self._vector_store.delete_by_chapters(project_id, [chapter_number])
 
+        # 构建语境化前缀：让 embedding 编码章节级上下文（Contextual Retrieval）
+        ctx_prefix = f"[第{chapter_number}章·{title}]"
+        if summary:
+            ctx_prefix += f" {summary[:200]}"
+
         chunk_records = []
         for index, chunk_text in enumerate(chunks):
+            # embedding 输入 = 上下文前缀 + 原始文本，提升检索精度
+            contextual_input = f"{ctx_prefix}\n{chunk_text}"
             embedding = await self._llm_service.get_embedding(
-                chunk_text,
+                contextual_input,
                 user_id=user_id,
             )
             if not embedding:
@@ -93,6 +100,7 @@ class ChapterIngestionService:
                     "metadata": {
                         "chunk_id": record_id,
                         "length": len(chunk_text),
+                        "contextual_prefix": ctx_prefix,
                     },
                 }
             )

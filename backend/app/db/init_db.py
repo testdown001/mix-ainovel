@@ -1,5 +1,6 @@
 # AIMETA P=数据库初始化_创建表和默认数据|R=创建表_初始化管理员|NR=不含业务逻辑|E=init_db|X=internal|A=初始化函数|D=sqlalchemy|S=db|RD=./README.ai
 import logging
+import hashlib
 
 from pathlib import Path
 
@@ -16,6 +17,10 @@ from .system_config_defaults import SYSTEM_CONFIG_DEFAULTS
 from .session import AsyncSessionLocal, engine
 
 logger = logging.getLogger(__name__)
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
 
 async def init_db() -> None:
@@ -124,12 +129,50 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
     if not prompts_dir.is_dir():
         return
 
-    result = await session.execute(select(Prompt.name))
-    existing_names = set(result.scalars().all())
+    prompts_result = await session.execute(select(Prompt))
+    existing_prompts = {prompt.name: prompt for prompt in prompts_result.scalars().all()}
+
+    checksum_result = await session.execute(
+        select(SystemConfig).where(SystemConfig.key.like("prompt.checksum.%"))
+    )
+    checksum_records = {
+        config.key: config
+        for config in checksum_result.scalars().all()
+    }
 
     for prompt_file in sorted(prompts_dir.glob("*.md")):
         name = prompt_file.stem
-        if name in existing_names:
-            continue
         content = prompt_file.read_text(encoding="utf-8")
-        session.add(Prompt(name=name, content=content))
+        file_hash = _sha256_text(content)
+        checksum_key = f"prompt.checksum.{name}"
+        checksum_desc = f"Prompt checksum for auto sync: {name}"
+
+        prompt = existing_prompts.get(name)
+        checksum = checksum_records.get(checksum_key)
+        stored_hash = checksum.value if checksum and checksum.value else None
+
+        if not prompt:
+            prompt = Prompt(name=name, content=content)
+            session.add(prompt)
+            existing_prompts[name] = prompt
+            final_hash = file_hash
+        else:
+            db_hash = _sha256_text(prompt.content or "")
+            # 仅当 DB 内容仍与“上次同步版本”一致时，才安全覆盖为最新文件内容。
+            if stored_hash and stored_hash == db_hash and db_hash != file_hash:
+                prompt.content = content
+                final_hash = file_hash
+            else:
+                final_hash = db_hash
+
+        if checksum:
+            checksum.value = final_hash
+            checksum.description = checksum_desc
+        else:
+            checksum = SystemConfig(
+                key=checksum_key,
+                value=final_hash,
+                description=checksum_desc,
+            )
+            session.add(checksum)
+            checksum_records[checksum_key] = checksum

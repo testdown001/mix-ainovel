@@ -69,8 +69,7 @@ SYSTEM_MESSAGE_NOVELIST = """你是一位富有经验的小说家，擅长创作
 
 # ==================== 章节生成 Prompt 模板 ====================
 
-CHAPTER_MIN_WORDS = 2000
-CHAPTER_MAX_WORDS = 5000
+from ..core.constants import CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS
 
 def generate_chapter_prompt(
     project_info: dict,

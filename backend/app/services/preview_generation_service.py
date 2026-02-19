@@ -11,11 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .llm_service import LLMService
 from .prompt_service import PromptService
+from ..core.constants import CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS
 
 logger = logging.getLogger(__name__)
-
-CHAPTER_MIN_WORDS = 2000
-CHAPTER_MAX_WORDS = 5000
 
 
 class PreviewGenerationService:
@@ -254,8 +252,9 @@ class PreviewGenerationService:
 {style_hint or '无特殊要求'}
 
 [字数硬约束]
-- 正文字数必须在 {CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字之间（含边界）
-- 建议目标字数：{target_word_count} 字左右
+- 正文字数目标区间：{CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字
+- 建议目标字数：{target_word_count} 字左右（可随剧情节奏上下浮动）
+- 冲突场景可多用短句提速，铺垫/心理段可用长句展开，长短句需交替，不要整章同一节奏
 
 请严格按照预览中的情节点顺序，扩写成完整的章节正文。
 

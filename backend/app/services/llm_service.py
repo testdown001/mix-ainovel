@@ -178,6 +178,30 @@ class LLMService:
             )
         )
 
+    @staticmethod
+    def _prefer_openai_responses_model(model_name: Optional[str]) -> bool:
+        """判断模型是否更适合优先走 OpenAI Responses API。"""
+        normalized = (model_name or "").strip().lower()
+        return normalized.startswith("gpt-5")
+
+    @staticmethod
+    def _is_endpoint_not_supported_detail(detail: str) -> bool:
+        """判断错误详情是否属于网关/上游的端点不兼容。"""
+        lowered = (detail or "").strip().lower()
+        if not lowered:
+            return False
+        return any(
+            marker in lowered
+            for marker in (
+                "endpoint not supported",
+                "codex channel",
+                "convert_request_failed",
+                "chat/completions",
+                "responses endpoint",
+                "unsupported endpoint",
+            )
+        )
+
     def _resolve_api_format(self, api_format_setting: Optional[str], base_url: Optional[str], model_name: Optional[str]) -> str:
         """根据配置决定使用哪种 API 格式。
 
@@ -194,6 +218,9 @@ class LLMService:
         # auto: Claude 模型走 anthropic 格式，其他走 openai 格式
         if self._is_claude_model(model_name):
             return "anthropic"
+        # gpt-5 系列优先走 responses；若网关不支持，后续会自动回退到 chat/completions
+        if self._prefer_openai_responses_model(model_name):
+            return "openai-responses"
         return "openai"
 
     async def _stream_and_collect(
@@ -313,6 +340,26 @@ class LLMService:
                         detail = str(exc) or detail
                 else:
                     detail = str(exc) or detail
+
+                # OpenAI chat/completions 端点不兼容时，自动切换到 responses 重试
+                if (
+                    api_format == "openai"
+                    and not responses_endpoint_fallback_applied
+                    and self._is_endpoint_not_supported_detail(detail)
+                ):
+                    responses_endpoint_fallback_applied = True
+                    api_format = "openai-responses"
+                    logger.warning(
+                        "OpenAI chat/completions 端点不兼容，自动切换到 Responses API 重试: "
+                        "base_url=%s model=%s attempt=%d/%d detail=%s",
+                        config.get("base_url"),
+                        model_name,
+                        attempt,
+                        max_retries + 1,
+                        detail,
+                    )
+                    continue
+
                 logger.error(
                     "LLM stream internal error: base_url=%s model=%s user_id=%s detail=%s",
                     config.get("base_url"), model_name, user_id, detail,
@@ -342,6 +389,23 @@ class LLMService:
 
             except (NotFoundError, BadRequestError) as exc:
                 detail = self._extract_provider_error_detail(exc)
+                if (
+                    api_format == "openai"
+                    and not responses_endpoint_fallback_applied
+                    and self._is_endpoint_not_supported_detail(detail)
+                ):
+                    responses_endpoint_fallback_applied = True
+                    api_format = "openai-responses"
+                    logger.warning(
+                        "OpenAI chat/completions 返回端点不兼容错误，自动切换到 Responses API 重试: "
+                        "base_url=%s model=%s attempt=%d/%d detail=%s",
+                        config.get("base_url"),
+                        model_name,
+                        attempt,
+                        max_retries + 1,
+                        detail,
+                    )
+                    continue
                 if (
                     isinstance(exc, BadRequestError)
                     and api_format in ("openai", "openai-responses")
@@ -427,13 +491,15 @@ class LLMService:
                 if (
                     api_format == "openai-responses"
                     and not responses_endpoint_fallback_applied
-                    and resp_status in (400, 404, 405, 422)
+                    and resp_status in (400, 404, 405, 422, 500)
                     and (
                         "upstream_error" in resp_body_lower
                         or "unsupported" in resp_body_lower
                         or "not support" in resp_body_lower
                         or "not found" in resp_body_lower
                         or "unknown" in resp_body_lower
+                        or "endpoint not supported" in resp_body_lower
+                        or "convert_request_failed" in resp_body_lower
                         or not resp_body_lower.strip()
                     )
                 ):

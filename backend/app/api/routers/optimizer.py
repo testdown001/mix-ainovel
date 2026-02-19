@@ -218,11 +218,16 @@ async def optimize_chapter(
         )
 
 
+class ApplyOptimizationRequest(BaseModel):
+    """应用优化请求"""
+    project_id: str = Field(..., description="项目ID")
+    chapter_number: int = Field(..., description="章节编号")
+    optimized_content: str = Field(..., description="优化后的内容")
+
+
 @router.post("/apply-optimization")
 async def apply_optimization(
-    project_id: str,
-    chapter_number: int,
-    optimized_content: str,
+    request: ApplyOptimizationRequest,
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
@@ -232,28 +237,28 @@ async def apply_optimization(
     novel_service = NovelService(session)
     
     # 验证项目所有权
-    project = await novel_service.ensure_project_owner(project_id, current_user.id)
-    
+    project = await novel_service.ensure_project_owner(request.project_id, current_user.id)
+
     # 获取章节
     chapter = next(
-        (ch for ch in project.chapters if ch.chapter_number == chapter_number),
+        (ch for ch in project.chapters if ch.chapter_number == request.chapter_number),
         None
     )
     if not chapter:
         raise HTTPException(status_code=404, detail="章节不存在")
-    
+
     if not chapter.selected_version:
         raise HTTPException(status_code=400, detail="章节尚未选择版本")
-    
+
     # 更新内容
-    chapter.selected_version.content = optimized_content
+    chapter.selected_version.content = request.optimized_content
     await session.commit()
-    
+
     logger.info(
         "用户 %s 应用了项目 %s 第 %s 章的优化内容",
         current_user.id,
-        project_id,
-        chapter_number
+        request.project_id,
+        request.chapter_number
     )
     
     return {"status": "success", "message": "优化内容已应用"}

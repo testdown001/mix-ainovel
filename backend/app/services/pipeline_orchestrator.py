@@ -12,12 +12,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.constants import (
+    CHAPTER_MIN_WORDS,
+    CHAPTER_MAX_WORDS,
+    CHAPTER_RECOMMENDED_WORDS,
+    CHAPTER_WORD_COUNT_RULE,
+)
 from ..models.novel import Chapter
 from ..models.project_memory import ProjectMemory
 from ..repositories.system_config_repository import SystemConfigRepository
 from ..services.ai_review_service import AIReviewService
 from ..services.chapter_context_service import ChapterContextService
-from ..services.chapter_guardrails import ChapterGuardrails
+from ..services.chapter_guardrails import default_guardrails
 from ..services.consistency_service import ConsistencyService, ViolationSeverity
 from ..services.enhanced_writing_flow import EnhancedWritingFlow
 from ..services.enrichment_service import EnrichmentService
@@ -29,8 +35,14 @@ from ..services.preview_generation_service import PreviewGenerationService
 from ..services.prompt_service import PromptService
 from ..services.reader_simulator_service import ReaderSimulatorService, ReaderType
 from ..services.self_critique_service import CritiqueDimension, SelfCritiqueService
-from ..services.vector_store_service import VectorStoreService
-from ..services.writer_context_builder import WriterContextBuilder
+from ..services.writer_context_builder import default_context_builder
+from ..services.writer_shared import (
+    build_blueprint_constraints_for_mission,
+    extract_tail_excerpt,
+    generate_chapter_mission as _shared_generate_chapter_mission,
+    normalize_blueprint_relationships,
+    rewrite_with_guardrails as _shared_rewrite_with_guardrails,
+)
 from ..services.platinum_writing_context import (
     PLATINUM_WRITING_BRIEF_FALLBACK,
     build_foreshadowing_urgency_brief,
@@ -40,15 +52,6 @@ from ..services.platinum_writing_context import (
 from ..utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
 
 logger = logging.getLogger(__name__)
-
-CHAPTER_MIN_WORDS = 2000
-CHAPTER_MAX_WORDS = 5000
-CHAPTER_RECOMMENDED_WORDS = 3000
-CHAPTER_WORD_COUNT_RULE = (
-    f"本章正文必须在 {CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字之间（含边界）。"
-    f"推荐目标约 {CHAPTER_RECOMMENDED_WORDS} 字，建议按开头钩子 10%、剧情发展 50%、"
-    "高潮爆点 33%、结尾钩子 7% 分配。"
-)
 
 
 @dataclass
@@ -86,8 +89,8 @@ class PipelineOrchestrator:
         self.llm_service = LLMService(session)
         self.prompt_service = PromptService(session)
         self.novel_service = NovelService(session)
-        self.context_builder = WriterContextBuilder()
-        self.guardrails = ChapterGuardrails()
+        self.context_builder = default_context_builder
+        self.guardrails = default_guardrails
 
     async def generate_chapter(
         self,
@@ -121,7 +124,7 @@ class PipelineOrchestrator:
         )
 
         project_schema = await self.novel_service._serialize_project(project)
-        blueprint_dict = self._normalize_blueprint(project_schema.blueprint.model_dump())
+        blueprint_dict = normalize_blueprint_relationships(project_schema.blueprint.model_dump())
 
         outline_title = outline.title or f"第{outline.chapter_number}章"
         outline_summary = outline.summary or "暂无摘要"
@@ -133,16 +136,36 @@ class PipelineOrchestrator:
             history_context.get("completed_chapters", [])
         )
 
-        chapter_mission = await self._generate_chapter_mission(
+        pre_visibility_context = self.context_builder.build_visibility_context(
+            blueprint=blueprint_dict,
+            completed_summaries=history_context["completed_summaries"],
+            previous_tail=history_context["previous_tail"],
+            outline_title=outline_title,
+            outline_summary=outline_summary,
+            writing_notes=writing_notes,
+            allowed_new_characters=[],
+        )
+        introduced_characters_for_mission = pre_visibility_context["introduced_characters"]
+        blueprint_constraints = build_blueprint_constraints_for_mission(
+            blueprint_dict=blueprint_dict,
+            outline_title=outline_title,
+            outline_summary=outline_summary,
+        )
+
+        chapter_mission = await _shared_generate_chapter_mission(
+            self.llm_service,
+            self.prompt_service,
             blueprint_dict=blueprint_dict,
             previous_summary=history_context["previous_summary"],
             previous_tail=history_context["previous_tail"],
             outline_title=outline_title,
             outline_summary=outline_summary,
             writing_notes=writing_notes,
-            introduced_characters=[],
+            introduced_characters=introduced_characters_for_mission,
             all_characters=all_characters,
+            blueprint_constraints=blueprint_constraints,
             user_id=user_id,
+            temperature=0.3,
             pattern_constraint=pattern_constraint,
         )
 
@@ -305,6 +328,9 @@ class PipelineOrchestrator:
             previous_tail=history_context["previous_tail"],
             chapter_mission=chapter_mission,
         )
+        emotion_expression_brief = self._build_emotion_expression_brief(
+            history_context.get("completed_chapters", [])
+        )
 
         # ---- 作者风格指纹 ----
         fingerprint_context: Optional[str] = None
@@ -342,6 +368,7 @@ class PipelineOrchestrator:
             platinum_rhythm_brief=platinum_rhythm_brief,
             foreshadowing_urgency_brief=foreshadowing_urgency_brief,
             hook_continuity_brief=hook_continuity_brief,
+            emotion_expression_brief=emotion_expression_brief,
             story_skeleton=history_context.get("story_skeleton"),
             genre_prompt_injection=genre_prompt_injection,
             fingerprint_context=fingerprint_context,
@@ -583,6 +610,7 @@ class PipelineOrchestrator:
 
         if preset == "enhanced":
             config.enable_six_dimension = True
+            config.enable_enrichment = True
 
         if preset == "ultimate":
             config.enable_memory = True
@@ -593,6 +621,7 @@ class PipelineOrchestrator:
             config.enable_self_critique = True
             config.enable_reader_sim = True
             config.enable_consistency = True
+            config.enable_enrichment = True
 
         if preset == "basic":
             config.enable_rag = True
@@ -706,7 +735,7 @@ class PipelineOrchestrator:
             if existing.chapter_number > latest_prev_number:
                 latest_prev_number = existing.chapter_number
                 previous_summary_text = existing.real_summary or ""
-                previous_tail_excerpt = self._extract_tail_excerpt(existing.selected_version.content)
+                previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
 
         story_skeleton = self._build_story_skeleton(completed_chapters, chapter_number)
 
@@ -717,15 +746,6 @@ class PipelineOrchestrator:
             "previous_tail": previous_tail_excerpt or "暂无（这是第一章）",
             "story_skeleton": story_skeleton,
         }
-
-    @staticmethod
-    def _extract_tail_excerpt(text: Optional[str], limit: int = 500) -> str:
-        if not text:
-            return ""
-        stripped = text.strip()
-        if len(stripped) <= limit:
-            return stripped
-        return stripped[-limit:]
 
     @staticmethod
     def _build_story_skeleton(
@@ -771,14 +791,42 @@ class PipelineOrchestrator:
         return "\n".join(lines)
 
     @staticmethod
-    def _normalize_blueprint(blueprint_dict: Dict[str, Any]) -> Dict[str, Any]:
-        if "relationships" in blueprint_dict and blueprint_dict["relationships"]:
-            for relation in blueprint_dict["relationships"]:
-                if "character_from" in relation:
-                    relation["from"] = relation.pop("character_from")
-                if "character_to" in relation:
-                    relation["to"] = relation.pop("character_to")
-        return blueprint_dict
+    def _build_emotion_expression_brief(completed_chapters: List[Dict[str, Any]]) -> str:
+        """构建情绪表达去模板化约束，减少“愤怒=握拳+指节发白”等重复句式。"""
+        recent_chapters = sorted(
+            completed_chapters or [],
+            key=lambda item: item.get("chapter_number", 0),
+        )[-6:]
+        observed_pool = "\n".join(
+            [
+                (item.get("opening_excerpt") or "") + "\n" + (item.get("ending_excerpt") or "") + "\n" + (item.get("summary") or "")
+                for item in recent_chapters
+            ]
+        )
+        phrase_bank = (
+            "握紧拳头",
+            "指节发白",
+            "目光死死",
+            "死死盯",
+            "咬紧牙关",
+            "胸腔发麻",
+            "掌心",
+            "血痕",
+            "青筋暴起",
+            "怒火中烧",
+            "太阳穴突突",
+        )
+        observed = [phrase for phrase in phrase_bank if phrase and phrase in observed_pool]
+        observed_text = "、".join(observed[:8]) if observed else "近期未检测到固定短语，但仍需主动避免模板化怒意描写"
+        return "\n".join(
+            [
+                "同一情绪必须用不同表达路径，不得复用固定模板。",
+                f"近期疑似高频表达：{observed_text}。",
+                "怒意优先通过“行为后果”体现：例如改策略、压冲动、转移目标、反制行动，而非只写身体反应。",
+                "允许写生理反应，但每次只保留一个短动作，并与场景细节绑定，禁止连续堆叠“握拳+指节+目光”套装。",
+                "同段中相近情绪句式不得重复；如果上一段写了怒，下一段改用对话节奏、环境压力或决策代价呈现。",
+            ]
+        )
 
     @staticmethod
     def _extract_mission_patterns(selected_version) -> Dict[str, str]:
@@ -860,74 +908,6 @@ class PipelineOrchestrator:
 
         return "[模式差异化约束]\n" + "\n".join(constraints)
 
-    async def _generate_chapter_mission(
-        self,
-        *,
-        blueprint_dict: Dict[str, Any],
-        previous_summary: str,
-        previous_tail: str,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        introduced_characters: List[str],
-        all_characters: List[str],
-        user_id: int,
-        pattern_constraint: str = "",
-    ) -> Optional[dict]:
-        plan_prompt = await self.prompt_service.get_prompt("chapter_plan")
-        if not plan_prompt:
-            logger.warning("未配置 chapter_plan 提示词，跳过导演脚本生成")
-            return None
-
-        plan_input = f"""
-[上一章摘要]
-{previous_summary}
-
-[上一章结尾]
-{previous_tail}
-
-[当前章节大纲]
-标题：{outline_title}
-摘要：{outline_summary}
-
-[已登场角色]
-{json.dumps(introduced_characters, ensure_ascii=False) if introduced_characters else "暂无"}
-
-[全部角色]
-{json.dumps(all_characters, ensure_ascii=False)}
-
-[写作指令]
-{writing_notes}
-"""
-        if pattern_constraint:
-            plan_input += f"\n{pattern_constraint}\n"
-
-        try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt=plan_prompt,
-                conversation_history=[{"role": "user", "content": plan_input}],
-                temperature=0.3,
-                user_id=user_id,
-                timeout=120.0,
-            )
-            cleaned = remove_think_tags(response)
-            if not cleaned:
-                logger.info("导演脚本: remove_think_tags 后为空，回退原始响应 (len=%d)", len(response))
-                cleaned = response
-            normalized = unwrap_markdown_json(cleaned)
-            if not normalized:
-                logger.warning("导演脚本: unwrap_markdown_json 结果为空")
-                return None
-            try:
-                mission = json.loads(normalized)
-            except json.JSONDecodeError:
-                mission = json.loads(repair_json(normalized))
-            logger.info("章节导演脚本生成完成: macro_beat=%s", mission.get("macro_beat"))
-            return mission
-        except Exception as exc:
-            logger.warning("生成章节导演脚本失败，将使用默认模式: %s", exc)
-            return None
-
     async def _generate_mission_brief(
         self,
         *,
@@ -998,10 +978,9 @@ class PipelineOrchestrator:
         if not settings.vector_store_enabled:
             return {"chunks": [], "summaries": []}
 
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过 RAG: %s", exc)
+        from .writer_shared import create_vector_store_or_none
+        vector_store = create_vector_store_or_none()
+        if vector_store is None:
             return {"chunks": [], "summaries": []}
 
         query_parts = [outline_title, outline_summary]
@@ -1034,23 +1013,35 @@ class PipelineOrchestrator:
         if not settings.vector_store_enabled:
             return None, {"mode": "two_stage", "enabled": False}
 
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过两层 RAG: %s", exc)
-            return None, {"mode": "two_stage", "enabled": False, "error": str(exc)}
+        from .writer_shared import create_vector_store_or_none
+        vector_store = create_vector_store_or_none()
+        if vector_store is None:
+            return None, {"mode": "two_stage", "enabled": False, "error": "init_failed"}
 
-        sync_session = getattr(self.session, "sync_session", self.session)
-        retrieval_service = KnowledgeRetrievalService(sync_session, self.llm_service, vector_store)
-        filtered = await retrieval_service.retrieve_and_filter(
-            project_id=project_id,
-            chapter_number=chapter_number,
-            user_id=user_id,
-            pov_character=pov_character,
-            user_guidance=writing_notes,
-            top_k=settings.vector_top_k_chunks,
-            retrieval_mode=retrieval_mode,
-        )
+        retrieval_service = KnowledgeRetrievalService(self.session, self.llm_service, vector_store)
+        try:
+            filtered = await retrieval_service.retrieve_and_filter(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                user_id=user_id,
+                pov_character=pov_character,
+                user_guidance=writing_notes,
+                top_k=settings.vector_top_k_chunks,
+                retrieval_mode=retrieval_mode,
+            )
+        except Exception as exc:
+            logger.exception(
+                "两层 RAG 检索失败，回退为无检索上下文: project=%s chapter=%s mode=%s",
+                project_id,
+                chapter_number,
+                retrieval_mode,
+            )
+            return None, {
+                "mode": "two_stage",
+                "enabled": False,
+                "error": str(exc)[:200],
+                "fallback": "disabled_due_error",
+            }
         context_text = self._format_filtered_context(filtered)
         stats = filtered.stats or {}
         stats["mode"] = "two_stage"
@@ -1103,6 +1094,7 @@ class PipelineOrchestrator:
         platinum_rhythm_brief: Optional[str],
         foreshadowing_urgency_brief: Optional[str],
         hook_continuity_brief: Optional[str],
+        emotion_expression_brief: Optional[str],
         story_skeleton: Optional[str] = None,
         genre_prompt_injection: Optional[str] = None,
         fingerprint_context: Optional[str] = None,
@@ -1160,6 +1152,8 @@ class PipelineOrchestrator:
             sections.append(("[高优先级伏笔提醒]", foreshadowing_urgency_brief))
         if hook_continuity_brief:
             sections.append(("[追更钩子连续性]", hook_continuity_brief))
+        if emotion_expression_brief:
+            sections.append(("[情绪表达去模板化约束](重点减少怒意句式重复)", emotion_expression_brief))
         if platinum_writing_brief:
             sections.append(("[白金写作准则](硬约束)", platinum_writing_brief))
         sections.append(("[禁止角色](本章不允许提及)", forbidden_text))
@@ -1302,13 +1296,33 @@ class PipelineOrchestrator:
                 {"type": v.type, "severity": v.severity, "description": v.description}
                 for v in guardrail_result.violations
             ]
-            violations_text = self.guardrails.format_violations_for_rewrite(guardrail_result)
-            content = await self._rewrite_with_guardrails(
-                original_text=content,
-                chapter_mission=chapter_mission,
-                violations_text=violations_text,
-                user_id=user_id,
+            locally_patched = self.guardrails.apply_local_patches(content, guardrail_result)
+            guardrail_metadata["local_patch_applied"] = locally_patched != content
+            recheck_result = self.guardrails.check(
+                generated_text=locally_patched,
+                forbidden_characters=forbidden_characters,
+                allowed_new_characters=allowed_new_characters,
+                pov=chapter_mission.get("pov") if chapter_mission else None,
+                omniscient_tolerance=omniscient_tolerance,
             )
+            guardrail_metadata["post_patch_passed"] = recheck_result.passed
+
+            if recheck_result.passed:
+                content = locally_patched
+            else:
+                guardrail_metadata["post_patch_violations"] = [
+                    {"type": v.type, "severity": v.severity, "description": v.description}
+                    for v in recheck_result.violations
+                ]
+                violations_text = self.guardrails.format_violations_for_rewrite(recheck_result)
+                content = await _shared_rewrite_with_guardrails(
+                    self.llm_service,
+                    self.prompt_service,
+                    original_text=locally_patched,
+                    chapter_mission=chapter_mission,
+                    violations_text=violations_text,
+                    user_id=user_id,
+                )
 
         parsed_json = None
         extracted_text = None
@@ -1368,48 +1382,6 @@ class PipelineOrchestrator:
         )
 
         return preview_result.get("full_chapter", ""), preview_result
-
-    async def _rewrite_with_guardrails(
-        self,
-        *,
-        original_text: str,
-        chapter_mission: Optional[dict],
-        violations_text: str,
-        user_id: int,
-    ) -> str:
-        rewrite_prompt = await self.prompt_service.get_prompt("rewrite_guardrails")
-        if not rewrite_prompt:
-            logger.warning("未配置 rewrite_guardrails 提示词，跳过自动修复")
-            return original_text
-
-        rewrite_input = f"""
-[原文]
-{original_text}
-
-[章节导演脚本]
-{json.dumps(chapter_mission, ensure_ascii=False, indent=2) if chapter_mission else "无"}
-
-[违规列表]
-{violations_text}
-"""
-
-        try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt=rewrite_prompt,
-                conversation_history=[{"role": "user", "content": rewrite_input}],
-                temperature=0.3,
-                user_id=user_id,
-                timeout=300.0,
-                response_format=None,
-            )
-            cleaned = remove_think_tags(response)
-            if not cleaned.strip():
-                logger.warning("护栏重写结果去除 think 标签后为空，回退到原文")
-                return original_text
-            return cleaned
-        except Exception as exc:
-            logger.warning("自动修复失败，返回原文: %s", exc)
-            return original_text
 
     @staticmethod
     def _extract_text(value: object) -> Optional[str]:
@@ -1686,13 +1658,34 @@ class PipelineOrchestrator:
         chapter_content: str,
         *,
         user_id: int,
-        target_word_count: int = 3000,
+        target_word_count: int = CHAPTER_RECOMMENDED_WORDS,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         service = EnrichmentService(self.session, self.llm_service)
+        current_word_count = len(chapter_content or "")
+
+        # 先做下限兜底：低于 2000 字时直接走迭代扩写，避免章节明显偏短
+        if current_word_count < CHAPTER_MIN_WORDS:
+            min_recovery_target = max(CHAPTER_MIN_WORDS + 200, target_word_count)
+            enriched_text = await service.enrich_to_target(
+                chapter_text=chapter_content,
+                target_word_count=min_recovery_target,
+                user_id=user_id,
+                max_iterations=2,
+            )
+            enriched_count = len(enriched_text or "")
+            if enriched_text and enriched_count > current_word_count:
+                return enriched_text, {
+                    "original_word_count": current_word_count,
+                    "enriched_word_count": enriched_count,
+                    "enrichment_ratio": (enriched_count / current_word_count) if current_word_count > 0 else 1.0,
+                    "enrichment_type": "min_length_recovery",
+                }
+
         result = await service.check_and_enrich(
             chapter_text=chapter_content,
             target_word_count=target_word_count,
             user_id=user_id,
+            threshold=0.82,
         )
         if not result:
             return chapter_content, None

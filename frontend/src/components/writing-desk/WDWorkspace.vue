@@ -404,13 +404,17 @@ const currentComponentProps = computed(() => {
   if (isChapterFailed(props.selectedChapterNumber)) {
     return {
       chapterNumber: props.selectedChapterNumber,
-      generatingChapter: props.generatingChapter
+      generatingChapter: props.generatingChapter,
+      outline: selectedChapterOutline.value,
+      projectId: props.project?.id
     }
   }
   return {
     chapterNumber: props.selectedChapterNumber,
     generatingChapter: props.generatingChapter,
-    canGenerate: canGenerateChapter(props.selectedChapterNumber)
+    canGenerate: canGenerateChapter(props.selectedChapterNumber),
+    outline: selectedChapterOutline.value,
+    projectId: props.project?.id
   }
 })
 </script>

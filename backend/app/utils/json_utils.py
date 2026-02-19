@@ -4,10 +4,37 @@ import re
 
 
 def remove_think_tags(raw_text: str) -> str:
-    """移除 <think></think> 标签，避免污染结果。"""
+    """移除模型推理泄漏文本（think 标签、AgentThink 前缀等）。"""
     if not raw_text:
         return raw_text
-    return re.sub(r"<think>.*?</think>", "", raw_text, flags=re.DOTALL).strip()
+    text = str(raw_text)
+
+    # 1) 移除常见推理块标签（兼容大小写与属性）
+    text = re.sub(
+        r"<\s*(?:think|thinking|analysis)\b[^>]*>.*?<\s*/\s*(?:think|thinking|analysis)\s*>",
+        "",
+        text,
+        flags=re.DOTALL | re.IGNORECASE,
+    )
+
+    # 2) 移除残留的单独 think 标签（未闭合场景）
+    text = re.sub(
+        r"</?\s*(?:think|thinking|analysis)\b[^>]*>",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 3) 移除常见代理推理前缀行，如: [Agent 3][AgentThink] ...
+    text = re.sub(
+        r"(?im)^\s*\[agent\s*\d+\]\s*\[agent(?:think|reasoning|analysis)\][^\n]*$",
+        "",
+        text,
+    )
+
+    # 4) 清理多余空行
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def unwrap_markdown_json(raw_text: str) -> str:
@@ -139,7 +166,8 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
     if not raw_text:
         return raw_text
 
-    text = raw_text
+    # 先剥离可能泄漏的推理文本
+    text = remove_think_tags(raw_text)
 
     # 先移除代码块围栏标记（保留内部文本）
     text = re.sub(r"(?m)^\s*```(?:\w+)?\s*$", "", text)

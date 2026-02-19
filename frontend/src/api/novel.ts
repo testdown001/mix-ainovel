@@ -35,8 +35,29 @@ const request = async (url: string, options: RequestInit = {}) => {
   }
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.detail || `请求失败，状态码: ${response.status}`)
+    let detail = ''
+    const contentType = (response.headers.get('content-type') || '').toLowerCase()
+
+    if (contentType.includes('application/json')) {
+      const errorData = await response.json().catch(() => null as any)
+      if (typeof errorData?.detail === 'string' && errorData.detail.trim()) {
+        detail = errorData.detail.trim()
+      } else if (typeof errorData?.message === 'string' && errorData.message.trim()) {
+        detail = errorData.message.trim()
+      } else if (typeof errorData?.error?.message === 'string' && errorData.error.message.trim()) {
+        detail = errorData.error.message.trim()
+      } else if (errorData) {
+        detail = JSON.stringify(errorData)
+      }
+    } else {
+      detail = (await response.text().catch(() => '')).trim()
+    }
+
+    if (detail) {
+      const clipped = detail.length > 600 ? `${detail.slice(0, 600)}...` : detail
+      throw new Error(`请求失败(${response.status}): ${clipped}`)
+    }
+    throw new Error(`请求失败，状态码: ${response.status}`)
   }
 
   return response.json()
@@ -85,10 +106,19 @@ export interface Character {
   relationship_to_protagonist?: string
 }
 
+export interface ChapterPrediction {
+  key_points: string[]
+  cool_points: string[]
+  foreshadowing_hooks: string[]
+  foreshadowing_targets: string[]
+  limitations: string[]
+}
+
 export interface ChapterOutline {
   chapter_number: number
   title: string
   summary: string
+  metadata?: { prediction?: ChapterPrediction } | null
 }
 
 export interface RegenerateOutlinesResponse {
@@ -100,6 +130,20 @@ export interface RegenerateOutlinesResponse {
 export interface ChapterVersion {
   content: string
   style?: string
+  metadata?: ChapterVersionMetadata
+}
+
+export interface ChapterVersionMetadata {
+  version_id?: number
+  version_label?: string
+  ai_review?: {
+    is_best?: boolean
+    scores?: Record<string, number>
+    evaluation?: string | null
+    flaws?: string[] | null
+    suggestions?: string | null
+  }
+  [key: string]: any
 }
 
 export interface Chapter {
@@ -108,6 +152,8 @@ export interface Chapter {
   summary: string
   content: string | null
   versions: string[] | null  // versions是字符串数组，不是对象数组
+  version_metadata?: ChapterVersionMetadata[] | null
+  recommended_version_index?: number | null
   evaluation: string | null
   generation_status: 'not_generated' | 'generating' | 'evaluating' | 'selecting' | 'failed' | 'evaluation_failed' | 'waiting_for_confirm' | 'successful'
   word_count?: number  // 字数统计
@@ -142,6 +188,42 @@ export interface ChapterGenerationResponse {
   evaluation: string | null
   ai_message: string
   chapter_number: number
+}
+
+export interface AdvancedGenerateFlowConfig {
+  preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'custom'
+  versions?: number
+  enable_preview?: boolean
+  enable_optimizer?: boolean
+  enable_consistency?: boolean
+  enable_enrichment?: boolean
+  async_finalize?: boolean
+  enable_rag?: boolean
+  rag_mode?: 'simple' | 'two_stage'
+}
+
+export interface AdvancedGenerateRequest {
+  project_id: string
+  chapter_number: number
+  writing_notes?: string
+  flow_config?: AdvancedGenerateFlowConfig
+}
+
+export interface AdvancedGenerateVariant {
+  index: number
+  version_id: number
+  content: string
+  metadata?: ChapterVersionMetadata
+}
+
+export interface AdvancedGenerateResponse {
+  project_id: string
+  chapter_number: number
+  preset: string
+  best_version_index: number
+  variants: AdvancedGenerateVariant[]
+  review_summaries?: Record<string, any>
+  debug_metadata?: Record<string, any> | null
 }
 
 export interface DeleteNovelsResponse {
@@ -241,10 +323,18 @@ export class NovelAPI {
   }
 
   static async generateChapter(projectId: string, chapterNumber: number): Promise<NovelProject> {
-    return request(`${WRITER_BASE}/${projectId}/chapters/generate`, {
+    const payload: AdvancedGenerateRequest = {
+      project_id: projectId,
+      chapter_number: chapterNumber,
+      flow_config: { preset: 'enhanced' }
+    }
+
+    await request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
       method: 'POST',
-      body: JSON.stringify({ chapter_number: chapterNumber })
+      body: JSON.stringify(payload)
     })
+
+    return this.getNovel(projectId)
   }
 
   static async evaluateChapter(projectId: string, chapterNumber: number): Promise<NovelProject> {
@@ -332,6 +422,16 @@ export class NovelAPI {
     })
   }
 
+  static async rebuildRag(projectId: string): Promise<{ indexed_chapters: number }> {
+    return request(`${WRITER_BASE}/${projectId}/rag/rebuild`, { method: 'POST' })
+  }
+
+  static async generatePrediction(projectId: string, chapterNumber: number): Promise<ChapterPrediction> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/prediction`, {
+      method: 'POST'
+    })
+  }
+
   static async editChapterContent(
     projectId: string,
     chapterNumber: number,
@@ -395,13 +495,13 @@ export class OptimizerAPI {
     chapterNumber: number,
     optimizedContent: string
   ): Promise<{ status: string; message: string }> {
-    const params = new URLSearchParams({
-      project_id: projectId,
-      chapter_number: chapterNumber.toString(),
-      optimized_content: optimizedContent
-    })
-    return request(`${OPTIMIZER_BASE}/apply-optimization?${params}`, {
-      method: 'POST'
+    return request(`${OPTIMIZER_BASE}/apply-optimization`, {
+      method: 'POST',
+      body: JSON.stringify({
+        project_id: projectId,
+        chapter_number: chapterNumber,
+        optimized_content: optimizedContent
+      })
     })
   }
 }

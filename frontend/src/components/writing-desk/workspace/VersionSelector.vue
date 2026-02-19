@@ -131,6 +131,12 @@
                 <span>约 {{ Math.round(cleanVersionContent(version.content).length / 100) * 100 }} 字</span>
                 <span>•</span>
                 <span>{{ version.style || '标准' }}风格</span>
+                <span
+                  v-if="version.metadata?.ai_review?.is_best"
+                  style="color: var(--md-primary); font-weight: 600;"
+                >
+                  • AI推荐
+                </span>
                 <span v-if="isCurrentVersion(index)" style="color: var(--md-success); font-weight: 600;">• 当前选中</span>
               </div>
               <div class="mt-2">

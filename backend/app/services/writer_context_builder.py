@@ -158,3 +158,6 @@ class WriterContextBuilder:
             return None
         pattern = "|".join(escaped)
         return re.compile(pattern)
+
+
+default_context_builder = WriterContextBuilder()

@@ -957,6 +957,7 @@ class NovelService:
                         chapter_number=outline.chapter_number,
                         title=outline.title,
                         summary=outline.summary or "",
+                        metadata=outline.metadata_,
                     )
                     for outline in sorted(project.outlines, key=lambda o: o.chapter_number)
                 ],
@@ -1079,6 +1080,8 @@ class NovelService:
         real_summary = chapter.real_summary if chapter else None
         content = None
         versions: Optional[List[str]] = None
+        version_metadata: Optional[List[Dict[str, Any]]] = None
+        recommended_version_index: Optional[int] = None
         evaluation_text: Optional[str] = None
         status_value = ChapterGenerationStatus.NOT_GENERATED.value
         word_count = 0
@@ -1092,10 +1095,30 @@ class NovelService:
                 if chapter.selected_version:
                     content = chapter.selected_version.content
                 if chapter.versions:
-                    versions = [
-                        v.content
-                        for v in sorted(chapter.versions, key=lambda item: item.created_at)
-                    ]
+                    sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
+                    versions = [v.content for v in sorted_versions]
+                    version_metadata = []
+                    for idx, version in enumerate(sorted_versions):
+                        meta: Dict[str, Any] = {
+                            "version_id": version.id,
+                            "version_label": version.version_label,
+                        }
+                        if isinstance(version.metadata, dict):
+                            meta.update(version.metadata)
+                            ai_review = version.metadata.get("ai_review")
+                            if (
+                                recommended_version_index is None
+                                and isinstance(ai_review, dict)
+                                and ai_review.get("is_best") is True
+                            ):
+                                recommended_version_index = idx
+                        version_metadata.append(meta)
+
+                    if recommended_version_index is None and chapter.selected_version_id:
+                        for idx, version in enumerate(sorted_versions):
+                            if version.id == chapter.selected_version_id:
+                                recommended_version_index = idx
+                                break
                 if chapter.evaluations:
                     latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
                     evaluation_text = latest.feedback or latest.decision
@@ -1107,6 +1130,8 @@ class NovelService:
             real_summary=real_summary,
             content=content,
             versions=versions,
+            version_metadata=version_metadata,
+            recommended_version_index=recommended_version_index,
             evaluation=evaluation_text,
             generation_status=ChapterGenerationStatus(status_value),
             word_count=word_count,

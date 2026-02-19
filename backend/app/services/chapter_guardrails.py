@@ -356,3 +356,65 @@ class ChapterGuardrails:
             if v.context:
                 lines.append(f"   上下文：{v.context}")
         return "\n".join(lines)
+
+    def apply_local_patches(self, text: str, result: GuardrailResult) -> str:
+        """
+        对常见违规执行本地最小修补，优先避免整章重写。
+        """
+        if result.passed or not text:
+            return text
+
+        patched = text
+        stripped_markdown = False
+        trimmed_tail = False
+
+        for violation in result.violations:
+            if violation.type == "forbidden_name":
+                forbidden_name = self._extract_quoted_token(violation.description)
+                if forbidden_name:
+                    patched = re.sub(re.escape(forbidden_name), "那人", patched)
+            elif violation.type == "omniscient_cue":
+                cue = self._extract_quoted_token(violation.description)
+                if cue:
+                    patched = patched.replace(cue, "")
+            elif violation.type == "sudden_familiarity":
+                role_name = self._extract_quoted_token(violation.description)
+                if role_name:
+                    first_pos = patched.find(role_name)
+                    if first_pos >= 0:
+                        patched = f"{patched[:first_pos]}一个陌生人{patched[first_pos:]}"
+            elif violation.type == "markdown_marker" and not stripped_markdown:
+                patched = self._strip_markdown_markers(patched)
+                stripped_markdown = True
+            elif (
+                violation.type == "trailing_camera"
+                and not trimmed_tail
+                and violation.position is not None
+            ):
+                if 0 < violation.position < len(patched):
+                    patched = patched[:violation.position].rstrip()
+                    trimmed_tail = True
+
+        return patched
+
+    @staticmethod
+    def _extract_quoted_token(description: str) -> Optional[str]:
+        if not description:
+            return None
+        match = re.search(r"「(.+?)」", description)
+        if match:
+            return match.group(1)
+        return None
+
+    @staticmethod
+    def _strip_markdown_markers(text: str) -> str:
+        cleaned = text
+        cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", cleaned)
+        cleaned = re.sub(r"^\s*#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*[-*+]\s+", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*```.*$", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*---+\s*$", "", cleaned, flags=re.MULTILINE)
+        return cleaned
+
+
+default_guardrails = ChapterGuardrails()

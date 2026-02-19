@@ -52,9 +52,8 @@ from ...services.chapter_ingest_service import ChapterIngestionService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
-from ...services.vector_store_service import VectorStoreService
-from ...services.writer_context_builder import WriterContextBuilder
-from ...services.chapter_guardrails import ChapterGuardrails
+from ...services.writer_context_builder import default_context_builder
+from ...services.chapter_guardrails import default_guardrails
 from ...services.ai_review_service import AIReviewService
 from ...services.finalize_service import FinalizeService
 from ...services.platinum_writing_context import (
@@ -65,33 +64,23 @@ from ...services.platinum_writing_context import (
 )
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
 from ...repositories.system_config_repository import SystemConfigRepository
+from ...core.constants import CHAPTER_WORD_COUNT_RULE
+from ...services.writer_shared import (
+    build_blueprint_constraints_for_mission,
+    create_vector_store_or_none,
+    extract_tail_excerpt,
+    generate_chapter_mission,
+    normalize_blueprint_relationships,
+    rewrite_with_guardrails,
+)
 from ...services.pipeline_orchestrator import PipelineOrchestrator
 
 router = APIRouter(prefix="/api/writer", tags=["Writer"])
 logger = logging.getLogger(__name__)
 
-CHAPTER_MIN_WORDS = 2000
-CHAPTER_MAX_WORDS = 5000
-CHAPTER_RECOMMENDED_WORDS = 3000
-CHAPTER_WORD_COUNT_RULE = (
-    f"本章正文必须在 {CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字之间（含边界）。"
-    f"推荐目标约 {CHAPTER_RECOMMENDED_WORDS} 字，建议按开头钩子 10%、剧情发展 50%、"
-    "高潮爆点 33%、结尾钩子 7% 分配。"
-)
-
 
 async def _load_project_schema(service: NovelService, project_id: str, user_id: int) -> NovelProjectSchema:
     return await service.get_project_schema(project_id, user_id)
-
-
-def _extract_tail_excerpt(text: Optional[str], limit: int = 500) -> str:
-    """截取章节结尾文本，默认保留 500 字。"""
-    if not text:
-        return ""
-    stripped = text.strip()
-    if len(stripped) <= limit:
-        return stripped
-    return stripped[-limit:]
 
 
 async def _resolve_version_count(session: AsyncSession) -> int:
@@ -126,125 +115,6 @@ async def _resolve_version_count(session: AsyncSession) -> int:
                 pass
     # 3) 默认值
     return int(settings.writer_chapter_versions)
-
-
-async def _generate_chapter_mission(
-    llm_service: LLMService,
-    prompt_service: PromptService,
-    blueprint_dict: dict,
-    previous_summary: str,
-    previous_tail: str,
-    outline_title: str,
-    outline_summary: str,
-    writing_notes: str,
-    introduced_characters: List[str],
-    all_characters: List[str],
-    user_id: int,
-) -> Optional[dict]:
-    """
-    L2 Director: 生成章节导演脚本（ChapterMission）
-    """
-    plan_prompt = await prompt_service.get_prompt("chapter_plan")
-    if not plan_prompt:
-        logger.warning("未配置 chapter_plan 提示词，跳过导演脚本生成")
-        return None
-
-    plan_input = f"""
-[上一章摘要]
-{previous_summary or "暂无（这是第一章）"}
-
-[上一章结尾]
-{previous_tail or "暂无（这是第一章）"}
-
-[当前章节大纲]
-标题：{outline_title}
-摘要：{outline_summary}
-
-[已登场角色]
-{json.dumps(introduced_characters, ensure_ascii=False) if introduced_characters else "暂无"}
-
-[全部角色]
-{json.dumps(all_characters, ensure_ascii=False)}
-
-[写作指令]
-{writing_notes or "无额外指令"}
-"""
-
-    try:
-        response = await llm_service.get_llm_response(
-            system_prompt=plan_prompt,
-            conversation_history=[{"role": "user", "content": plan_input}],
-            temperature=0.7,
-            user_id=user_id,
-            timeout=120.0,
-        )
-        cleaned = remove_think_tags(response)
-        # thinking 模型可能将全部内容包裹在 <think> 标签内，
-        # 清除后为空时回退到原始响应中提取 JSON
-        if not cleaned:
-            logger.info("remove_think_tags 后内容为空，回退到原始响应提取 JSON (len=%d)", len(response))
-            cleaned = response
-        normalized = unwrap_markdown_json(cleaned)
-        if not normalized:
-            logger.warning("unwrap_markdown_json 提取结果为空，原始响应前200字: %s", response[:200])
-            return None
-        try:
-            mission = json.loads(normalized)
-        except json.JSONDecodeError:
-            repaired = repair_json(normalized)
-            mission = json.loads(repaired)
-        logger.info("成功生成章节导演脚本: macro_beat=%s", mission.get("macro_beat"))
-        return mission
-    except Exception as exc:
-        logger.warning("生成章节导演脚本失败，将使用默认模式: %s", exc)
-        return None
-
-
-async def _rewrite_with_guardrails(
-    llm_service: LLMService,
-    prompt_service: PromptService,
-    original_text: str,
-    chapter_mission: Optional[dict],
-    violations_text: str,
-    user_id: int,
-) -> str:
-    """
-    使用护栏修复提示词重写违规内容
-    """
-    rewrite_prompt = await prompt_service.get_prompt("rewrite_guardrails")
-    if not rewrite_prompt:
-        logger.warning("未配置 rewrite_guardrails 提示词，跳过自动修复")
-        return original_text
-
-    rewrite_input = f"""
-[原文]
-{original_text}
-
-[章节导演脚本]
-{json.dumps(chapter_mission, ensure_ascii=False, indent=2) if chapter_mission else "无"}
-
-[违规列表]
-{violations_text}
-"""
-
-    try:
-        response = await llm_service.get_llm_response(
-            system_prompt=rewrite_prompt,
-            conversation_history=[{"role": "user", "content": rewrite_input}],
-            temperature=0.3,
-            user_id=user_id,
-            timeout=300.0,
-            response_format=None,
-        )
-        cleaned = remove_think_tags(response)
-        if not cleaned:
-            logger.info("护栏修复: remove_think_tags 后为空，回退原始响应 (len=%d)", len(response))
-            cleaned = response
-        logger.info("成功修复违规内容")
-        return cleaned
-    except Exception as exc:
-        logger.warning("自动修复失败，返回原文: %s", exc)
-        return original_text
 
 
 async def _refresh_edit_summary_and_ingest(
@@ -341,12 +211,7 @@ async def _finalize_chapter_async(
         chapter.word_count = len(selected_version.content or "")
         await session.commit()
 
-        vector_store = None
-        if settings.vector_store_enabled:
-            try:
-                vector_store = VectorStoreService()
-            except RuntimeError as exc:
-                logger.warning("向量库初始化失败，跳过定稿写入: %s", exc)
+        vector_store = create_vector_store_or_none()
 
         sync_session = getattr(session, "sync_session", session)
         finalize_service = FinalizeService(sync_session, llm_service, vector_store)
@@ -388,30 +253,89 @@ async def advanced_generate_chapter(
     高级写作入口：通过 PipelineOrchestrator 统一编排生成流程。
     """
     orchestrator = PipelineOrchestrator(session)
-    result = await orchestrator.generate_chapter(
-        project_id=request.project_id,
-        chapter_number=request.chapter_number,
-        writing_notes=request.writing_notes,
-        user_id=current_user.id,
-        flow_config=request.flow_config.model_dump(),
-    )
+    try:
+        result = await orchestrator.generate_chapter(
+            project_id=request.project_id,
+            chapter_number=request.chapter_number,
+            writing_notes=request.writing_notes,
+            user_id=current_user.id,
+            flow_config=request.flow_config.model_dump(),
+        )
 
-    flow_config = request.flow_config
-    if flow_config.async_finalize and result.get("variants"):
-        best_index = result.get("best_version_index", 0)
-        variants = result["variants"]
-        if 0 <= best_index < len(variants):
-            selected_version_id = variants[best_index]["version_id"]
-            background_tasks.add_task(
-                _schedule_finalize_task,
+        flow_config = request.flow_config
+        if flow_config.async_finalize and result.get("variants"):
+            best_index = result.get("best_version_index", 0)
+            variants = result["variants"]
+            if 0 <= best_index < len(variants):
+                selected_version_id = variants[best_index]["version_id"]
+                background_tasks.add_task(
+                    _schedule_finalize_task,
+                    request.project_id,
+                    request.chapter_number,
+                    selected_version_id,
+                    current_user.id,
+                    False,
+                )
+
+        return AdvancedGenerateResponse(**result)
+    except HTTPException as exc:
+        logger.warning(
+            "高级生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
+            request.project_id,
+            request.chapter_number,
+            current_user.id,
+            request.flow_config.preset,
+            exc.status_code,
+            exc.detail,
+        )
+        if exc.status_code >= 500:
+            try:
+                stmt = select(Chapter).where(
+                    Chapter.project_id == request.project_id,
+                    Chapter.chapter_number == request.chapter_number,
+                )
+                result = await session.execute(stmt)
+                chapter = result.scalars().first()
+                if chapter:
+                    chapter.status = ChapterGenerationStatus.FAILED.value
+                    await session.commit()
+            except Exception:
+                logger.exception(
+                    "高级生成失败后写回章节状态失败: project=%s chapter=%s user=%s",
+                    request.project_id,
+                    request.chapter_number,
+                    current_user.id,
+                )
+        raise
+    except Exception as exc:
+        logger.exception(
+            "高级生成异常: project=%s chapter=%s user=%s preset=%s",
+            request.project_id,
+            request.chapter_number,
+            current_user.id,
+            request.flow_config.preset,
+        )
+        try:
+            stmt = select(Chapter).where(
+                Chapter.project_id == request.project_id,
+                Chapter.chapter_number == request.chapter_number,
+            )
+            result = await session.execute(stmt)
+            chapter = result.scalars().first()
+            if chapter:
+                chapter.status = ChapterGenerationStatus.FAILED.value
+                await session.commit()
+        except Exception:
+            logger.exception(
+                "高级生成异常后写回章节状态失败: project=%s chapter=%s user=%s",
                 request.project_id,
                 request.chapter_number,
-                selected_version_id,
                 current_user.id,
-                False,
             )
-
-    return AdvancedGenerateResponse(**result)
+        raise HTTPException(
+            status_code=500,
+            detail=f"高级生成失败: {str(exc)[:200]}",
+        ) from exc
 
 
 @router.post("/chapters/{chapter_number}/finalize", response_model=FinalizeChapterResponse)
@@ -453,11 +377,8 @@ async def finalize_chapter(
     await session.commit()
 
     vector_store = None
-    if settings.vector_store_enabled and not request.skip_vector_update:
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，跳过定稿写入: %s", exc)
+    if not request.skip_vector_update:
+        vector_store = create_vector_store_or_none()
 
     sync_session = getattr(session, "sync_session", session)
     finalize_service = FinalizeService(sync_session, LLMService(session), vector_store)
@@ -495,8 +416,8 @@ async def generate_chapter(
     novel_service = NovelService(session)
     prompt_service = PromptService(session)
     llm_service = LLMService(session)
-    context_builder = WriterContextBuilder()
-    guardrails = ChapterGuardrails()
+    context_builder = default_context_builder
+    guardrails = default_guardrails
 
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
     _t0 = time.monotonic()
@@ -544,18 +465,13 @@ async def generate_chapter(
         if existing.chapter_number > latest_prev_number:
             latest_prev_number = existing.chapter_number
             previous_summary_text = existing.real_summary or ""
-            previous_tail_excerpt = _extract_tail_excerpt(existing.selected_version.content)
+            previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
 
     project_schema = await novel_service._serialize_project(project)
     blueprint_dict = project_schema.blueprint.model_dump()
 
     # 处理关系字段名
-    if "relationships" in blueprint_dict and blueprint_dict["relationships"]:
-        for relation in blueprint_dict["relationships"]:
-            if "character_from" in relation:
-                relation["from"] = relation.pop("character_from")
-            if "character_to" in relation:
-                relation["to"] = relation.pop("character_to")
+    normalize_blueprint_relationships(blueprint_dict)
 
     outline_title = outline.title or f"第{outline.chapter_number}章"
     outline_summary = outline.summary or "暂无摘要"
@@ -564,10 +480,27 @@ async def generate_chapter(
     # 提取所有角色名
     all_characters = [c.get("name") for c in blueprint_dict.get("characters", []) if c.get("name")]
 
+    # 先做一次可见性计算，得到已登场角色，供 mission 阶段使用
+    pre_visibility_context = context_builder.build_visibility_context(
+        blueprint=blueprint_dict,
+        completed_summaries=completed_summaries,
+        previous_tail=previous_tail_excerpt,
+        outline_title=outline_title,
+        outline_summary=outline_summary,
+        writing_notes=writing_notes,
+        allowed_new_characters=[],
+    )
+    introduced_characters_for_mission = pre_visibility_context["introduced_characters"]
+    blueprint_constraints = build_blueprint_constraints_for_mission(
+        blueprint_dict=blueprint_dict,
+        outline_title=outline_title,
+        outline_summary=outline_summary,
+    )
+
     # ========== 2. L2 Director: 生成章节导演脚本 ==========
     _t1 = time.monotonic()
     logger.info("项目 %s 第 %s 章 [计时] 上下文收集完成 %.1fs", project_id, request.chapter_number, _t1 - _t0)
-    chapter_mission = await _generate_chapter_mission(
+    chapter_mission = await generate_chapter_mission(
         llm_service=llm_service,
         prompt_service=prompt_service,
         blueprint_dict=blueprint_dict,
@@ -576,8 +509,9 @@ async def generate_chapter(
         outline_title=outline_title,
         outline_summary=outline_summary,
         writing_notes=writing_notes,
-        introduced_characters=[],  # 将在下一步填充
+        introduced_characters=introduced_characters_for_mission,
         all_characters=all_characters,
+        blueprint_constraints=blueprint_constraints,
         user_id=current_user.id,
     )
 
@@ -611,15 +545,7 @@ async def generate_chapter(
     )
 
     # ========== 4. 准备 RAG 上下文 ==========
-    vector_store: Optional[VectorStoreService]
-    if not settings.vector_store_enabled:
-        vector_store = None
-    else:
-        try:
-            vector_store = VectorStoreService()
-        except RuntimeError as exc:
-            logger.warning("向量库初始化失败，RAG 检索被禁用: %s", exc)
-            vector_store = None
+    vector_store = create_vector_store_or_none()
     context_service = ChapterContextService(llm_service=llm_service, vector_store=vector_store)
 
     query_parts = [outline_title, outline_summary]
@@ -749,16 +675,33 @@ async def generate_chapter(
                     for v in guardrail_result.violations
                 ]
 
-                # 尝试自动修复
-                violations_text = guardrails.format_violations_for_rewrite(guardrail_result)
-                final_content = await _rewrite_with_guardrails(
-                    llm_service=llm_service,
-                    prompt_service=prompt_service,
-                    original_text=normalized,
-                    chapter_mission=chapter_mission,
-                    violations_text=violations_text,
-                    user_id=current_user.id,
+                # 先尝试本地最小修补，再复检；仍失败才触发整段重写
+                locally_patched = guardrails.apply_local_patches(normalized, guardrail_result)
+                guardrail_metadata["local_patch_applied"] = locally_patched != normalized
+                recheck_result = guardrails.check(
+                    generated_text=locally_patched,
+                    forbidden_characters=forbidden_characters,
+                    allowed_new_characters=allowed_new_characters,
+                    pov=chapter_mission.get("pov") if chapter_mission else None,
                 )
+                guardrail_metadata["post_patch_passed"] = recheck_result.passed
+
+                if recheck_result.passed:
+                    final_content = locally_patched
+                else:
+                    guardrail_metadata["post_patch_violations"] = [
+                        {"type": v.type, "severity": v.severity, "description": v.description}
+                        for v in recheck_result.violations
+                    ]
+                    violations_text = guardrails.format_violations_for_rewrite(recheck_result)
+                    final_content = await rewrite_with_guardrails(
+                        llm_service,
+                        prompt_service,
+                        original_text=locally_patched,
+                        chapter_mission=chapter_mission,
+                        violations_text=violations_text,
+                        user_id=current_user.id,
+                    )
 
             def _extract_text(value: object) -> Optional[str]:
                 if not value:
@@ -983,11 +926,9 @@ async def evaluate_chapter(
     llm_service = LLMService(session)
 
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
-    # 确保预加载 selected_version 关系
-    from sqlalchemy.orm import selectinload
     stmt = (
         select(Chapter)
-        .options(selectinload(Chapter.selected_version))
+        .options(selectinload(Chapter.selected_version), selectinload(Chapter.versions))
         .where(
             Chapter.project_id == project_id,
             Chapter.chapter_number == request.chapter_number,
@@ -995,33 +936,16 @@ async def evaluate_chapter(
     )
     result = await session.execute(stmt)
     chapter = result.scalars().first()
-    
+
     if not chapter:
         chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
 
-    # 如果没有选中版本，使用最新版本进行评审
-    version_to_evaluate = chapter.selected_version
-    if not version_to_evaluate:
-        # 获取该章节的所有版本，选择最新的一个
-        from sqlalchemy.orm import selectinload
-        stmt_versions = (
-            select(Chapter)
-            .options(selectinload(Chapter.versions))
-            .where(
-                Chapter.project_id == project_id,
-                Chapter.chapter_number == request.chapter_number,
-            )
-        )
-        result_versions = await session.execute(stmt_versions)
-        chapter_with_versions = result_versions.scalars().first()
-        
-        if not chapter_with_versions or not chapter_with_versions.versions:
-            raise HTTPException(status_code=400, detail="该章节还没有生成任何版本，无法进行评审")
-        
-        # 使用最新的版本（列表中的最后一个）
-        version_to_evaluate = chapter_with_versions.versions[-1]
-    
-    if not version_to_evaluate or not version_to_evaluate.content:
+    sorted_versions = sorted(chapter.versions or [], key=lambda item: item.created_at)
+    if not sorted_versions:
+        raise HTTPException(status_code=400, detail="该章节还没有生成任何版本，无法进行评审")
+
+    fallback_version = chapter.selected_version or sorted_versions[-1]
+    if not fallback_version or not fallback_version.content:
         raise HTTPException(status_code=400, detail="版本内容为空，无法进行评审")
 
     chapter.status = "evaluating"
@@ -1030,43 +954,119 @@ async def evaluate_chapter(
     eval_prompt = await prompt_service.get_prompt("evaluation")
     if not eval_prompt:
         logger.warning("未配置名为 'evaluation' 的评审提示词，将跳过 AI 评审")
-        # 使用 add_chapter_evaluation 创建评审记录
         await novel_service.add_chapter_evaluation(
             chapter=chapter,
-            version=version_to_evaluate,
+            version=fallback_version,
             feedback="未配置评审提示词",
-            decision="skipped"
+            decision="skipped",
         )
         return await _load_project_schema(novel_service, project_id, current_user.id)
 
     try:
+        outlines_map = {outline.chapter_number: outline for outline in project.outlines}
+        completed_chapters: List[Dict] = []
+        for existing in sorted(project.chapters, key=lambda item: item.chapter_number):
+            if existing.chapter_number >= request.chapter_number:
+                continue
+            if existing.selected_version is None or not existing.selected_version.content:
+                continue
+            if not existing.real_summary:
+                summary = await llm_service.get_summary(
+                    existing.selected_version.content,
+                    temperature=0.15,
+                    user_id=current_user.id,
+                    timeout=180.0,
+                )
+                existing.real_summary = remove_think_tags(summary)
+                await session.commit()
+            completed_chapters.append(
+                {
+                    "chapter_number": existing.chapter_number,
+                    "title": (
+                        outlines_map.get(existing.chapter_number).title
+                        if outlines_map.get(existing.chapter_number)
+                        else f"第{existing.chapter_number}章"
+                    ),
+                    "summary": existing.real_summary or "",
+                    "tail_excerpt": extract_tail_excerpt(existing.selected_version.content, limit=300),
+                }
+            )
+
+        project_schema = await novel_service._serialize_project(project)
+        blueprint_dict = project_schema.blueprint.model_dump()
+        normalize_blueprint_relationships(blueprint_dict)
+
+        current_outline = outlines_map.get(request.chapter_number)
+        chapter_title = current_outline.title if current_outline else f"第{request.chapter_number}章"
+
+        evaluation_payload = {
+            "novel_blueprint": blueprint_dict,
+            "completed_chapters": completed_chapters,
+            "content_to_evaluate": {
+                "chapter_number": request.chapter_number,
+                "chapter_title": chapter_title,
+                "versions": [
+                    {"version_index": idx + 1, "content": version.content or ""}
+                    for idx, version in enumerate(sorted_versions)
+                ],
+            },
+        }
+        evaluation_input = json.dumps(evaluation_payload, ensure_ascii=False, indent=2)
+
         evaluation_raw = await llm_service.get_llm_response(
             system_prompt=eval_prompt,
-            conversation_history=[{"role": "user", "content": version_to_evaluate.content}],
-            temperature=0.8,
+            conversation_history=[{"role": "user", "content": evaluation_input}],
+            temperature=0.3,
             user_id=current_user.id,
         )
         evaluation_text = remove_think_tags(evaluation_raw)
-        
-        # 校验 AI 返回的内容不为空
-        if not evaluation_text or len(evaluation_text.strip()) == 0:
+        if not evaluation_text or not evaluation_text.strip():
             raise ValueError("评审结果为空")
-        
-        # 使用 add_chapter_evaluation 创建评审记录
-        # 这会自动设置状态为 WAITING_FOR_CONFIRM
+
+        normalized = unwrap_markdown_json(evaluation_text) or evaluation_text
+        parsed: Optional[Dict] = None
+        try:
+            parsed = json.loads(normalized)
+        except json.JSONDecodeError:
+            try:
+                parsed = json.loads(repair_json(normalized))
+            except Exception:
+                parsed = None
+
+        best_choice_index: Optional[int] = None
+        feedback_text = evaluation_text
+        if isinstance(parsed, dict):
+            feedback_text = json.dumps(parsed, ensure_ascii=False, indent=2)
+            raw_best_choice = parsed.get("best_choice")
+            try:
+                candidate = int(str(raw_best_choice).strip())
+            except (TypeError, ValueError):
+                candidate = -1
+            if 1 <= candidate <= len(sorted_versions):
+                best_choice_index = candidate - 1
+
+        selected_version = (
+            sorted_versions[best_choice_index]
+            if best_choice_index is not None
+            else fallback_version
+        )
+        decision = f"best_v{best_choice_index + 1}" if best_choice_index is not None else "reviewed"
         await novel_service.add_chapter_evaluation(
             chapter=chapter,
-            version=version_to_evaluate,
-            feedback=evaluation_text,
-            decision="reviewed"
+            version=selected_version,
+            feedback=feedback_text,
+            decision=decision,
         )
-        logger.info("项目 %s 第 %s 章评审成功", project_id, request.chapter_number)
+        logger.info(
+            "项目 %s 第 %s 章评审成功，推荐版本=%s",
+            project_id,
+            request.chapter_number,
+            best_choice_index + 1 if best_choice_index is not None else "N/A",
+        )
     except Exception as exc:
         logger.exception("项目 %s 第 %s 章评审失败: %s", project_id, request.chapter_number, exc)
-        # 回滚事务，恢复状态
         await session.rollback()
-        
-        # 重新加载 chapter 对象（因为 rollback 后对象已脱离 session）
+
         stmt = (
             select(Chapter)
             .where(
@@ -1076,26 +1076,23 @@ async def evaluate_chapter(
         )
         result = await session.execute(stmt)
         chapter = result.scalars().first()
-        
+
         if chapter:
-            # 使用 add_chapter_evaluation 创建失败记录
-            # 注意：这里不能再用 add_chapter_evaluation，因为它会设置状态为 waiting_for_confirm
-            # 失败时应该设置为 evaluation_failed
             from app.models.novel import ChapterEvaluation
+
             evaluation_record = ChapterEvaluation(
                 chapter_id=chapter.id,
-                version_id=version_to_evaluate.id,
+                version_id=fallback_version.id if fallback_version else None,
                 decision="failed",
                 feedback=f"评审失败: {str(exc)}",
-                score=None
+                score=None,
             )
             session.add(evaluation_record)
             chapter.status = "evaluation_failed"
             await session.commit()
-        
-        # 抛出异常，让前端知道评审失败
+
         raise HTTPException(status_code=500, detail=f"评审失败: {str(exc)}")
-    
+
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 
@@ -1489,3 +1486,136 @@ async def edit_chapter_content_fast(
         generation_status=ChapterGenerationStatus(status_value),
         word_count=chapter.word_count or 0,
     )
+
+
+@router.post("/novels/{project_id}/chapters/{chapter_number}/prediction")
+async def generate_prediction(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """生成章节剧情推演：要点、爽点、伏笔/钩子、需回收伏笔、限制。"""
+    novel_service = NovelService(session)
+    llm_service = LLMService(session)
+
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    outline = await novel_service.get_outline(project_id, chapter_number)
+    if not outline:
+        raise HTTPException(status_code=404, detail="未找到对应章节大纲")
+
+    # 收集蓝图摘要
+    project_schema = await novel_service._serialize_project(project)
+    bp = project_schema.blueprint
+    blueprint_brief = (
+        f"标题: {bp.title}\n类型: {bp.genre}\n风格: {bp.style}\n"
+        f"一句话概要: {bp.one_sentence_summary}\n完整概要: {bp.full_synopsis}"
+    ) if bp else ""
+
+    # 收集已完成章节摘要
+    completed = []
+    for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
+        if ch.chapter_number >= chapter_number and ch.real_summary:
+            break
+        if ch.real_summary:
+            completed.append(f"第{ch.chapter_number}章: {ch.real_summary}")
+    completed_text = "\n".join(completed) if completed else "无"
+
+    # 收集所有大纲
+    outlines_text = "\n".join(
+        f"第{o.chapter_number}章 - {o.title}: {o.summary}"
+        for o in sorted(project.outlines, key=lambda x: x.chapter_number)
+    )
+
+    # 收集伏笔信息
+    foreshadowings_text = ""
+    if bp and bp.foreshadowings:
+        lines = []
+        for f in bp.foreshadowings:
+            lines.append(f"- {f.name}(埋设第{f.planted_chapter}章"
+                         f"{', 目标第' + str(f.target_chapter) + '章' if f.target_chapter else ''}): {f.description}")
+        foreshadowings_text = "\n".join(lines)
+
+    prompt = f"""你是一位专业的小说剧情分析师。请根据以下信息，为第{chapter_number}章生成剧情推演。
+
+## 小说蓝图
+{blueprint_brief}
+
+## 章节大纲
+{outlines_text}
+
+## 已完成章节摘要
+{completed_text}
+
+## 伏笔设定
+{foreshadowings_text or '无'}
+
+## 当前章节
+第{chapter_number}章 - {outline.title}: {outline.summary}
+
+请输出严格的 JSON（不要 markdown 包裹），包含以下 5 个数组字段：
+- key_points: 本章核心剧情要点（3-5条字符串）
+- cool_points: 本章爽点/高潮设计（2-3条字符串）
+- foreshadowing_hooks: 本章需要埋设的伏笔/钩子（1-3条字符串）
+- foreshadowing_targets: 本章需要回收的伏笔（0-3条字符串，无则空数组）
+- limitations: 本章写作限制/注意事项（2-3条字符串）"""
+
+    raw = await llm_service.generate(prompt, temperature=0.4, response_format="json_object")
+
+    # 解析 JSON
+    cleaned = remove_think_tags(raw)
+    cleaned = unwrap_markdown_json(cleaned)
+    try:
+        prediction = json.loads(cleaned)
+    except json.JSONDecodeError:
+        try:
+            prediction = json.loads(repair_json(cleaned))
+        except Exception:
+            raise HTTPException(status_code=500, detail="推演结果解析失败")
+
+    # 写入 metadata
+    meta = outline.metadata_ or {}
+    meta["prediction"] = prediction
+    outline.metadata_ = meta
+    await session.commit()
+
+    return prediction
+
+
+@router.post("/novels/{project_id}/rag/rebuild")
+async def rebuild_rag(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """重建项目知识库：重新索引所有已完成章节到向量数据库。"""
+    novel_service = NovelService(session)
+    llm_service = LLMService(session)
+
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    vector_store = create_vector_store_or_none()
+    if not vector_store:
+        raise HTTPException(status_code=400, detail="向量库未启用")
+
+    ingest_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
+
+    indexed = 0
+    for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
+        if not ch.selected_version or not ch.selected_version.content:
+            continue
+        content = ch.selected_version.content
+        outline = await novel_service.get_outline(project_id, ch.chapter_number)
+        title = outline.title if outline else f"第{ch.chapter_number}章"
+        summary = ch.real_summary
+        await ingest_service.ingest_chapter(
+            project_id=project_id,
+            chapter_number=ch.chapter_number,
+            title=title,
+            content=content,
+            summary=summary,
+            user_id=current_user.id,
+        )
+        indexed += 1
+
+    return {"indexed_chapters": indexed}

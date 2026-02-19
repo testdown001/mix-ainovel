@@ -11,7 +11,7 @@ AIReviewService: AI 评审服务
 import json
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..services.llm_service import LLMService
 from ..services.prompt_service import PromptService
@@ -123,17 +123,43 @@ class AIReviewService:
         lines.append("[待评审版本]")
         for i, content in enumerate(versions):
             lines.append(f"--- 版本 {i} ---")
-            # 截取前 3000 字，避免超长
-            truncated = content[:3000] if len(content) > 3000 else content
-            lines.append(truncated)
-            if len(content) > 3000:
-                lines.append(f"... (已截取前 3000 字，原文共 {len(content)} 字)")
+            sampled_text, is_sampled = self._sample_content_for_review(content)
+            lines.append(sampled_text)
+            if is_sampled:
+                lines.append(f"... (节选评审：原文共 {len(content)} 字)")
             lines.append("")
 
         lines.append("[评审要求]")
         lines.append("请按照评审流程，对上述版本进行对比分析，输出 JSON 格式的评审结果。")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _sample_content_for_review(
+        content: str,
+        *,
+        segment_len: int = 1200,
+        direct_limit: int = 3600,
+    ) -> Tuple[str, bool]:
+        text = (content or "").strip()
+        if len(text) <= direct_limit:
+            return text, False
+
+        middle_start = max(0, (len(text) // 2) - (segment_len // 2))
+        middle_end = middle_start + segment_len
+        sampled = "\n".join(
+            [
+                "[开头片段]",
+                text[:segment_len],
+                "",
+                "[中段片段]",
+                text[middle_start:middle_end],
+                "",
+                "[结尾片段]",
+                text[-segment_len:],
+            ]
+        )
+        return sampled, True
 
     def _parse_review_response(self, response: str) -> ReviewResult:
         """解析评审响应"""

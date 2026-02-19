@@ -44,12 +44,14 @@
           :generating-chapter="generatingChapter"
           :evaluating-chapter="evaluatingChapter"
           :is-generating-outline="isGeneratingOutline"
+          :is-rebuilding-rag="isRebuildingRag"
           @close-sidebar="closeSidebar"
           @select-chapter="selectChapter"
           @generate-chapter="generateChapter"
           @edit-chapter="openEditChapterModal"
           @delete-chapter="deleteChapter"
           @generate-outline="generateOutline"
+          @rebuild-rag="rebuildRag"
         />
 
         <div class="flex-1 min-w-0">
@@ -108,6 +110,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
+import { NovelAPI } from '@/api/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion } from '@/api/novel'
 import { globalAlert } from '@/composables/useAlert'
 import Tooltip from '@/components/Tooltip.vue'
@@ -139,6 +142,7 @@ const showEvaluationDetailModal = ref(false)
 const showEditChapterModal = ref(false)
 const editingChapter = ref<ChapterOutline | null>(null)
 const isGeneratingOutline = ref(false)
+const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 
 // 计算属性
@@ -289,13 +293,15 @@ const availableVersions = computed(() => {
 
   // 使用章节已有的版本（字符串数组格式，需要转换为对象数组）
   if (selectedChapter.value?.versions && Array.isArray(selectedChapter.value.versions)) {
-    // 后端 versions 为纯文本字符串数组（已由 _normalize_version_content 提取），
-    // 直接包装为 ChapterVersion 对象即可
+    const metadataList = Array.isArray(selectedChapter.value.version_metadata)
+      ? selectedChapter.value.version_metadata
+      : []
     const convertedVersions = selectedChapter.value.versions
       .filter(v => v && typeof v === 'string')
       .map((versionString, index) => ({
         content: versionString,
-        style: `版本 ${index + 1}`
+        style: metadataList[index]?.version_label || `版本 ${index + 1}`,
+        metadata: metadataList[index]
       }))
 
     return convertedVersions
@@ -367,7 +373,16 @@ const hideVersionSelector = () => {
 const selectChapter = (chapterNumber: number) => {
   selectedChapterNumber.value = chapterNumber
   chapterGenerationResult.value = null
-  selectedVersionIndex.value = 0
+  const chapter = project.value?.chapters?.find(ch => ch.chapter_number === chapterNumber)
+  if (typeof chapter?.recommended_version_index === 'number') {
+    const maxIndex = Math.max(0, (chapter.versions?.length || 1) - 1)
+    selectedVersionIndex.value = Math.min(
+      maxIndex,
+      Math.max(0, chapter.recommended_version_index)
+    )
+  } else {
+    selectedVersionIndex.value = 0
+  }
   closeSidebar()
 }
 
@@ -585,6 +600,20 @@ const handleGenerateOutline = async (numChapters: number) => {
     globalAlert.showError(`生成大纲失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
   } finally {
     isGeneratingOutline.value = false
+  }
+}
+
+const rebuildRag = async () => {
+  if (!project.value) return
+  isRebuildingRag.value = true
+  try {
+    const result = await NovelAPI.rebuildRag(project.value.id)
+    globalAlert.showSuccess(`已重新索引 ${result.indexed_chapters} 个章节`, '知识库已刷新')
+  } catch (error) {
+    console.error('刷新知识库失败:', error)
+    globalAlert.showError(`刷新知识库失败: ${error instanceof Error ? error.message : '未知错误'}`, '刷新失败')
+  } finally {
+    isRebuildingRag.value = false
   }
 }
 

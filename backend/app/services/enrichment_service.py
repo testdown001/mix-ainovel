@@ -59,11 +59,13 @@ ENRICH_CHAPTER_PROMPT = """\
 - 在场景转换时增加环境描写
 - 在紧张时刻放慢节奏，增加感官细节
 - 在情感高潮后增加余波反应
+- 句式长短结合：动作冲突段用更短句提速，心理/环境段可用较长句展开
 
 ## 风格要求：
 - 保持原文的叙事视角
 - 保持原文的语言风格
 - 保持原文的节奏感
+- 不要机械平均段落长度，字数服务剧情，不要生硬凑字
 
 请返回扩写后的完整章节内容，不要解释修改内容。
 """
@@ -127,7 +129,7 @@ class EnrichmentService:
         chapter_text: str,
         target_word_count: int,
         user_id: int,
-        threshold: float = 0.7
+        threshold: float = 0.8
     ) -> Optional[EnrichmentResult]:
         """
         检查字数并在需要时进行扩写

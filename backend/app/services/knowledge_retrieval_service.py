@@ -11,11 +11,15 @@
 这解决了"上下文太长塞不进 prompt"的问题，只注入最相关的过滤后内容。
 """
 import logging
+import inspect
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from ..core.config import settings
 from ..models.project_memory import ProjectMemory
 from ..models.chapter_blueprint import ChapterBlueprint
 from .llm_service import LLMService
@@ -168,13 +172,20 @@ class KnowledgeRetrievalService:
     
     def __init__(
         self,
-        db: Session,
+        db: Session | AsyncSession,
         llm_service: LLMService,
         vector_store_service: Optional[VectorStoreService] = None
     ):
         self.db = db
         self.llm_service = llm_service
         self.vector_store_service = vector_store_service
+
+    async def _execute_stmt(self, stmt):
+        """统一执行 SQL 语句，兼容 Session / AsyncSession。"""
+        result = self.db.execute(stmt)
+        if inspect.isawaitable(result):
+            return await result
+        return result
     
     async def retrieve_and_filter(
         self,
@@ -201,31 +212,67 @@ class KnowledgeRetrievalService:
             FilteredContext
         """
         # 1. 获取章节蓝图信息
-        blueprint = self._get_chapter_blueprint(project_id, chapter_number)
-        
-        # 2. 生成检索关键词
-        queries = await self._generate_search_queries(
-            blueprint=blueprint,
-            user_guidance=user_guidance,
-            user_id=user_id
-        )
-        
-        # 3. 执行向量检索
-        retrieved = await self._retrieve_from_vector_store(
-            project_id=project_id,
-            queries=queries,
-            top_k=top_k,
-            user_id=user_id,
-            retrieval_mode=retrieval_mode,
-        )
-        
-        # 4. 获取前文摘要
-        memory = self.db.query(ProjectMemory).filter(
-            ProjectMemory.project_id == project_id
-        ).first()
+        blueprint = await self._get_chapter_blueprint(project_id, chapter_number)
+
+        # 2. P2: 智能检索规划（多源路由）
+        plan = await self._plan_retrieval(blueprint, user_guidance, user_id)
+        queries = plan.get("queries") or []
+        sources = plan.get("sources") or ["vector_store"]
+
+        # 如果规划失败，回退到原有关键词生成
+        if not queries:
+            queries = await self._generate_search_queries(
+                blueprint=blueprint,
+                user_guidance=user_guidance,
+                user_id=user_id
+            )
+            sources = ["vector_store"]
+
+        # 3. 多源检索
+        retrieved: List[RetrievedKnowledge] = []
+
+        if "vector_store" in sources:
+            retrieved += await self._retrieve_from_vector_store(
+                project_id=project_id,
+                queries=queries,
+                top_k=top_k,
+                user_id=user_id,
+                retrieval_mode=retrieval_mode,
+            )
+
+        if "character_state" in sources:
+            state = await self._get_character_state(project_id)
+            if state:
+                retrieved.append(RetrievedKnowledge(
+                    content=state, source="character_state", relevance_score=0.9,
+                ))
+
+        if "world_setting" in sources:
+            ws = await self._get_world_setting(project_id)
+            if ws:
+                retrieved.append(RetrievedKnowledge(
+                    content=ws, source="world_setting", relevance_score=0.85,
+                ))
+
+        # 4. P3: 查询反思 — 检索不足时补充检索
+        if len(retrieved) < 3 and queries:
+            extra_queries = await self._reflect_and_expand(
+                plan, retrieved, blueprint, user_id
+            )
+            if extra_queries:
+                retrieved += await self._retrieve_from_vector_store(
+                    project_id=project_id,
+                    queries=extra_queries,
+                    top_k=top_k,
+                    user_id=user_id,
+                    retrieval_mode=retrieval_mode,
+                )
+
+        # 5. 获取前文摘要
+        memory = await self._get_project_memory(project_id)
         global_summary = memory.global_summary if memory else ""
-        
-        # 5. 过滤和结构化
+
+        # 6. 过滤和结构化
         filtered = await self._filter_knowledge(
             retrieved=retrieved,
             blueprint=blueprint,
@@ -270,16 +317,14 @@ class KnowledgeRetrievalService:
         context = {}
         
         # 1. 获取项目记忆
-        memory = self.db.query(ProjectMemory).filter(
-            ProjectMemory.project_id == project_id
-        ).first()
+        memory = await self._get_project_memory(project_id)
         
         if memory:
             context["global_summary"] = memory.global_summary
             context["plot_arcs"] = memory.plot_arcs
         
         # 2. 获取章节蓝图
-        blueprint = self._get_chapter_blueprint(project_id, chapter_number)
+        blueprint = await self._get_chapter_blueprint(project_id, chapter_number)
         if blueprint:
             context["blueprint"] = {
                 "chapter_focus": blueprint.chapter_focus,
@@ -335,7 +380,7 @@ class KnowledgeRetrievalService:
         基于前文内容和章节蓝图，生成针对性的写作摘要。
         """
         # 获取章节蓝图
-        blueprint = self._get_chapter_blueprint(project_id, chapter_number)
+        blueprint = await self._get_chapter_blueprint(project_id, chapter_number)
         if not blueprint:
             return None
         
@@ -375,16 +420,26 @@ class KnowledgeRetrievalService:
             logger.error(f"生成章节摘要失败: {e}")
             return None
     
-    def _get_chapter_blueprint(
+    async def _get_project_memory(self, project_id: str) -> Optional[ProjectMemory]:
+        """获取项目记忆（兼容 AsyncSession / Session）。"""
+        result = await self._execute_stmt(
+            select(ProjectMemory).where(ProjectMemory.project_id == project_id)
+        )
+        return result.scalars().first()
+
+    async def _get_chapter_blueprint(
         self,
         project_id: str,
         chapter_number: int
     ) -> Optional[ChapterBlueprint]:
         """获取章节蓝图"""
-        return self.db.query(ChapterBlueprint).filter(
-            ChapterBlueprint.project_id == project_id,
-            ChapterBlueprint.chapter_number == chapter_number
-        ).first()
+        result = await self._execute_stmt(
+            select(ChapterBlueprint).where(
+                ChapterBlueprint.project_id == project_id,
+                ChapterBlueprint.chapter_number == chapter_number,
+            )
+        )
+        return result.scalars().first()
     
     async def _generate_search_queries(
         self,
@@ -514,8 +569,50 @@ class KnowledgeRetrievalService:
             if r.content not in seen:
                 seen.add(r.content)
                 unique.append(r)
-        
+
+        # P1: 统一 Rerank（不依赖 hybrid 模式）
+        if unique and getattr(settings, "rag_reranker_enabled", False):
+            unique = await self._rerank_results(queries[0] if queries else "", unique)
+
         return unique
+
+    async def _rerank_results(
+        self,
+        query: str,
+        results: List[RetrievedKnowledge],
+    ) -> List[RetrievedKnowledge]:
+        """调用外部 Reranker API 对检索结果精排。"""
+        api_url = getattr(settings, "rag_reranker_api_url", None)
+        api_key = getattr(settings, "rag_reranker_api_key", None)
+        model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
+
+        if not api_url or not api_key:
+            return results
+
+        import httpx
+        documents = [r.content[:500] for r in results]
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    str(api_url),
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": model, "query": query, "documents": documents, "top_n": len(documents)},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+            reranked = []
+            for item in sorted(data.get("results", []), key=lambda x: x.get("relevance_score", 0), reverse=True):
+                idx = item.get("index", 0)
+                if idx < len(results):
+                    results[idx].relevance_score = item.get("relevance_score", results[idx].relevance_score)
+                    reranked.append(results[idx])
+
+            logger.info("Rerank 完成: %d → %d 结果", len(results), len(reranked))
+            return reranked if reranked else results
+        except Exception as exc:
+            logger.warning("Rerank API 调用失败，保持原排序: %s", exc)
+            return results
     
     async def _filter_knowledge(
         self,
@@ -593,11 +690,17 @@ class KnowledgeRetrievalService:
     ) -> List[Dict[str, Any]]:
         """获取前几章摘要"""
         from ..models.project_memory import ChapterSnapshot
-        
-        snapshots = self.db.query(ChapterSnapshot).filter(
-            ChapterSnapshot.project_id == project_id,
-            ChapterSnapshot.chapter_number < current_chapter
-        ).order_by(ChapterSnapshot.chapter_number.desc()).limit(count).all()
+
+        result = await self._execute_stmt(
+            select(ChapterSnapshot)
+            .where(
+                ChapterSnapshot.project_id == project_id,
+                ChapterSnapshot.chapter_number < current_chapter,
+            )
+            .order_by(ChapterSnapshot.chapter_number.desc())
+            .limit(count)
+        )
+        snapshots = result.scalars().all()
         
         return [
             {
@@ -615,11 +718,21 @@ class KnowledgeRetrievalService:
     ) -> List[Dict[str, Any]]:
         """获取前几章内容"""
         from ..models.novel import Chapter, ChapterVersion
-        
-        chapters = self.db.query(Chapter).filter(
-            Chapter.project_id == project_id,
-            Chapter.chapter_number < current_chapter
-        ).order_by(Chapter.chapter_number.desc()).limit(count).all()
+        from sqlalchemy.orm import selectinload
+        result = await self._execute_stmt(
+            select(Chapter)
+            .where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number < current_chapter,
+            )
+            .options(
+                selectinload(Chapter.selected_version),
+                selectinload(Chapter.versions),
+            )
+            .order_by(Chapter.chapter_number.desc())
+            .limit(count)
+        )
+        chapters = result.scalars().all()
         
         result = []
         for ch in reversed(chapters):
@@ -639,13 +752,114 @@ class KnowledgeRetrievalService:
     async def _get_character_state(self, project_id: str) -> Optional[str]:
         """获取角色状态"""
         from ..models.memory_layer import CharacterState
-        
-        states = self.db.query(CharacterState).filter(
-            CharacterState.project_id == project_id,
-            CharacterState.character_name == "__all__"
-        ).order_by(CharacterState.chapter_number.desc()).first()
+        result = await self._execute_stmt(
+            select(CharacterState)
+            .where(
+                CharacterState.project_id == project_id,
+                CharacterState.character_name == "__all__",
+            )
+            .order_by(CharacterState.chapter_number.desc())
+        )
+        states = result.scalars().first()
         
         if states and states.extra:
             return states.extra.get("raw_state_text")
-        
+
         return None
+
+    async def _get_world_setting(self, project_id: str) -> Optional[str]:
+        """从蓝图中提取世界观设定文本。"""
+        import json
+        from ..models.novel import NovelBlueprint
+        result = await self._execute_stmt(
+            select(NovelBlueprint).where(NovelBlueprint.project_id == project_id)
+        )
+        bp = result.scalars().first()
+        if bp and bp.world_setting:
+            ws = bp.world_setting
+            if isinstance(ws, dict):
+                return json.dumps(ws, ensure_ascii=False)[:1000]
+            return str(ws)[:1000]
+        return None
+
+    async def _plan_retrieval(
+        self,
+        blueprint: Optional[ChapterBlueprint],
+        user_guidance: Optional[str],
+        user_id: int,
+    ) -> Dict[str, Any]:
+        """P2: 智能检索规划 — 决定查询关键词和知识源。"""
+        if not blueprint:
+            return {"queries": [], "sources": ["vector_store"]}
+
+        prompt = f"""你是小说知识检索规划器。根据章节需求决定检索策略。
+
+章节信息：
+- 第{blueprint.chapter_number}章
+- 定位：{blueprint.chapter_focus or ''}
+- 功能：{blueprint.chapter_function or ''}
+- 简述：{blueprint.brief_summary or ''}
+
+用户指导：{user_guidance or '无'}
+
+请输出 JSON（不要 markdown 包裹）：
+{{
+  "queries": ["关键词1 关键词2", "关键词3 关键词4"],
+  "sources": ["vector_store", "character_state", "world_setting"]
+}}
+
+规则：
+- queries: 3-5组检索词，每组2-3个词用空格连接
+- sources 从以下选择（至少包含 vector_store）：
+  - vector_store: 前文情节片段（始终需要）
+  - character_state: 涉及角色状态变化时选择
+  - world_setting: 涉及世界观/地理/规则时选择
+仅返回JSON。"""
+
+        try:
+            import json
+            from ..utils.json_utils import remove_think_tags, unwrap_markdown_json, repair_json
+            raw = await self.llm_service.generate(
+                prompt=prompt, user_id=user_id, max_tokens=500, temperature=0.3,
+            )
+            cleaned = unwrap_markdown_json(remove_think_tags(raw))
+            try:
+                return json.loads(cleaned)
+            except json.JSONDecodeError:
+                return json.loads(repair_json(cleaned))
+        except Exception as e:
+            logger.warning("检索规划失败，回退默认: %s", e)
+            return {"queries": [], "sources": ["vector_store"]}
+
+    async def _reflect_and_expand(
+        self,
+        plan: Dict[str, Any],
+        retrieved: List[RetrievedKnowledge],
+        blueprint: Optional[ChapterBlueprint],
+        user_id: int,
+    ) -> List[str]:
+        """P3: 查询反思 — 检索结果不足时生成补充关键词。"""
+        if not blueprint:
+            return []
+
+        existing = "\n".join(f"- {r.content[:100]}" for r in retrieved[:5]) or "无"
+
+        prompt = f"""检索结果不足，请生成补充检索词。
+
+章节：第{blueprint.chapter_number}章 - {blueprint.brief_summary or ''}
+原始检索词：{', '.join(plan.get('queries', []))}
+已检索到的内容：
+{existing}
+
+请生成2-3组补充检索词（与原始词不同的角度），每行一组，用空格连接关键词。
+仅输出检索词，不要解释。"""
+
+        try:
+            raw = await self.llm_service.generate(
+                prompt=prompt, user_id=user_id, max_tokens=200, temperature=0.5,
+            )
+            if raw:
+                return [l.strip() for l in raw.strip().split("\n") if l.strip()][:3]
+        except Exception as e:
+            logger.warning("查询反思失败: %s", e)
+        return []
