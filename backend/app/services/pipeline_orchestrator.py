@@ -350,6 +350,16 @@ class PipelineOrchestrator:
             except Exception as e:
                 logger.warning("风格指纹提取失败（不影响生成）: %s", e)
 
+        # 提取剧情推演
+        prediction = (outline.metadata_ or {}).get("prediction")
+        prediction_text = ""
+        if prediction:
+            _labels = {"key_points": "章节要点", "cool_points": "爽点设计", "foreshadowing_hooks": "伏笔/钩子", "foreshadowing_targets": "需回收伏笔", "limitations": "写作限制"}
+            prediction_text = "\n".join(
+                f"{label}：\n" + "\n".join(f"- {item}" for item in prediction.get(key, []))
+                for key, label in _labels.items() if prediction.get(key)
+            )
+
         prompt_sections = self._build_prompt_sections(
             writer_blueprint=writer_blueprint,
             previous_summary=history_context["previous_summary"],
@@ -372,6 +382,7 @@ class PipelineOrchestrator:
             story_skeleton=history_context.get("story_skeleton"),
             genre_prompt_injection=genre_prompt_injection,
             fingerprint_context=fingerprint_context,
+            prediction_text=prediction_text,
         )
 
         if enhanced_flow and enhanced_context:
@@ -1098,6 +1109,7 @@ class PipelineOrchestrator:
         story_skeleton: Optional[str] = None,
         genre_prompt_injection: Optional[str] = None,
         fingerprint_context: Optional[str] = None,
+        prediction_text: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -1106,6 +1118,8 @@ class PipelineOrchestrator:
         sections: List[Tuple[str, str]] = [
             ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
         ]
+        if prediction_text:
+            sections.append(("[剧情推演](AI预分析的章节要点与约束，请参考执行)", prediction_text))
 
         if mission_brief_text:
             sections.append(("[创作任务书](本章写作的核心执行指南，必须严格遵循)", mission_brief_text))

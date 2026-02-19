@@ -604,6 +604,16 @@ async def generate_chapter(
         chapter_mission=chapter_mission,
     )
 
+    # 提取剧情推演数据
+    prediction_text = ""
+    prediction = (outline.metadata_ or {}).get("prediction")
+    if prediction:
+        _labels = {"key_points": "章节要点", "cool_points": "爽点设计", "foreshadowing_hooks": "伏笔/钩子", "foreshadowing_targets": "需回收伏笔", "limitations": "写作限制"}
+        prediction_text = "\n".join(
+            f"{label}：\n" + "\n".join(f"- {item}" for item in prediction.get(key, []))
+            for key, label in _labels.items() if prediction.get(key)
+        )
+
     prompt_sections = [
         ("[世界蓝图](JSON，已裁剪)", blueprint_text),
         ("[白金写作准则](硬约束)", platinum_writing_brief),
@@ -617,6 +627,7 @@ async def generate_chapter(
         ("[检索到的章节摘要](Markdown)", rag_summaries_text),
         ("[章节字数要求]", CHAPTER_WORD_COUNT_RULE),
         ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
+        ("[剧情推演](AI预分析的章节要点与约束，请参考执行)", prediction_text),
         ("[禁止角色](本章不允许提及)", forbidden_text),
     ]
     prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
