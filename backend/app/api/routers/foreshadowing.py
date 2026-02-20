@@ -1,5 +1,6 @@
 # AIMETA P=伏笔API_伏笔管理和回收追踪|R=伏笔CRUD_回收追踪|NR=不含自动分析|E=route:GET_POST_/api/foreshadowing/*|X=http|A=伏笔CRUD_回收|D=fastapi,sqlalchemy|S=db|RD=./README.ai
 """伏笔管理 API 接口"""
+import json
 import logging
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,9 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db.session import get_session
 from ...services.foreshadowing_service import ForeshadowingService
+from ...services.llm_service import LLMService
+from ...services.novel_service import NovelService
 from ...models.foreshadowing import Foreshadowing, ForeshadowingReminder, ForeshadowingAnalysis
-from ...models.novel import Chapter, ChapterOutline, NovelProject
+from ...models.novel import Chapter, ChapterOutline, NovelBlueprint, NovelProject
+from ...schemas.novel import ChapterOutline as ChapterOutlineSchema
 from ...core.dependencies import get_current_user
+from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/novels", tags=["foreshadowing"])
@@ -462,3 +467,165 @@ async def get_analysis(
     except Exception as e:
         logger.exception(f"获取分析失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+GENERATE_FORESHADOWINGS_PROMPT = """\
+你是一位专业的小说伏笔策划师。请根据以下小说蓝图和章节大纲，为整部小说设计完整的伏笔体系。
+
+## 小说信息
+- 标题：{title}
+- 类型：{genre}
+- 风格：{style}
+- 概要：{synopsis}
+
+## 章节大纲
+{outlines}
+
+## 要求
+1. 设计至少 5 条伏笔，覆盖前期、中期、后期章节
+2. 伏笔需形成"埋设→回收"的完整链条
+3. 确保 target_chapter >= planted_chapter
+4. tier 分为：核心（主线关键伏笔）、支线（次要剧情伏笔）、装饰（氛围细节伏笔）
+
+请以 JSON 数组格式返回，仅返回 JSON，不要其他内容：
+[
+  {{
+    "name": "伏笔名称",
+    "description": "伏笔描述",
+    "planted_chapter": 1,
+    "target_chapter": 10,
+    "tier": "核心|支线|装饰",
+    "type": "question|mystery|hint|clue|setup",
+    "reveal_method": "揭示方式",
+    "reveal_impact": "揭示后的影响",
+    "related_characters": ["角色名"],
+    "related_plots": ["剧情线"]
+  }}
+]
+"""
+
+
+@router.post("/{project_id}/foreshadowings/generate")
+async def generate_foreshadowings(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    """基于现有蓝图和大纲，用 AI 生成伏笔数据（不影响蓝图本身）。"""
+    # 校验项目归属
+    project_result = await session.execute(
+        select(NovelProject).where(
+            NovelProject.id == project_id,
+            NovelProject.user_id == current_user.id,
+        )
+    )
+    project = project_result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    # 获取蓝图
+    blueprint = await session.get(NovelBlueprint, project_id)
+    if not blueprint:
+        raise HTTPException(status_code=400, detail="项目尚未生成蓝图，请先生成蓝图")
+
+    # 获取章节大纲
+    outlines_result = await session.execute(
+        select(ChapterOutline)
+        .where(ChapterOutline.project_id == project_id)
+        .order_by(ChapterOutline.chapter_number)
+    )
+    outlines = outlines_result.scalars().all()
+    if not outlines:
+        raise HTTPException(status_code=400, detail="项目没有章节大纲")
+
+    # 大纲太多时采样，避免 prompt 过长
+    total = len(outlines)
+    if total > 60:
+        step = max(1, total // 60)
+        sampled = [outlines[i] for i in range(0, total, step)]
+        # 确保首尾都在
+        if outlines[-1] not in sampled:
+            sampled.append(outlines[-1])
+        outlines_text = "\n".join(
+            f"第{o.chapter_number}章 - {o.title}: {o.summary or '无摘要'}"
+            for o in sampled
+        )
+        outlines_text += f"\n（共{total}章，以上为采样展示）"
+    else:
+        outlines_text = "\n".join(
+            f"第{o.chapter_number}章 - {o.title}: {o.summary or '无摘要'}"
+            for o in outlines
+        )
+
+    prompt = GENERATE_FORESHADOWINGS_PROMPT.format(
+        title=blueprint.title or project.title,
+        genre=blueprint.genre or "",
+        style=blueprint.style or "",
+        synopsis=blueprint.full_synopsis or blueprint.one_sentence_summary or "",
+        outlines=outlines_text,
+    )
+
+    # 调用 LLM
+    llm_service = LLMService(session)
+    try:
+        raw = await llm_service.get_llm_response(
+            system_prompt="你是一位专业的小说伏笔策划师，擅长设计精妙的伏笔体系。",
+            conversation_history=[{"role": "user", "content": prompt}],
+            temperature=0.8,
+            user_id=current_user.id,
+            timeout=600.0,
+            max_retries=1,
+            max_tokens=8192,
+        )
+    except Exception as e:
+        logger.exception("伏笔生成 LLM 调用失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"AI 调用失败: {str(e)[:200]}")
+
+    # 解析 JSON
+    raw = remove_think_tags(raw)
+    cleaned = unwrap_markdown_json(raw)
+    cleaned = sanitize_json_like_text(cleaned)
+    cleaned = repair_json(cleaned)
+
+    try:
+        items = json.loads(cleaned)
+    except json.JSONDecodeError as e:
+        logger.error("伏笔生成 JSON 解析失败: %s\n原始响应末尾: %s", e, raw[-500:])
+        raise HTTPException(status_code=500, detail="AI 返回格式异常，请重试")
+
+    if not isinstance(items, list):
+        items = items.get("foreshadowings", []) if isinstance(items, dict) else []
+
+    if not items:
+        raise HTTPException(status_code=500, detail="AI 未生成有效伏笔数据，请重试")
+
+    # 复用 NovelService 已有的同步逻辑写入数据库
+    novel_service = NovelService(session)
+    outline_schemas = [
+        ChapterOutlineSchema(
+            chapter_number=o.chapter_number,
+            title=o.title,
+            summary=o.summary or "",
+        )
+        for o in outlines
+    ]
+    await novel_service._sync_blueprint_foreshadowings(
+        project_id=project_id,
+        outlines=outline_schemas,
+        explicit_items=items,
+        prefer_outline_inference=False,
+    )
+    await session.commit()
+
+    # 返回写入后的数量
+    count_result = await session.scalar(
+        select(func.count()).select_from(Foreshadowing).where(
+            Foreshadowing.project_id == project_id
+        )
+    )
+
+    return {
+        "status": "success",
+        "message": f"已生成 {count_result} 条伏笔",
+        "total": count_result,
+    }

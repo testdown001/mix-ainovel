@@ -14,22 +14,37 @@
           <p class="md-body-small" style="color: var(--md-on-surface-variant);">追踪故事线索与回收</p>
         </div>
       </div>
-      <button 
-        @click="refreshData" 
-        class="md-icon-btn md-ripple"
-        :disabled="isLoading"
-      >
-        <svg 
-          class="w-5 h-5 transition-transform" 
-          :class="{ 'animate-spin': isLoading }"
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor" 
-          stroke-width="2"
+      <div class="flex items-center gap-2">
+        <button
+          @click="generateForeshadowings"
+          class="md-btn md-btn-tonal md-ripple px-3 py-1.5 md-label-medium"
+          :disabled="isGenerating || isLoading"
         >
-          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      </button>
+          <svg v-if="isGenerating" class="w-4 h-4 mr-1.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <svg v-else class="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          {{ isGenerating ? 'AI 生成中...' : '同步伏笔' }}
+        </button>
+        <button
+          @click="refreshData"
+          class="md-icon-btn md-ripple"
+          :disabled="isLoading"
+        >
+          <svg
+            class="w-5 h-5 transition-transform"
+            :class="{ 'animate-spin': isLoading }"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Statistics Cards -->
@@ -195,6 +210,7 @@ const authStore = useAuthStore()
 const projectId = route.params.id as string
 
 const isLoading = ref(false)
+const isGenerating = ref(false)
 const error = ref<string | null>(null)
 const foreshadowingList = ref<Foreshadowing[]>([])
 const totalForeshadowings = ref(0)
@@ -310,6 +326,40 @@ const fetchData = async () => {
 
 const refreshData = () => {
   fetchData()
+}
+
+const generateForeshadowings = async () => {
+  isGenerating.value = true
+  error.value = null
+
+  try {
+    const response = await fetch(`/api/novels/${projectId}/foreshadowings/generate`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      let errorMessage = '生成伏笔失败'
+      try {
+        const errorData = await response.json()
+        errorMessage = errorData.detail || errorMessage
+      } catch {
+        errorMessage = `HTTP ${response.status}: ${response.statusText}`
+      }
+      throw new Error(errorMessage)
+    }
+
+    // 生成成功后刷新列表
+    await fetchData()
+  } catch (e: any) {
+    console.error('伏笔生成错误:', e)
+    error.value = e instanceof Error ? e.message : '生成失败，请稍后重试'
+  } finally {
+    isGenerating.value = false
+  }
 }
 
 onMounted(() => {
