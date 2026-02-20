@@ -148,4 +148,24 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         value_getter=lambda config: config.ollama_embedding_model,
         description="Ollama 嵌入模型名称。",
     ),
+    SystemConfigDefault(
+        key="llm_optimize.api_key",
+        value_getter=lambda _: None,
+        description="润色优化专用 API Key，留空则使用默认 llm.api_key。",
+    ),
+    SystemConfigDefault(
+        key="llm_optimize.base_url",
+        value_getter=lambda _: None,
+        description="润色优化专用 Base URL，留空则使用默认 llm.base_url。",
+    ),
+    SystemConfigDefault(
+        key="llm_optimize.model",
+        value_getter=lambda _: None,
+        description="润色优化专用模型名称，留空则使用默认 llm.model。",
+    ),
+    SystemConfigDefault(
+        key="llm_optimize.api_format",
+        value_getter=lambda _: None,
+        description="润色优化专用 API 格式，留空则使用默认 llm.api_format。",
+    ),
 ]

@@ -10,31 +10,49 @@ def remove_think_tags(raw_text: str) -> str:
     text = str(raw_text)
 
     # 1) 移除常见推理块标签（兼容大小写与属性）
-    text = re.sub(
-        r"<\s*(?:think|thinking|analysis)\b[^>]*>.*?<\s*/\s*(?:think|thinking|analysis)\s*>",
+    #    覆盖: think, thinking, thought, analysis, reflection, reasoning
+    _TAG_NAMES = r"think|thinking|thought|analysis|reflection|reasoning"
+    cleaned = re.sub(
+        rf"<\s*(?:{_TAG_NAMES})\b[^>]*>"
+        rf".*?"
+        rf"<\s*/\s*(?:{_TAG_NAMES})\s*>",
         "",
         text,
         flags=re.DOTALL | re.IGNORECASE,
     )
 
-    # 2) 移除残留的单独 think 标签（未闭合场景）
-    text = re.sub(
-        r"</?\s*(?:think|thinking|analysis)\b[^>]*>",
+    # 2) 移除残留的单独标签（未闭合场景）
+    cleaned = re.sub(
+        rf"</?\s*(?:{_TAG_NAMES})\b[^>]*>",
         "",
-        text,
+        cleaned,
         flags=re.IGNORECASE,
     )
 
     # 3) 移除常见代理推理前缀行，如: [Agent 3][AgentThink] ...
-    text = re.sub(
+    cleaned = re.sub(
         r"(?im)^\s*\[agent\s*\d+\]\s*\[agent(?:think|reasoning|analysis)\][^\n]*$",
         "",
-        text,
+        cleaned,
     )
 
     # 4) 清理多余空行
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = cleaned.strip()
+
+    # 5) 回退保护：如果清理后为空但原文有实质内容，
+    #    说明模型将所有有效内容都放在了推理标签内，提取标签内文本
+    if not cleaned and text.strip():
+        inner = re.search(
+            rf"<\s*(?:{_TAG_NAMES})\b[^>]*>(.*?)"
+            rf"<\s*/\s*(?:{_TAG_NAMES})\s*>",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        if inner:
+            cleaned = inner.group(1).strip()
+
+    return cleaned
 
 
 def unwrap_markdown_json(raw_text: str) -> str:
@@ -176,11 +194,25 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
     text = re.sub(r"(?m)^\s*#{1,6}\s*", "", text)
     text = re.sub(r"(?m)^\s*(?:---+|\*\*\*+|___+)\s*$", "", text)
 
+    # 移除引用块前缀
+    text = re.sub(r"(?m)^\s*>\s?", "", text)
+
     # 移除列表前缀
     text = re.sub(r"(?m)^\s*[-*+]\s+", "", text)
 
+    # 移除图片标记（保留 alt 文本）
+    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+
+    # 移除链接标记（保留链接文本）
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
+
+    # 移除行内代码标记
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+
     # 去掉粗体/斜体标记
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text, flags=re.DOTALL)
+    text = re.sub(r"\*([^*]+)\*", r"\1", text)
+    text = re.sub(r"_([^_]+)_", r"\1", text)
 
     # 收敛多余空行
     text = re.sub(r"\n{3,}", "\n\n", text)

@@ -230,13 +230,14 @@ class LLMService:
         temperature: float,
         user_id: Optional[int],
         timeout: float,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
         response_format: Optional[str] = None,
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
         max_retries: int = 2,
         thinking_budget: Optional[int] = None,
     ) -> str:
-        config = await self._resolve_llm_config(user_id)
+        config = config_override or await self._resolve_llm_config(user_id)
         chat_messages = [ChatMessage(role=msg["role"], content=msg["content"]) for msg in messages]
 
         model_name = config.get("model") or ""
@@ -244,12 +245,13 @@ class LLMService:
         api_format_setting = config.get("api_format") or await self._get_config_value("llm.api_format")
         api_format = self._resolve_api_format(api_format_setting, config.get("base_url"), model_name)
 
-        # Claude thinking 模型（opus-4 / opus-4-6 等）不兼容 temperature/top_p
+        # Claude thinking 模型不兼容 temperature/top_p/response_format
         # 当通过 OpenAI/Anthropic 代理调用时，代理可能自动开启 thinking，
         # 此时传入 temperature!=1.0 会导致空响应或报错
+        # 覆盖: opus-4 系列、sonnet-4 系列、claude-3-7-sonnet、claude-4 系列
         _is_claude_thinking_model = any(
             kw in model_name.lower()
-            for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4")
+            for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4", "sonnet-4")
         )
         effective_temperature = temperature
         effective_top_p = top_p
@@ -293,17 +295,24 @@ class LLMService:
         last_exc = None
         response_format_fallback_applied = False
         responses_endpoint_fallback_applied = False
+        _active_format: Optional[str] = None
+        client = None
+        _created_clients: list = []
         for attempt in range(1, max_retries + 2):  # max_retries + 1 次总尝试
-            if api_format == "anyrouter":
-                client = AnyRouterLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-            elif api_format == "anthropic":
-                client = AnthropicLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-            elif api_format == "gemini":
-                client = GeminiLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-            elif api_format == "openai-responses":
-                client = OpenAIResponsesLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-            else:
-                client = LLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+            # 仅当 api_format 变更时重建客户端，避免每次重试都创建新连接
+            if api_format != _active_format:
+                if api_format == "anyrouter":
+                    client = AnyRouterLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+                elif api_format == "anthropic":
+                    client = AnthropicLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+                elif api_format == "gemini":
+                    client = GeminiLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+                elif api_format == "openai-responses":
+                    client = OpenAIResponsesLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+                else:
+                    client = LLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+                _active_format = api_format
+                _created_clients.append(client)
             full_response = ""
             finish_reason = None
 
@@ -583,6 +592,11 @@ class LLMService:
                 user_id,
                 len(full_response),
             )
+            for _c in _created_clients:
+                try:
+                    await _c.aclose()
+                except Exception:
+                    pass
             raise HTTPException(
                 status_code=500,
                 detail=f"AI 响应因长度限制被截断（已生成 {len(full_response)} 字符），请缩短输入内容或调整模型参数"
@@ -595,6 +609,11 @@ class LLMService:
                 user_id,
                 finish_reason,
             )
+            for _c in _created_clients:
+                try:
+                    await _c.aclose()
+                except Exception:
+                    pass
             raise HTTPException(
                 status_code=500,
                 detail=f"AI 未返回有效内容（结束原因: {finish_reason or '未知'}），请稍后重试或联系管理员"
@@ -608,6 +627,12 @@ class LLMService:
             user_id,
             len(full_response),
         )
+        # 清理：关闭所有创建的 LLM 客户端连接
+        for _c in _created_clients:
+            try:
+                await _c.aclose()
+            except Exception:
+                pass
         return full_response
 
     async def _resolve_llm_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
@@ -637,6 +662,63 @@ class LLMService:
             )
 
         return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
+
+    async def _resolve_optimize_llm_config(self) -> Dict[str, Optional[str]]:
+        """解析润色优化专用 LLM 配置，未设置的字段回退到默认 llm.* 配置。"""
+        opt_api_key = await self._get_config_value("llm_optimize.api_key")
+        opt_base_url = await self._get_config_value("llm_optimize.base_url")
+        opt_model = await self._get_config_value("llm_optimize.model")
+        opt_api_format = await self._get_config_value("llm_optimize.api_format")
+
+        # 任一字段有值即视为启用了独立配置，未设字段回退 llm.*
+        has_any = any(v for v in (opt_api_key, opt_base_url, opt_model, opt_api_format))
+        if not has_any:
+            # 全部留空，完全回退到默认配置（不走用户级配置）
+            api_key = await self._get_config_value("llm.api_key")
+            base_url = await self._get_config_value("llm.base_url")
+            model = await self._get_config_value("llm.model")
+            if not api_key:
+                raise HTTPException(
+                    status_code=500,
+                    detail="未配置润色优化模型，且默认 LLM API Key 也未设置",
+                )
+            return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
+
+        # 逐字段回退
+        api_key = opt_api_key or await self._get_config_value("llm.api_key")
+        base_url = opt_base_url or await self._get_config_value("llm.base_url")
+        model = opt_model or await self._get_config_value("llm.model")
+        api_format = opt_api_format  # 留空时由 _resolve_api_format 自动判断
+
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="润色优化模型与默认 LLM 均未配置 API Key",
+            )
+
+        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+
+    async def get_optimize_llm_response(
+        self,
+        system_prompt: str,
+        conversation_history: List[Dict[str, str]],
+        *,
+        temperature: float = 0.75,
+        timeout: float = 600.0,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """使用润色优化专用模型生成响应，不走用户级配置，不扣用户配额。"""
+        config = await self._resolve_optimize_llm_config()
+        messages = [{"role": "system", "content": system_prompt}, *conversation_history]
+        return await self._stream_and_collect(
+            messages,
+            temperature=temperature,
+            user_id=None,
+            timeout=timeout,
+            config_override=config,
+            response_format=None,
+            max_tokens=max_tokens,
+        )
 
     async def get_embedding(
         self,

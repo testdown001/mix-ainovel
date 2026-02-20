@@ -8,37 +8,20 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.constants import (
-    CHAPTER_MIN_WORDS,
-    CHAPTER_MAX_WORDS,
-    CHAPTER_RECOMMENDED_WORDS,
-    CHAPTER_WORD_COUNT_RULE,
-)
-from ..models.novel import Chapter
-from ..models.project_memory import ProjectMemory
+from ..core.constants import CHAPTER_MAX_WORDS
 from ..repositories.system_config_repository import SystemConfigRepository
-from ..services.ai_review_service import AIReviewService
-from ..services.chapter_context_service import ChapterContextService
 from ..services.chapter_guardrails import default_guardrails
-from ..services.consistency_service import ConsistencyService, ViolationSeverity
 from ..services.enhanced_writing_flow import EnhancedWritingFlow
-from ..services.enrichment_service import EnrichmentService
 from ..services.llm_service import LLMService
-from ..services.knowledge_retrieval_service import KnowledgeRetrievalService, FilteredContext
-from ..services.memory_layer_service import MemoryLayerService
 from ..services.novel_service import NovelService
 from ..services.preview_generation_service import PreviewGenerationService
 from ..services.prompt_service import PromptService
-from ..services.reader_simulator_service import ReaderSimulatorService, ReaderType
-from ..services.self_critique_service import CritiqueDimension, SelfCritiqueService
 from ..services.writer_context_builder import default_context_builder
 from ..services.writer_shared import (
     build_blueprint_constraints_for_mission,
-    extract_tail_excerpt,
     generate_chapter_mission as _shared_generate_chapter_mission,
     normalize_blueprint_relationships,
     rewrite_with_guardrails as _shared_rewrite_with_guardrails,
@@ -49,7 +32,11 @@ from ..services.platinum_writing_context import (
     build_hook_continuity_brief,
     build_platinum_rhythm_brief,
 )
-from ..utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
+from ..utils.json_utils import remove_think_tags, sanitize_chapter_plain_text, unwrap_markdown_json
+
+from .pipeline_context import PipelineContextMixin
+from .pipeline_prompt import PipelinePromptMixin
+from .pipeline_review import PipelineReviewMixin
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +66,10 @@ class PipelineConfig:
     enable_humanization: bool = False
     humanization_threshold: int = 70
     enable_fingerprint: bool = False
+    enable_polish: bool = False
 
 
-class PipelineOrchestrator:
+class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineReviewMixin):
     """统一写作流水线编排器。"""
 
     def __init__(self, session: AsyncSession):
@@ -359,6 +347,17 @@ class PipelineOrchestrator:
                 f"{label}：\n" + "\n".join(f"- {item}" for item in prediction.get(key, []))
                 for key, label in _labels.items() if prediction.get(key)
             )
+            # 追加 beats 节拍编排
+            beats = prediction.get("beats")
+            if beats:
+                _beat_type_labels = {"setup": "铺垫", "provoke": "激化", "twist": "转折", "payoff": "爆发", "hook": "悬念"}
+                beats_lines = []
+                for idx, b in enumerate(beats, 1):
+                    beat_type = _beat_type_labels.get(b.get("type", ""), b.get("type", ""))
+                    content = b.get("content", "")
+                    emotion = b.get("emotion", "")
+                    beats_lines.append(f"{idx}. [{beat_type}] {content} ({emotion})")
+                prediction_text += "\n节拍编排：\n" + "\n".join(beats_lines)
 
         prompt_sections = self._build_prompt_sections(
             writer_blueprint=writer_blueprint,
@@ -538,6 +537,10 @@ class PipelineOrchestrator:
                 best_content, optimizer_report = await self._run_optimizer(best_content, user_id=user_id)
                 review_summaries["optimizer"] = optimizer_report
 
+            if config.enable_polish:
+                best_content, polish_report = await self._run_polish(best_content, user_id=user_id)
+                review_summaries["polish"] = polish_report
+
             if config.enable_enrichment:
                 best_content, enrichment_report = await self._run_enrichment(
                     best_content,
@@ -622,6 +625,7 @@ class PipelineOrchestrator:
         if preset == "enhanced":
             config.enable_six_dimension = True
             config.enable_enrichment = True
+            config.enable_polish = True
 
         if preset == "ultimate":
             config.enable_memory = True
@@ -633,6 +637,7 @@ class PipelineOrchestrator:
             config.enable_reader_sim = True
             config.enable_consistency = True
             config.enable_enrichment = True
+            config.enable_polish = True
 
         if preset == "basic":
             config.enable_rag = True
@@ -644,6 +649,7 @@ class PipelineOrchestrator:
             "enable_enrichment",
             "async_finalize",
             "enable_rag",
+            "enable_polish",
         ):
             if key in flow_config and flow_config[key] is not None:
                 setattr(config, key, bool(flow_config[key]))
@@ -698,481 +704,6 @@ class PipelineOrchestrator:
                     pass
 
         return int(settings.writer_chapter_versions)
-
-    async def _collect_history_context(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        outlines_map: Dict[int, Any],
-        chapters: List[Chapter],
-        user_id: int,
-    ) -> Dict[str, Any]:
-        completed_summaries = []
-        completed_chapters = []
-        latest_prev_number = -1
-        previous_summary_text = ""
-        previous_tail_excerpt = ""
-
-        for existing in chapters:
-            if existing.chapter_number >= chapter_number:
-                continue
-            if existing.selected_version is None or not existing.selected_version.content:
-                continue
-            if not existing.real_summary:
-                summary = await self.llm_service.get_summary(
-                    existing.selected_version.content,
-                    temperature=0.15,
-                    user_id=user_id,
-                    timeout=180.0,
-                )
-                existing.real_summary = remove_think_tags(summary)
-                await self.session.commit()
-
-            completed_chapters.append(
-                {
-                    "chapter_number": existing.chapter_number,
-                    "title": outlines_map.get(existing.chapter_number).title
-                    if outlines_map.get(existing.chapter_number)
-                    else f"第{existing.chapter_number}章",
-                    "summary": existing.real_summary,
-                    "opening_excerpt": existing.selected_version.content[:150] if existing.selected_version.content else "",
-                    "ending_excerpt": existing.selected_version.content[-150:] if existing.selected_version.content and len(existing.selected_version.content) > 150 else (existing.selected_version.content or ""),
-                    "chapter_mission_patterns": self._extract_mission_patterns(existing.selected_version),
-                }
-            )
-            completed_summaries.append(existing.real_summary or "")
-
-            if existing.chapter_number > latest_prev_number:
-                latest_prev_number = existing.chapter_number
-                previous_summary_text = existing.real_summary or ""
-                previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
-
-        story_skeleton = self._build_story_skeleton(completed_chapters, chapter_number)
-
-        return {
-            "completed_chapters": completed_chapters,
-            "completed_summaries": completed_summaries,
-            "previous_summary": previous_summary_text or "暂无（这是第一章）",
-            "previous_tail": previous_tail_excerpt or "暂无（这是第一章）",
-            "story_skeleton": story_skeleton,
-        }
-
-    @staticmethod
-    def _build_story_skeleton(
-        completed_chapters: List[Dict[str, Any]],
-        current_chapter: int,
-    ) -> Optional[str]:
-        """从历史章节中采样构建故事骨架，为 Writer 提供长程上下文。
-
-        采样策略：
-        - ≤5章：全部包含
-        - >5章：第1章 + 每隔N章采样 + 最近2章（最近2章已有专门的 previous_summary，此处不重复）
-        """
-        if not completed_chapters or len(completed_chapters) <= 1:
-            return None
-
-        sorted_chapters = sorted(completed_chapters, key=lambda c: c["chapter_number"])
-
-        # 排除最近一章（已有 [上一章摘要] 覆盖）
-        candidates = [c for c in sorted_chapters if c["chapter_number"] < current_chapter - 1]
-        if not candidates:
-            return None
-
-        if len(candidates) <= 5:
-            sampled = candidates
-        else:
-            # 第1章必选 + 均匀采样中间 + 倒数第2章
-            sampled = [candidates[0]]
-            step = max(2, len(candidates) // 4)
-            for i in range(step, len(candidates) - 1, step):
-                sampled.append(candidates[i])
-            if candidates[-1] not in sampled:
-                sampled.append(candidates[-1])
-
-        lines = []
-        for ch in sampled:
-            num = ch["chapter_number"]
-            title = ch.get("title", f"第{num}章")
-            summary = ch.get("summary", "")
-            if summary and len(summary) > 150:
-                summary = summary[:150] + "…"
-            lines.append(f"第{num}章 {title}：{summary}")
-
-        return "\n".join(lines)
-
-    @staticmethod
-    def _build_emotion_expression_brief(completed_chapters: List[Dict[str, Any]]) -> str:
-        """构建情绪表达去模板化约束，减少“愤怒=握拳+指节发白”等重复句式。"""
-        recent_chapters = sorted(
-            completed_chapters or [],
-            key=lambda item: item.get("chapter_number", 0),
-        )[-6:]
-        observed_pool = "\n".join(
-            [
-                (item.get("opening_excerpt") or "") + "\n" + (item.get("ending_excerpt") or "") + "\n" + (item.get("summary") or "")
-                for item in recent_chapters
-            ]
-        )
-        phrase_bank = (
-            "握紧拳头",
-            "指节发白",
-            "目光死死",
-            "死死盯",
-            "咬紧牙关",
-            "胸腔发麻",
-            "掌心",
-            "血痕",
-            "青筋暴起",
-            "怒火中烧",
-            "太阳穴突突",
-        )
-        observed = [phrase for phrase in phrase_bank if phrase and phrase in observed_pool]
-        observed_text = "、".join(observed[:8]) if observed else "近期未检测到固定短语，但仍需主动避免模板化怒意描写"
-        return "\n".join(
-            [
-                "同一情绪必须用不同表达路径，不得复用固定模板。",
-                f"近期疑似高频表达：{observed_text}。",
-                "怒意优先通过“行为后果”体现：例如改策略、压冲动、转移目标、反制行动，而非只写身体反应。",
-                "允许写生理反应，但每次只保留一个短动作，并与场景细节绑定，禁止连续堆叠“握拳+指节+目光”套装。",
-                "同段中相近情绪句式不得重复；如果上一段写了怒，下一段改用对话节奏、环境压力或决策代价呈现。",
-            ]
-        )
-
-    @staticmethod
-    def _extract_mission_patterns(selected_version) -> Dict[str, str]:
-        """从 version metadata 中提取 opening_hook_type、chapter_end_style、satisfaction_design.type。"""
-        if not selected_version:
-            return {}
-        metadata = getattr(selected_version, "metadata_", None) or {}
-        mission = metadata.get("chapter_mission") or {}
-        if not mission:
-            return {}
-        result: Dict[str, str] = {}
-        if mission.get("opening_hook_type"):
-            result["opening_hook_type"] = mission["opening_hook_type"]
-        if mission.get("chapter_end_style"):
-            result["chapter_end_style"] = mission["chapter_end_style"]
-        sat = mission.get("satisfaction_design")
-        if isinstance(sat, dict) and sat.get("type"):
-            result["satisfaction_type"] = sat["type"]
-        return result
-
-    @staticmethod
-    def _build_pattern_differentiation(completed_chapters: List[Dict[str, Any]]) -> str:
-        """分析最近章节的开头/结尾/爽感模式，生成差异化约束文本。"""
-        if not completed_chapters:
-            return ""
-
-        sorted_chapters = sorted(completed_chapters, key=lambda c: c["chapter_number"])
-        constraints: List[str] = []
-
-        # 分析最近3章的开头类型和结尾类型
-        recent_3 = sorted_chapters[-3:]
-        opening_types = [
-            c["chapter_mission_patterns"].get("opening_hook_type", "")
-            for c in recent_3
-            if c.get("chapter_mission_patterns")
-        ]
-        opening_types = [t for t in opening_types if t]
-        if len(opening_types) >= 2 and len(set(opening_types)) == 1:
-            constraints.append(f"最近{len(opening_types)}章开头均为「{opening_types[0]}」类型，本章必须使用不同的开头类型。")
-
-        ending_types = [
-            c["chapter_mission_patterns"].get("chapter_end_style", "")
-            for c in recent_3
-            if c.get("chapter_mission_patterns")
-        ]
-        ending_types = [t for t in ending_types if t]
-        if len(ending_types) >= 2 and len(set(ending_types)) == 1:
-            constraints.append(f"最近{len(ending_types)}章结尾均为「{ending_types[0]}」风格，本章必须使用不同的结尾风格。")
-
-        # 分析最近5章的爽感模式
-        recent_5 = sorted_chapters[-5:]
-        sat_types = [
-            c["chapter_mission_patterns"].get("satisfaction_type", "")
-            for c in recent_5
-            if c.get("chapter_mission_patterns")
-        ]
-        sat_types = [t for t in sat_types if t and t != "无（蓄力中）"]
-        if len(sat_types) >= 3:
-            from collections import Counter
-            counter = Counter(sat_types)
-            most_common_type, most_common_count = counter.most_common(1)[0]
-            if most_common_count >= 3:
-                constraints.append(f"最近5章中「{most_common_type}」爽感出现{most_common_count}次，本章应尝试不同类型的爽感设计。")
-
-        # 对比最近3章开头摘录，检测开头模式雷同
-        opening_excerpts = [
-            c.get("opening_excerpt", "")[:80]
-            for c in recent_3
-            if c.get("opening_excerpt")
-        ]
-        if opening_excerpts:
-            constraints.append(
-                "近期章节开头摘录供参考（避免相似开头）：\n"
-                + "\n".join(f"- 第{c['chapter_number']}章：「{c.get('opening_excerpt', '')[:80]}…」" for c in recent_3 if c.get("opening_excerpt"))
-            )
-
-        if not constraints:
-            return ""
-
-        return "[模式差异化约束]\n" + "\n".join(constraints)
-
-    async def _generate_mission_brief(
-        self,
-        *,
-        chapter_mission: dict,
-        previous_summary: str,
-        previous_tail: str,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        introduced_characters: List[str],
-        forbidden_characters: List[str],
-        user_id: int,
-    ) -> Optional[str]:
-        """将 ChapterMission JSON 转换为人类可读的创作任务书。"""
-        brief_prompt = await self.prompt_service.get_prompt("mission_brief")
-        if not brief_prompt:
-            logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
-            return None
-
-        brief_input = f"""[章节导演脚本]
-{json.dumps(chapter_mission, ensure_ascii=False, indent=2)}
-
-[上一章摘要]
-{previous_summary}
-
-[上一章结尾]
-{previous_tail}
-
-[当前章节目标]
-标题：{outline_title}
-摘要：{outline_summary}
-写作要求：{writing_notes}
-
-[已登场角色]
-{", ".join(introduced_characters) if introduced_characters else "暂无"}
-
-[禁止角色]
-{", ".join(forbidden_characters) if forbidden_characters else "无"}"""
-
-        try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt=brief_prompt,
-                conversation_history=[{"role": "user", "content": brief_input}],
-                temperature=0.3,
-                user_id=user_id,
-                timeout=120.0,
-            )
-            cleaned = remove_think_tags(response)
-            if not cleaned or not cleaned.strip():
-                logger.warning("创作任务书生成结果为空，回退原始 JSON")
-                return None
-            logger.info("创作任务书生成完成 (len=%d)", len(cleaned))
-            return cleaned.strip()
-        except Exception as exc:
-            logger.warning("生成创作任务书失败，将回退原始 JSON: %s", exc)
-            return None
-
-    async def _get_rag_context(
-        self,
-        *,
-        project_id: str,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        user_id: int,
-        retrieval_mode: str = "vector",
-    ) -> Dict[str, Any]:
-        if not settings.vector_store_enabled:
-            return {"chunks": [], "summaries": []}
-
-        from .writer_shared import create_vector_store_or_none
-        vector_store = create_vector_store_or_none()
-        if vector_store is None:
-            return {"chunks": [], "summaries": []}
-
-        query_parts = [outline_title, outline_summary]
-        if writing_notes:
-            query_parts.append(writing_notes)
-        rag_query = "\n".join(part for part in query_parts if part)
-
-        context_service = ChapterContextService(llm_service=self.llm_service, vector_store=vector_store)
-        rag_context = await context_service.retrieve_for_generation(
-            project_id=project_id,
-            query_text=rag_query or outline_title or outline_summary,
-            user_id=user_id,
-            retrieval_mode=retrieval_mode,
-        )
-        return {
-            "chunks": rag_context.chunk_texts() if rag_context.chunks else [],
-            "summaries": rag_context.summary_lines() if rag_context.summaries else [],
-        }
-
-    async def _get_two_stage_rag_context(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        writing_notes: str,
-        pov_character: Optional[str],
-        user_id: int,
-        retrieval_mode: str = "vector",
-    ) -> Tuple[Optional[str], Dict[str, Any]]:
-        if not settings.vector_store_enabled:
-            return None, {"mode": "two_stage", "enabled": False}
-
-        from .writer_shared import create_vector_store_or_none
-        vector_store = create_vector_store_or_none()
-        if vector_store is None:
-            return None, {"mode": "two_stage", "enabled": False, "error": "init_failed"}
-
-        retrieval_service = KnowledgeRetrievalService(self.session, self.llm_service, vector_store)
-        try:
-            filtered = await retrieval_service.retrieve_and_filter(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                user_id=user_id,
-                pov_character=pov_character,
-                user_guidance=writing_notes,
-                top_k=settings.vector_top_k_chunks,
-                retrieval_mode=retrieval_mode,
-            )
-        except Exception as exc:
-            logger.exception(
-                "两层 RAG 检索失败，回退为无检索上下文: project=%s chapter=%s mode=%s",
-                project_id,
-                chapter_number,
-                retrieval_mode,
-            )
-            return None, {
-                "mode": "two_stage",
-                "enabled": False,
-                "error": str(exc)[:200],
-                "fallback": "disabled_due_error",
-            }
-        context_text = self._format_filtered_context(filtered)
-        stats = filtered.stats or {}
-        stats["mode"] = "two_stage"
-        return context_text, stats
-
-    async def _get_project_memory_text(self, project_id: str) -> Optional[str]:
-        result = await self.session.execute(
-            select(ProjectMemory).where(ProjectMemory.project_id == project_id)
-        )
-        memory = result.scalars().first()
-        if not memory:
-            return None
-
-        parts = []
-        if memory.global_summary:
-            parts.append(f"### 全局摘要\n{memory.global_summary}")
-        if memory.plot_arcs:
-            parts.append("### 剧情线追踪\n" + json.dumps(memory.plot_arcs, ensure_ascii=False, indent=2))
-        if not parts:
-            return None
-        return "\n\n".join(parts)
-
-    async def _get_memory_context(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        involved_characters: List[str],
-    ) -> str:
-        memory_layer = MemoryLayerService(self.session, self.llm_service, self.prompt_service)
-        return await memory_layer.get_memory_context(project_id, chapter_number, involved_characters)
-
-    @staticmethod
-    def _build_prompt_sections(
-        *,
-        writer_blueprint: Dict[str, Any],
-        previous_summary: str,
-        previous_tail: str,
-        chapter_mission: Optional[dict],
-        mission_brief_text: Optional[str],
-        rag_context: Optional[Dict[str, Any]],
-        knowledge_context: Optional[str],
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        forbidden_characters: List[str],
-        project_memory_text: Optional[str],
-        memory_context: Optional[str],
-        platinum_writing_brief: Optional[str],
-        platinum_rhythm_brief: Optional[str],
-        foreshadowing_urgency_brief: Optional[str],
-        hook_continuity_brief: Optional[str],
-        emotion_expression_brief: Optional[str],
-        story_skeleton: Optional[str] = None,
-        genre_prompt_injection: Optional[str] = None,
-        fingerprint_context: Optional[str] = None,
-        prediction_text: Optional[str] = None,
-    ) -> List[Tuple[str, str]]:
-        blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
-        forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
-
-        # --- TIER 1: 核心指令（利用首因效应，放在最前面）---
-        sections: List[Tuple[str, str]] = [
-            ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
-        ]
-        if prediction_text:
-            sections.append(("[剧情推演](AI预分析的章节要点与约束，请参考执行)", prediction_text))
-
-        if mission_brief_text:
-            sections.append(("[创作任务书](本章写作的核心执行指南，必须严格遵循)", mission_brief_text))
-        elif chapter_mission:
-            mission_text = json.dumps(chapter_mission, ensure_ascii=False, indent=2)
-            sections.append(("[章节导演脚本](JSON)", mission_text))
-
-        sections.append(("[章节字数要求]", CHAPTER_WORD_COUNT_RULE))
-
-        # --- TIER 2: 上下文参考（中间位置）---
-        if story_skeleton:
-            sections.append(("[故事骨架](前情关键节点采样，帮助你把握全局走向)", story_skeleton))
-
-        sections.extend(
-            [
-                ("[上一章摘要]", previous_summary or "暂无（这是第一章）"),
-                ("[上一章结尾]", previous_tail or "暂无（这是第一章）"),
-                ("[世界蓝图](JSON，已裁剪)", blueprint_text),
-            ]
-        )
-
-        if project_memory_text:
-            sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
-        if memory_context:
-            sections.append(("[记忆层上下文]", memory_context))
-
-        if knowledge_context:
-            sections.append(("[RAG精筛上下文](含POV裁剪)", knowledge_context))
-
-        if rag_context:
-            rag_chunks_text = "\n\n".join(rag_context.get("chunks", [])) or "未检索到章节片段"
-            rag_summaries_text = "\n".join(rag_context.get("summaries", [])) or "未检索到章节摘要"
-            sections.append(("[检索到的剧情上下文](Markdown)", rag_chunks_text))
-            sections.append(("[检索到的章节摘要](Markdown)", rag_summaries_text))
-
-        # --- TIER 3: 补充约束（利用近因效应，放在最后面）---
-        if genre_prompt_injection:
-            sections.append(("[题材写作约束]", genre_prompt_injection))
-        if fingerprint_context:
-            sections.append(("[作者风格指纹]", fingerprint_context))
-        if platinum_rhythm_brief:
-            sections.append(("[白金节奏控制](Quest/Fire/Constellation)", platinum_rhythm_brief))
-        if foreshadowing_urgency_brief:
-            sections.append(("[高优先级伏笔提醒]", foreshadowing_urgency_brief))
-        if hook_continuity_brief:
-            sections.append(("[追更钩子连续性]", hook_continuity_brief))
-        if emotion_expression_brief:
-            sections.append(("[情绪表达去模板化约束](重点减少怒意句式重复)", emotion_expression_brief))
-        if platinum_writing_brief:
-            sections.append(("[白金写作准则](硬约束)", platinum_writing_brief))
-        sections.append(("[禁止角色](本章不允许提及)", forbidden_text))
-
-        return sections
 
     @staticmethod
     def _resolve_style_hints(
@@ -1287,6 +818,7 @@ class PipelineOrchestrator:
                 user_id=user_id,
                 timeout=600.0,
                 response_format=None,
+                max_tokens=128000,
             )
             cleaned = remove_think_tags(response)
             content = unwrap_markdown_json(cleaned or response)
@@ -1417,389 +949,12 @@ class PipelineOrchestrator:
                     return nested
         return None
 
-    async def _run_ai_review(
-        self,
-        *,
-        versions: List[Dict[str, Any]],
-        chapter_mission: Optional[dict],
-        user_id: int,
-    ) -> Tuple[int, Optional[Dict[str, Any]]]:
-        if len(versions) <= 1:
-            return 0, None
-
-        contents = [v.get("content", "") for v in versions]
-        try:
-            ai_review_service = AIReviewService(self.llm_service, self.prompt_service)
-            ai_review_result = await ai_review_service.review_versions(
-                versions=contents,
-                chapter_mission=chapter_mission,
-                user_id=user_id,
-            )
-        except Exception as exc:
-            logger.warning("AI 评审失败，跳过: %s", exc)
-            return 0, None
-
-        if not ai_review_result:
-            return 0, None
-
-        for idx, variant in enumerate(versions):
-            variant.setdefault("metadata", {})["ai_review"] = {
-                "is_best": idx == ai_review_result.best_version_index,
-                "scores": ai_review_result.scores,
-                "evaluation": ai_review_result.overall_evaluation if idx == ai_review_result.best_version_index else None,
-                "flaws": ai_review_result.critical_flaws if idx == ai_review_result.best_version_index else None,
-                "suggestions": ai_review_result.refinement_suggestions if idx == ai_review_result.best_version_index else None,
-            }
-
-        return ai_review_result.best_version_index, {
-            "best_version_index": ai_review_result.best_version_index,
-            "scores": ai_review_result.scores,
-            "evaluation": ai_review_result.overall_evaluation,
-            "flaws": ai_review_result.critical_flaws,
-            "suggestions": ai_review_result.refinement_suggestions,
-        }
-
-    async def _revise_with_review_feedback(
-        self,
-        chapter_content: str,
-        *,
-        critical_flaws: List[str],
-        refinement_suggestions: str,
-        chapter_mission: Optional[dict],
-        user_id: int,
-    ) -> Tuple[str, Dict[str, Any]]:
-        """利用 AI 评审的 critical_flaws 和 refinement_suggestions 做定向修订。"""
-        if not critical_flaws and not refinement_suggestions:
-            return chapter_content, {"applied": False, "reason": "no_feedback"}
-
-        flaws_text = "\n".join(f"- {flaw}" for flaw in critical_flaws) if critical_flaws else "无"
-        mission_hint = ""
-        if chapter_mission:
-            macro_beat = chapter_mission.get("macro_beat_description", "")
-            if macro_beat:
-                mission_hint = f"\n本章核心任务：{macro_beat}"
-
-        revision_prompt = f"""你是一位资深网文编辑。以下章节已经由评审员指出了关键问题和改进建议。
-请根据这些反馈对章节进行定向修订。
-
-**修订原则：**
-1. 只修改评审指出的问题，不改变整体情节走向和结构
-2. 保持原有字数规模（±10%）
-3. 修改要自然融入，不能有明显修补痕迹
-4. 保持原文的叙事风格和语气{mission_hint}
-
-[关键缺陷]
-{flaws_text}
-
-[改进建议]
-{refinement_suggestions or "无"}
-
-[原章节内容]
-{chapter_content}
-
-直接输出修改后的完整章节，不要输出其他内容。"""
-
-        try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt="你是一位擅长根据编辑反馈精修文章的网文作者。",
-                conversation_history=[{"role": "user", "content": revision_prompt}],
-                temperature=0.5,
-                user_id=user_id,
-                timeout=300.0,
-            )
-            cleaned = remove_think_tags(response)
-            if not cleaned or not cleaned.strip():
-                logger.warning("审查反馈修订结果为空，保留原文")
-                return chapter_content, {"applied": False, "reason": "empty_response"}
-
-            final = sanitize_chapter_plain_text(cleaned.strip())
-            logger.info("审查反馈修订完成: flaws=%d, original_len=%d, revised_len=%d",
-                        len(critical_flaws), len(chapter_content), len(final))
-            return final, {
-                "applied": True,
-                "flaws_count": len(critical_flaws),
-                "has_suggestions": bool(refinement_suggestions),
-            }
-        except Exception as exc:
-            logger.warning("审查反馈修订失败，保留原文: %s", exc)
-            return chapter_content, {"applied": False, "reason": str(exc)}
-
-    async def _run_self_critique(
-        self,
-        chapter_content: str,
-        *,
-        user_id: int,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, Dict[str, Any]]:
-        service = SelfCritiqueService(self.session, self.llm_service, self.prompt_service)
-        critique = await service.critique_and_revise_loop(
-            chapter_content=chapter_content,
-            max_iterations=2,
-            target_score=80.0,
-            dimensions=[
-                CritiqueDimension.LOGIC,
-                CritiqueDimension.CHARACTER,
-                CritiqueDimension.WRITING,
-                CritiqueDimension.PACING,
-                CritiqueDimension.DIALOGUE,
-            ],
-            context=context,
-            user_id=user_id,
-        )
-        return critique.get("final_content", chapter_content), {
-            "iterations": len(critique.get("iterations", [])),
-            "final_score": critique.get("final_score", 0),
-            "improvement": critique.get("improvement", 0),
-            "status": critique.get("status", "unknown"),
-        }
-
-    async def _run_reader_simulation(
-        self,
-        chapter_content: str,
-        *,
-        chapter_number: int,
-        previous_summary: Optional[str],
-        user_id: int,
-    ) -> Dict[str, Any]:
-        service = ReaderSimulatorService(self.session, self.llm_service, self.prompt_service)
-        return await service.simulate_reading_experience(
-            chapter_content=chapter_content,
-            chapter_number=chapter_number,
-            reader_types=[ReaderType.THRILL_SEEKER, ReaderType.CRITIC, ReaderType.CASUAL],
-            previous_summary=previous_summary,
-            user_id=user_id,
-        )
-
-    async def _run_consistency_check(
-        self,
-        *,
-        project_id: str,
-        chapter_text: str,
-        user_id: int,
-    ) -> Tuple[str, Dict[str, Any]]:
-        sync_session = getattr(self.session, "sync_session", self.session)
-        service = ConsistencyService(sync_session, self.llm_service)
-        result = await service.check_consistency(project_id, chapter_text, user_id, include_foreshadowing=True)
-        report = {
-            "is_consistent": result.is_consistent,
-            "summary": result.summary,
-            "check_time_ms": result.check_time_ms,
-            "violations": [
-                {
-                    "severity": v.severity.value if hasattr(v.severity, "value") else v.severity,
-                    "category": v.category,
-                    "description": v.description,
-                    "location": v.location,
-                    "suggested_fix": v.suggested_fix,
-                    "confidence": v.confidence,
-                }
-                for v in result.violations
-            ],
-        }
-
-        needs_fix = any(
-            v.severity in (ViolationSeverity.CRITICAL, ViolationSeverity.MAJOR)
-            for v in result.violations
-        )
-        if needs_fix:
-            fixed = await service.auto_fix(project_id, chapter_text, result.violations, user_id)
-            if fixed:
-                report["auto_fix_applied"] = True
-                return fixed, report
-
-        report["auto_fix_applied"] = False
-        return chapter_text, report
-
-    async def _run_optimizer(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
-        prompt_map = {
-            "dialogue": "optimize_dialogue",
-            "environment": "optimize_environment",
-            "psychology": "optimize_psychology",
-            "rhythm": "optimize_rhythm",
-            "coolpoint": "optimize_coolpoint",
-        }
-
-        optimized_content = chapter_content
-        notes = []
-        for dimension, prompt_name in prompt_map.items():
-            prompt = await self.prompt_service.get_prompt(prompt_name)
-            if not prompt:
-                logger.warning("缺少优化提示词 %s，跳过 %s 维度", prompt_name, dimension)
-                continue
-
-            optimize_input = {
-                "original_content": optimized_content,
-                "additional_notes": "在不改变剧情走向的前提下优化该维度。",
-            }
-            try:
-                response = await self.llm_service.get_llm_response(
-                    system_prompt=prompt,
-                    conversation_history=[{"role": "user", "content": json.dumps(optimize_input, ensure_ascii=False)}],
-                    temperature=0.7,
-                    user_id=user_id,
-                    timeout=600.0,
-                )
-                cleaned = remove_think_tags(response)
-                if not cleaned:
-                    logger.info("优化维度 %s: remove_think_tags 后为空，回退原始响应", dimension)
-                    cleaned = response
-                normalized = unwrap_markdown_json(cleaned)
-                try:
-                    parsed = json.loads(normalized)
-                except json.JSONDecodeError:
-                    try:
-                        parsed = json.loads(repair_json(normalized))
-                    except json.JSONDecodeError:
-                        parsed = None
-                if parsed:
-                    optimized_content = parsed.get("optimized_content", cleaned)
-                    notes.append(
-                        {
-                            "dimension": dimension,
-                            "notes": parsed.get("optimization_notes", "优化完成"),
-                        }
-                    )
-                else:
-                    optimized_content = cleaned
-                    notes.append({"dimension": dimension, "notes": "优化完成（响应格式非标准JSON）"})
-            except Exception as exc:
-                logger.warning("优化维度 %s 失败: %s", dimension, exc)
-
-        return optimized_content, {"steps": notes}
-
-    async def _run_enrichment(
-        self,
-        chapter_content: str,
-        *,
-        user_id: int,
-        target_word_count: int = CHAPTER_RECOMMENDED_WORDS,
-    ) -> Tuple[str, Optional[Dict[str, Any]]]:
-        service = EnrichmentService(self.session, self.llm_service)
-        current_word_count = len(chapter_content or "")
-
-        # 先做下限兜底：低于 2000 字时直接走迭代扩写，避免章节明显偏短
-        if current_word_count < CHAPTER_MIN_WORDS:
-            min_recovery_target = max(CHAPTER_MIN_WORDS + 200, target_word_count)
-            enriched_text = await service.enrich_to_target(
-                chapter_text=chapter_content,
-                target_word_count=min_recovery_target,
-                user_id=user_id,
-                max_iterations=2,
-            )
-            enriched_count = len(enriched_text or "")
-            if enriched_text and enriched_count > current_word_count:
-                return enriched_text, {
-                    "original_word_count": current_word_count,
-                    "enriched_word_count": enriched_count,
-                    "enrichment_ratio": (enriched_count / current_word_count) if current_word_count > 0 else 1.0,
-                    "enrichment_type": "min_length_recovery",
-                }
-
-        result = await service.check_and_enrich(
-            chapter_text=chapter_content,
-            target_word_count=target_word_count,
-            user_id=user_id,
-            threshold=0.82,
-        )
-        if not result:
-            return chapter_content, None
-
-        return result.enriched_content, {
-            "original_word_count": result.original_word_count,
-            "enriched_word_count": result.enriched_word_count,
-            "enrichment_ratio": result.enrichment_ratio,
-            "enrichment_type": result.enrichment_type,
-        }
-
-    async def _run_quality_detection(
-        self,
-        chapter_content: str,
-        *,
-        chapter_number: int,
-        chapter_mission: Optional[dict],
-        previous_chapters_openings: List[str],
-        user_id: int,
-    ) -> Dict[str, Any]:
-        """分析爽点密度和模式重复，返回质量诊断报告（不修改内容）。"""
-        opening_300 = chapter_content[:300] if len(chapter_content) > 300 else chapter_content
-        ending_300 = chapter_content[-300:] if len(chapter_content) > 300 else chapter_content
-
-        recent_patterns = ""
-        if previous_chapters_openings:
-            recent_patterns = "\n".join(
-                f"第{i+1}个近期章节开头：{op[:200]}"
-                for i, op in enumerate(previous_chapters_openings[-3:])
-            )
-
-        expected_beat = ""
-        if chapter_mission:
-            expected_beat = chapter_mission.get("macro_beat_description", "")
-            sat_type = chapter_mission.get("satisfaction_design", {}).get("type", "")
-            if sat_type:
-                expected_beat += f"（爽感类型：{sat_type}）"
-
-        detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的两个维度，输出JSON。
-
-## 分析维度
-
-### 1. 爽点密度
-检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。
-- coolpoint_score (0-10)：爽点密度评分
-- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）
-- coolpoint_issue：如果评分<6，指出具体问题
-
-### 2. 模式重复
-对比本章开头/结尾与近期章节是否存在套路化重复。
-- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）
-- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）
-- within_chapter_repetition：章节内部的句式/词汇重复
-
-[本章开头300字]
-{opening_300}
-
-[本章结尾300字]
-{ending_300}
-
-[本章预期]
-{expected_beat or "无特定预期"}
-
-[近期章节开头对比]
-{recent_patterns or "无（这是前几章）"}
-
-输出严格JSON格式：
-{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": []}}"""
-
-        try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt="你是一位擅长量化分析网文质量的编辑。只输出JSON，不要其他内容。",
-                conversation_history=[{"role": "user", "content": detection_prompt}],
-                temperature=0.2,
-                user_id=user_id,
-                timeout=60.0,
-            )
-            cleaned = remove_think_tags(response)
-            normalized = unwrap_markdown_json(cleaned or response)
-            try:
-                result = json.loads(normalized)
-            except json.JSONDecodeError:
-                result = json.loads(repair_json(normalized))
-
-            logger.info(
-                "质量检测完成: chapter=%d coolpoint=%s repetition=%s",
-                chapter_number,
-                result.get("coolpoint_score"),
-                result.get("repetition_score"),
-            )
-            return result
-        except Exception as exc:
-            logger.warning("质量检测失败: %s", exc)
-            return {"error": str(exc), "coolpoint_score": -1, "repetition_score": -1}
-
     @staticmethod
     def _build_stage_flags(config: PipelineConfig) -> Dict[str, bool]:
         return {
             "preview": config.enable_preview,
             "optimizer": config.enable_optimizer,
+            "polish": config.enable_polish,
             "consistency": config.enable_consistency,
             "enrichment": config.enable_enrichment,
             "constitution": config.enable_constitution,
@@ -1811,28 +966,6 @@ class PipelineOrchestrator:
             "rag": config.enable_rag,
             "rag_mode": config.rag_mode == "two_stage",
         }
-
-    @staticmethod
-    def _format_filtered_context(filtered: FilteredContext) -> Optional[str]:
-        if not filtered:
-            return None
-
-        sections = []
-        if filtered.plot_fuel:
-            sections.append("## 情节燃料\n" + "\n".join(f"- {item}" for item in filtered.plot_fuel))
-        if filtered.character_info:
-            sections.append("## 人物维度\n" + "\n".join(f"- {item}" for item in filtered.character_info))
-        if filtered.world_fragments:
-            sections.append("## 世界碎片\n" + "\n".join(f"- {item}" for item in filtered.world_fragments))
-        if filtered.narrative_techniques:
-            sections.append("## 叙事技法\n" + "\n".join(f"- {item}" for item in filtered.narrative_techniques))
-        if filtered.warnings:
-            sections.append("## 冲突警告\n" + "\n".join(f"- {item}" for item in filtered.warnings))
-
-        if not sections:
-            return "（未检索到有效上下文）"
-
-        return "\n\n".join(sections)
 
 
 __all__ = ["PipelineOrchestrator", "PipelineConfig"]

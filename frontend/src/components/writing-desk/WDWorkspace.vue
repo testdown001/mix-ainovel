@@ -21,9 +21,79 @@
             </div>
             <h3 class="md-title-medium md-on-surface mb-1">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
             <p class="md-body-small md-on-surface-variant">{{ selectedChapterOutline?.summary || '暂无章节描述' }}</p>
+
+            <!-- 剧情推演折叠区域 -->
+            <div v-if="isChapterCompleted(selectedChapterNumber)" class="mt-3">
+              <div class="flex items-center gap-2">
+                <button
+                  @click="showPrediction = !showPrediction"
+                  class="md-btn md-btn-text md-ripple flex items-center gap-1 !px-2 !py-1"
+                  style="font-size: 0.8125rem;"
+                >
+                  <svg
+                    class="w-4 h-4 transition-transform"
+                    :class="showPrediction ? 'rotate-90' : ''"
+                    fill="currentColor" viewBox="0 0 20 20"
+                  >
+                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                  </svg>
+                  剧情推演
+                  <span v-if="outlinePrediction" class="md-body-small md-on-surface-variant ml-1">(已有)</span>
+                </button>
+                <button
+                  @click="handleGeneratePrediction"
+                  :disabled="generatingPrediction"
+                  class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-2 !py-1 disabled:opacity-50"
+                  style="font-size: 0.8125rem;"
+                >
+                  <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                  </svg>
+                  {{ generatingPrediction ? '推演中...' : (outlinePrediction ? '重新推演' : '生成推演') }}
+                </button>
+              </div>
+
+              <div v-if="showPrediction && outlinePrediction" class="mt-2 space-y-2">
+                <div v-for="section in predictionSections" :key="section.key" class="md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
+                  <h4 class="md-title-small font-medium mb-1.5" :style="{ color: section.color }">{{ section.label }}</h4>
+                  <ul class="space-y-0.5">
+                    <li v-for="(item, i) in section.items" :key="i" class="md-body-small md-on-surface-variant flex gap-2">
+                      <span class="shrink-0">{{ section.icon }}</span>
+                      <span>{{ item }}</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <!-- Beats 节拍编排 -->
+                <div v-if="outlinePrediction.beats?.length" class="md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
+                  <h4 class="md-title-small font-medium mb-1.5" style="color: var(--md-primary)">节拍编排</h4>
+                  <div class="space-y-1.5">
+                    <div v-for="(beat, i) in outlinePrediction.beats" :key="i" class="flex items-start gap-2">
+                      <span class="shrink-0 w-4 h-4 rounded-full text-[10px] flex items-center justify-center text-white font-medium"
+                            :style="{ backgroundColor: beatColor(beat.type) }">{{ i + 1 }}</span>
+                      <div>
+                        <span class="md-label-small font-medium" :style="{ color: beatColor(beat.type) }">{{ beatLabel(beat.type) }}</span>
+                        <span class="md-body-small md-on-surface-variant ml-1">{{ beat.content }}</span>
+                        <span class="md-label-small ml-1" style="color: var(--md-outline);">({{ beat.emotion }})</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="flex items-center gap-2">
+            <button
+              @click="$emit('toggleCodex')"
+              class="md-btn md-btn-tonal md-ripple flex items-center gap-2 whitespace-nowrap"
+              title="世界观设定典"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9 4.804A7.968 7.968 0 005.5 4c-1.255 0-2.443.29-3.5.804v10A7.969 7.969 0 015.5 14c1.669 0 3.218.51 4.5 1.385A7.962 7.962 0 0114.5 14c1.255 0 2.443.29 3.5.804v-10A7.968 7.968 0 0014.5 4c-1.255 0-2.443.29-3.5.804V12a1 1 0 11-2 0V4.804z"></path>
+              </svg>
+              设定典
+            </button>
             <button
               v-if="isChapterCompleted(selectedChapterNumber)"
               @click="openEditModal"
@@ -60,7 +130,7 @@
           @update:selectedVersionIndex="$emit('update:selectedVersionIndex', $event)"
           @showVersionDetail="$emit('showVersionDetail', $event)"
           @confirmVersionSelection="$emit('confirmVersionSelection')"
-          @generateChapter="$emit('generateChapter', $event)"
+          @generateChapter="(...args: any[]) => $emit('generateChapter', ...args)"
           @showVersionSelector="$emit('showVersionSelector')"
           @regenerateChapter="$emit('regenerateChapter')"
           @evaluateChapter="$emit('evaluateChapter')"
@@ -133,7 +203,17 @@
 <script setup lang="ts">
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
-import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject } from '@/api/novel'
+import { NovelAPI } from '@/api/novel'
+import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction } from '@/api/novel'
+
+const beatColorMap: Record<string, string> = {
+  setup: '#6B7280', provoke: '#F59E0B', twist: '#8B5CF6', payoff: '#EF4444', hook: '#3B82F6'
+}
+const beatLabelMap: Record<string, string> = {
+  setup: '铺垫', provoke: '激化', twist: '转折', payoff: '爆发', hook: '悬念'
+}
+const beatColor = (type: string) => beatColorMap[type] || '#6B7280'
+const beatLabel = (type: string) => beatLabelMap[type] || type
 import WorkspaceInitial from './workspace/WorkspaceInitial.vue'
 import ChapterGenerating from './workspace/ChapterGenerating.vue'
 import VersionSelector from './workspace/VersionSelector.vue'
@@ -166,13 +246,50 @@ const emit = defineEmits([
   'showVersionSelector',
   'showEvaluationDetail',
   'fetchChapterStatus',
-  'editChapter'
+  'editChapter',
+  'toggleCodex'
 ])
 
 const confirmRegenerateChapter = async () => {
   const confirmed = await globalAlert.showConfirm('重新生成会覆盖当前章节的现有内容，确定继续吗？', '重新生成确认')
   if (confirmed) {
     emit('regenerateChapter')
+  }
+}
+
+// 剧情推演
+const showPrediction = ref(false)
+const generatingPrediction = ref(false)
+
+const outlinePrediction = computed<ChapterPrediction | null>(
+  () => selectedChapterOutline.value?.metadata?.prediction ?? null
+)
+
+const predictionSections = computed(() => {
+  const p = outlinePrediction.value
+  if (!p) return []
+  return [
+    { key: 'key_points', label: '章节要点', icon: '•', color: 'var(--md-primary)', items: p.key_points || [] },
+    { key: 'cool_points', label: '爽点设计', icon: '⚡', color: 'var(--md-tertiary)', items: p.cool_points || [] },
+    { key: 'foreshadowing_hooks', label: '伏笔/钩子', icon: '🪝', color: 'var(--md-secondary)', items: p.foreshadowing_hooks || [] },
+    { key: 'foreshadowing_targets', label: '需回收伏笔', icon: '🎯', color: 'var(--md-error)', items: p.foreshadowing_targets || [] },
+    { key: 'limitations', label: '章节限制', icon: '⚠', color: 'var(--md-on-surface-variant)', items: p.limitations || [] },
+  ].filter(s => s.items.length > 0)
+})
+
+const handleGeneratePrediction = async () => {
+  if (!props.project?.id || !props.selectedChapterNumber || generatingPrediction.value) return
+  generatingPrediction.value = true
+  try {
+    const result = await NovelAPI.generatePrediction(props.project.id, props.selectedChapterNumber)
+    if (selectedChapterOutline.value) {
+      selectedChapterOutline.value.metadata = { ...selectedChapterOutline.value.metadata, prediction: result }
+    }
+    showPrediction.value = true
+  } catch (e: any) {
+    console.error('剧情推演失败:', e)
+  } finally {
+    generatingPrediction.value = false
   }
 }
 

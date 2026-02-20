@@ -75,6 +75,7 @@
           @show-evaluation-detail="showEvaluationDetailModal = true"
           @fetch-chapter-status="fetchChapterStatus"
           @edit-chapter="editChapterContent"
+          @toggle-codex="codexPanelOpen = !codexPanelOpen"
           />
         </div>
       </div>
@@ -82,7 +83,7 @@
     <WDVersionDetailModal
       :show="showVersionDetailModal"
       :detail-version-index="detailVersionIndex"
-      :version="availableVersions[detailVersionIndex]"
+      :version="availableVersions[detailVersionIndex] ?? null"
       :is-current="isCurrentVersion(detailVersionIndex)"
       @close="closeVersionDetail"
       @select-version="selectVersionFromDetail"
@@ -95,6 +96,7 @@
     <WDEditChapterModal
       :show="showEditChapterModal"
       :chapter="editingChapter"
+      :project-id="project?.id || ''"
       @close="showEditChapterModal = false"
       @save="saveChapterChanges"
     />
@@ -102,6 +104,13 @@
       :show="showGenerateOutlineModal"
       @close="showGenerateOutlineModal = false"
       @generate="handleGenerateOutline"
+    />
+    <WDCodexPanel
+      :visible="codexPanelOpen"
+      :blueprint="project?.blueprint"
+      :selected-chapter-number="selectedChapterNumber"
+      :outlines="project?.blueprint?.chapter_outline || []"
+      @update:visible="codexPanelOpen = $event"
     />
   </div>
 </template>
@@ -121,6 +130,7 @@ import WDVersionDetailModal from '@/components/writing-desk/WDVersionDetailModal
 import WDEvaluationDetailModal from '@/components/writing-desk/WDEvaluationDetailModal.vue'
 import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue'
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
+import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 
 interface Props {
   id: string
@@ -144,6 +154,7 @@ const editingChapter = ref<ChapterOutline | null>(null)
 const isGeneratingOutline = ref(false)
 const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
+const codexPanelOpen = ref(false)
 
 // 计算属性
 const project = computed(() => novelStore.currentProject)
@@ -386,7 +397,7 @@ const selectChapter = (chapterNumber: number) => {
   closeSidebar()
 }
 
-const generateChapter = async (chapterNumber: number) => {
+const generateChapter = async (chapterNumber: number, writingNotes?: string) => {
   // 检查是否可以生成该章节
   if (!canGenerateChapter(chapterNumber) && !isChapterFailed(chapterNumber) && !hasChapterInProgress(chapterNumber)) {
     globalAlert.showError('请按顺序生成章节，先完成前面的章节', '生成受限')
@@ -417,7 +428,7 @@ const generateChapter = async (chapterNumber: number) => {
       }
     }
 
-    await novelStore.generateChapter(chapterNumber)
+    await novelStore.generateChapter(chapterNumber, writingNotes)
     
     // store 中的 project 已经被更新，所以我们不需要手动修改本地状态
     // chapterGenerationResult 也不再需要，因为 availableVersions 会从更新后的 project.chapters 中获取数据

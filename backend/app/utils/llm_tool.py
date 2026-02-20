@@ -261,6 +261,10 @@ class LLMClient:
                 (collected_content or collected_reasoning)[:200],
             )
 
+    async def aclose(self):
+        """关闭底层 HTTP 客户端连接。"""
+        await self._client.close()
+
 
 class AnthropicLLMClient:
     """原生 Anthropic Messages API (/v1/messages) 的异步流式调用封装，使用 x-api-key 认证。"""
@@ -314,11 +318,18 @@ class AnthropicLLMClient:
 
         if response_format == "json_object":
             system_text += (
-                "\n\n[IMPORTANT] 你必须以纯 JSON 格式回复，"
-                "不要包含 markdown 代码块标记（```）或其他非 JSON 内容。"
+                "\n\n[IMPORTANT] You MUST reply in pure JSON format only. "
+                "Do not include markdown code block markers (```) or any non-JSON content. "
+                "/ 你必须以纯 JSON 格式回复，不要包含 markdown 代码块标记或其他非 JSON 内容。"
             )
 
         thinking_budget = kwargs.pop("thinking_budget", None)
+
+        # 检测 thinking 模型（opus-4 系列、claude-3-7-sonnet），自动启用 thinking
+        _model_name = (model or "").lower()
+        _is_thinking_model = any(
+            kw in _model_name for kw in ("opus-4", "claude-3-7")
+        )
 
         payload: Dict = {
             "model": model or "claude-sonnet-4-20250514",
@@ -331,6 +342,10 @@ class AnthropicLLMClient:
 
         if thinking_budget:
             payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+            # thinking 模式不兼容 temperature/top_p
+        elif _is_thinking_model:
+            payload["thinking"] = {"type": "enabled", "budget_tokens": 10000}
+            logger.info("Anthropic thinking 模型自动启用 thinking: model=%s budget=10000", model)
             # thinking 模式不兼容 temperature/top_p
         else:
             if temperature is not None:
@@ -362,6 +377,7 @@ class AnthropicLLMClient:
         _total_lines = 0
         _thinking_len = 0
         _thinking_text = ""
+        _tool_use_input = ""
 
         try:
             async with self._client.stream(
@@ -379,10 +395,15 @@ class AnthropicLLMClient:
                         response=response,
                     )
 
+                _sse_event_type = ""  # 跟踪 SSE event: 行的事件类型
+
                 async for line in response.aiter_lines():
                     _total_lines += 1
                     line = line.strip()
-                    if not line or line.startswith("event:"):
+                    if not line:
+                        continue
+                    if line.startswith("event:"):
+                        _sse_event_type = line[6:].strip()
                         continue
                     if not line.startswith("data:"):
                         continue
@@ -399,7 +420,8 @@ class AnthropicLLMClient:
                         logger.debug("SSE JSON解析失败: %.200s", data_str)
                         continue
 
-                    event_type = data.get("type", "unknown")
+                    # 优先使用 data 中的 type 字段，回退到 SSE event: 行
+                    event_type = data.get("type") or _sse_event_type or "unknown"
                     _event_counts[event_type] = _event_counts.get(event_type, 0) + 1
 
                     if event_type == "content_block_start":
@@ -423,6 +445,13 @@ class AnthropicLLMClient:
                             _thinking_len += len(thinking_text)
                             _thinking_text += thinking_text
                             continue
+                        if _current_block_type == "tool_use":
+                            # tool_use 块的 input JSON 片段，累积但不作为正文输出
+                            delta = data.get("delta", {})
+                            partial_json = delta.get("partial_json", "")
+                            if partial_json:
+                                _tool_use_input += partial_json
+                            continue
                         delta = data.get("delta", {})
                         text = delta.get("text", "")
                         if text:
@@ -442,8 +471,8 @@ class AnthropicLLMClient:
                         logger.error("Anthropic stream error event: %s", error_info)
                         raise RuntimeError(f"Anthropic stream error: {error_msg}")
 
-            # 流结束后：如果 content 为空但 thinking 有内容，
-            # 说明代理将所有内容都放在了 thinking 块，将 thinking 作为最终内容补发
+            # 流结束后补救：
+            # 1. thinking 有内容但 content 为空 → 将 thinking 作为响应
             if not collected_content and _thinking_text:
                 logger.info(
                     "content 为空但 thinking 有内容（%d 字符），将 thinking 作为响应内容",
@@ -451,6 +480,17 @@ class AnthropicLLMClient:
                 )
                 yield {
                     "content": _thinking_text,
+                    "finish_reason": final_finish_reason or "stop",
+                }
+            # 2. 模型返回了 tool_use 而非 text → 提取 tool_use input 作为响应
+            elif not collected_content and _tool_use_input:
+                logger.warning(
+                    "模型返回 tool_use 而非 text（%d 字符），将 tool_use input 作为响应内容。"
+                    "这通常意味着代理/模型误将文本放入了 tool call。",
+                    len(_tool_use_input),
+                )
+                yield {
+                    "content": _tool_use_input,
                     "finish_reason": final_finish_reason or "stop",
                 }
 
@@ -465,17 +505,17 @@ class AnthropicLLMClient:
                 )
             raise
         finally:
-            total_content_len = len(collected_content) or len(_thinking_text)
+            total_content_len = len(collected_content) or len(_thinking_text) or len(_tool_use_input)
             logger.info(
                 "LLM响应(Anthropic) << url=%s model=%s finish_reason=%s "
-                "len=%d thinking_len=%d total_sse_lines=%d events=%s blocks=%s preview=%.500s",
+                "len=%d thinking_len=%d tool_use_len=%d total_sse_lines=%d events=%s blocks=%s preview=%.500s",
                 url, payload.get("model"),
                 final_finish_reason, total_content_len,
-                _thinking_len, _total_lines, _event_counts,
+                _thinking_len, len(_tool_use_input), _total_lines, _event_counts,
                 _block_types_seen,
-                (collected_content or _thinking_text)[:500],
+                (collected_content or _thinking_text or _tool_use_input)[:500],
             )
-            if not collected_content and not _thinking_text and final_finish_reason:
+            if not collected_content and not _thinking_text and not _tool_use_input and final_finish_reason:
                 logger.warning(
                     "LLM响应为空但流已结束 >> url=%s model=%s finish_reason=%s "
                     "thinking_len=%d events=%s blocks=%s — "
@@ -483,6 +523,10 @@ class AnthropicLLMClient:
                     url, payload.get("model"), final_finish_reason,
                     _thinking_len, _event_counts, _block_types_seen,
                 )
+
+    async def aclose(self):
+        """关闭底层 HTTP 客户端连接。"""
+        await self._client.aclose()
 
 
 class AnyRouterLLMClient:
@@ -719,8 +763,9 @@ class AnyRouterLLMClient:
         # Anthropic 不支持 response_format，通过指令注入
         if response_format == "json_object":
             system_parts.append(
-                "[IMPORTANT] 你必须以纯 JSON 格式回复，"
-                "不要包含 markdown 代码块标记（```）或其他非 JSON 内容。"
+                "[IMPORTANT] You MUST reply in pure JSON format only. "
+                "Do not include markdown code block markers (```) or any non-JSON content. "
+                "/ 你必须以纯 JSON 格式回复，不要包含 markdown 代码块标记或其他非 JSON 内容。"
             )
 
         # 将真正的 system prompt 作为第一条 user message 的前置 content block
@@ -761,7 +806,17 @@ class AnyRouterLLMClient:
             "system": self._FIXED_SYSTEM,
             "thinking": thinking_config,
         }
-        # thinking 模式不支持 temperature/top_p，不传入
+        # thinking 模式不支持 temperature/top_p，记录被忽略的参数
+        if temperature is not None:
+            logger.info(
+                "AnyRouter adaptive thinking 模式忽略 temperature=%.2f: model=%s",
+                temperature, model,
+            )
+        if top_p is not None:
+            logger.info(
+                "AnyRouter adaptive thinking 模式忽略 top_p=%.2f: model=%s",
+                top_p, model,
+            )
 
         msg_summary = [{"role": m.role, "content_length": len(m.content)} for m in messages]
         log_payload = {k: v for k, v in payload.items() if k not in ("messages", "system")}
@@ -777,6 +832,10 @@ class AnyRouterLLMClient:
         _parser._client = self._client
         async for chunk in _parser._do_stream(url, payload, timeout):
             yield chunk
+
+    async def aclose(self):
+        """关闭底层 HTTP 客户端连接。"""
+        await self._client.aclose()
 
 
 class GeminiLLMClient:
@@ -841,8 +900,9 @@ class GeminiLLMClient:
 
         if response_format == "json_object":
             system_parts.append(
-                "[IMPORTANT] 你必须以纯 JSON 格式回复，"
-                "不要包含 markdown 代码块标记（```）或其他非 JSON 内容。"
+                "[IMPORTANT] You MUST reply in pure JSON format only. "
+                "Do not include markdown code block markers (```) or any non-JSON content. "
+                "/ 你必须以纯 JSON 格式回复，不要包含 markdown 代码块标记或其他非 JSON 内容。"
             )
 
         # 2. 构建 payload
@@ -992,6 +1052,10 @@ class GeminiLLMClient:
                 (collected_content or collected_thinking)[:500],
             )
 
+    async def aclose(self):
+        """关闭底层 HTTP 客户端连接。"""
+        await self._client.aclose()
+
 
 class OpenAIResponsesLLMClient:
     """OpenAI Responses API (/v1/responses) 的异步流式调用封装，使用 Bearer 认证。"""
@@ -1080,36 +1144,29 @@ class OpenAIResponsesLLMClient:
 
         _add_variant("default", _clone_payload(payload))
 
+        # 策略: 仅保留最有效的回退变体，避免过多重试增加延迟
+        # 1. 移除 text.format（部分代理不支持）
         if "text" in payload:
             without_text_payload = _clone_payload(payload)
             without_text_payload.pop("text", None)
             _add_variant("without_text_format", without_text_payload)
 
+        # 2. instructions → system message in input（部分代理不支持 instructions）
         if instructions:
             system_in_input_payload = _clone_payload(payload)
             system_in_input_payload.pop("instructions", None)
+            system_in_input_payload.pop("text", None)  # 同时移除可能不支持的 text
             system_in_input_payload["input"] = [{"role": "system", "content": instructions}] + [
                 {"role": item["role"], "content": item["content"]} for item in api_input
             ]
             _add_variant("system_message_in_input", system_in_input_payload)
 
-            system_in_input_without_text = _clone_payload(system_in_input_payload)
-            system_in_input_without_text.pop("text", None)
-            _add_variant("system_message_in_input_without_text", system_in_input_without_text)
-
-        less_sampling_payload = _clone_payload(request_variants[-1]["payload"])
-        sampling_changed = False
-        for key in ("temperature", "top_p"):
-            if key in less_sampling_payload:
+        # 3. 移除采样参数（部分代理不支持 temperature/top_p）
+        if any(k in payload for k in ("temperature", "top_p")):
+            less_sampling_payload = _clone_payload(request_variants[-1]["payload"])
+            for key in ("temperature", "top_p"):
                 less_sampling_payload.pop(key, None)
-                sampling_changed = True
-        if sampling_changed:
             _add_variant("without_sampling_params", less_sampling_payload)
-
-        no_max_tokens_payload = _clone_payload(request_variants[-1]["payload"])
-        if "max_output_tokens" in no_max_tokens_payload:
-            no_max_tokens_payload.pop("max_output_tokens", None)
-            _add_variant("without_max_output_tokens", no_max_tokens_payload)
 
         msg_summary = [{"role": m.role, "content_length": len(m.content)} for m in messages]
         log_payload = {k: v for k, v in payload.items() if k not in ("input", "instructions")}
@@ -1133,10 +1190,15 @@ class OpenAIResponsesLLMClient:
         async def _consume_sse_stream(response: httpx.Response, variant_name: str) -> None:
             nonlocal collected_content, collected_reasoning, final_finish_reason, _total_lines, _event_counts
 
+            _sse_event_type = ""  # 跟踪 SSE event: 行的事件类型
+
             async for line in response.aiter_lines():
                 _total_lines += 1
                 line = line.strip()
-                if not line or line.startswith("event:"):
+                if not line:
+                    continue
+                if line.startswith("event:"):
+                    _sse_event_type = line[6:].strip()
                     continue
                 if not line.startswith("data:"):
                     continue
@@ -1153,7 +1215,8 @@ class OpenAIResponsesLLMClient:
                     logger.debug("SSE JSON解析失败(%s): %.200s", variant_name, data_str)
                     continue
 
-                event_type = data.get("type", "unknown")
+                # 优先使用 data 中的 type 字段，回退到 SSE event: 行
+                event_type = data.get("type") or _sse_event_type or "unknown"
                 _event_counts[event_type] = _event_counts.get(event_type, 0) + 1
 
                 if event_type == "response.output_text.delta":
@@ -1252,3 +1315,7 @@ class OpenAIResponsesLLMClient:
                 _total_lines, _event_counts,
                 (collected_content or collected_reasoning)[:500],
             )
+
+    async def aclose(self):
+        """关闭底层 HTTP 客户端连接。"""
+        await self._client.aclose()

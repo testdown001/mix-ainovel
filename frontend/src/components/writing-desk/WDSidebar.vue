@@ -74,6 +74,17 @@
             </div>
           </div>
 
+          <!-- 迷你节奏条 -->
+          <div v-if="project.blueprint?.chapter_outline?.length" class="flex gap-px mx-6 mb-2 h-3">
+            <div v-for="outline in project.blueprint.chapter_outline" :key="outline.chapter_number"
+              class="flex-1 rounded-sm cursor-pointer transition-all duration-200 hover:h-4"
+              :style="{ backgroundColor: getRhythmColor(outline) }"
+              :class="{ 'opacity-40': selectedChapterNumber !== null && selectedChapterNumber !== outline.chapter_number }"
+              :title="`第${outline.chapter_number}章 ${outline.title}`"
+              @click="$emit('selectChapter', outline.chapter_number)"
+            />
+          </div>
+
           <div class="px-6 pb-6">
             <div v-if="project.blueprint?.chapter_outline?.length" class="space-y-3">
               <div
@@ -183,6 +194,14 @@
                       </span>
                       <span v-else class="md-chip md-chip-assist">未开始</span>
                     </div>
+
+                    <!-- 节奏标签 -->
+                    <div v-if="chapter.metadata?.prediction" class="flex gap-1 mt-1.5 flex-wrap">
+                      <span v-if="chapter.metadata.prediction.cool_points?.length" class="rhythm-tag" style="background-color: #F59E0B; color: white;">爽</span>
+                      <span v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="rhythm-tag" style="background-color: #3B82F6; color: white;">伏</span>
+                      <span v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="rhythm-tag" style="background-color: #10B981; color: white;">收</span>
+                      <span v-if="getLastBeatType(chapter.metadata.prediction) === 'payoff'" class="rhythm-tag" style="background-color: #EF4444; color: white;">爆</span>
+                    </div>
                   </div>
 
                   <!-- 章节操作按钮 -->
@@ -277,8 +296,27 @@
 import { computed, ref, nextTick } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
-import type { NovelProject } from '@/api/novel'
+import type { NovelProject, ChapterOutline, ChapterPrediction } from '@/api/novel'
 import Tooltip from '@/components/Tooltip.vue'
+
+// 获取最后一个 beat 的 type
+const getLastBeatType = (prediction: ChapterPrediction): string | null => {
+  if (!prediction.beats?.length) return null
+  return prediction.beats[prediction.beats.length - 1].type
+}
+
+// 根据 prediction 推导节奏条颜色
+const getRhythmColor = (outline: ChapterOutline): string => {
+  const prediction = outline.metadata?.prediction
+  if (!prediction) return '#D1D5DB' // 灰色 - 无推演
+  const coolCount = prediction.cool_points?.length || 0
+  const hasForeshadowingTargets = (prediction.foreshadowing_targets?.length || 0) > 0
+  if (hasForeshadowingTargets) return '#10B981' // 绿色 - 有伏笔回收
+  if (coolCount >= 3) return '#EF4444' // 红色 - 爽点多
+  if (coolCount >= 2) return '#F59E0B' // 橙色 - 有爽点
+  if (coolCount >= 1) return '#FB923C' // 浅橙 - 少量爽点
+  return '#93C5FD' // 浅蓝 - 只有基本要点
+}
 
 interface Props {
   project: NovelProject
@@ -485,5 +523,17 @@ const canGenerateChapter = (chapterNumber: number) => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.rhythm-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  line-height: 1;
 }
 </style>

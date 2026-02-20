@@ -15,6 +15,29 @@
         </ul>
       </div>
 
+      <!-- Beats 节拍编排 -->
+      <div v-if="prediction?.beats?.length" class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-lg);">
+        <h4 class="md-title-small font-medium mb-2" style="color: var(--md-primary)">节拍编排</h4>
+        <div class="space-y-2">
+          <div v-for="(beat, i) in prediction.beats" :key="i" class="flex items-start gap-2">
+            <span class="shrink-0 w-5 h-5 rounded-full text-xs flex items-center justify-center text-white font-medium"
+                  :style="{ backgroundColor: beatColor(beat.type) }">{{ i + 1 }}</span>
+            <div>
+              <span class="md-label-small font-medium" :style="{ color: beatColor(beat.type) }">{{ beatLabel(beat.type) }}</span>
+              <span class="md-body-small md-on-surface-variant ml-1">{{ beat.content }}</span>
+              <span class="md-label-small ml-1" style="color: var(--md-outline);">({{ beat.emotion }})</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 作者备注 -->
+      <div v-if="canGenerate" class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-lg);">
+        <label class="md-label-large font-medium mb-2 block" style="color: var(--md-on-surface);">作者备注（可选）</label>
+        <textarea v-model="writingNotes" rows="2" class="md-textarea w-full"
+          placeholder="例如：这章用倒叙手法、重点刻画反派心理..."></textarea>
+      </div>
+
       <!-- 操作按钮 -->
       <div class="flex items-center gap-3 pt-2">
         <button
@@ -29,7 +52,7 @@
         </button>
         <button
           v-if="canGenerate"
-          @click="$emit('generateChapter', chapterNumber)"
+          @click="$emit('generateChapter', chapterNumber, writingNotes || undefined)"
           :disabled="generatingChapter === chapterNumber"
           class="md-btn md-btn-filled md-ripple flex items-center gap-2 disabled:opacity-50"
         >
@@ -50,6 +73,11 @@
 
         <div v-if="canGenerate">
           <p class="md-body-medium md-on-surface-variant mb-4">可先生成剧情推演，再开始创作</p>
+          <div class="w-full mb-4 text-left">
+            <label class="md-label-large font-medium mb-1 block" style="color: var(--md-on-surface);">作者备注（可选）</label>
+            <textarea v-model="writingNotes" rows="2" class="md-textarea w-full"
+              placeholder="例如：这章用倒叙手法、重点刻画反派心理..."></textarea>
+          </div>
           <div class="flex items-center gap-3 justify-center">
             <button
               @click="handleGenerate"
@@ -59,7 +87,7 @@
               {{ generating ? '推演中...' : '剧情推演' }}
             </button>
             <button
-              @click="$emit('generateChapter', chapterNumber)"
+              @click="$emit('generateChapter', chapterNumber, writingNotes || undefined)"
               :disabled="generatingChapter === chapterNumber"
               class="md-btn md-btn-filled md-ripple flex items-center gap-2 disabled:opacity-50"
             >
@@ -87,6 +115,15 @@ import { ref, computed } from 'vue'
 import { NovelAPI } from '@/api/novel'
 import type { ChapterOutline, ChapterPrediction } from '@/api/novel'
 
+const beatColorMap: Record<string, string> = {
+  setup: '#6B7280', provoke: '#F59E0B', twist: '#8B5CF6', payoff: '#EF4444', hook: '#3B82F6'
+}
+const beatLabelMap: Record<string, string> = {
+  setup: '铺垫', provoke: '激化', twist: '转折', payoff: '爆发', hook: '悬念'
+}
+const beatColor = (type: string) => beatColorMap[type] || '#6B7280'
+const beatLabel = (type: string) => beatLabelMap[type] || type
+
 interface Props {
   chapterNumber: number
   generatingChapter: number | null
@@ -99,6 +136,7 @@ const props = defineProps<Props>()
 defineEmits(['generateChapter'])
 
 const generating = ref(false)
+const writingNotes = ref('')
 
 const prediction = computed<ChapterPrediction | null>(
   () => props.outline?.metadata?.prediction ?? null

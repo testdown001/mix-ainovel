@@ -167,16 +167,15 @@ async def optimize_chapter(
         request.dimension
     )
     
-    # 调用LLM进行优化
+    # 调用润色优化专用模型进行优化（使用 llm_optimize.* 配置）
     try:
-        response = await llm_service.get_llm_response(
+        response = await llm_service.get_optimize_llm_response(
             system_prompt=optimizer_prompt,
             conversation_history=[{
                 "role": "user",
                 "content": json.dumps(optimize_input, ensure_ascii=False)
             }],
             temperature=0.7,
-            user_id=current_user.id,
             timeout=600.0,
         )
         

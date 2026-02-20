@@ -106,12 +106,19 @@ export interface Character {
   relationship_to_protagonist?: string
 }
 
+export interface ChapterBeat {
+  type: 'setup' | 'provoke' | 'twist' | 'payoff' | 'hook'
+  content: string
+  emotion: string
+}
+
 export interface ChapterPrediction {
   key_points: string[]
   cool_points: string[]
   foreshadowing_hooks: string[]
   foreshadowing_targets: string[]
   limitations: string[]
+  beats?: ChapterBeat[]
 }
 
 export interface ChapterOutline {
@@ -322,10 +329,11 @@ export class NovelAPI {
     })
   }
 
-  static async generateChapter(projectId: string, chapterNumber: number): Promise<NovelProject> {
+  static async generateChapter(projectId: string, chapterNumber: number, writingNotes?: string): Promise<NovelProject> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
+      ...(writingNotes ? { writing_notes: writingNotes } : {}),
       flow_config: { preset: 'enhanced' }
     }
 

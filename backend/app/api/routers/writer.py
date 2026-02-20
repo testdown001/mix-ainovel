@@ -1564,12 +1564,17 @@ async def generate_prediction(
 ## 当前章节
 第{chapter_number}章 - {outline.title}: {outline.summary}
 
-请输出严格的 JSON（不要 markdown 包裹），包含以下 5 个数组字段：
-- key_points: 本章核心剧情要点（3-5条字符串）
-- cool_points: 本章爽点/高潮设计（2-3条字符串）
-- foreshadowing_hooks: 本章需要埋设的伏笔/钩子（1-3条字符串）
-- foreshadowing_targets: 本章需要回收的伏笔（0-3条字符串，无则空数组）
-- limitations: 本章写作限制/注意事项（2-3条字符串）"""
+请输出严格的 JSON（不要 markdown 包裹），包含以下 6 个字段：
+- key_points: 本章核心剧情要点（3-5条字符串数组）
+- cool_points: 本章爽点/高潮设计（2-3条字符串数组）
+- foreshadowing_hooks: 本章需要埋设的伏笔/钩子（1-3条字符串数组）
+- foreshadowing_targets: 本章需要回收的伏笔（0-3条字符串数组，无则空数组）
+- limitations: 本章写作限制/注意事项（2-3条字符串数组）
+- beats: 本章节拍编排（3-6个对象数组），每个对象包含：
+  - type: 节拍类型，取值 "setup"(铺垫) | "provoke"(挑衅/激化) | "twist"(转折) | "payoff"(爆发/回报) | "hook"(钩子/悬念)
+  - content: 具体场景描述（一句话）
+  - emotion: 情绪标记，取值 "压抑" | "积累" | "爆发" | "舒缓" | "悬念"
+  beats 应按照场景推进顺序排列，体现"铺垫→积累→爆发"的爽点节奏设计。"""
 
     raw = await llm_service.generate(prompt, temperature=0.4, response_format="json_object")
 

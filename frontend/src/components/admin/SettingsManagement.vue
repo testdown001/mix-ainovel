@@ -35,6 +35,51 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
+          <span class="card-title">润色优化模型配置</span>
+        </div>
+      </template>
+      <n-spin :show="polishLoading">
+        <n-alert v-if="polishError" type="error" closable @close="polishError = null">
+          {{ polishError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          配置独立的润色优化模型（如擅长角色扮演的微调模型）。留空则自动使用默认 LLM 配置。
+        </n-alert>
+        <n-form label-placement="top" class="polish-form">
+          <n-form-item label="API Key">
+            <n-input
+              v-model:value="polishForm.api_key"
+              type="password"
+              show-password-on="click"
+              placeholder="留空使用默认 API Key"
+            />
+          </n-form-item>
+          <n-form-item label="Base URL">
+            <n-input v-model:value="polishForm.base_url" placeholder="留空使用默认 Base URL" />
+          </n-form-item>
+          <n-form-item label="模型名称">
+            <n-input v-model:value="polishForm.model" placeholder="留空使用默认模型" />
+          </n-form-item>
+          <n-form-item label="API 格式">
+            <n-select
+              v-model:value="polishForm.api_format"
+              :options="apiFormatOptions"
+              placeholder="留空使用默认格式"
+              clearable
+            />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button type="primary" :loading="polishSaving" @click="savePolishConfig">
+              保存设置
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
           <span class="card-title">系统配置</span>
           <n-button type="primary" size="small" @click="openCreateModal">
             新增配置
@@ -105,6 +150,7 @@ import {
   NInputNumber,
   NModal,
   NPopconfirm,
+  NSelect,
   NSpace,
   NSpin,
   type DataTableColumns
@@ -130,6 +176,72 @@ const configs = ref<SystemConfig[]>([])
 const configLoading = ref(false)
 const configSaving = ref(false)
 const configError = ref<string | null>(null)
+
+// ---- 润色优化模型配置 ----
+const polishLoading = ref(false)
+const polishSaving = ref(false)
+const polishError = ref<string | null>(null)
+const polishForm = reactive({
+  api_key: '',
+  base_url: '',
+  model: '',
+  api_format: null as string | null
+})
+const apiFormatOptions = [
+  { label: 'auto（自动识别）', value: 'auto' },
+  { label: 'openai', value: 'openai' },
+  { label: 'anthropic', value: 'anthropic' },
+  { label: 'anyrouter', value: 'anyrouter' },
+  { label: 'gemini', value: 'gemini' },
+  { label: 'openai-responses', value: 'openai-responses' }
+]
+
+const POLISH_CONFIG_KEYS = [
+  'llm_optimize.api_key',
+  'llm_optimize.base_url',
+  'llm_optimize.model',
+  'llm_optimize.api_format'
+] as const
+
+const fetchPolishConfig = async () => {
+  polishLoading.value = true
+  polishError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const configMap = new Map(allConfigs.map((c) => [c.key, c.value]))
+    polishForm.api_key = configMap.get('llm_optimize.api_key') || ''
+    polishForm.base_url = configMap.get('llm_optimize.base_url') || ''
+    polishForm.model = configMap.get('llm_optimize.model') || ''
+    polishForm.api_format = configMap.get('llm_optimize.api_format') || null
+  } catch (err) {
+    polishError.value = err instanceof Error ? err.message : '加载润色模型配置失败'
+  } finally {
+    polishLoading.value = false
+  }
+}
+
+const savePolishConfig = async () => {
+  polishSaving.value = true
+  try {
+    const entries: Array<{ key: string; value: string; description: string }> = [
+      { key: 'llm_optimize.api_key', value: polishForm.api_key, description: '润色优化专用 API Key' },
+      { key: 'llm_optimize.base_url', value: polishForm.base_url, description: '润色优化专用 Base URL' },
+      { key: 'llm_optimize.model', value: polishForm.model, description: '润色优化专用模型名称' },
+      { key: 'llm_optimize.api_format', value: polishForm.api_format || '', description: '润色优化专用 API 格式' }
+    ]
+    for (const entry of entries) {
+      await AdminAPI.upsertSystemConfig(entry.key, {
+        value: entry.value,
+        description: entry.description
+      })
+    }
+    showAlert('润色模型配置已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    polishSaving.value = false
+  }
+}
 
 const configModalVisible = ref(false)
 const isCreateMode = ref(true)
@@ -317,6 +429,7 @@ const columns: DataTableColumns<SystemConfig> = [
 
 onMounted(() => {
   fetchDailyLimit()
+  fetchPolishConfig()
   fetchConfigs()
 })
 </script>
@@ -342,6 +455,10 @@ onMounted(() => {
 
 .limit-form {
   max-width: 360px;
+}
+
+.polish-form {
+  max-width: 480px;
 }
 
 .config-modal {
