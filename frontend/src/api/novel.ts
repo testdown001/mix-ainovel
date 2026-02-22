@@ -413,13 +413,15 @@ export class NovelAPI {
 
   static async regenerateOutlines(
     projectId: string,
-    chapterNumbers?: number[]
+    chapterNumbers?: number[],
+    totalChapters?: number
   ): Promise<RegenerateOutlinesResponse> {
+    const body: Record<string, any> = {}
+    if (chapterNumbers) body.chapter_numbers = chapterNumbers
+    if (totalChapters) body.total_chapters = totalChapters
     return request(`${WRITER_BASE}/${projectId}/chapters/regenerate-outlines`, {
       method: 'POST',
-      body: JSON.stringify({
-        chapter_numbers: chapterNumbers || null
-      })
+      body: JSON.stringify(body)
     })
   }
 

@@ -450,7 +450,9 @@ const versionModal = ref({
 // 缓存已加载的章节详情
 const chapterCache = new Map<number, ChapterDetail>()
 
-const chapters = computed(() => props.chapters || [])
+const chapters = computed(() =>
+  [...(props.chapters || [])].sort((a, b) => a.chapter_number - b.chapter_number)
+)
 
 // Tab 配置
 const tabs = [

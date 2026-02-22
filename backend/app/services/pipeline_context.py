@@ -1,6 +1,7 @@
 # AIMETA P=流水线上下文Mixin|R=历史章节_RAG检索_记忆|NR=不含API路由|E=PipelineContextMixin|X=internal|A=Mixin|D=sqlalchemy|S=db,net|RD=./README.ai
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -36,20 +37,44 @@ class PipelineContextMixin:
         previous_summary_text = ""
         previous_tail_excerpt = ""
 
+        # 第一轮：收集所有缺失摘要的章节，并行生成
+        missing_summary_chapters = []
         for existing in chapters:
             if existing.chapter_number >= chapter_number:
                 continue
             if existing.selected_version is None or not existing.selected_version.content:
                 continue
             if not existing.real_summary:
-                summary = await self.llm_service.get_summary(
-                    existing.selected_version.content,
+                missing_summary_chapters.append(existing)
+
+        if missing_summary_chapters:
+            logger.info(
+                "并行生成 %d 个缺失章节摘要: chapters=%s",
+                len(missing_summary_chapters),
+                [c.chapter_number for c in missing_summary_chapters],
+            )
+            summary_tasks = [
+                self.llm_service.get_summary(
+                    ch.selected_version.content,
                     temperature=0.15,
                     user_id=user_id,
                     timeout=180.0,
                 )
-                existing.real_summary = remove_think_tags(summary)
-                await self.session.commit()
+                for ch in missing_summary_chapters
+            ]
+            summaries = await asyncio.gather(*summary_tasks)
+            for ch, summary in zip(missing_summary_chapters, summaries):
+                ch.real_summary = remove_think_tags(summary)
+            await self.session.commit()
+
+        # 第二轮：构建 completed_chapters 列表
+        for existing in chapters:
+            if existing.chapter_number >= chapter_number:
+                continue
+            if existing.selected_version is None or not existing.selected_version.content:
+                continue
+            if not existing.real_summary:
+                continue
 
             completed_chapters.append(
                 {

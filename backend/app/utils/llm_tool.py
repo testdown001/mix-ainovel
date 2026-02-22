@@ -137,6 +137,9 @@ class LLMClient:
         timeout: int = 120,
         **kwargs,
     ) -> AsyncGenerator[Dict[str, str], None]:
+        # OpenAI chat/completions 不支持 thinking_budget，移除避免透传
+        kwargs.pop("thinking_budget", None)
+
         payload = {
             "model": model or os.environ.get("MODEL", "gpt-3.5-turbo"),
             "messages": [msg.to_dict() for msg in messages],

@@ -214,6 +214,7 @@ class PipelinePromptMixin:
         genre_prompt_injection: Optional[str] = None,
         fingerprint_context: Optional[str] = None,
         prediction_text: Optional[str] = None,
+        user_style_rules: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -272,6 +273,8 @@ class PipelinePromptMixin:
             sections.append(("[追更钩子连续性]", hook_continuity_brief))
         if emotion_expression_brief:
             sections.append(("[情绪表达去模板化约束](重点减少怒意句式重复)", emotion_expression_brief))
+        if user_style_rules:
+            sections.append(("[用户写作风格](用户级全局约束，必须严格遵守)", user_style_rules))
         if platinum_writing_brief:
             sections.append(("[白金写作准则](硬约束)", platinum_writing_brief))
         sections.append(("[禁止角色](本章不允许提及)", forbidden_text))

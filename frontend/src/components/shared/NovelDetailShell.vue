@@ -155,6 +155,7 @@
                 @edit="handleSectionEdit"
                 @add="startAddChapter"
                 @regenerate="handleRegenerate"
+                @delete-outlines="handleDeleteOutlines"
               />
             </div>
           </div>
@@ -548,7 +549,7 @@ const handleSave = async (data: { field: string; content: any }) => {
   }
 }
 
-const handleRegenerate = async (payload: { chapterNumbers?: number[] }) => {
+const handleRegenerate = async (payload: { chapterNumbers?: number[]; totalChapters?: number }) => {
   if (props.isAdmin) return
   await ensureProjectLoaded()
   const project = novel.value
@@ -556,7 +557,7 @@ const handleRegenerate = async (payload: { chapterNumbers?: number[] }) => {
 
   sectionRef.value?.setRegenerating?.(true)
   try {
-    const result = await NovelAPI.regenerateOutlines(project.id, payload.chapterNumbers)
+    const result = await NovelAPI.regenerateOutlines(project.id, payload.chapterNumbers, payload.totalChapters)
     // 用返回的最新大纲直接更新 sectionData，避免额外请求
     if (sectionData.chapter_outline) {
       sectionData.chapter_outline = { ...sectionData.chapter_outline, chapter_outline: result.chapter_outline }
@@ -565,11 +566,38 @@ const handleRegenerate = async (payload: { chapterNumbers?: number[] }) => {
     }
     // 标记哪些章节是新生成的
     sectionRef.value?.markRegenerated?.(result.updated_chapters, result.total_target)
+    // 大纲变动后使章节内容缓存失效
+    sectionData.chapters = null
   } catch (error) {
     console.error('重新生成大纲失败:', error)
     alert(error instanceof Error ? error.message : '重新生成大纲失败')
   } finally {
     sectionRef.value?.setRegenerating?.(false)
+  }
+}
+
+const handleDeleteOutlines = async (payload: { chapterNumbers: number[] }) => {
+  if (props.isAdmin) return
+  await ensureProjectLoaded()
+  const project = novel.value
+  if (!project) return
+
+  const deleteSet = new Set(payload.chapterNumbers)
+  const existingOutline = project.blueprint?.chapter_outline || []
+  const remainingOutline = existingOutline.filter(ch => !deleteSet.has(ch.chapter_number))
+
+  sectionRef.value?.setDeleting?.(true)
+  try {
+    const updatedProject = await NovelAPI.updateBlueprint(project.id, { chapter_outline: remainingOutline })
+    novelStore.setCurrentProject(updatedProject)
+    await loadSection('chapter_outline', true)
+    // 使章节内容列表缓存失效，切换时会重新加载
+    sectionData.chapters = null
+  } catch (error) {
+    console.error('删除大纲失败:', error)
+    alert(error instanceof Error ? error.message : '删除大纲失败')
+  } finally {
+    sectionRef.value?.setDeleting?.(false)
   }
 }
 

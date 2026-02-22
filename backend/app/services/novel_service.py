@@ -330,23 +330,43 @@ class NovelService:
 
         await self.session.execute(delete(ChapterOutline).where(ChapterOutline.project_id == project_id))
         if blueprint.chapter_outline:
+            # 按原始 chapter_number 排序后重新从 1 开始编号，确保连续且无重复
+            sorted_outlines = sorted(blueprint.chapter_outline, key=lambda o: o.chapter_number)
+            number_map = {o.chapter_number: i + 1 for i, o in enumerate(sorted_outlines)}
             await self.session.execute(
                 ChapterOutline.__table__.insert(),
                 [
                     {
                         "project_id": project_id,
-                        "chapter_number": outline.chapter_number,
+                        "chapter_number": number_map[outline.chapter_number],
                         "title": outline.title,
                         "summary": outline.summary,
                     }
-                    for outline in blueprint.chapter_outline
+                    for outline in sorted_outlines
                 ],
             )
+            # 同步归一化 foreshadowings 中的章节引用
+            normalized_foreshadowings = []
+            for fs in (blueprint.foreshadowings or []):
+                new_planted = number_map.get(fs.planted_chapter, fs.planted_chapter)
+                new_target = number_map.get(fs.target_chapter, fs.target_chapter) if fs.target_chapter else None
+                normalized_foreshadowings.append(fs.model_copy(update={
+                    "planted_chapter": new_planted,
+                    "target_chapter": new_target,
+                }))
+            # 归一化后的 outlines 用于伏笔推断
+            normalized_outlines = [
+                o.model_copy(update={"chapter_number": number_map[o.chapter_number]})
+                for o in sorted_outlines
+            ]
+        else:
+            normalized_outlines = []
+            normalized_foreshadowings = blueprint.foreshadowings or []
 
         await self._sync_blueprint_foreshadowings(
             project_id=project_id,
-            outlines=blueprint.chapter_outline,
-            explicit_items=blueprint.foreshadowings,
+            outlines=normalized_outlines,
+            explicit_items=normalized_foreshadowings,
             prefer_outline_inference=True,
         )
 

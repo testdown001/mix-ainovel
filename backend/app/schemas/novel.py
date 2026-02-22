@@ -230,6 +230,7 @@ class GenerateOutlineRequest(BaseModel):
 class RegenerateOutlinesRequest(BaseModel):
     """重新生成未完成章节大纲的请求体。"""
     chapter_numbers: Optional[List[int]] = None  # 为空时自动选取所有未完成章节
+    total_chapters: Optional[int] = None  # 从零生成时的目标章节总数
 
 
 class RegenerateOutlinesResponse(BaseModel):

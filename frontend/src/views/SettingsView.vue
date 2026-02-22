@@ -14,23 +14,38 @@
       <div class="w-full md:w-64 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg p-4 mb-4 md:mb-0 md:mr-8">
         <h2 class="text-xl font-bold text-gray-800 mb-4">设置</h2>
         <nav>
-          <ul>
-            <li class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg cursor-pointer">
+          <ul class="space-y-1">
+            <li
+              @click="activeTab = 'llm'"
+              class="px-4 py-2 rounded-lg cursor-pointer transition-colors"
+              :class="activeTab === 'llm' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'"
+            >
               LLM 配置
             </li>
-            <!-- Add other settings links here in the future -->
+            <li
+              @click="activeTab = 'writing'"
+              class="px-4 py-2 rounded-lg cursor-pointer transition-colors"
+              :class="activeTab === 'writing' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-600 hover:bg-gray-100'"
+            >
+              写作偏好
+            </li>
           </ul>
         </nav>
       </div>
 
       <!-- Main Content -->
       <div class="flex-1">
-        <LLMSettings />
+        <LLMSettings v-if="activeTab === 'llm'" />
+        <WritingPreferences v-else-if="activeTab === 'writing'" />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue';
 import LLMSettings from '@/components/LLMSettings.vue';
+import WritingPreferences from '@/components/WritingPreferences.vue';
+
+const activeTab = ref<'llm' | 'writing'>('llm');
 </script>

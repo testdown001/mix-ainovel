@@ -442,7 +442,7 @@ async def generate_chapter(
     previous_summary_text = ""
     previous_tail_excerpt = ""
     
-    for existing in project.chapters:
+    for existing in sorted(project.chapters, key=lambda c: c.chapter_number):
         if existing.chapter_number >= request.chapter_number:
             continue
         if existing.selected_version is None or not existing.selected_version.content:
@@ -614,6 +614,22 @@ async def generate_chapter(
             for key, label in _labels.items() if prediction.get(key)
         )
 
+    # ---- 用户写作风格偏好 ----
+    user_style_section = ""
+    try:
+        from sqlalchemy import select as sa_select
+        from ...models.user_writing_preference import UserWritingPreference
+        from ...core.writing_style_presets import build_user_style_prompt
+        pref_result = await session.execute(
+            sa_select(UserWritingPreference).where(UserWritingPreference.user_id == current_user.id)
+        )
+        pref = pref_result.scalars().first()
+        if pref:
+            user_style_section = build_user_style_prompt(pref)
+            logger.info("旧路径: 用户 %s 已加载写作风格偏好 (preset=%s)", current_user.id, pref.style_preset)
+    except Exception as e:
+        logger.warning("旧路径: 加载用户写作风格偏好失败（不影响生成）: %s", e)
+
     prompt_sections = [
         ("[世界蓝图](JSON，已裁剪)", blueprint_text),
         ("[白金写作准则](硬约束)", platinum_writing_brief),
@@ -628,6 +644,7 @@ async def generate_chapter(
         ("[章节字数要求]", CHAPTER_WORD_COUNT_RULE),
         ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
         ("[剧情推演](AI预分析的章节要点与约束，请参考执行)", prediction_text),
+        ("[用户写作风格](用户级全局约束，必须严格遵守)", user_style_section),
         ("[禁止角色](本章不允许提及)", forbidden_text),
     ]
     prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
@@ -1225,29 +1242,35 @@ async def regenerate_chapter_outlines(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> NovelProjectSchema:
-    """根据已完成章节的实际内容，重新生成未完成章节的标题和大纲。"""
+    """根据蓝图简介（和已完成章节的实际内容），重新生成未完成章节的标题和大纲。"""
     novel_service = NovelService(session)
     prompt_service = PromptService(session)
     llm_service = LLMService(session)
 
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
 
-    # 1. 收集已完成章节的摘要
+    # 1. 收集已完成章节信息
+    # completed_numbers 只看 status（与前端 generation_status === 'successful' 一致）
+    # completed_summaries 额外要求 real_summary 非空（用于给 LLM 提供上下文）
     completed_summaries: List[str] = []
     completed_numbers: set = set()
     for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
-        if ch.status == "successful" and ch.real_summary:
-            completed_summaries.append(
-                f"第{ch.chapter_number}章 - {ch.real_summary}"
-            )
+        if ch.status == "successful":
             completed_numbers.add(ch.chapter_number)
-
-    if not completed_summaries:
-        raise HTTPException(status_code=400, detail="没有已完成的章节，无法根据已有内容重新生成大纲")
+            if ch.real_summary:
+                completed_summaries.append(
+                    f"第{ch.chapter_number}章 - {ch.real_summary}"
+                )
 
     # 2. 确定要重新生成的章节
     all_outline_numbers = {o.chapter_number for o in project.outlines}
-    if request.chapter_numbers:
+    generate_fresh = False  # 标记是否生成全新后续大纲
+
+    if request.total_chapters:
+        # 明确指定了 total_chapters → 生成后续新大纲（不是重新生成）
+        generate_fresh = True
+        target_numbers = set()
+    elif request.chapter_numbers:
         target_numbers = set(request.chapter_numbers)
         # 校验：不允许重写已完成章节的大纲
         overlap = target_numbers & completed_numbers
@@ -1266,75 +1289,221 @@ async def regenerate_chapter_outlines(
     else:
         # 默认：所有未完成的章节
         target_numbers = all_outline_numbers - completed_numbers
+        if not target_numbers:
+            # 没有可重新生成的未完成大纲 → 视为生成后续
+            generate_fresh = True
 
-    if not target_numbers:
-        raise HTTPException(status_code=400, detail="没有需要重新生成的未完成章节")
-
-    # 3. 构建上下文
+    # 3. 构建上下文（精简蓝图，只保留大纲生成所需字段，减少 token 消耗）
     project_schema = await novel_service._serialize_project(project)
-    blueprint_text = json.dumps(project_schema.blueprint.model_dump(), ensure_ascii=False, indent=2)
-
-    completed_text = "\n".join(completed_summaries)
-
-    # 已完成章节的大纲（保留不变）
-    existing_completed_outlines = [
-        f"第{o.chapter_number}章 - {o.title}: {o.summary}"
-        for o in sorted(project.outlines, key=lambda x: x.chapter_number)
-        if o.chapter_number in completed_numbers
-    ]
-    existing_completed_text = "\n".join(existing_completed_outlines) if existing_completed_outlines else "暂无"
-
-    target_list = ", ".join(str(n) for n in sorted(target_numbers))
-    target_count = len(target_numbers)
+    blueprint_data = project_schema.blueprint.model_dump()
+    full_synopsis = blueprint_data.pop("full_synopsis", "") or ""
+    # 提取体裁和风格，单独突出展示
+    genre = blueprint_data.get("genre", "") or ""
+    style = blueprint_data.get("style", "") or ""
+    tone = blueprint_data.get("tone", "") or ""
+    # 只保留对大纲生成有指导意义的字段
+    slim_blueprint = {
+        k: blueprint_data[k]
+        for k in ("title", "genre", "style", "tone", "target_audience", "one_sentence_summary", "world_setting")
+        if k in blueprint_data and blueprint_data[k]
+    }
+    blueprint_text = json.dumps(slim_blueprint, ensure_ascii=False, indent=2)
 
     outline_prompt = await prompt_service.get_prompt("outline_generation")
     if not outline_prompt:
         raise HTTPException(status_code=500, detail="未配置大纲生成提示词")
 
-    prompt_input = f"""[世界蓝图]
-{blueprint_text}
+    # 收集已有章节标题作为风格参考
+    existing_title_samples: List[str] = []
+    for o in sorted(project.outlines, key=lambda x: x.chapter_number):
+        if o.title and o.title.strip():
+            existing_title_samples.append(o.title.strip())
+        if len(existing_title_samples) >= 5:
+            break
 
-[已完成章节的大纲（不可修改）]
-{existing_completed_text}
+    # 构建风格描述
+    style_desc_parts = []
+    if genre:
+        style_desc_parts.append(f"体裁：{genre}")
+    if style:
+        style_desc_parts.append(f"风格：{style}")
+    if tone:
+        style_desc_parts.append(f"基调：{tone}")
+    style_desc = "，".join(style_desc_parts) if style_desc_parts else ""
 
-[已完成章节的实际内容摘要]
-{completed_text}
+    # 构建提示词：突出 full_synopsis 和体裁风格的核心指导地位
+    prompt_parts = []
 
-[重新生成任务]
-请根据上述已完成章节的实际走向，为以下 {target_count} 个章节重新生成标题和大纲摘要：第 {target_list} 章。
+    # 体裁风格放在最前面，优先级最高
+    if style_desc:
+        prompt_parts.append(f"[小说体裁与风格（必须严格遵循）]\n{style_desc}")
+        if existing_title_samples:
+            prompt_parts.append(f"[已有章节标题风格参考（新标题务必保持一致）]\n" + "、".join(existing_title_samples))
+
+    prompt_parts.append(f"[故事简介（核心指导）]\n{full_synopsis}" if full_synopsis else "[故事简介（核心指导）]\n暂无")
+    prompt_parts.append(f"[世界蓝图]\n{blueprint_text}")
+
+    if completed_summaries:
+        # 有已完成章节时，包含其大纲和摘要作为参考
+        existing_completed_outlines = [
+            f"第{o.chapter_number}章 - {o.title}: {o.summary}"
+            for o in sorted(project.outlines, key=lambda x: x.chapter_number)
+            if o.chapter_number in completed_numbers
+        ]
+        existing_completed_text = "\n".join(existing_completed_outlines)
+        completed_text = "\n".join(completed_summaries)
+        prompt_parts.append(f"[已完成章节的大纲（不可修改）]\n{existing_completed_text}")
+        prompt_parts.append(f"[已完成章节的实际内容摘要]\n{completed_text}")
+
+    # 构建标题命名指导（在任务要求中引用）
+    title_style_hint = ""
+    if genre:
+        title_style_hint = f"标题必须契合「{genre}」类型的命名风格"
+        if existing_title_samples:
+            title_style_hint += f"（参考已有标题：{'、'.join(existing_title_samples[:3])}）"
+        title_style_hint += "，简短凝练、富有意境"
+
+    if generate_fresh:
+        # 生成后续时，需要把所有已有大纲（含未完成的）作为上下文传给 LLM
+        all_existing_outlines = [
+            f"第{o.chapter_number}章 - {o.title}: {o.summary}"
+            for o in sorted(project.outlines, key=lambda x: x.chapter_number)
+        ]
+        if all_existing_outlines:
+            prompt_parts.append(f"[已有全部章节大纲（续写时需衔接）]\n" + "\n".join(all_existing_outlines))
+
+        # ============ 生成全新后续大纲 ============
+        BATCH_SIZE = 20
+        # 从已有大纲的最大章节号之后开始（确保不覆盖已有大纲）
+        start_number = max(all_outline_numbers) + 1 if all_outline_numbers else 1
+        total = request.total_chapters or 20
+
+        all_updated_numbers: List[int] = []
+        # 前序批次生成的标题摘要（精简版，仅供后续批次参考连贯性）
+        generated_titles: List[str] = []
+
+        for batch_offset in range(0, total, BATCH_SIZE):
+            batch_count = min(BATCH_SIZE, total - batch_offset)
+            batch_start = start_number + batch_offset
+            batch_end = batch_start + batch_count - 1
+
+            batch_prompt_parts = list(prompt_parts)  # 复制公共上下文
+
+            if generated_titles:
+                batch_prompt_parts.append(f"[前序批次已生成的章节标题（保持连贯）]\n" + "\n".join(generated_titles))
+
+            batch_prompt_parts.append(f"""[生成任务]
+请根据以上故事简介和蓝图设定，生成第 {batch_start} 章到第 {batch_end} 章（共 {batch_count} 章）的章节大纲。
+
+{"这是整部小说的第 " + str(batch_offset // BATCH_SIZE + 1) + " 批续写，" if total > BATCH_SIZE else ""}{"承接已有章节大纲的剧情走向，" if all_outline_numbers else ""}涵盖从第 {batch_start} 章到第 {batch_end} 章的情节发展。
+
+要求：
+1. 章节编号从 {batch_start} 到 {batch_end}，共 {batch_count} 个章节
+2. {title_style_hint if title_style_hint else "章节标题应简短凝练、富有意境"}
+3. 每个章节的大纲摘要应详细描述该章的核心事件和情节推进
+4. 返回 JSON 格式：{{"chapters": [...]}}，数组内恰好包含 {batch_count} 个元素，每个元素包含 chapter_number, title, summary
+5. 确认返回的 chapters 数组长度恰好为 {batch_count}""")
+
+            batch_prompt_input = "\n\n".join(batch_prompt_parts)
+
+            logger.info("大纲生成批次 %d/%d: project=%s 章节 %d-%d",
+                        batch_offset // BATCH_SIZE + 1,
+                        (total + BATCH_SIZE - 1) // BATCH_SIZE,
+                        project_id, batch_start, batch_end)
+
+            response = await llm_service.get_llm_response(
+                system_prompt=outline_prompt,
+                conversation_history=[{"role": "user", "content": batch_prompt_input}],
+                temperature=0.7,
+                user_id=current_user.id,
+            )
+
+            cleaned = remove_think_tags(response)
+            if not cleaned:
+                cleaned = response
+            normalized = unwrap_markdown_json(cleaned)
+            try:
+                try:
+                    data = json.loads(normalized)
+                except json.JSONDecodeError:
+                    data = json.loads(repair_json(normalized))
+                batch_outlines = data.get("chapters", [])
+                for item in batch_outlines:
+                    ch_num = item.get("chapter_number")
+                    # 校验 chapter_number 有效性
+                    if ch_num is None or not isinstance(ch_num, (int, float)):
+                        logger.warning("大纲生成: 跳过无效 chapter_number=%s", ch_num)
+                        continue
+                    ch_num = int(ch_num)
+                    if ch_num < batch_start or ch_num > batch_end:
+                        logger.warning("大纲生成: chapter_number=%d 超出预期范围 [%d, %d]，跳过",
+                                       ch_num, batch_start, batch_end)
+                        continue
+                    if ch_num in completed_numbers:
+                        continue
+                    title = item.get("title", f"第{ch_num}章")
+                    summary = item.get("summary", "")
+                    await novel_service.update_or_create_outline(
+                        project_id, ch_num, title, summary,
+                    )
+                    all_updated_numbers.append(ch_num)
+                    generated_titles.append(f"第{ch_num}章 - {title}")
+                await session.commit()
+                logger.info("大纲生成批次完成: 本批更新 %d 章", len(batch_outlines))
+            except Exception as exc:
+                logger.exception("大纲生成批次解析失败: %s", exc)
+                # 批次失败不中断，继续下一批
+                if not all_updated_numbers:
+                    raise HTTPException(status_code=500, detail=f"大纲生成失败: {str(exc)}")
+
+        total_target = total
+        updated_numbers = all_updated_numbers
+        logger.info("大纲分批生成全部完成: project=%s 共更新 %d/%d 章", project_id, len(updated_numbers), total_target)
+    else:
+        target_list = ", ".join(str(n) for n in sorted(target_numbers))
+        target_count = len(target_numbers)
+        prompt_parts.append(f"""[重新生成任务]
+请根据以上故事简介和蓝图设定，为以下 {target_count} 个章节重新生成标题和大纲摘要：第 {target_list} 章。
 
 ⚠️ 重要：你必须为上述列出的每一个章节（共 {target_count} 个）都生成完整的大纲，一个都不能遗漏。
 
 要求：
-1. 新大纲必须承接已完成章节的剧情走向，保持连贯性
-2. 不要改变已完成章节的内容
-3. 返回 JSON 格式：{{"chapters": [...]}}，数组内包含 {target_count} 个元素，每个元素包含 chapter_number, title, summary
-4. 严格只返回指定的 {target_count} 个章节的大纲，不要返回已完成章节的大纲
-5. 确认返回的 chapters 数组长度恰好为 {target_count}"""
+1. 新大纲必须紧密围绕故事简介的核心走向来构建{"，并承接已完成章节的剧情，保持连贯性" if completed_summaries else ""}
+2. {title_style_hint if title_style_hint else "章节标题应简短凝练、富有意境"}
+3. {"不要改变已完成章节的内容" if completed_summaries else "大纲应涵盖从故事开端到结局的完整脉络"}
+4. 返回 JSON 格式：{{"chapters": [...]}}，数组内包含 {target_count} 个元素，每个元素包含 chapter_number, title, summary
+5. 严格只返回指定的 {target_count} 个章节的大纲{"，不要返回已完成章节的大纲" if completed_summaries else ""}
+6. 确认返回的 chapters 数组长度恰好为 {target_count}""")
 
-    response = await llm_service.get_llm_response(
-        system_prompt=outline_prompt,
-        conversation_history=[{"role": "user", "content": prompt_input}],
-        temperature=0.7,
-        user_id=current_user.id,
-        max_tokens=16384,
-    )
+        prompt_input = "\n\n".join(prompt_parts)
 
-    cleaned = remove_think_tags(response)
-    if not cleaned:
-        logger.info("大纲重新生成: remove_think_tags 后为空，回退原始响应 (len=%d)", len(response))
-        cleaned = response
-    normalized = unwrap_markdown_json(cleaned)
-    try:
+        response = await llm_service.get_llm_response(
+            system_prompt=outline_prompt,
+            conversation_history=[{"role": "user", "content": prompt_input}],
+            temperature=0.7,
+            user_id=current_user.id,
+        )
+
+        cleaned = remove_think_tags(response)
+        if not cleaned:
+            logger.info("大纲重新生成: remove_think_tags 后为空，回退原始响应 (len=%d)", len(response))
+            cleaned = response
+        normalized = unwrap_markdown_json(cleaned)
         try:
-            data = json.loads(normalized)
-        except json.JSONDecodeError:
-            data = json.loads(repair_json(normalized))
-        new_outlines = data.get("chapters", [])
-        updated_numbers: List[int] = []
-        for item in new_outlines:
-            ch_num = item.get("chapter_number")
-            if ch_num is not None and ch_num in target_numbers:
+            try:
+                data = json.loads(normalized)
+            except json.JSONDecodeError:
+                data = json.loads(repair_json(normalized))
+            new_outlines = data.get("chapters", [])
+            updated_numbers: List[int] = []
+            for item in new_outlines:
+                ch_num = item.get("chapter_number")
+                if ch_num is None or not isinstance(ch_num, (int, float)):
+                    logger.warning("大纲重新生成: 跳过无效 chapter_number=%s", ch_num)
+                    continue
+                ch_num = int(ch_num)
+                if ch_num not in target_numbers or ch_num in completed_numbers:
+                    continue
                 await novel_service.update_or_create_outline(
                     project_id,
                     ch_num,
@@ -1342,17 +1511,18 @@ async def regenerate_chapter_outlines(
                     item.get("summary", ""),
                 )
                 updated_numbers.append(ch_num)
-        await session.commit()
-        logger.info("大纲重新生成完成: project=%s 更新了 %d/%d 个章节", project_id, len(updated_numbers), target_count)
-    except Exception as exc:
-        logger.exception("重新生成大纲解析失败: %s", exc)
-        raise HTTPException(status_code=500, detail=f"大纲重新生成失败: {str(exc)}")
+            await session.commit()
+            total_target = target_count
+            logger.info("大纲重新生成完成: project=%s 更新了 %d/%d 个章节", project_id, len(updated_numbers), total_target)
+        except Exception as exc:
+            logger.exception("重新生成大纲解析失败: %s", exc)
+            raise HTTPException(status_code=500, detail=f"大纲重新生成失败: {str(exc)}")
 
     # 重新加载项目获取最新大纲
     project_schema = await _load_project_schema(novel_service, project_id, current_user.id)
     return RegenerateOutlinesResponse(
         updated_chapters=sorted(updated_numbers),
-        total_target=target_count,
+        total_target=total_target,
         chapter_outline=project_schema.blueprint.chapter_outline if project_schema.blueprint else [],
     )
 

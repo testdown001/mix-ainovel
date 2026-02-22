@@ -1,6 +1,7 @@
 # AIMETA P=写作流水线编排_统一生成入口|R=上下文汇聚_生成_审查_优化|NR=不含API路由|E=PipelineOrchestrator|X=internal|A=编排器|D=fastapi,sqlalchemy|S=db,net|RD=./README.ai
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -359,6 +360,22 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     beats_lines.append(f"{idx}. [{beat_type}] {content} ({emotion})")
                 prediction_text += "\n节拍编排：\n" + "\n".join(beats_lines)
 
+        # ---- 用户写作风格偏好 ----
+        user_style_rules: Optional[str] = None
+        try:
+            from sqlalchemy import select as sa_select
+            from ..models.user_writing_preference import UserWritingPreference
+            from ..core.writing_style_presets import build_user_style_prompt
+            result = await self.session.execute(
+                sa_select(UserWritingPreference).where(UserWritingPreference.user_id == user_id)
+            )
+            pref = result.scalars().first()
+            if pref:
+                user_style_rules = build_user_style_prompt(pref)
+                logger.info("用户 %s 已加载写作风格偏好 (preset=%s)", user_id, pref.style_preset)
+        except Exception as e:
+            logger.warning("加载用户写作风格偏好失败（不影响生成）: %s", e)
+
         prompt_sections = self._build_prompt_sections(
             writer_blueprint=writer_blueprint,
             previous_summary=history_context["previous_summary"],
@@ -382,6 +399,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             genre_prompt_injection=genre_prompt_injection,
             fingerprint_context=fingerprint_context,
             prediction_text=prediction_text,
+            user_style_rules=user_style_rules,
         )
 
         if enhanced_flow and enhanced_context:
@@ -437,6 +455,8 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             best_version = versions[best_version_index]
             best_content = best_version["content"]
 
+            # ========== 阶段 A：顺序执行修改 best_content 的步骤 ==========
+
             if ai_review_result and (ai_review_result.get("flaws") or ai_review_result.get("suggestions")):
                 best_content, revision_report = await self._revise_with_review_feedback(
                     best_content,
@@ -446,17 +466,6 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     user_id=user_id,
                 )
                 review_summaries["review_driven_revision"] = revision_report
-
-            if enhanced_flow and config.enable_six_dimension:
-                review_result = await enhanced_flow.post_generation_review(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_title=outline_title,
-                    chapter_content=best_content,
-                    chapter_plan=json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
-                    previous_summary=history_context["previous_summary"],
-                )
-                review_summaries["enhanced_review"] = review_result
 
             if config.enable_self_critique:
                 best_content, critique_summary = await self._run_self_critique(
@@ -469,15 +478,6 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
                 review_summaries["self_critique"] = critique_summary
 
-            if config.enable_reader_sim:
-                reader_feedback = await self._run_reader_simulation(
-                    best_content,
-                    chapter_number=chapter_number,
-                    previous_summary=history_context["previous_summary"],
-                    user_id=user_id,
-                )
-                review_summaries["reader_simulator"] = reader_feedback
-
             if config.enable_consistency:
                 best_content, consistency_report = await self._run_consistency_check(
                     project_id=project_id,
@@ -485,27 +485,6 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     user_id=user_id,
                 )
                 review_summaries["consistency"] = consistency_report
-
-            if config.enable_anti_hallucination:
-                try:
-                    from .anti_hallucination_service import AntiHallucinationService
-                    ah_service = AntiHallucinationService(self.session, self.llm_service)
-                    ah_report = await ah_service.check_chapter(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_text=best_content,
-                        user_id=user_id,
-                    )
-                    review_summaries["anti_hallucination"] = {
-                        "passed": ah_report.passed,
-                        "registered_count": ah_report.registered_count,
-                        "warning_count": ah_report.warning_count,
-                        "critical_count": ah_report.critical_count,
-                        "report": AntiHallucinationService.format_report_for_review(ah_report),
-                    }
-                except Exception as e:
-                    logger.warning("反幻觉检查失败（不影响生成）: %s", e)
-                    review_summaries["anti_hallucination"] = {"error": str(e)}
 
             # ---- 人味化扫描与修复 ----
             if config.enable_humanization:
@@ -549,19 +528,76 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 if enrichment_report:
                     review_summaries["enrichment"] = enrichment_report
 
-            recent_openings = [
-                ch["summary"][:200]
-                for ch in history_context.get("completed_chapters", [])
-                if ch.get("summary")
-            ][-3:]
-            quality_report = await self._run_quality_detection(
-                best_content,
-                chapter_number=chapter_number,
-                chapter_mission=chapter_mission,
-                previous_chapters_openings=recent_openings,
-                user_id=user_id,
+            # ========== 阶段 B：并行执行只读分析步骤 ==========
+
+            async def _do_six_dimension() -> None:
+                if not (enhanced_flow and config.enable_six_dimension):
+                    return
+                result = await enhanced_flow.post_generation_review(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    chapter_title=outline_title,
+                    chapter_content=best_content,
+                    chapter_plan=json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
+                    previous_summary=history_context["previous_summary"],
+                )
+                review_summaries["enhanced_review"] = result
+
+            async def _do_reader_simulation() -> None:
+                if not config.enable_reader_sim:
+                    return
+                feedback = await self._run_reader_simulation(
+                    best_content,
+                    chapter_number=chapter_number,
+                    previous_summary=history_context["previous_summary"],
+                    user_id=user_id,
+                )
+                review_summaries["reader_simulator"] = feedback
+
+            async def _do_anti_hallucination() -> None:
+                if not config.enable_anti_hallucination:
+                    return
+                try:
+                    from .anti_hallucination_service import AntiHallucinationService
+                    ah_service = AntiHallucinationService(self.session, self.llm_service)
+                    ah_report = await ah_service.check_chapter(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_text=best_content,
+                        user_id=user_id,
+                    )
+                    review_summaries["anti_hallucination"] = {
+                        "passed": ah_report.passed,
+                        "registered_count": ah_report.registered_count,
+                        "warning_count": ah_report.warning_count,
+                        "critical_count": ah_report.critical_count,
+                        "report": AntiHallucinationService.format_report_for_review(ah_report),
+                    }
+                except Exception as e:
+                    logger.warning("反幻觉检查失败（不影响生成）: %s", e)
+                    review_summaries["anti_hallucination"] = {"error": str(e)}
+
+            async def _do_quality_detection() -> None:
+                recent_openings = [
+                    ch["summary"][:200]
+                    for ch in history_context.get("completed_chapters", [])
+                    if ch.get("summary")
+                ][-3:]
+                quality_report = await self._run_quality_detection(
+                    best_content,
+                    chapter_number=chapter_number,
+                    chapter_mission=chapter_mission,
+                    previous_chapters_openings=recent_openings,
+                    user_id=user_id,
+                )
+                review_summaries["quality_detection"] = quality_report
+
+            await asyncio.gather(
+                _do_six_dimension(),
+                _do_reader_simulation(),
+                _do_anti_hallucination(),
+                _do_quality_detection(),
             )
-            review_summaries["quality_detection"] = quality_report
 
             best_version["content"] = best_content
             best_version.setdefault("metadata", {})["review_summaries"] = review_summaries
@@ -617,7 +653,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             config.enable_persona = True
             config.enable_foreshadowing = True
             config.enable_faction = True
-            config.rag_mode = "two_stage"
+            config.rag_mode = settings.rag_default_mode
             # enhanced+ 预设启用反幻觉
             if getattr(settings, "enable_entity_registry", True):
                 config.enable_anti_hallucination = True
@@ -818,7 +854,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 user_id=user_id,
                 timeout=600.0,
                 response_format=None,
-                max_tokens=128000,
+                max_tokens=settings.writer_max_tokens,
             )
             cleaned = remove_think_tags(response)
             content = unwrap_markdown_json(cleaned or response)

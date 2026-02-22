@@ -7,53 +7,116 @@
         <p class="text-sm text-slate-500">故事结构与章节节奏一目了然</p>
       </div>
       <div v-if="editable" class="flex items-center gap-2 flex-wrap">
-        <button
-          v-if="hasCompletedChapters && uncompletedCount > 0"
-          type="button"
-          class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"
-          :disabled="regenerating"
-          @click="handleRegenerateAll"
-        >
-          <svg v-if="regenerating" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {{ regenerating ? '生成中...' : `重新生成未完成大纲 (${uncompletedCount})` }}
-        </button>
-        <button
-          v-if="regeneratedNumbers.size > 0"
-          type="button"
-          class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors"
-          @click="clearRegenerated"
-        >
-          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-          </svg>
-          清除新生成标记
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
-          @click="$emit('add')"
-        >
-          <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
-          </svg>
-          新增章节
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 hover:text-indigo-600 transition-colors"
-          @click="emitEdit('chapter_outline', '章节大纲', outline)"
-        >
-          <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
-            <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" />
-          </svg>
-          编辑大纲
-        </button>
+        <template v-if="!batchMode">
+          <!-- 生成大纲（新增/续写） -->
+          <button
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+            :disabled="regenerating"
+            @click="handleGenerateFresh"
+          >
+            <svg v-if="regenerating && freshGenerating" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
+            </svg>
+            {{ generateFreshText }}
+          </button>
+          <!-- 重新生成未完成大纲 -->
+          <button
+            v-if="uncompletedCount > 0"
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"
+            :disabled="regenerating"
+            @click="handleRegenerateUncompleted"
+          >
+            <svg v-if="regenerating && !freshGenerating" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {{ regenerating && !freshGenerating ? '生成中...' : `重新生成未完成大纲 (${uncompletedCount})` }}
+          </button>
+          <button
+            v-if="regeneratedNumbers.size > 0"
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors"
+            @click="clearRegenerated"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+            </svg>
+            清除新生成标记
+          </button>
+          <button
+            v-if="uncompletedCount > 0"
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+            @click="enterBatchMode"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L6.382 6H4a1 1 0 000 2h.5l.5 8.5A2 2 0 007 18.5h6a2 2 0 002-2L15.5 8H16a1 1 0 100-2h-2.382l-1.724-3.447A1 1 0 0011 2H9zm-.5 4l1-2h1l1 2h-3zM8.5 10a.5.5 0 011 0v4a.5.5 0 01-1 0v-4zm3 0a.5.5 0 011 0v4a.5.5 0 01-1 0v-4z" clip-rule="evenodd" />
+            </svg>
+            批量删除
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+            @click="$emit('add')"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
+            </svg>
+            新增章节
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 hover:text-indigo-600 transition-colors"
+            @click="emitEdit('chapter_outline', '章节大纲', outline)"
+          >
+            <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
+              <path fill-rule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clip-rule="evenodd" />
+            </svg>
+            编辑大纲
+          </button>
+        </template>
+        <!-- 批量删除模式工具栏 -->
+        <template v-else>
+          <label class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              class="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+              :checked="isAllUncompletedSelected"
+              @change="toggleSelectAll"
+            />
+            全选未完成 ({{ uncompletedCount }})
+          </label>
+          <button
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            :disabled="selectedNumbers.size === 0 || deleting"
+            @click="handleDeleteSelected"
+          >
+            <svg v-if="deleting" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L6.382 6H4a1 1 0 000 2h.5l.5 8.5A2 2 0 007 18.5h6a2 2 0 002-2L15.5 8H16a1 1 0 100-2h-2.382l-1.724-3.447A1 1 0 0011 2H9zm-.5 4l1-2h1l1 2h-3zM8.5 10a.5.5 0 011 0v4a.5.5 0 01-1 0v-4zm3 0a.5.5 0 011 0v4a.5.5 0 01-1 0v-4z" clip-rule="evenodd" />
+            </svg>
+            {{ deleting ? '删除中...' : `删除选中 (${selectedNumbers.size})` }}
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            :disabled="deleting"
+            @click="exitBatchMode"
+          >
+            取消
+          </button>
+        </template>
       </div>
     </div>
 
@@ -89,7 +152,7 @@
 
     <ol class="relative border-l border-slate-200 ml-3 space-y-8">
       <li
-        v-for="chapter in outline"
+        v-for="chapter in sortedOutline"
         :key="chapter.chapter_number"
         class="ml-6"
       >
@@ -109,13 +172,22 @@
           :class="[
             isCompleted(chapter.chapter_number)
               ? 'bg-emerald-50/50 border-emerald-200'
-              : isRegenerated(chapter.chapter_number)
-                ? 'bg-sky-50/60 border-sky-300 ring-2 ring-sky-200'
-                : 'bg-white/95 border-slate-200'
+              : isSelected(chapter.chapter_number)
+                ? 'bg-red-50/60 border-red-300 ring-2 ring-red-200'
+                : isRegenerated(chapter.chapter_number)
+                  ? 'bg-sky-50/60 border-sky-300 ring-2 ring-sky-200'
+                  : 'bg-white/95 border-slate-200'
           ]"
         >
           <div class="flex items-center justify-between gap-4">
             <div class="flex items-center gap-2 min-w-0">
+              <input
+                v-if="batchMode && !isCompleted(chapter.chapter_number)"
+                type="checkbox"
+                class="h-4 w-4 flex-shrink-0 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                :checked="isSelected(chapter.chapter_number)"
+                @change="toggleSelect(chapter.chapter_number)"
+              />
               <h3 class="text-lg font-semibold text-slate-900 truncate">{{ chapter.title || `第${chapter.chapter_number}章` }}</h3>
               <span
                 v-if="isCompleted(chapter.chapter_number)"
@@ -135,10 +207,10 @@
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
               <button
-                v-if="editable && !isCompleted(chapter.chapter_number) && hasCompletedChapters"
+                v-if="editable && !isCompleted(chapter.chapter_number)"
                 type="button"
                 class="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                title="根据已完成章节重新生成此章大纲"
+                title="重新生成此章大纲"
                 :disabled="regenerating"
                 @click="handleRegenerateSingle(chapter.chapter_number)"
               >
@@ -152,7 +224,7 @@
           <p class="mt-3 text-sm text-slate-600 leading-6 whitespace-pre-line">{{ chapter.summary || '暂无摘要' }}</p>
         </div>
       </li>
-      <li v-if="!outline.length" class="ml-6 text-slate-400 text-sm">暂无章节大纲</li>
+      <li v-if="!sortedOutline.length" class="ml-6 text-slate-400 text-sm">暂无章节大纲</li>
     </ol>
   </div>
 </template>
@@ -178,13 +250,23 @@ const props = defineProps<{
 }>()
 
 const regenerating = ref(false)
+const freshGenerating = ref(false) // 区分是"生成"还是"重新生成"
 const regeneratedNumbers = ref<Set<number>>(new Set())
 const regenerateResult = ref<{ updated: number; total: number } | null>(null)
+const batchMode = ref(false)
+const selectedNumbers = ref<Set<number>>(new Set())
+const deleting = ref(false)
+
+// 按 chapter_number 排序，防止显示乱序
+const sortedOutline = computed(() =>
+  [...props.outline].sort((a, b) => a.chapter_number - b.chapter_number)
+)
 
 const emit = defineEmits<{
   (e: 'edit', payload: { field: string; title: string; value: any }): void
   (e: 'add'): void
-  (e: 'regenerate', payload: { chapterNumbers?: number[] }): void
+  (e: 'regenerate', payload: { chapterNumbers?: number[]; totalChapters?: number }): void
+  (e: 'delete-outlines', payload: { chapterNumbers: number[] }): void
 }>()
 
 const completedNumbers = computed(() => {
@@ -196,10 +278,14 @@ const completedNumbers = computed(() => {
   )
 })
 
-const hasCompletedChapters = computed(() => completedNumbers.value.size > 0)
-
 const uncompletedCount = computed(() => {
-  return props.outline.filter(o => !completedNumbers.value.has(o.chapter_number)).length
+  return sortedOutline.value.filter(o => !completedNumbers.value.has(o.chapter_number)).length
+})
+
+const generateFreshText = computed(() => {
+  if (regenerating.value && freshGenerating.value) return '生成中...'
+  if (sortedOutline.value.length === 0) return '基于简介生成大纲'
+  return '生成后续大纲'
 })
 
 const isCompleted = (chapterNumber: number): boolean => {
@@ -220,8 +306,22 @@ const emitEdit = (field: string, title: string, value: any) => {
   emit('edit', { field, title, value })
 }
 
-const handleRegenerateAll = () => {
+const handleGenerateFresh = () => {
   if (regenerating.value) return
+  const input = window.prompt('请输入要生成的章节数量（将自动分批生成）', '20')
+  if (!input) return
+  const total = parseInt(input, 10)
+  if (isNaN(total) || total < 1 || total > 500) {
+    alert('请输入 1-500 之间的正整数')
+    return
+  }
+  freshGenerating.value = true
+  emit('regenerate', { totalChapters: total })
+}
+
+const handleRegenerateUncompleted = () => {
+  if (regenerating.value) return
+  freshGenerating.value = false
   emit('regenerate', {})
 }
 
@@ -235,8 +335,65 @@ const markRegenerated = (updatedChapters: number[], totalTarget: number) => {
   regenerateResult.value = { updated: updatedChapters.length, total: totalTarget }
 }
 
+// 批量删除相关
+const uncompletedNumbers = computed(() =>
+  sortedOutline.value
+    .filter(o => !completedNumbers.value.has(o.chapter_number))
+    .map(o => o.chapter_number)
+)
+
+const isAllUncompletedSelected = computed(() =>
+  uncompletedNumbers.value.length > 0 && uncompletedNumbers.value.every(n => selectedNumbers.value.has(n))
+)
+
+const isSelected = (chapterNumber: number): boolean => {
+  return selectedNumbers.value.has(chapterNumber)
+}
+
+const toggleSelect = (chapterNumber: number) => {
+  const next = new Set(selectedNumbers.value)
+  if (next.has(chapterNumber)) {
+    next.delete(chapterNumber)
+  } else {
+    next.add(chapterNumber)
+  }
+  selectedNumbers.value = next
+}
+
+const toggleSelectAll = () => {
+  if (isAllUncompletedSelected.value) {
+    selectedNumbers.value = new Set()
+  } else {
+    selectedNumbers.value = new Set(uncompletedNumbers.value)
+  }
+}
+
+const enterBatchMode = () => {
+  batchMode.value = true
+  selectedNumbers.value = new Set()
+}
+
+const exitBatchMode = () => {
+  batchMode.value = false
+  selectedNumbers.value = new Set()
+}
+
+const handleDeleteSelected = () => {
+  if (selectedNumbers.value.size === 0 || deleting.value) return
+  const confirmed = window.confirm(`确定删除选中的 ${selectedNumbers.value.size} 个未完成大纲吗？此操作不可撤销。`)
+  if (!confirmed) return
+  emit('delete-outlines', { chapterNumbers: [...selectedNumbers.value] })
+}
+
 defineExpose({
-  setRegenerating: (v: boolean) => { regenerating.value = v },
+  setRegenerating: (v: boolean) => {
+    regenerating.value = v
+    if (!v) freshGenerating.value = false
+  },
+  setDeleting: (v: boolean) => {
+    deleting.value = v
+    if (!v) exitBatchMode()
+  },
   markRegenerated,
 })
 </script>

@@ -185,7 +185,8 @@ async def optimize_chapter(
         try:
             result = json.loads(normalized)
             optimized_content = result.get("optimized_content", cleaned)
-            optimization_notes = result.get("optimization_notes", "优化完成")
+            raw_notes = result.get("optimization_notes", "优化完成")
+            optimization_notes = "\n".join(raw_notes) if isinstance(raw_notes, list) else str(raw_notes)
         except json.JSONDecodeError:
             # 如果无法解析JSON，将整个响应作为优化后的内容
             optimized_content = cleaned

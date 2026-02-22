@@ -83,6 +83,17 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("WRITER_CHAPTER_VERSION_COUNT", "WRITER_CHAPTER_VERSIONS"),
         description="每次生成章节的候选版本数量",
     )
+    writer_max_tokens: int = Field(
+        default=16000,
+        ge=1024,
+        env="WRITER_MAX_TOKENS",
+        description="章节版本生成的最大 token 数",
+    )
+    rag_default_mode: str = Field(
+        default="two_stage",
+        env="RAG_DEFAULT_MODE",
+        description="enhanced/platinum 预设的默认 RAG 模式，可设为 simple 降低耗时",
+    )
     embedding_provider: str = Field(
         default="openai",
         env="EMBEDDING_PROVIDER",
