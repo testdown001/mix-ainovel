@@ -248,10 +248,10 @@ class PipelineReviewMixin:
                 normalized = unwrap_markdown_json(cleaned)
                 try:
                     parsed = json.loads(normalized)
-                except json.JSONDecodeError:
+                except json.JSONDecodeEror:
                     try:
                         parsed = json.loads(repair_json(normalized))
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeEror:
                         parsed = None
                 if parsed:
                     optimized_content = parsed.get("optimized_content", cleaned)
@@ -320,10 +320,10 @@ class PipelineReviewMixin:
         target_word_count: int = CHAPTER_RECOMMENDED_WORDS,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         service = EnrichmentService(self.session, self.llm_service)
-        current_word_count = len(chapter_content or "")
+        curent_word_count = len(chapter_content or "")
 
         # 先做下限兜底：低于 2000 字时直接走迭代扩写，避免章节明显偏短
-        if current_word_count < CHAPTER_MIN_WORDS:
+        if curent_word_count < CHAPTER_MIN_WORDS:
             min_recovery_target = max(CHAPTER_MIN_WORDS + 200, target_word_count)
             enriched_text = await service.enrich_to_target(
                 chapter_text=chapter_content,
@@ -332,11 +332,11 @@ class PipelineReviewMixin:
                 max_iterations=2,
             )
             enriched_count = len(enriched_text or "")
-            if enriched_text and enriched_count > current_word_count:
+            if enriched_text and enriched_count > curent_word_count:
                 return enriched_text, {
-                    "original_word_count": current_word_count,
+                    "original_word_count": curent_word_count,
                     "enriched_word_count": enriched_count,
-                    "enrichment_ratio": (enriched_count / current_word_count) if current_word_count > 0 else 1.0,
+                    "enrichment_ratio": (enriched_count / curent_word_count) if curent_word_count > 0 else 1.0,
                     "enrichment_type": "min_length_recovery",
                 }
 
@@ -383,36 +383,41 @@ class PipelineReviewMixin:
             if sat_type:
                 expected_beat += f"（爽感类型：{sat_type}）"
 
-        detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的两个维度，输出JSON。
-
-## 分析维度
-
-### 1. 爽点密度
-检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。
-- coolpoint_score (0-10)：爽点密度评分
-- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）
-- coolpoint_issue：如果评分<6，指出具体问题
-
-### 2. 模式重复
-对比本章开头/结尾与近期章节是否存在套路化重复。
-- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）
-- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）
-- within_chapter_repetition：章节内部的句式/词汇重复
-
-[本章开头300字]
-{opening_300}
-
-[本章结尾300字]
-{ending_300}
-
-[本章预期]
-{expected_beat or "无特定预期"}
-
-[近期章节开头对比]
-{recent_patterns or "无（这是前几章）"}
-
-输出严格JSON格式：
-{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": []}}"""
+        detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。\r
+\r
+## 分析维度\r
+\r
+### 1. 爽点密度\r
+检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。\r
+- coolpoint_score (0-10)：爽点密度评分\r
+- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）\r
+- coolpoint_issue：如果评分<6，指出具体问题\r
+\r
+### 2. 模式重复\r
+对比本章开头/结尾与近期章节是否存在套路化重复。\r
+- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）\r
+- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）\r
+- within_chapter_repetition：章节内部的句式/词汇重复\r
+\r
+### 3. 阶段性胜利 (Milestone Victory)\r
+判断本章是否包含"改变主角地位、能力层级或势力格局的决定性事件"。\r
+- milestone_victory_detected (true/false)：是否存在阶段性胜利\r
+- milestone_description：如果存在，一句话描述该阶段性胜利的内容\r
+\r
+[本章开头300字]\r
+{opening_300}\r
+\r
+[本章结尾300字]\r
+{ending_300}\r
+\r
+[本章预期]\r
+{expected_beat or "无特定预期"}\r
+\r
+[近期章节开头对比]\r
+{recent_patterns or "无（这是前几章）"}\r
+\r
+输出严格JSON格式：\r
+{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": ""}}"""
 
         try:
             response = await self.llm_service.get_llm_response(
@@ -426,7 +431,7 @@ class PipelineReviewMixin:
             normalized = unwrap_markdown_json(cleaned or response)
             try:
                 result = json.loads(normalized)
-            except json.JSONDecodeError:
+            except json.JSONDecodeEror:
                 result = json.loads(repair_json(normalized))
 
             logger.info(
@@ -438,4 +443,4 @@ class PipelineReviewMixin:
             return result
         except Exception as exc:
             logger.warning("质量检测失败: %s", exc)
-            return {"error": str(exc), "coolpoint_score": -1, "repetition_score": -1}
+            return {"eror": str(exc), "coolpoint_score": -1, "repetition_score": -1}

@@ -18,6 +18,18 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+# ==================== 微兑现统一分类法 ====================
+
+MICROPAYOFF_TAXONOMY: Dict[str, str] = {
+    "信息兑现": "揭示新信息、线索或真相，满足读者好奇心",
+    "关系兑现": "关系推进、确认或变化，满足情感期待",
+    "能力兑现": "能力提升、新技能展示或境界突破",
+    "资源兑现": "获得物品、资源、财富或装备",
+    "认可兑现": "获得认可、面子、地位或声望提升",
+    "情绪兑现": "情绪释放、共鸣或情感高潮",
+    "线索兑现": "伏笔回收、悬念解答或推理突破",
+}
+
 # ==================== 题材 Profile 常量定义 ====================
 
 GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -37,6 +49,12 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
         "micropayoff_config": {
             "per_chapter_min": 2,
             "types": ["小胜", "获得认可", "意外收获", "技能领悟"],
+            "category_mapping": {
+                "小胜": "能力兑现",
+                "获得认可": "认可兑现",
+                "意外收获": "资源兑现",
+                "技能领悟": "能力兑现",
+            },
         },
         "pacing_config": {
             "quest_ratio": 0.55,
@@ -68,6 +86,12 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
         "micropayoff_config": {
             "per_chapter_min": 1,
             "types": ["修为进步", "灵草灵矿", "前辈认可", "道法感悟"],
+            "category_mapping": {
+                "修为进步": "能力兑现",
+                "灵草灵矿": "资源兑现",
+                "前辈认可": "认可兑现",
+                "道法感悟": "信息兑现",
+            },
         },
         "pacing_config": {
             "quest_ratio": 0.60,
@@ -99,6 +123,12 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
         "micropayoff_config": {
             "per_chapter_min": 1,
             "types": ["暧昧升级", "日常甜蜜", "相互理解", "心意传达"],
+            "category_mapping": {
+                "暧昧升级": "关系兑现",
+                "日常甜蜜": "情绪兑现",
+                "相互理解": "关系兑现",
+                "心意传达": "情绪兑现",
+            },
         },
         "pacing_config": {
             "quest_ratio": 0.45,
@@ -130,6 +160,12 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
         "micropayoff_config": {
             "per_chapter_min": 1,
             "types": ["线索发现", "排除嫌疑", "关键证据", "逻辑链闭合"],
+            "category_mapping": {
+                "线索发现": "信息兑现",
+                "排除嫌疑": "线索兑现",
+                "关键证据": "信息兑现",
+                "逻辑链闭合": "线索兑现",
+            },
         },
         "pacing_config": {
             "quest_ratio": 0.65,
@@ -161,6 +197,12 @@ GENRE_PROFILES: Dict[str, Dict[str, Any]] = {
         "micropayoff_config": {
             "per_chapter_min": 1,
             "types": ["能力小突破", "获得情报", "赢得信任", "化解危机"],
+            "category_mapping": {
+                "能力小突破": "能力兑现",
+                "获得情报": "信息兑现",
+                "赢得信任": "认可兑现",
+                "化解危机": "情绪兑现",
+            },
         },
         "pacing_config": {
             "quest_ratio": 0.55,
@@ -277,6 +319,10 @@ class GenreProfileService:
 
         micro_cfg = profile.get("micropayoff_config", {})
         lines.append(f"- 每章至少 {micro_cfg.get('per_chapter_min', 1)} 个微满足（如：{'、'.join(micro_cfg.get('types', [])[:4])}）")
+        category_map = micro_cfg.get("category_mapping", {})
+        if category_map:
+            used_categories = sorted(set(category_map.values()))
+            lines.append(f"- 微兑现覆盖分类：{'、'.join(used_categories)}（统一七类：信息/关系/能力/资源/认可/情绪/线索）")
 
         pacing_cfg = profile.get("pacing_config", {})
         lines.append(f"- 节奏配比：Quest={pacing_cfg.get('quest_ratio', 0.6):.0%} / Fire={pacing_cfg.get('fire_ratio', 0.25):.0%} / Constellation={pacing_cfg.get('constellation_ratio', 0.15):.0%}")
