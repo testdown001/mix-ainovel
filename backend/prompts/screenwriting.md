@@ -64,6 +64,13 @@
       }
     ]
   },
+  "golden_finger": {
+    "name": "string | null",
+    "type": "系统|能力|血脉|道具|知识|机缘|空间|其他|不适用",
+    "description": "金手指的具体表现形式和运作机制",
+    "limitations": "使用代价、副作用或限制条件",
+    "growth_potential": "金手指的成长路线和解锁阶段"
+  },
   "characters": [
     {
       "name": "string",
