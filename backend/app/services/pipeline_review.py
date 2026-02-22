@@ -132,11 +132,12 @@ class PipelineReviewMixin:
         *,
         user_id: int,
         context: Optional[Dict[str, Any]] = None,
+        max_iterations: int = 1,
     ) -> Tuple[str, Dict[str, Any]]:
         service = SelfCritiqueService(self.session, self.llm_service, self.prompt_service)
         critique = await service.critique_and_revise_loop(
             chapter_content=chapter_content,
-            max_iterations=2,
+            max_iterations=max_iterations,
             target_score=80.0,
             dimensions=[
                 CritiqueDimension.LOGIC,
@@ -213,61 +214,61 @@ class PipelineReviewMixin:
         return chapter_text, report
 
     async def _run_optimizer(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
-        prompt_map = {
-            "dialogue": "optimize_dialogue",
-            "environment": "optimize_environment",
-            "psychology": "optimize_psychology",
-            "rhythm": "optimize_rhythm",
-            "coolpoint": "optimize_coolpoint",
-        }
+        """使用综合优化 prompt 一次性优化多个维度（对话/环境/心理/节奏/爽点）。"""
+        optimize_prompt = f"""你是一位精通网络小说写作的多维度优化专家。请对以下章节内容进行综合优化。
 
-        optimized_content = chapter_content
-        notes = []
-        for dimension, prompt_name in prompt_map.items():
-            prompt = await self.prompt_service.get_prompt(prompt_name)
-            if not prompt:
-                logger.warning("缺少优化提示词 %s，跳过 %s 维度", prompt_name, dimension)
-                continue
+**优化维度（同时处理）：**
+1. **对话优化**：让角色台词更有个性、更符合身份，增强潜台词和冲突感
+2. **环境描写**：补充视觉、听觉、触觉等感官细节，增强沉浸感
+3. **心理描写**：用生理反应替代抽象情绪词（"他很愤怒"→具体生理反应），深化内心冲突
+4. **节奏优化**：调整段落长短、松紧交替，确保铺垫→爆发→余韵的节奏感
+5. **爽点强化**：识别并强化爽点结构（30%铺垫/40%兑现/30%微反转），增加信息差和情绪张力
 
-            optimize_input = {
-                "original_content": optimized_content,
-                "additional_notes": "在不改变剧情走向的前提下优化该维度。",
-            }
+**核心原则：**
+- 保持情节走向、人物关系、对话内容完全不变
+- 保持原文字数规模（±10%），不增删情节
+- 优化要自然融入，不能有明显修补痕迹
+
+[原章节内容]
+{chapter_content}
+
+请以 JSON 格式输出：
+{{{{
+  "optimized_content": "优化后的完整章节内容",
+  "optimization_notes": "列出每个维度的具体优化点"
+}}}}"""
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一位擅长多维度同步优化网文章节的资深编辑。只输出JSON，不要其他内容。",
+                conversation_history=[{"role": "user", "content": optimize_prompt}],
+                temperature=0.7,
+                user_id=user_id,
+                timeout=300.0,
+            )
+            cleaned = remove_think_tags(response)
+            if not cleaned:
+                cleaned = response
+            normalized = unwrap_markdown_json(cleaned)
             try:
-                response = await self.llm_service.get_llm_response(
-                    system_prompt=prompt,
-                    conversation_history=[{"role": "user", "content": json.dumps(optimize_input, ensure_ascii=False)}],
-                    temperature=0.7,
-                    user_id=user_id,
-                    timeout=600.0,
-                )
-                cleaned = remove_think_tags(response)
-                if not cleaned:
-                    logger.info("优化维度 %s: remove_think_tags 后为空，回退原始响应", dimension)
-                    cleaned = response
-                normalized = unwrap_markdown_json(cleaned)
+                parsed = json.loads(normalized)
+            except json.JSONDecodeError:
                 try:
-                    parsed = json.loads(normalized)
-                except json.JSONDecodeEror:
-                    try:
-                        parsed = json.loads(repair_json(normalized))
-                    except json.JSONDecodeEror:
-                        parsed = None
-                if parsed:
-                    optimized_content = parsed.get("optimized_content", cleaned)
-                    notes.append(
-                        {
-                            "dimension": dimension,
-                            "notes": parsed.get("optimization_notes", "优化完成"),
-                        }
-                    )
-                else:
-                    optimized_content = cleaned
-                    notes.append({"dimension": dimension, "notes": "优化完成（响应格式非标准JSON）"})
-            except Exception as exc:
-                logger.warning("优化维度 %s 失败: %s", dimension, exc)
-
-        return optimized_content, {"steps": notes}
+                    parsed = json.loads(repair_json(normalized))
+                except json.JSONDecodeError:
+                    parsed = None
+            if parsed:
+                return parsed.get("optimized_content", cleaned), {
+                    "steps": [{
+                        "dimension": "comprehensive",
+                        "notes": parsed.get("optimization_notes", "综合优化完成"),
+                    }],
+                }
+            else:
+                return cleaned, {"steps": [{"dimension": "comprehensive", "notes": "优化完成（响应格式非标准JSON）"}]}
+        except Exception as exc:
+            logger.warning("综合优化失败: %s", exc)
+            return chapter_content, {"steps": []}
 
     async def _run_polish(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
         """使用独立配置的润色模型对章节进行文学性润色。"""
@@ -291,7 +292,7 @@ class PipelineReviewMixin:
                 system_prompt="你是一位擅长小说润色的文学编辑，你的任务是在保持原有情节不变的前提下，提升文字的文学性和画面感。",
                 conversation_history=[{"role": "user", "content": polish_prompt}],
                 temperature=0.75,
-                timeout=600.0,
+                timeout=300.0,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():

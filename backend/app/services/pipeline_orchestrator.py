@@ -412,10 +412,11 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         version_style_hints = self._resolve_style_hints(enhanced_context, version_count)
 
         versions: List[Dict[str, Any]] = []
+        version_tasks = []
         for idx in range(version_count):
             style_hint = version_style_hints[idx] if idx < len(version_style_hints) else None
-            versions.append(
-                await self._generate_single_version(
+            version_tasks.append(
+                self._generate_single_version(
                     index=idx,
                     prompt_input=prompt_input,
                     writer_prompt=writer_prompt,
@@ -435,6 +436,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     genre_profile=genre_profile,
                 )
             )
+        versions = list(await asyncio.gather(*version_tasks))
 
         best_version_index, ai_review_result = await self._run_ai_review(
             versions=versions,
@@ -475,42 +477,93 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                         "character_profiles": json.dumps(writer_blueprint.get("characters", []), ensure_ascii=False),
                         "previous_summary": history_context["previous_summary"],
                     },
+                    max_iterations=1,
                 )
                 review_summaries["self_critique"] = critique_summary
 
-            if config.enable_consistency:
-                best_content, consistency_report = await self._run_consistency_check(
-                    project_id=project_id,
-                    chapter_text=best_content,
-                    user_id=user_id,
+            # ---- 一致性检查与人味化并行执行 ----
+            _consistency_enabled = config.enable_consistency
+            _humanization_enabled = config.enable_humanization
+
+            if _consistency_enabled and _humanization_enabled:
+                # 并行执行：一致性检查（LLM）+ 人味化扫描（本地，无 LLM）
+                async def _do_consistency():
+                    return await self._run_consistency_check(
+                        project_id=project_id,
+                        chapter_text=best_content,
+                        user_id=user_id,
+                    )
+
+                async def _do_humanization_scan():
+                    try:
+                        from .humanization_service import HumanizationService
+                        h_service = HumanizationService(self.session, self.llm_service)
+                        return h_service, h_service.scan(best_content)
+                    except Exception as e:
+                        logger.warning("人味化扫描失败（不影响生成）: %s", e)
+                        return None, None
+
+                (consistency_content, consistency_report), (h_service, h_report) = await asyncio.gather(
+                    _do_consistency(),
+                    _do_humanization_scan(),
                 )
+                best_content = consistency_content
                 review_summaries["consistency"] = consistency_report
 
-            # ---- 人味化扫描与修复 ----
-            if config.enable_humanization:
-                try:
-                    from .humanization_service import HumanizationService
-                    h_service = HumanizationService(self.session, self.llm_service)
-                    h_report = h_service.scan(best_content)
+                # 人味化 LLM 修复（基于一致性修复后的内容）
+                if h_service and h_report:
                     humanized = False
                     if h_report.score < config.humanization_threshold:
                         logger.info(
                             "人味分数 %d < 阈值 %d，触发 LLM 修复",
                             h_report.score, config.humanization_threshold,
                         )
-                        best_content = await h_service.humanize(
-                            best_content, h_report, user_id=user_id,
-                        )
-                        humanized = True
+                        # 重新扫描一致性修复后的内容
+                        h_report = h_service.scan(best_content)
+                        if h_report.score < config.humanization_threshold:
+                            best_content = await h_service.humanize(
+                                best_content, h_report, user_id=user_id,
+                            )
+                            humanized = True
                     review_summaries["humanization"] = {
                         "score": h_report.score,
                         "issues_count": len(h_report.issues),
                         "humanized": humanized,
                         "details": h_report.to_dict(),
                     }
-                except Exception as e:
-                    logger.warning("人味化检查失败（不影响生成）: %s", e)
-                    review_summaries["humanization"] = {"error": str(e)}
+            else:
+                if _consistency_enabled:
+                    best_content, consistency_report = await self._run_consistency_check(
+                        project_id=project_id,
+                        chapter_text=best_content,
+                        user_id=user_id,
+                    )
+                    review_summaries["consistency"] = consistency_report
+
+                if _humanization_enabled:
+                    try:
+                        from .humanization_service import HumanizationService
+                        h_service = HumanizationService(self.session, self.llm_service)
+                        h_report = h_service.scan(best_content)
+                        humanized = False
+                        if h_report.score < config.humanization_threshold:
+                            logger.info(
+                                "人味分数 %d < 阈值 %d，触发 LLM 修复",
+                                h_report.score, config.humanization_threshold,
+                            )
+                            best_content = await h_service.humanize(
+                                best_content, h_report, user_id=user_id,
+                            )
+                            humanized = True
+                        review_summaries["humanization"] = {
+                            "score": h_report.score,
+                            "issues_count": len(h_report.issues),
+                            "humanized": humanized,
+                            "details": h_report.to_dict(),
+                        }
+                    except Exception as e:
+                        logger.warning("人味化检查失败（不影响生成）: %s", e)
+                        review_summaries["humanization"] = {"error": str(e)}
 
             if config.enable_optimizer:
                 best_content, optimizer_report = await self._run_optimizer(best_content, user_id=user_id)
@@ -852,7 +905,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
                 temperature=resolved_temp,
                 user_id=user_id,
-                timeout=600.0,
+                timeout=300.0,
                 response_format=None,
                 max_tokens=settings.writer_max_tokens,
             )
