@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc
+from sqlalchemy import select, and_, desc, func
 
 from ..models.memory_layer import (
     CharacterState,
@@ -65,7 +65,7 @@ class MemoryLayerService:
         subquery = (
             select(
                 CharacterState.character_name,
-                CharacterState.chapter_number.label("max_chapter")
+                func.max(CharacterState.chapter_number).label("max_chapter")
             )
             .where(
                 and_(

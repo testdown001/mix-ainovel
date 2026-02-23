@@ -25,14 +25,31 @@
                   </div>
                 </div>
                 <div class="mt-6">
-                  <label for="numChapters" class="md-text-field-label">生成数量</label>
-                  <input type="number" name="numChapters" id="numChapters" v-model.number="numChapters" class="md-text-field-input w-full mt-2" min="1" max="20">
+                  <label for="numChapters" class="md-text-field-label">本次生成数量</label>
+                  <input type="number" name="numChapters" id="numChapters" v-model.number="numChapters" class="md-text-field-input w-full mt-2" min="1" max="200">
                   <div class="mt-5 flex flex-wrap justify-center gap-3">
-                    <button v-for="count in [1, 2, 5, 10]" :key="count" @click="setNumChapters(count)"
+                    <button v-for="count in [5, 10, 25, 50]" :key="count" @click="setNumChapters(count)"
                       :class="['md-btn md-btn-outlined md-ripple', numChapters === count ? 'm3-count-selected' : '']">
                       {{ count }} 章
                     </button>
                   </div>
+                </div>
+                <div class="mt-5">
+                  <label for="estimatedTotal" class="md-text-field-label">预计总章节数 <span class="md-on-surface-variant" style="font-weight: normal;">（可选，帮助AI控制故事节奏）</span></label>
+                  <input type="number" name="estimatedTotal" id="estimatedTotal" v-model.number="estimatedTotal" class="md-text-field-input w-full mt-2" min="0" max="10000" placeholder="如：200万字约667章">
+                  <div class="mt-3 flex flex-wrap justify-center gap-3">
+                    <button v-for="preset in totalPresets" :key="preset.value" @click="estimatedTotal = preset.value"
+                      :class="['md-btn md-btn-outlined md-ripple m3-preset-btn', estimatedTotal === preset.value ? 'm3-count-selected' : '']">
+                      {{ preset.label }}
+                    </button>
+                  </div>
+                  <p v-if="estimatedTotal > 0" class="mt-2 md-body-small md-on-surface-variant" style="text-align: center;">
+                    ≈ {{ Math.round(estimatedTotal * 0.3) }}万字（按均3000字/章）
+                  </p>
+                </div>
+                <div class="mt-5">
+                  <label for="userPrompt" class="md-text-field-label">附加剧情提示 <span class="md-on-surface-variant" style="font-weight: normal;">（可选，指定你想加入的剧情）</span></label>
+                  <textarea name="userPrompt" id="userPrompt" v-model="userPrompt" class="md-text-field-input w-full mt-2" rows="3" placeholder="例如：主角在这里会遇到一个神秘的白发老爷爷传授武功..."></textarea>
                 </div>
               </div>
               <div class="px-6 py-4 sm:flex sm:flex-row-reverse sm:px-8" style="background-color: var(--md-surface-container-low);">
@@ -58,7 +75,15 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits(['close', 'generate'])
 
-const numChapters = ref(5)
+const numChapters = ref(25)
+const estimatedTotal = ref(0)
+const userPrompt = ref('')
+
+const totalPresets = [
+  { label: '100万字 (≈334章)', value: 334 },
+  { label: '200万字 (≈667章)', value: 667 },
+  { label: '300万字 (≈1000章)', value: 1000 },
+]
 
 const setNumChapters = (count: number) => {
   numChapters.value = count
@@ -66,7 +91,7 @@ const setNumChapters = (count: number) => {
 
 const handleGenerate = () => {
   if (numChapters.value > 0) {
-    emit('generate', numChapters.value)
+    emit('generate', numChapters.value, estimatedTotal.value > 0 ? estimatedTotal.value : undefined, userPrompt.value)
     emit('close')
   }
 }
@@ -81,5 +106,10 @@ const handleGenerate = () => {
   background-color: var(--md-primary);
   color: var(--md-on-primary);
   border-color: transparent;
+}
+
+.m3-preset-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.75rem;
 }
 </style>

@@ -334,7 +334,7 @@ export class NovelAPI {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset: 'enhanced' }
+      flow_config: { preset: 'ultimate' }
     }
 
     await request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
@@ -400,14 +400,23 @@ export class NovelAPI {
   static async generateChapterOutline(
     projectId: string,
     startChapter: number,
-    numChapters: number
+    numChapters: number,
+    estimatedTotalChapters?: number,
+    userPrompt?: string
   ): Promise<NovelProject> {
+    const body: Record<string, any> = {
+      start_chapter: startChapter,
+      num_chapters: numChapters
+    }
+    if (estimatedTotalChapters && estimatedTotalChapters > 0) {
+      body.estimated_total_chapters = estimatedTotalChapters
+    }
+    if (userPrompt && userPrompt.trim()) {
+      body.user_prompt = userPrompt.trim()
+    }
     return request(`${WRITER_BASE}/${projectId}/chapters/outline`, {
       method: 'POST',
-      body: JSON.stringify({
-        start_chapter: startChapter,
-        num_chapters: numChapters
-      })
+      body: JSON.stringify(body)
     })
   }
 

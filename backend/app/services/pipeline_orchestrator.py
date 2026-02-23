@@ -5,14 +5,18 @@ import asyncio
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..core.constants import CHAPTER_MAX_WORDS
+from ..db.session import AsyncSessionLocal
+from ..models.novel import ChapterVersion
 from ..repositories.system_config_repository import SystemConfigRepository
 from ..services.chapter_guardrails import default_guardrails
 from ..services.enhanced_writing_flow import EnhancedWritingFlow
@@ -68,6 +72,7 @@ class PipelineConfig:
     humanization_threshold: int = 70
     enable_fingerprint: bool = False
     enable_polish: bool = False
+    enable_mission_brief: bool = False
 
 
 class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineReviewMixin):
@@ -80,6 +85,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         self.novel_service = NovelService(session)
         self.context_builder = default_context_builder
         self.guardrails = default_guardrails
+        self._background_tasks = set()
 
     async def generate_chapter(
         self,
@@ -90,7 +96,17 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         writing_notes: Optional[str] = None,
         flow_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        total_started = time.perf_counter()
+        stage_timings_ms: Dict[str, int] = {}
+
+        def _mark_stage(stage_name: str, started_at: float) -> None:
+            stage_timings_ms[stage_name] = int((time.perf_counter() - started_at) * 1000)
+
+        stage_started = time.perf_counter()
         config = await self._resolve_config(flow_config)
+        _mark_stage("resolve_config", stage_started)
+
+        stage_started = time.perf_counter()
         project = await self.novel_service.ensure_project_owner(project_id, user_id)
 
         outline = await self.novel_service.get_outline(project_id, chapter_number)
@@ -102,8 +118,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         chapter.selected_version_id = None
         chapter.status = "generating"
         await self.session.commit()
+        _mark_stage("prepare_project_context", stage_started)
 
         outlines_map = {item.chapter_number: item for item in project.outlines}
+        stage_started = time.perf_counter()
         history_context = await self._collect_history_context(
             project_id=project_id,
             chapter_number=chapter_number,
@@ -111,7 +129,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             chapters=project.chapters,
             user_id=user_id,
         )
+        _mark_stage("collect_history_context", stage_started)
 
+        stage_started = time.perf_counter()
         project_schema = await self.novel_service._serialize_project(project)
         blueprint_dict = normalize_blueprint_relationships(project_schema.blueprint.model_dump())
 
@@ -140,7 +160,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             outline_title=outline_title,
             outline_summary=outline_summary,
         )
+        _mark_stage("build_mission_inputs", stage_started)
 
+        stage_started = time.perf_counter()
         chapter_mission = await _shared_generate_chapter_mission(
             self.llm_service,
             self.prompt_service,
@@ -157,9 +179,11 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             temperature=0.3,
             pattern_constraint=pattern_constraint,
         )
+        _mark_stage("generate_chapter_mission", stage_started)
 
         allowed_new_characters = chapter_mission.get("allowed_new_characters", []) if chapter_mission else []
 
+        stage_started = time.perf_counter()
         visibility_context = self.context_builder.build_visibility_context(
             blueprint=blueprint_dict,
             completed_summaries=history_context["completed_summaries"],
@@ -169,6 +193,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             writing_notes=writing_notes,
             allowed_new_characters=allowed_new_characters,
         )
+        _mark_stage("build_visibility_context", stage_started)
 
         writer_blueprint = visibility_context["writer_blueprint"]
         forbidden_characters = visibility_context["forbidden_characters"]
@@ -184,7 +209,8 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         )
 
         mission_brief_text = None
-        if chapter_mission:
+        if chapter_mission and config.enable_mission_brief:
+            stage_started = time.perf_counter()
             mission_brief_text = await self._generate_mission_brief(
                 chapter_mission=chapter_mission,
                 previous_summary=history_context["previous_summary"],
@@ -196,31 +222,39 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 forbidden_characters=forbidden_characters,
                 user_id=user_id,
             )
+            _mark_stage("generate_mission_brief", stage_started)
 
         enhanced_flow = None
         enhanced_context = None
         if config.enable_constitution or config.enable_persona or config.enable_foreshadowing or config.enable_faction:
+            stage_started = time.perf_counter()
             enhanced_flow = EnhancedWritingFlow(self.session, self.llm_service, self.prompt_service)
             enhanced_context = await enhanced_flow.prepare_writing_context(
                 project_id=project_id,
                 chapter_number=chapter_number,
                 chapter_outline=outline_summary,
             )
+            _mark_stage("prepare_enhanced_context", stage_started)
 
         memory_context = None
         if config.enable_memory:
+            stage_started = time.perf_counter()
             memory_context = await self._get_memory_context(
                 project_id=project_id,
                 chapter_number=chapter_number,
                 involved_characters=introduced_characters,
             )
+            _mark_stage("prepare_memory_context", stage_started)
 
+        stage_started = time.perf_counter()
         project_memory_text = await self._get_project_memory_text(project_id)
+        _mark_stage("load_project_memory", stage_started)
 
         rag_context = None
         knowledge_context = None
         rag_stats = None
         if config.enable_rag:
+            stage_started = time.perf_counter()
             if config.rag_mode == "two_stage":
                 knowledge_context, rag_stats = await self._get_two_stage_rag_context(
                     project_id=project_id,
@@ -244,7 +278,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
                     "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
                 }
+            _mark_stage("retrieve_rag_context", stage_started)
 
+        stage_started = time.perf_counter()
         writer_prompt = await self.prompt_service.get_prompt("writing_v2")
         if not writer_prompt:
             writer_prompt = await self.prompt_service.get_prompt("writing")
@@ -407,10 +443,12 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
         logger.debug("Pipeline prompt length: %s chars", len(prompt_input))
+        _mark_stage("build_generation_prompt", stage_started)
 
         version_count = config.version_count
         version_style_hints = self._resolve_style_hints(enhanced_context, version_count)
 
+        stage_started = time.perf_counter()
         versions: List[Dict[str, Any]] = []
         version_tasks = []
         for idx in range(version_count):
@@ -437,14 +475,18 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
             )
         versions = list(await asyncio.gather(*version_tasks))
+        _mark_stage("generate_versions", stage_started)
 
+        stage_started = time.perf_counter()
         best_version_index, ai_review_result = await self._run_ai_review(
             versions=versions,
             chapter_mission=chapter_mission,
             user_id=user_id,
         )
+        _mark_stage("ai_review", stage_started)
 
         review_summaries: Dict[str, Any] = {}
+        six_dimension_payload: Optional[Dict[str, Any]] = None
         if ai_review_result:
             review_summaries["ai_review"] = ai_review_result
 
@@ -458,6 +500,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             best_content = best_version["content"]
 
             # ========== 阶段 A：顺序执行修改 best_content 的步骤 ==========
+            stage_started = time.perf_counter()
 
             if ai_review_result and (ai_review_result.get("flaws") or ai_review_result.get("suggestions")):
                 best_content, revision_report = await self._revise_with_review_feedback(
@@ -580,21 +623,19 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
                 if enrichment_report:
                     review_summaries["enrichment"] = enrichment_report
+            _mark_stage("stage_a_post_processing", stage_started)
 
             # ========== 阶段 B：并行执行只读分析步骤 ==========
-
-            async def _do_six_dimension() -> None:
-                if not (enhanced_flow and config.enable_six_dimension):
-                    return
-                result = await enhanced_flow.post_generation_review(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_title=outline_title,
-                    chapter_content=best_content,
-                    chapter_plan=json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
-                    previous_summary=history_context["previous_summary"],
-                )
-                review_summaries["enhanced_review"] = result
+            if enhanced_flow and config.enable_six_dimension:
+                six_dimension_payload = {
+                    "project_id": project_id,
+                    "chapter_number": chapter_number,
+                    "chapter_title": outline_title,
+                    "chapter_content": best_content,
+                    "chapter_plan": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
+                    "previous_summary": history_context["previous_summary"],
+                }
+                review_summaries["enhanced_review"] = {"status": "scheduled"}
 
             async def _do_reader_simulation() -> None:
                 if not config.enable_reader_sim:
@@ -645,19 +686,35 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
                 review_summaries["quality_detection"] = quality_report
 
+            stage_started = time.perf_counter()
             await asyncio.gather(
-                _do_six_dimension(),
                 _do_reader_simulation(),
                 _do_anti_hallucination(),
                 _do_quality_detection(),
             )
+            _mark_stage("stage_b_readonly_analyses", stage_started)
 
             best_version["content"] = best_content
             best_version.setdefault("metadata", {})["review_summaries"] = review_summaries
 
         contents = [v.get("content", "") for v in versions]
         metadata = [v.get("metadata") for v in versions]
+        stage_started = time.perf_counter()
         versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata)
+        _mark_stage("persist_versions", stage_started)
+
+        stage_started = time.perf_counter()
+        if six_dimension_payload and 0 <= best_version_index < len(versions_models):
+            best_version_id = versions_models[best_version_index].id
+            six_dimension_task = asyncio.create_task(
+                self._run_six_dimension_review_async(
+                    version_id=best_version_id,
+                    **six_dimension_payload,
+                )
+            )
+            self._background_tasks.add(six_dimension_task)
+            six_dimension_task.add_done_callback(self._background_tasks.discard)
+        _mark_stage("schedule_async_six_dimension", stage_started)
 
         variants = []
         for idx, version_model in enumerate(versions_models):
@@ -669,6 +726,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             }
             variants.append(variant)
 
+        stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
         return {
             "project_id": project_id,
             "chapter_number": chapter_number,
@@ -680,8 +738,65 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 "version_count": version_count,
                 "stages": self._build_stage_flags(config),
                 "retrieval_stats": rag_stats,
+                "stage_timings_ms": stage_timings_ms,
             },
         }
+
+    async def _run_six_dimension_review_async(
+        self,
+        *,
+        version_id: int,
+        project_id: str,
+        chapter_number: int,
+        chapter_title: str,
+        chapter_content: str,
+        chapter_plan: Optional[str],
+        previous_summary: Optional[str],
+    ) -> None:
+        try:
+            async with AsyncSessionLocal() as background_session:
+                try:
+                    llm_service = LLMService(background_session)
+                    prompt_service = PromptService(background_session)
+                    enhanced_flow = EnhancedWritingFlow(background_session, llm_service, prompt_service)
+                    result = await enhanced_flow.post_generation_review(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_title=chapter_title,
+                        chapter_content=chapter_content,
+                        chapter_plan=chapter_plan,
+                        previous_summary=previous_summary,
+                    )
+
+                    db_result = await background_session.execute(
+                        select(ChapterVersion).where(ChapterVersion.id == version_id)
+                    )
+                    version = db_result.scalars().first()
+                    if not version:
+                        logger.warning(
+                            "异步六维评审落库失败：版本不存在 project=%s chapter=%s version_id=%s",
+                            project_id,
+                            chapter_number,
+                            version_id,
+                        )
+                        return
+
+                    metadata = dict(version.metadata_ or {})
+                    review_summaries = dict(metadata.get("review_summaries") or {})
+                    review_summaries["enhanced_review"] = result
+                    metadata["review_summaries"] = review_summaries
+                    version.metadata_ = metadata
+                    await background_session.commit()
+                except Exception:
+                    await background_session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步六维评审失败 project=%s chapter=%s version_id=%s",
+                project_id,
+                chapter_number,
+                version_id,
+            )
 
     async def _resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
         flow_config = flow_config or {}
@@ -739,6 +854,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "async_finalize",
             "enable_rag",
             "enable_polish",
+            "enable_mission_brief",
         ):
             if key in flow_config and flow_config[key] is not None:
                 setattr(config, key, bool(flow_config[key]))
@@ -1044,6 +1160,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "preview": config.enable_preview,
             "optimizer": config.enable_optimizer,
             "polish": config.enable_polish,
+            "mission_brief": config.enable_mission_brief,
             "consistency": config.enable_consistency,
             "enrichment": config.enable_enrichment,
             "constitution": config.enable_constitution,

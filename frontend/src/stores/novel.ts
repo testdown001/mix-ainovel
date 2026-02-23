@@ -200,16 +200,16 @@ export const useNovelStore = defineStore('novel', () => {
     error.value = null
     try {
       const response = await NovelAPI.deleteNovels(projectIds)
-      
+
       // 从本地项目列表中移除已删除的项目
       projects.value = projects.value.filter(project => !projectIds.includes(project.id))
-      
+
       // 如果当前项目被删除，清空当前项目
       if (currentProject.value && projectIds.includes(currentProject.value.id)) {
         currentProject.value = null
         currentConversationState.value = {}
       }
-      
+
       return response
     } catch (err) {
       error.value = err instanceof Error ? err.message : '删除项目失败'
@@ -255,7 +255,7 @@ export const useNovelStore = defineStore('novel', () => {
     }
   }
 
-  async function generateChapterOutline(startChapter: number, numChapters: number) {
+  async function generateChapterOutline(startChapter: number, numChapters: number, estimatedTotalChapters?: number, userPrompt?: string) {
     error.value = null
     try {
       if (!currentProject.value) {
@@ -264,7 +264,9 @@ export const useNovelStore = defineStore('novel', () => {
       const updatedProject = await NovelAPI.generateChapterOutline(
         currentProject.value.id,
         startChapter,
-        numChapters
+        numChapters,
+        estimatedTotalChapters,
+        userPrompt
       )
       currentProject.value = updatedProject // 更新 store
     } catch (err) {

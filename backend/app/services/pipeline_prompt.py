@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.constants import CHAPTER_WORD_COUNT_RULE
+from ..core.constants import CHAPTER_STYLE_HARD_RULE, CHAPTER_WORD_COUNT_RULE
 from ..utils.json_utils import remove_think_tags
 
 logger = logging.getLogger(__name__)
@@ -275,6 +275,7 @@ class PipelinePromptMixin:
             sections.append(("[情绪表达去模板化约束](重点减少怒意句式重复)", emotion_expression_brief))
         if user_style_rules:
             sections.append(("[用户写作风格](用户级全局约束，必须严格遵守)", user_style_rules))
+        sections.append(("[语言风格硬约束](必须严格遵守)", CHAPTER_STYLE_HARD_RULE))
         if platinum_writing_brief:
             sections.append(("[白金写作准则](硬约束)", platinum_writing_brief))
         sections.append(("[禁止角色](本章不允许提及)", forbidden_text))

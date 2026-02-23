@@ -161,6 +161,7 @@ class FlowConfig(BaseModel):
     enable_optimizer: Optional[bool] = Field(default=None, description="是否启用优化器")
     enable_consistency: Optional[bool] = Field(default=None, description="是否启用一致性检查")
     enable_enrichment: Optional[bool] = Field(default=None, description="是否启用字数扩写")
+    enable_mission_brief: Optional[bool] = Field(default=None, description="是否启用导演脚本二次转写")
     async_finalize: Optional[bool] = Field(default=None, description="是否异步定稿")
     enable_rag: Optional[bool] = Field(default=None, description="是否启用 RAG")
     rag_mode: Optional[str] = Field(default=None, description="simple|two_stage")
@@ -225,6 +226,8 @@ class DeleteChapterRequest(BaseModel):
 class GenerateOutlineRequest(BaseModel):
     start_chapter: int
     num_chapters: int
+    estimated_total_chapters: Optional[int] = Field(default=None, description="预计总章节数，用于指导LLM控制故事进度")
+    user_prompt: Optional[str] = Field(default=None, description="用户附加的剧情提示")
 
 
 class RegenerateOutlinesRequest(BaseModel):

@@ -96,6 +96,7 @@ class LLMService:
         user_id: Optional[int] = None,
         timeout: float = 900.0,
         system_prompt: Optional[str] = None,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
     ) -> str:
         if not system_prompt:
             prompt_service = PromptService(self.session)
@@ -107,7 +108,7 @@ class LLMService:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": chapter_content},
         ]
-        return await self._stream_and_collect(messages, temperature=temperature, user_id=user_id, timeout=timeout)
+        return await self._stream_and_collect(messages, temperature=temperature, user_id=user_id, timeout=timeout, config_override=config_override)
 
     # 网络瞬断类异常，可安全重试
     _RETRYABLE_ERRORS = (

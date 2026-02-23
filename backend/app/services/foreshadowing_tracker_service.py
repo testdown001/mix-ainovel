@@ -162,6 +162,16 @@ class ForeshadowingTrackerService:
         # 获取分类后的伏笔
         categorized = await self.get_foreshadowings_for_chapter(project_id, chapter_number)
         
+        # 无紧迫/即将到期/超期项时，直接使用本地规则结果，避免额外 LLM 调用。
+        if not (categorized["urgent"] or categorized["due_soon"] or categorized["overdue"]):
+            logger.info(
+                "伏笔提醒跳过 LLM: project=%s chapter=%s active_related=%d",
+                project_id,
+                chapter_number,
+                len(categorized["related"]),
+            )
+            return self._create_basic_reminders(categorized, chapter_number)
+
         # 构建活跃伏笔上下文
         active_context = self._build_foreshadowing_context(categorized)
         

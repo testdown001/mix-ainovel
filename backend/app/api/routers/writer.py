@@ -64,7 +64,7 @@ from ...services.platinum_writing_context import (
 )
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
 from ...repositories.system_config_repository import SystemConfigRepository
-from ...core.constants import CHAPTER_WORD_COUNT_RULE
+from ...core.constants import CHAPTER_STYLE_HARD_RULE, CHAPTER_WORD_COUNT_RULE
 from ...services.writer_shared import (
     build_blueprint_constraints_for_mission,
     create_vector_store_or_none,
@@ -645,6 +645,7 @@ async def generate_chapter(
         ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
         ("[剧情推演](AI预分析的章节要点与约束，请参考执行)", prediction_text),
         ("[用户写作风格](用户级全局约束，必须严格遵守)", user_style_section),
+        ("[语言风格硬约束](必须严格遵守)", CHAPTER_STYLE_HARD_RULE),
         ("[禁止角色](本章不允许提及)", forbidden_text),
     ]
     prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
@@ -1190,15 +1191,46 @@ async def generate_chapters_outline(
     if not outline_prompt:
         raise HTTPException(status_code=500, detail="未配置大纲生成提示词")
 
+    # 计算预计总章节数和当前进度
+    existing_count = len(project.outlines)
+    estimated_total = request.estimated_total_chapters or 0
+    # 如果前端没传 estimated_total_chapters，根据已有大纲+本次请求估算（不做进度限制）
+    end_chapter = request.start_chapter + request.num_chapters - 1
+
+    progress_context = ""
+    if estimated_total > 0:
+        progress_pct = round(end_chapter / estimated_total * 100, 1)
+        if progress_pct < 20:
+            phase = "开篇期（前20%）——应着重世界观铺设、角色登场、主线冲突引入"
+        elif progress_pct < 70:
+            phase = "发展期（20%-70%）——应多线并行、支线展开、不断引入新事件新对手新挑战"
+        elif progress_pct < 90:
+            phase = "高潮期（70%-90%）——主线推进加速、伏笔大量回收"
+        else:
+            phase = "收束期（最后10%）——可以安排终极对决和结局"
+        progress_context = f"""
+[故事进度信息（重要！）]
+- 预计总章节数：{estimated_total} 章
+- 本次生成范围：第 {request.start_chapter} 章 ~ 第 {end_chapter} 章
+- 当前进度：约 {progress_pct}%
+- 当前所处阶段：{phase}
+- ⚠️ {"严禁在本批次安排故事结局！必须持续展开新事件和冲突，以「未完待续」的悬念结束本批次。" if progress_pct < 90 else "已进入收束期，可以安排故事走向结局。"}
+"""
+
+    user_prompt_context = ""
+    if request.user_prompt and request.user_prompt.strip():
+        user_prompt_context = f"\n[用户附加剧情提示（必须融入接下来几章的大纲中）]\n{request.user_prompt.strip()}\n"
+
     prompt_input = f"""
 [世界蓝图]
 {blueprint_text}
 
 [已有章节大纲]
 {existing_outlines_text}
-
+{progress_context}{user_prompt_context}
 [生成任务]
 请从第 {request.start_chapter} 章开始，续写接下来的 {request.num_chapters} 章的大纲。
+{"这些章节只是整部小说（预计" + str(estimated_total) + "章）的一小部分，不要试图在这" + str(request.num_chapters) + "章内讲完整个故事！" if estimated_total > request.num_chapters * 2 else ""}
 要求返回 JSON 格式，包含一个 chapters 数组，每个元素包含 chapter_number, title, summary。
 """
 
@@ -1373,10 +1405,13 @@ async def regenerate_chapter_outlines(
             prompt_parts.append(f"[已有全部章节大纲（续写时需衔接）]\n" + "\n".join(all_existing_outlines))
 
         # ============ 生成全新后续大纲 ============
-        BATCH_SIZE = 20
+        BATCH_SIZE = 25
         # 从已有大纲的最大章节号之后开始（确保不覆盖已有大纲）
         start_number = max(all_outline_numbers) + 1 if all_outline_numbers else 1
-        total = request.total_chapters or 20
+        total = request.total_chapters or 25
+
+        # 预计总章节数 = 已有大纲 + 本次要生成的
+        estimated_total_all = len(all_outline_numbers) + total
 
         all_updated_numbers: List[int] = []
         # 前序批次生成的标题摘要（精简版，仅供后续批次参考连贯性）
@@ -1392,7 +1427,28 @@ async def regenerate_chapter_outlines(
             if generated_titles:
                 batch_prompt_parts.append(f"[前序批次已生成的章节标题（保持连贯）]\n" + "\n".join(generated_titles))
 
-            batch_prompt_parts.append(f"""[生成任务]
+            # 计算当前批次在整个故事中的进度
+            progress_pct = round(batch_end / estimated_total_all * 100, 1) if estimated_total_all > 0 else 50
+            if progress_pct < 20:
+                phase_hint = "当前处于开篇期（前20%），应着重世界观铺设、角色登场、主线冲突引入"
+            elif progress_pct < 70:
+                phase_hint = "当前处于发展期（20%-70%），应多线并行、支线展开、不断引入新事件新对手新挑战"
+            elif progress_pct < 90:
+                phase_hint = "当前处于高潮期（70%-90%），主线推进加速、伏笔大量回收"
+            else:
+                phase_hint = "当前处于收束期（最后10%），可以安排终极对决和结局"
+
+            no_ending_hint = ""
+            if progress_pct < 90:
+                no_ending_hint = f"\n⚠️ 严禁在本批次安排故事结局！当前进度仅 {progress_pct}%，故事远未结束。必须持续展开新事件、新冲突，以「未完待续」的悬念结束本批次。"
+
+            batch_prompt_parts.append(f"""[故事进度信息]
+- 预计总章节数：约 {estimated_total_all} 章
+- 本批次范围：第 {batch_start} 章 ~ 第 {batch_end} 章
+- 当前进度：约 {progress_pct}%
+- {phase_hint}{no_ending_hint}
+
+[生成任务]
 请根据以上故事简介和蓝图设定，生成第 {batch_start} 章到第 {batch_end} 章（共 {batch_count} 章）的章节大纲。
 
 {"这是整部小说的第 " + str(batch_offset // BATCH_SIZE + 1) + " 批续写，" if total > BATCH_SIZE else ""}{"承接已有章节大纲的剧情走向，" if all_outline_numbers else ""}涵盖从第 {batch_start} 章到第 {batch_end} 章的情节发展。
@@ -1402,7 +1458,8 @@ async def regenerate_chapter_outlines(
 2. {title_style_hint if title_style_hint else "章节标题应简短凝练、富有意境"}
 3. 每个章节的大纲摘要应详细描述该章的核心事件和情节推进
 4. 返回 JSON 格式：{{"chapters": [...]}}，数组内恰好包含 {batch_count} 个元素，每个元素包含 chapter_number, title, summary
-5. 确认返回的 chapters 数组长度恰好为 {batch_count}""")
+5. 确认返回的 chapters 数组长度恰好为 {batch_count}
+6. 本批次最后一章必须以新悬念或新冲突结束，为后续章节留下发展空间""")
 
             batch_prompt_input = "\n\n".join(batch_prompt_parts)
 
