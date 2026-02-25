@@ -7,6 +7,7 @@ from __future__ import annotations
 本文件中的注释均使用中文，便于团队成员快速理解 RAG 相关逻辑。
 """
 
+import asyncio
 import json
 import logging
 import math
@@ -118,6 +119,19 @@ class VectorStoreService:
             """
             CREATE INDEX IF NOT EXISTS idx_rag_summaries_project
             ON rag_summaries(project_id, chapter_number)
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS rag_ingest_state (
+                project_id TEXT NOT NULL,
+                chapter_number INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                updated_at INTEGER DEFAULT (unixepoch()),
+                PRIMARY KEY (project_id, chapter_number)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_rag_ingest_project
+            ON rag_ingest_state(project_id, chapter_number)
             """,
             # BM25 倒排索引表
             """
@@ -280,6 +294,7 @@ class VectorStoreService:
         self,
         *,
         records: Iterable[Dict[str, Any]],
+        sync_bm25: Optional[bool] = None,
     ) -> None:
         """批量写入章节片段，供后续检索使用。"""
         if not self._client:
@@ -326,25 +341,35 @@ class VectorStoreService:
         if not payload:
             return
 
-        for item in payload:
-            try:
-                await self._client.execute(sql, item)  # type: ignore[union-attr]
-            except Exception as exc:  # pragma: no cover - 单条写入失败时记录日志
-                logger.error("写入 rag_chunks 失败: %s", exc)
-            else:
-                logger.debug(
-                    "已写入章节片段: project=%s chapter=%s chunk=%s",
-                    item.get("project_id"),
-                    item.get("chapter_number"),
-                    item.get("chunk_index"),
-                )
+        write_concurrency = max(
+            1,
+            int(getattr(settings, "vector_upsert_concurrency", 8) or 8),
+        )
+        successful_payload = await self._execute_payload_concurrently(
+            sql=sql,
+            payload=payload,
+            concurrency=write_concurrency,
+            error_log="写入 rag_chunks 失败",
+        )
+        for item in successful_payload:
+            logger.debug(
+                "已写入章节片段: project=%s chapter=%s chunk=%s",
+                item.get("project_id"),
+                item.get("chapter_number"),
+                item.get("chunk_index"),
+            )
 
         # 同步 BM25 索引（仅在 hybrid 模式下）
-        if getattr(settings, "rag_retrieval_mode", "vector") == "hybrid":
+        enable_bm25 = (
+            sync_bm25
+            if sync_bm25 is not None
+            else getattr(settings, "rag_retrieval_mode", "vector") == "hybrid"
+        )
+        if enable_bm25 and successful_payload:
             try:
                 from .bm25_index_service import BM25IndexService
                 bm25 = BM25IndexService(self._client)
-                for item in payload:
+                for item in successful_payload:
                     await bm25.index_chunk(
                         project_id=item["project_id"],
                         chunk_id=item["id"],
@@ -399,17 +424,100 @@ class VectorStoreService:
         if not payload:
             return
 
-        for item in payload:
-            try:
-                await self._client.execute(sql, item)  # type: ignore[union-attr]
-            except Exception as exc:  # pragma: no cover - 单条写入失败时记录日志
-                logger.error("写入 rag_summaries 失败: %s", exc)
-            else:
-                logger.debug(
-                    "已写入章节摘要: project=%s chapter=%s",
-                    item.get("project_id"),
-                    item.get("chapter_number"),
-                )
+        write_concurrency = max(
+            1,
+            int(getattr(settings, "vector_upsert_concurrency", 8) or 8),
+        )
+        successful_payload = await self._execute_payload_concurrently(
+            sql=sql,
+            payload=payload,
+            concurrency=write_concurrency,
+            error_log="写入 rag_summaries 失败",
+        )
+        for item in successful_payload:
+            logger.debug(
+                "已写入章节摘要: project=%s chapter=%s",
+                item.get("project_id"),
+                item.get("chapter_number"),
+            )
+
+    async def get_ingest_state(self, project_id: str) -> Dict[int, str]:
+        """读取项目的章节索引摘要（章节号 -> 内容哈希）。"""
+        if not self._client:
+            return {}
+        await self.ensure_schema()
+        sql = """
+        SELECT chapter_number, content_hash
+        FROM rag_ingest_state
+        WHERE project_id = :project_id
+        """
+        try:
+            result = await self._client.execute(sql, {"project_id": project_id})  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning("读取索引状态失败: project=%s error=%s", project_id, exc)
+            return {}
+
+        state: Dict[int, str] = {}
+        for row in self._iter_rows(result):
+            chapter_number = row.get("chapter_number")
+            content_hash = row.get("content_hash")
+            if isinstance(chapter_number, int) and isinstance(content_hash, str):
+                state[chapter_number] = content_hash
+        return state
+
+    async def upsert_ingest_state(self, project_id: str, chapter_number: int, content_hash: str) -> None:
+        """更新单章的索引状态。"""
+        if not self._client:
+            return
+        await self.ensure_schema()
+        sql = """
+        INSERT INTO rag_ingest_state (project_id, chapter_number, content_hash, updated_at)
+        VALUES (:project_id, :chapter_number, :content_hash, unixepoch())
+        ON CONFLICT(project_id, chapter_number) DO UPDATE SET
+            content_hash=excluded.content_hash,
+            updated_at=excluded.updated_at
+        """
+        try:
+            await self._client.execute(  # type: ignore[union-attr]
+                sql,
+                {
+                    "project_id": project_id,
+                    "chapter_number": chapter_number,
+                    "content_hash": content_hash,
+                },
+            )
+        except Exception as exc:
+            logger.warning(
+                "写入索引状态失败: project=%s chapter=%s error=%s",
+                project_id,
+                chapter_number,
+                exc,
+            )
+
+    async def delete_ingest_state(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
+        """按章节删除索引状态。"""
+        if not self._client or not chapter_numbers:
+            return
+        await self.ensure_schema()
+        placeholders = ",".join(":chapter_" + str(idx) for idx in range(len(chapter_numbers)))
+        params = {
+            "project_id": project_id,
+            **{f"chapter_{idx}": number for idx, number in enumerate(chapter_numbers)},
+        }
+        sql = f"""
+        DELETE FROM rag_ingest_state
+        WHERE project_id = :project_id
+          AND chapter_number IN ({placeholders})
+        """
+        try:
+            await self._client.execute(sql, params)  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning(
+                "删除索引状态失败: project=%s chapters=%s error=%s",
+                project_id,
+                list(chapter_numbers),
+                exc,
+            )
 
     async def delete_by_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
         """根据章节编号批量删除对应的上下文数据。"""
@@ -432,9 +540,15 @@ class VectorStoreService:
         WHERE project_id = :project_id
           AND chapter_number IN ({placeholders})
         """
+        state_sql = f"""
+        DELETE FROM rag_ingest_state
+        WHERE project_id = :project_id
+          AND chapter_number IN ({placeholders})
+        """
         try:
             await self._client.execute(chunk_sql, params)  # type: ignore[union-attr]
             await self._client.execute(summary_sql, params)  # type: ignore[union-attr]
+            await self._client.execute(state_sql, params)  # type: ignore[union-attr]
             # 同步清理 BM25 索引
             if getattr(settings, "rag_retrieval_mode", "vector") == "hybrid":
                 try:
@@ -583,6 +697,32 @@ class VectorStoreService:
                 except Exception:  # pragma: no cover - 无法转换时跳过
                     continue
         return normalized
+
+    async def _execute_payload_concurrently(
+        self,
+        *,
+        sql: str,
+        payload: List[Dict[str, Any]],
+        concurrency: int,
+        error_log: str,
+    ) -> List[Dict[str, Any]]:
+        """受限并发执行多条写入，返回成功写入的 payload。"""
+        if not self._client or not payload:
+            return []
+
+        semaphore = asyncio.Semaphore(max(1, concurrency))
+
+        async def _run(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            async with semaphore:
+                try:
+                    await self._client.execute(sql, item)  # type: ignore[union-attr]
+                except Exception as exc:  # pragma: no cover - 单条写入失败时记录日志
+                    logger.error("%s: %s", error_log, exc)
+                    return None
+                return item
+
+        written = await asyncio.gather(*(_run(item) for item in payload))
+        return [item for item in written if item is not None]
 
 
 __all__ = [

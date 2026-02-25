@@ -55,6 +55,9 @@ from .foreshadowing import (
 # 新增：实体注册表模型
 from .entity_registry import EntityRegistry, EntityAlias
 
+# 新增：力量体系模型
+from .power_system import PowerSystem, PowerLevel
+
 __all__ = [
     # 基础模型
     "AdminSetting",
@@ -84,7 +87,7 @@ __all__ = [
     "SuspenseDensity",
     "ForeshadowingOp",
     "ChapterFunction",
-    # 记忆层模型
+    # 记忆层模块
     "CharacterState",
     "CharacterStateType",
     "TimelineEvent",
@@ -99,4 +102,7 @@ __all__ = [
     # 实体注册表模型
     "EntityRegistry",
     "EntityAlias",
+    # 力量体系模型
+    "PowerSystem",
+    "PowerLevel",
 ]

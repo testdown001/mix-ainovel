@@ -95,6 +95,7 @@ class Blueprint(BaseModel):
     full_synopsis: str = ""
     world_setting: Dict[str, Any] = {}
     characters: List[Dict[str, Any]] = []
+    golden_finger: Optional[Dict[str, Any]] = None
     relationships: List[Relationship] = []
     chapter_outline: List[ChapterOutline] = []
     foreshadowings: List[BlueprintForeshadowing] = []
@@ -189,6 +190,27 @@ class AdvancedGenerateResponse(BaseModel):
     variants: List[AdvancedGenerateVariant]
     review_summaries: Dict[str, Any] = Field(default_factory=dict)
     debug_metadata: Optional[Dict[str, Any]] = None
+
+
+class BatchGenerateRequest(BaseModel):
+    project_id: str
+    chapter_numbers: List[int] = Field(..., description="要批量生成的章节编号列表（按顺序）")
+    writing_notes: Optional[str] = Field(default=None, description="全局写作指令")
+    flow_config: FlowConfig = Field(default_factory=FlowConfig)
+
+
+class BatchGenerateChapterResult(BaseModel):
+    chapter_number: int
+    status: str  # "success" | "failed"
+    error: Optional[str] = None
+
+
+class BatchGenerateResponse(BaseModel):
+    project_id: str
+    total: int
+    completed: int
+    failed: int
+    results: List[BatchGenerateChapterResult]
 
 
 class FinalizeChapterRequest(BaseModel):

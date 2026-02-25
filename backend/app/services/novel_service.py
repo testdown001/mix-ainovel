@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
@@ -102,7 +103,7 @@ def _clean_string(text: str, parse_json: bool = True) -> str:
     )
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, or_, select, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -114,10 +115,13 @@ from ..models import (
     ChapterOutline,
     ChapterVersion,
     Foreshadowing,
+    ForeshadowingResolution,
     NovelBlueprint,
     NovelConversation,
     NovelProject,
 )
+from ..models.entity_registry import EntityRegistry
+from ..models.faction import Faction
 from ..repositories.novel_repository import NovelRepository
 from ..schemas.admin import AdminNovelSummary
 from ..schemas.novel import (
@@ -130,6 +134,20 @@ from ..schemas.novel import (
     NovelProjectSummary,
     NovelSectionResponse,
     NovelSectionType,
+)
+from ..services.cache_service import CacheService
+from ..services.chapter_ingest_service import ChapterIngestionService
+from ..services.llm_service import LLMService
+
+logger = logging.getLogger(__name__)
+
+_RESOLVED_FORESHADOWING_STATUSES: tuple[str, ...] = (
+    "revealed",
+    "resolved",
+    "paid_off",
+    "done",
+    "complete",
+    "completed",
 )
 
 
@@ -288,6 +306,7 @@ class NovelService:
         record.one_sentence_summary = blueprint.one_sentence_summary
         record.full_synopsis = blueprint.full_synopsis
         record.world_setting = blueprint.world_setting
+        record.golden_finger = blueprint.golden_finger
 
         await self.session.execute(delete(BlueprintCharacter).where(BlueprintCharacter.project_id == project_id))
         if blueprint.characters:
@@ -302,9 +321,12 @@ class NovelService:
                         "goals": data.get("goals"),
                         "abilities": data.get("abilities"),
                         "relationship_to_protagonist": data.get("relationship_to_protagonist"),
+                        "power_system_id": data.get("power_system_id", None),
+                        "current_power_level_id": data.get("current_power_level_id", None),
                         "extra": {k: v for k, v in data.items() if k not in {
                             "name", "identity", "personality", "goals",
                             "abilities", "relationship_to_protagonist",
+                            "power_system_id", "current_power_level_id",
                         }},
                         "position": index,
                     }
@@ -370,6 +392,10 @@ class NovelService:
             prefer_outline_inference=True,
         )
 
+        # 同步角色/地点到实体注册表，同步势力到势力表
+        await self._sync_blueprint_entities(project_id, blueprint)
+        await self._sync_blueprint_factions(project_id, blueprint)
+
         await self.session.commit()
         await self._touch_project(project_id)
 
@@ -399,6 +425,8 @@ class NovelService:
                         goals=data.get("goals"),
                         abilities=data.get("abilities"),
                         relationship_to_protagonist=data.get("relationship_to_protagonist"),
+                        power_system_id=data.get("power_system_id", None),
+                        current_power_level_id=data.get("current_power_level_id", None),
                         extra={k: v for k, v in data.items() if k not in {
                             "name",
                             "identity",
@@ -406,6 +434,8 @@ class NovelService:
                             "goals",
                             "abilities",
                             "relationship_to_protagonist",
+                            "power_system_id",
+                            "current_power_level_id"
                         }},
                         position=index,
                     )
@@ -727,6 +757,94 @@ class NovelService:
         await self.session.flush()
 
     # ------------------------------------------------------------------
+    # 蓝图 → 实体注册表 / 势力表 同步
+    # ------------------------------------------------------------------
+    async def _sync_blueprint_entities(self, project_id: str, blueprint: Blueprint) -> None:
+        """将蓝图角色和地点同步到 EntityRegistry（source=blueprint）。"""
+        # 清理旧的 blueprint 来源实体
+        await self.session.execute(
+            delete(EntityRegistry).where(
+                EntityRegistry.project_id == project_id,
+                EntityRegistry.source == "blueprint",
+            )
+        )
+        entities_to_add: list[EntityRegistry] = []
+        # 角色 → entity_type=character
+        for char_data in (blueprint.characters or []):
+            name = char_data.get("name", "").strip()
+            if not name:
+                continue
+            entities_to_add.append(EntityRegistry(
+                project_id=project_id,
+                entity_type="character",
+                canonical_name=name,
+                description=char_data.get("identity") or char_data.get("personality") or "",
+                first_chapter=1,
+                source="blueprint",
+                confidence=1.0,
+                properties={
+                    k: v for k, v in char_data.items()
+                    if k != "name" and v
+                },
+            ))
+        # 地点 → entity_type=location
+        world_setting = blueprint.world_setting or {}
+        for location in (world_setting.get("key_locations") or []):
+            loc_name = ""
+            loc_desc = ""
+            if isinstance(location, dict):
+                loc_name = (location.get("name") or "").strip()
+                loc_desc = location.get("description") or ""
+            elif isinstance(location, str):
+                loc_name = location.strip()
+            if not loc_name:
+                continue
+            entities_to_add.append(EntityRegistry(
+                project_id=project_id,
+                entity_type="location",
+                canonical_name=loc_name,
+                description=loc_desc,
+                source="blueprint",
+                confidence=1.0,
+            ))
+        if entities_to_add:
+            self.session.add_all(entities_to_add)
+            await self.session.flush()
+            logger.info("蓝图实体同步完成: project=%s entities=%d", project_id, len(entities_to_add))
+
+    async def _sync_blueprint_factions(self, project_id: str, blueprint: Blueprint) -> None:
+        """将蓝图 world_setting.factions 同步到 Faction 表。"""
+        # 清理旧的势力数据
+        await self.session.execute(
+            delete(Faction).where(Faction.project_id == project_id)
+        )
+        world_setting = blueprint.world_setting or {}
+        factions_data = world_setting.get("factions") or []
+        if not factions_data:
+            return
+        factions_to_add: list[Faction] = []
+        for faction_data in factions_data:
+            if isinstance(faction_data, dict):
+                name = (faction_data.get("name") or "").strip()
+                description = faction_data.get("description") or ""
+            elif isinstance(faction_data, str):
+                name = faction_data.strip()
+                description = ""
+            else:
+                continue
+            if not name:
+                continue
+            factions_to_add.append(Faction(
+                project_id=project_id,
+                name=name,
+                description=description,
+            ))
+        if factions_to_add:
+            self.session.add_all(factions_to_add)
+            await self.session.flush()
+            logger.info("蓝图势力同步完成: project=%s factions=%d", project_id, len(factions_to_add))
+
+    # ------------------------------------------------------------------
     # 章节与版本
     # ------------------------------------------------------------------
     async def get_outline(self, project_id: str, chapter_number: int) -> Optional[ChapterOutline]:
@@ -846,20 +964,118 @@ class NovelService:
         await self._touch_project(chapter.project_id)
 
     async def delete_chapters(self, project_id: str, chapter_numbers: Iterable[int]) -> None:
+        normalized_numbers = sorted(
+            {
+                chapter_number_int
+                for chapter_number in chapter_numbers
+                for chapter_number_int in [self._to_positive_int(chapter_number)]
+                if chapter_number_int is not None
+            }
+        )
+        if not normalized_numbers:
+            return
+
+        chapters_result = await self.session.execute(
+            select(Chapter.id).where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number.in_(normalized_numbers),
+            )
+        )
+        chapter_ids = [chapter_id for chapter_id, in chapters_result.all()]
+
+        # 删除被删章节中埋下的伏笔，避免伏笔管理出现悬空数据。
+        await self.session.execute(
+            delete(Foreshadowing).where(
+                Foreshadowing.project_id == project_id,
+                Foreshadowing.chapter_number.in_(normalized_numbers),
+            )
+        )
+
+        # 若回收章被删，则将伏笔重新置回“未回收”状态，清空回收章引用。
+        resolved_filters = [Foreshadowing.resolved_chapter_number.in_(normalized_numbers)]
+        if chapter_ids:
+            resolved_filters.append(Foreshadowing.resolved_chapter_id.in_(chapter_ids))
+        await self.session.execute(
+            update(Foreshadowing)
+            .where(
+                Foreshadowing.project_id == project_id,
+                or_(*resolved_filters),
+            )
+            .values(
+                resolved_chapter_id=None,
+                resolved_chapter_number=None,
+                status=case(
+                    (
+                        Foreshadowing.status.in_(_RESOLVED_FORESHADOWING_STATUSES),
+                        "planted",
+                    ),
+                    else_=Foreshadowing.status,
+                ),
+            )
+        )
+
+        # 若计划回收章被删，移除目标章节，等待后续人工调整。
+        await self.session.execute(
+            update(Foreshadowing)
+            .where(
+                Foreshadowing.project_id == project_id,
+                Foreshadowing.target_reveal_chapter.in_(normalized_numbers),
+            )
+            .values(target_reveal_chapter=None)
+        )
+
+        # 清理落在已删除章节的回收记录，避免统计口径残留。
+        resolution_filters = [ForeshadowingResolution.resolved_at_chapter_number.in_(normalized_numbers)]
+        if chapter_ids:
+            resolution_filters.append(ForeshadowingResolution.resolved_at_chapter_id.in_(chapter_ids))
+        await self.session.execute(
+            delete(ForeshadowingResolution).where(or_(*resolution_filters))
+        )
+
         await self.session.execute(
             delete(Chapter).where(
                 Chapter.project_id == project_id,
-                Chapter.chapter_number.in_(list(chapter_numbers)),
+                Chapter.chapter_number.in_(normalized_numbers),
             )
         )
         await self.session.execute(
             delete(ChapterOutline).where(
                 ChapterOutline.project_id == project_id,
-                ChapterOutline.chapter_number.in_(list(chapter_numbers)),
+                ChapterOutline.chapter_number.in_(normalized_numbers),
             )
         )
-        await self.session.commit()
         await self._touch_project(project_id)
+        self._invalidate_chapter_related_cache(project_id)
+        await self._delete_chapter_vectors(project_id, normalized_numbers)
+
+    def _invalidate_chapter_related_cache(self, project_id: str) -> None:
+        try:
+            cache_service = CacheService()
+            cache_service.invalidate_emotion_cache(project_id)
+            if not cache_service.is_available() or cache_service.redis_client is None:
+                return
+
+            cache_service.redis_client.delete(
+                f"emotion_curve_enhanced:{project_id}",
+                f"story_trajectory:{project_id}",
+                f"creative_guidance:{project_id}",
+            )
+        except Exception as exc:
+            logger.warning("章节删除后清理缓存失败: project=%s error=%s", project_id, exc)
+
+    async def _delete_chapter_vectors(self, project_id: str, chapter_numbers: List[int]) -> None:
+        if not chapter_numbers:
+            return
+        try:
+            ingestion_service = ChapterIngestionService(llm_service=LLMService(self.session))
+            await ingestion_service.delete_chapters(project_id, chapter_numbers)
+        except Exception as exc:
+            logger.warning(
+                "章节删除后清理向量数据失败: project=%s chapters=%s error=%s",
+                project_id,
+                chapter_numbers,
+                exc,
+            )
 
     # ------------------------------------------------------------------
     # 序列化辅助
@@ -901,6 +1117,46 @@ class NovelService:
             .where(Foreshadowing.project_id == project.id)
             .order_by(Foreshadowing.chapter_number.asc(), Foreshadowing.id.asc())
         )
+        
+        # 批量获取相关的力量体系和境界信息，以便在生成时使用
+        from ..models.power_system import PowerSystem, PowerLevel
+        power_system_ids = {c.power_system_id for c in project.characters if getattr(c, "power_system_id", None)}
+        power_level_ids = {c.current_power_level_id for c in project.characters if getattr(c, "current_power_level_id", None)}
+        
+        power_systems_map = {}
+        if power_system_ids:
+            ps_result = await self.session.execute(select(PowerSystem).where(PowerSystem.id.in_(power_system_ids)))
+            power_systems_map = {ps.id: ps for ps in ps_result.scalars().all()}
+            
+        power_levels_map = {}
+        if power_level_ids:
+            pl_result = await self.session.execute(select(PowerLevel).where(PowerLevel.id.in_(power_level_ids)))
+            power_levels_map = {pl.id: pl for pl in pl_result.scalars().all()}
+            
+        # 注入力量体系名称到角色的 extra 参数中
+        for character in project.characters:
+            ps_id = getattr(character, "power_system_id", None)
+            pl_id = getattr(character, "current_power_level_id", None)
+            
+            ps_text = []
+            if ps_id and ps_id in power_systems_map:
+                ps = power_systems_map[ps_id]
+                ps_text.append(f"力量体系：{ps.name}")
+                if ps.description:
+                    ps_text.append(f"体系介绍：{ps.description}")
+            if pl_id and pl_id in power_levels_map:
+                pl = power_levels_map[pl_id]
+                ps_text.append(f"当前境界/等级：{pl.name}")
+                if pl.abilities:
+                    ps_text.append(f"该境界能力：{pl.abilities}")
+                if pl.limitations:
+                    ps_text.append(f"该境界限制：{pl.limitations}")
+                    
+            if ps_text:
+                if not character.extra:
+                    character.extra = {}
+                character.extra["_power_system_context"] = " | ".join(ps_text)
+        
         blueprint_schema = self._build_blueprint_schema(project, list(foreshadowings_result.scalars().all()))
 
         outlines_map = {outline.chapter_number: outline for outline in project.outlines}
@@ -959,6 +1215,8 @@ class NovelService:
                         "goals": character.goals,
                         "abilities": character.abilities,
                         "relationship_to_protagonist": character.relationship_to_protagonist,
+                        "power_system_id": getattr(character, "power_system_id", None),
+                        "current_power_level_id": getattr(character, "current_power_level_id", None),
                         **(character.extra or {}),
                     }
                     for character in sorted(project.characters, key=lambda c: c.position)
@@ -1057,7 +1315,13 @@ class NovelService:
         elif section == NovelSectionType.CHAPTERS:
             outlines_map = {outline.chapter_number: outline for outline in project.outlines}
             chapters_map = {chapter.chapter_number: chapter for chapter in project.chapters}
-            chapter_numbers = sorted(set(outlines_map.keys()) | set(chapters_map.keys()))
+            # 只返回有大纲或有实际内容的章节，过滤掉孤立的空 Chapter 记录
+            chapter_numbers = sorted(
+                n for n in set(outlines_map.keys()) | set(chapters_map.keys())
+                if n in outlines_map or (
+                    n in chapters_map and chapters_map[n].selected_version_id is not None
+                )
+            )
             # 章节列表只返回元数据，不包含完整内容
             chapters = [
                 self._build_chapter_schema(

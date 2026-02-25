@@ -27,6 +27,7 @@ from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
+from ...models.writer_persona import WriterPersona
 
 logger = logging.getLogger(__name__)
 
@@ -268,12 +269,11 @@ async def generate_blueprint(
     blueprint_raw = await llm_service.get_llm_response(
         system_prompt=system_prompt,
         conversation_history=formatted_history,
-        temperature=0.8,
+        temperature=0.7,
         user_id=current_user.id,
-        timeout=900.0,
+        timeout=600.0,
         max_retries=1,
-        max_tokens=16384,
-        thinking_budget=10240,
+        max_tokens=8192,
     )
 
     logger.info("项目 %s 蓝图生成：LLM 调用完成，raw_len=%d", project_id, len(blueprint_raw))
@@ -367,6 +367,21 @@ async def generate_blueprint(
     ai_message = (
         "太棒了！我已经根据我们的对话整理出完整的小说蓝图。请确认是否进入写作阶段，或提出修改意见。"
     )
+
+    # 自动创建默认 WriterPersona（如果项目尚未配置）
+    try:
+        from sqlalchemy import select as sa_select
+        existing_persona = await session.execute(
+            sa_select(WriterPersona).where(WriterPersona.project_id == project_id).limit(1)
+        )
+        if not existing_persona.scalars().first():
+            default_persona = WriterPersona.create_default_qidian_writer(project_id)
+            session.add(default_persona)
+            await session.commit()
+            logger.info("项目 %s 自动创建默认 WriterPersona", project_id)
+    except Exception as exc:
+        logger.warning("项目 %s 自动创建 WriterPersona 失败（不影响蓝图结果）: %s", project_id, exc)
+
     return BlueprintGenerationResponse(blueprint=blueprint, ai_message=ai_message)
 
 

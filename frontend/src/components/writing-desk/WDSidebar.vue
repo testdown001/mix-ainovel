@@ -81,7 +81,7 @@
               :style="{ backgroundColor: getRhythmColor(outline) }"
               :class="{ 'opacity-40': selectedChapterNumber !== null && selectedChapterNumber !== outline.chapter_number }"
               :title="`第${outline.chapter_number}章 ${outline.title}`"
-              @click="$emit('selectChapter', outline.chapter_number)"
+              @click="handleSelectChapter(outline)"
             />
           </div>
 
@@ -91,7 +91,7 @@
                 v-for="(chapter, index) in project.blueprint.chapter_outline"
                 :key="chapter.chapter_number"
                 :ref="el => setChapterRef(chapter.chapter_number, el)"
-                @click="$emit('selectChapter', chapter.chapter_number)"
+                @click="handleSelectChapter(chapter)"
                 :class="[
                   'group cursor-pointer p-4 m3-chapter-card m3-stagger',
                   selectedForDeletion.includes(chapter.chapter_number)
@@ -201,6 +201,14 @@
                       <span v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="rhythm-tag" style="background-color: #3B82F6; color: white;">伏</span>
                       <span v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="rhythm-tag" style="background-color: #10B981; color: white;">收</span>
                       <span v-if="getLastBeatType(chapter.metadata.prediction) === 'payoff'" class="rhythm-tag" style="background-color: #EF4444; color: white;">爆</span>
+                      <button
+                        @click.stop="previewPrediction(chapter.chapter_number)"
+                        class="md-btn md-btn-text md-ripple !px-1.5 !py-0.5"
+                        style="font-size: 11px; line-height: 1;"
+                        title="查看剧情推演"
+                      >
+                        查看推演
+                      </button>
                     </div>
                   </div>
 
@@ -330,7 +338,16 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const emit = defineEmits(['closeSidebar', 'selectChapter', 'generateChapter', 'editChapter', 'deleteChapter', 'generateOutline', 'rebuildRag'])
+const emit = defineEmits([
+  'closeSidebar',
+  'selectChapter',
+  'previewPrediction',
+  'generateChapter',
+  'editChapter',
+  'deleteChapter',
+  'generateOutline',
+  'rebuildRag'
+])
 
 const selectedForDeletion = ref<number[]>([])
 const listContainer = ref<HTMLElement | null>(null)
@@ -396,6 +413,26 @@ async function confirmGenerateChapter(chapterNumber: number) {
   const confirmed = await globalAlert.showConfirm('重新生成会覆盖当前章节的生成结果，确定继续吗？', '重新生成确认')
   if (confirmed) {
     emit('generateChapter', chapterNumber)
+  }
+}
+
+function previewPrediction(chapterNumber: number) {
+  emit('previewPrediction', chapterNumber)
+}
+
+function handleSelectChapter(chapter: ChapterOutline) {
+  emit('selectChapter', chapter.chapter_number)
+
+  if (!chapter.metadata?.prediction) {
+    return
+  }
+
+  const chapterStatus = props.project?.chapters?.find(
+    item => item.chapter_number === chapter.chapter_number
+  )?.generation_status
+
+  if (chapterStatus === 'successful') {
+    previewPrediction(chapter.chapter_number)
   }
 }
 

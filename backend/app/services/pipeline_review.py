@@ -107,7 +107,7 @@ class PipelineReviewMixin:
                 conversation_history=[{"role": "user", "content": revision_prompt}],
                 temperature=0.5,
                 user_id=user_id,
-                timeout=300.0,
+                timeout=180.0,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -180,8 +180,7 @@ class PipelineReviewMixin:
         chapter_text: str,
         user_id: int,
     ) -> Tuple[str, Dict[str, Any]]:
-        sync_session = getattr(self.session, "sync_session", self.session)
-        service = ConsistencyService(sync_session, self.llm_service)
+        service = ConsistencyService(self.session, self.llm_service)
         result = await service.check_consistency(project_id, chapter_text, user_id, include_foreshadowing=True)
         report = {
             "is_consistent": result.is_consistent,
@@ -213,8 +212,18 @@ class PipelineReviewMixin:
         report["auto_fix_applied"] = False
         return chapter_text, report
 
-    async def _run_optimizer(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
-        """使用综合优化 prompt 一次性优化多个维度（对话/环境/心理/节奏/爽点）。"""
+    async def _run_optimizer(
+        self, chapter_content: str, *, user_id: int, include_polish: bool = False,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """使用综合优化 prompt 一次性优化多个维度（对话/环境/心理/节奏/爽点）。
+
+        当 *include_polish* 为 True 时，同时执行文学性润色，减少一次 LLM 调用。
+        """
+        polish_section = ""
+        if include_polish:
+            polish_section = """
+6. **文学性润色**：优化遣词造句，增强画面感和沉浸感，强化感官描写，打磨对话个性"""
+
         optimize_prompt = f"""你是一位精通网络小说写作的多维度优化专家。请对以下章节内容进行综合优化。
 
 **优化维度（同时处理）：**
@@ -222,7 +231,7 @@ class PipelineReviewMixin:
 2. **环境描写**：补充视觉、听觉、触觉等感官细节，增强沉浸感
 3. **心理描写**：用生理反应替代抽象情绪词（"他很愤怒"→具体生理反应），深化内心冲突
 4. **节奏优化**：调整段落长短、松紧交替，确保铺垫→爆发→余韵的节奏感
-5. **爽点强化**：识别并强化爽点结构（30%铺垫/40%兑现/30%微反转），增加信息差和情绪张力
+5. **爽点强化**：识别并强化爽点结构（30%铺垫/40%兑现/30%微反转），增加信息差和情绪张力{polish_section}
 
 **核心原则：**
 - 保持情节走向、人物关系、对话内容完全不变
@@ -244,7 +253,7 @@ class PipelineReviewMixin:
                 conversation_history=[{"role": "user", "content": optimize_prompt}],
                 temperature=0.7,
                 user_id=user_id,
-                timeout=300.0,
+                timeout=180.0,
             )
             cleaned = remove_think_tags(response)
             if not cleaned:
@@ -257,15 +266,16 @@ class PipelineReviewMixin:
                     parsed = json.loads(repair_json(normalized))
                 except json.JSONDecodeError:
                     parsed = None
+            dimension_label = "comprehensive+polish" if include_polish else "comprehensive"
             if parsed:
                 return parsed.get("optimized_content", cleaned), {
                     "steps": [{
-                        "dimension": "comprehensive",
+                        "dimension": dimension_label,
                         "notes": parsed.get("optimization_notes", "综合优化完成"),
                     }],
                 }
             else:
-                return cleaned, {"steps": [{"dimension": "comprehensive", "notes": "优化完成（响应格式非标准JSON）"}]}
+                return cleaned, {"steps": [{"dimension": dimension_label, "notes": "优化完成（响应格式非标准JSON）"}]}
         except Exception as exc:
             logger.warning("综合优化失败: %s", exc)
             return chapter_content, {"steps": []}
@@ -292,7 +302,7 @@ class PipelineReviewMixin:
                 system_prompt="你是一位擅长小说润色的文学编辑，你的任务是在保持原有情节不变的前提下，提升文字的文学性和画面感。",
                 conversation_history=[{"role": "user", "content": polish_prompt}],
                 temperature=0.75,
-                timeout=300.0,
+                timeout=180.0,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -356,6 +366,47 @@ class PipelineReviewMixin:
             "enrichment_ratio": result.enrichment_ratio,
             "enrichment_type": result.enrichment_type,
         }
+
+    async def _run_density_compression(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
+        """执行信息密度压缩 (Chain of Density)"""
+        prompt = await self.prompt_service.get_prompt("density_compression")
+        if not prompt:
+            logger.warning("未找到 density_compression prompt，跳过密度压缩")
+            return chapter_content, {"applied": False, "reason": "missing_prompt"}
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一位擅长高信息密度写作的网文编辑。任务是压缩和提纯文字。",
+                conversation_history=[{"role": "user", "content": f"{prompt}\n\n[原章节内容]\n{chapter_content}"}],
+                temperature=0.3, # 较低的温度保证不乱加戏
+                user_id=user_id,
+                timeout=180.0,
+            )
+            cleaned = remove_think_tags(response)
+            if not cleaned or not cleaned.strip():
+                logger.warning("密度压缩结果为空，保留原文")
+                return chapter_content, {"applied": False, "reason": "empty_response"}
+
+            final = sanitize_chapter_plain_text(cleaned.strip())
+            
+            # 安全检查：如果压缩后字数骤降（低于原来的50%），可能破坏了情节，放弃压缩
+            if len(final) < len(chapter_content) * 0.5:
+                logger.warning("密度压缩后字数过少 (原%d, 现%d)，放弃应用", len(chapter_content), len(final))
+                return chapter_content, {"applied": False, "reason": "too_short"}
+                
+            logger.info(
+                "密度压缩完成: original_len=%d, compressed_len=%d",
+                len(chapter_content), len(final),
+            )
+            return final, {
+                "applied": True,
+                "original_len": len(chapter_content),
+                "compressed_len": len(final),
+                "compression_ratio": round(len(final) / len(chapter_content), 2) if len(chapter_content) > 0 else 1.0,
+            }
+        except Exception as exc:
+            logger.warning("密度压缩失败，保留原文: %s", exc)
+            return chapter_content, {"applied": False, "reason": str(exc)}
 
     async def _run_quality_detection(
         self,

@@ -72,6 +72,90 @@ class ForeshadowingService:
         await self.session.flush()
         logger.info(f"创建伏笔: project={project_id}, chapter={chapter_number}, type={foreshadowing_type}")
         return foreshadowing
+
+    async def get_foreshadowing_by_id(
+        self,
+        project_id: str,
+        foreshadowing_id: int,
+    ) -> Optional[Foreshadowing]:
+        """获取单个伏笔。"""
+        result = await self.session.execute(
+            select(Foreshadowing).where(
+                and_(
+                    Foreshadowing.id == foreshadowing_id,
+                    Foreshadowing.project_id == project_id,
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def update_foreshadowing(
+        self,
+        project_id: str,
+        foreshadowing_id: int,
+        data: Dict[str, Any],
+    ) -> Foreshadowing:
+        """更新伏笔。"""
+        foreshadowing = await self.get_foreshadowing_by_id(project_id, foreshadowing_id)
+        if not foreshadowing:
+            raise ValueError(f"伏笔不存在: {foreshadowing_id}")
+
+        editable_fields = {
+            "chapter_id",
+            "chapter_number",
+            "content",
+            "type",
+            "keywords",
+            "author_note",
+            "name",
+            "target_reveal_chapter",
+            "reveal_method",
+            "reveal_impact",
+            "related_characters",
+            "related_plots",
+            "related_foreshadowings",
+            "importance",
+            "urgency",
+            "resolved_chapter_id",
+            "resolved_chapter_number",
+        }
+
+        for key in editable_fields:
+            if key in data:
+                setattr(foreshadowing, key, data[key])
+
+        if "status" in data:
+            normalized = self._normalize_status(data.get("status"))
+            if normalized == "revealed":
+                foreshadowing.status = "revealed"
+            elif normalized == "abandoned":
+                foreshadowing.status = "abandoned"
+            else:
+                foreshadowing.status = "planted"
+                # 从“已回收/已放弃”改回未回收时，清理已回收章节信息。
+                if "resolved_chapter_id" not in data:
+                    foreshadowing.resolved_chapter_id = None
+                if "resolved_chapter_number" not in data:
+                    foreshadowing.resolved_chapter_number = None
+
+        await self.session.flush()
+        logger.info(f"更新伏笔: project={project_id}, id={foreshadowing_id}")
+        return foreshadowing
+
+    async def delete_foreshadowing(
+        self,
+        project_id: str,
+        foreshadowing_id: int,
+    ) -> bool:
+        """删除伏笔。"""
+        foreshadowing = await self.get_foreshadowing_by_id(project_id, foreshadowing_id)
+        if not foreshadowing:
+            return False
+
+        await self.session.delete(foreshadowing)
+        await self.session.flush()
+        logger.info(f"删除伏笔: project={project_id}, id={foreshadowing_id}")
+        return True
     
     async def get_foreshadowings(
         self,

@@ -35,6 +35,28 @@ class ForeshadowingCreate(BaseModel):
     author_note: Optional[str] = None
 
 
+class ForeshadowingUpdate(BaseModel):
+    """更新伏笔请求"""
+    chapter_id: Optional[int] = None
+    chapter_number: Optional[int] = None
+    content: Optional[str] = None
+    type: Optional[str] = None
+    status: Optional[str] = None
+    keywords: Optional[List[str]] = None
+    author_note: Optional[str] = None
+    name: Optional[str] = None
+    target_reveal_chapter: Optional[int] = None
+    reveal_method: Optional[str] = None
+    reveal_impact: Optional[str] = None
+    related_characters: Optional[List[str]] = None
+    related_plots: Optional[List[str]] = None
+    related_foreshadowings: Optional[List[str]] = None
+    importance: Optional[str] = None
+    urgency: Optional[int] = None
+    resolved_chapter_id: Optional[int] = None
+    resolved_chapter_number: Optional[int] = None
+
+
 class ForeshadowingResolve(BaseModel):
     """标记伏笔回收请求"""
     resolved_chapter_id: int
@@ -91,6 +113,7 @@ class ForeshadowingSummaryItem(BaseModel):
     importance: str
     urgency: Optional[float] = None
     tier: Optional[str] = None
+    author_note: Optional[str] = None
 
 
 class ForeshadowingSummaryResponse(BaseModel):
@@ -161,6 +184,22 @@ def _calculate_urgency(
     return round((elapsed / window) * weight, 2)
 
 
+def _to_foreshadowing_response(foreshadowing: Foreshadowing) -> ForeshadowingResponse:
+    return ForeshadowingResponse(
+        id=foreshadowing.id,
+        project_id=foreshadowing.project_id,
+        chapter_number=foreshadowing.chapter_number,
+        content=foreshadowing.content,
+        type=foreshadowing.type,
+        status=foreshadowing.status,
+        resolved_chapter_number=foreshadowing.resolved_chapter_number,
+        is_manual=foreshadowing.is_manual,
+        ai_confidence=foreshadowing.ai_confidence,
+        author_note=foreshadowing.author_note,
+        created_at=foreshadowing.created_at.isoformat(),
+    )
+
+
 @router.post("/{project_id}/foreshadowings", response_model=ForeshadowingResponse)
 async def create_foreshadowing(
     project_id: str,
@@ -182,22 +221,77 @@ async def create_foreshadowing(
             is_manual=True,
         )
         await session.commit()
-        
-        return ForeshadowingResponse(
-            id=foreshadowing.id,
-            project_id=foreshadowing.project_id,
-            chapter_number=foreshadowing.chapter_number,
-            content=foreshadowing.content,
-            type=foreshadowing.type,
-            status=foreshadowing.status,
-            resolved_chapter_number=foreshadowing.resolved_chapter_number,
-            is_manual=foreshadowing.is_manual,
-            ai_confidence=foreshadowing.ai_confidence,
-            author_note=foreshadowing.author_note,
-            created_at=foreshadowing.created_at.isoformat(),
-        )
+
+        return _to_foreshadowing_response(foreshadowing)
     except Exception as e:
         logger.exception(f"创建伏笔失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{project_id}/foreshadowings/{foreshadowing_id}", response_model=ForeshadowingResponse)
+async def update_foreshadowing(
+    project_id: str,
+    foreshadowing_id: int,
+    data: ForeshadowingUpdate,
+    session: AsyncSession = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    """更新伏笔"""
+    try:
+        novel_service = NovelService(session)
+        await novel_service.ensure_project_owner(project_id, current_user.id)
+
+        payload = data.model_dump(exclude_unset=True)
+        if not payload:
+            raise HTTPException(status_code=400, detail="未提供可更新字段")
+
+        service = ForeshadowingService(session)
+        foreshadowing = await service.update_foreshadowing(
+            project_id=project_id,
+            foreshadowing_id=foreshadowing_id,
+            data=payload,
+        )
+        await session.commit()
+
+        return _to_foreshadowing_response(foreshadowing)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        await session.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await session.rollback()
+        logger.exception(f"更新伏笔失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{project_id}/foreshadowings/{foreshadowing_id}")
+async def delete_foreshadowing(
+    project_id: str,
+    foreshadowing_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user=Depends(get_current_user),
+):
+    """删除伏笔"""
+    try:
+        novel_service = NovelService(session)
+        await novel_service.ensure_project_owner(project_id, current_user.id)
+
+        service = ForeshadowingService(session)
+        deleted = await service.delete_foreshadowing(
+            project_id=project_id,
+            foreshadowing_id=foreshadowing_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="伏笔不存在")
+
+        await session.commit()
+        return {"status": "success", "message": "伏笔已删除"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        logger.exception(f"删除伏笔失败: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -335,6 +429,7 @@ async def get_foreshadowing_summary(
                         importance=foreshadowing.importance,
                     ),
                     tier=_importance_to_tier(foreshadowing.importance),
+                    author_note=foreshadowing.author_note,
                 )
             )
 

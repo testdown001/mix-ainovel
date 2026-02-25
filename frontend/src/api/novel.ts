@@ -104,6 +104,8 @@ export interface Character {
   goals?: string
   abilities?: string
   relationship_to_protagonist?: string
+  power_system_id?: number
+  current_power_level_id?: number
 }
 
 export interface ChapterBeat {
@@ -233,6 +235,20 @@ export interface AdvancedGenerateResponse {
   debug_metadata?: Record<string, any> | null
 }
 
+export interface BatchGenerateChapterResult {
+  chapter_number: number
+  status: 'success' | 'failed'
+  error?: string
+}
+
+export interface BatchGenerateResponse {
+  project_id: string
+  total: number
+  completed: number
+  failed: number
+  results: BatchGenerateChapterResult[]
+}
+
 export interface DeleteNovelsResponse {
   status: string
   message: string
@@ -345,6 +361,22 @@ export class NovelAPI {
     return this.getNovel(projectId)
   }
 
+  static async batchGenerateChapters(
+    projectId: string,
+    chapterNumbers: number[],
+    writingNotes?: string
+  ): Promise<BatchGenerateResponse> {
+    return request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/batch-generate`, {
+      method: 'POST',
+      body: JSON.stringify({
+        project_id: projectId,
+        chapter_numbers: chapterNumbers,
+        ...(writingNotes ? { writing_notes: writingNotes } : {}),
+        flow_config: { preset: 'ultimate' }
+      })
+    })
+  }
+
   static async evaluateChapter(projectId: string, chapterNumber: number): Promise<NovelProject> {
     return request(`${WRITER_BASE}/${projectId}/chapters/evaluate`, {
       method: 'POST',
@@ -447,6 +479,12 @@ export class NovelAPI {
 
   static async generatePrediction(projectId: string, chapterNumber: number): Promise<ChapterPrediction> {
     return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/prediction`, {
+      method: 'POST'
+    })
+  }
+
+  static async batchGeneratePredictions(projectId: string): Promise<{ queued: number; chapter_numbers: number[]; message: string }> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/batch-prediction`, {
       method: 'POST'
     })
   }

@@ -148,7 +148,8 @@ class EntityRegistryService:
         active_only: bool = True,
     ) -> List[EntityRegistry]:
         """获取项目的所有实体。"""
-        stmt = select(EntityRegistry).where(EntityRegistry.project_id == project_id)
+        from sqlalchemy.orm import selectinload
+        stmt = select(EntityRegistry).options(selectinload(EntityRegistry.aliases)).where(EntityRegistry.project_id == project_id)
         if entity_type:
             stmt = stmt.where(EntityRegistry.entity_type == entity_type)
         if active_only:
@@ -255,8 +256,9 @@ class EntityRegistryService:
         return sorted(unregistered, key=lambda x: x["occurrences"], reverse=True)
 
     async def _find_by_name(self, project_id: str, name: str) -> Optional[EntityRegistry]:
+        from sqlalchemy.orm import selectinload
         result = await self.session.execute(
-            select(EntityRegistry).where(
+            select(EntityRegistry).options(selectinload(EntityRegistry.aliases)).where(
                 EntityRegistry.project_id == project_id,
                 EntityRegistry.canonical_name == name,
             )

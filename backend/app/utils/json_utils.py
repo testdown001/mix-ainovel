@@ -146,8 +146,16 @@ def repair_json(text: str) -> str:
     # 1. 移除行尾注释 (// ...)
     text = re.sub(r'(?<!:)//[^\n"]*$', '', text, flags=re.MULTILINE)
 
-    # 2. 修复缺少逗号的情况：}" 或 ]" 或 数字/字符串/true/false/null 后直接跟 " 或 { 或 [
-    # 例如: "key1": "val1"\n"key2" → "key1": "val1",\n"key2"
+    # 1.5. 尝试清洗字符串内未转义的特殊字符
+    try:
+        sanitized = sanitize_json_like_text(text)
+        json.loads(sanitized)
+        return sanitized
+    except (json.JSONDecodeError, Exception):
+        pass
+
+    # 2. 修复缺少逗号的情况（跨行和同行）
+    # 跨行: "val1"\n"key2" → "val1",\n"key2"
     text = re.sub(r'(")\s*\n(\s*")', r'\1,\n\2', text)
     text = re.sub(r'(})\s*\n(\s*\{)', r'\1,\n\2', text)
     text = re.sub(r'(])\s*\n(\s*\[)', r'\1,\n\2', text)
@@ -157,6 +165,13 @@ def repair_json(text: str) -> str:
     text = re.sub(r'(\bfalse)\s*\n(\s*")', r'\1,\n\2', text)
     text = re.sub(r'(\bnull)\s*\n(\s*")', r'\1,\n\2', text)
     text = re.sub(r'(\d)\s*\n(\s*")', r'\1,\n\2', text)
+    # 同行: "val1" "key2" → "val1", "key2" (不跨行的缺逗号)
+    text = re.sub(r'(")\s+(")', r'\1, \2', text)
+    text = re.sub(r'(})\s+(\{)', r'\1, \2', text)
+    text = re.sub(r'(})\s+(")', r'\1, \2', text)
+    text = re.sub(r'(])\s+(")', r'\1, \2', text)
+    text = re.sub(r'(])\s+(\[)', r'\1, \2', text)
+    text = re.sub(r'(\d)\s+(")', r'\1, \2', text)
 
     # 3. 移除尾部逗号 (trailing comma before } or ])
     text = re.sub(r',\s*([}\]])', r'\1', text)
@@ -217,3 +232,30 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
     # 收敛多余空行
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def extract_text_from_json(value: object) -> str | None:
+    """从 LLM 返回的 JSON 结构中递归提取正文文本。
+
+    支持以下格式：
+    - 纯字符串
+    - {"content": "..."} / {"chapter_content": "..."} / {"text": "..."} 等
+    - 嵌套 dict / list 结构
+    """
+    if not value:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("content", "chapter_content", "chapter_text", "text", "body", "story"):
+            if value.get(key):
+                nested = extract_text_from_json(value.get(key))
+                if nested:
+                    return nested
+        return None
+    if isinstance(value, list):
+        for item in value:
+            nested = extract_text_from_json(item)
+            if nested:
+                return nested
+    return None

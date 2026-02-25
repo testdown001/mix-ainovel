@@ -155,6 +155,7 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useNovelStore } from '@/stores/novel'
 import Chart from 'chart.js/auto'
 
 interface EmotionPoint {
@@ -177,6 +178,7 @@ interface EmotionCurveResponse {
 
 const route = useRoute()
 const authStore = useAuthStore()
+const novelStore = useNovelStore()
 const projectId = route.params.id as string
 
 const chartCanvas = ref<HTMLCanvasElement | null>(null)
@@ -187,6 +189,9 @@ const totalChapters = ref(0)
 const averageIntensity = ref(0)
 const emotionDistribution = ref<Record<string, number>>({})
 let chartInstance: any = null
+
+// 追踪当前项目的章节数量，当章节被删除/添加时自动刷新
+const chapterCount = computed(() => novelStore.currentProject?.chapters?.length ?? 0)
 
 const EMOTION_KEY_MAP: { [key: string]: string } = {
   'joy': '喜悦',
@@ -429,6 +434,13 @@ const useAIAnalysis = () => {
 
 onMounted(() => {
   fetchEmotionData();
+});
+
+// 当章节数量变化时（删除/添加），自动重新获取情感数据
+watch(chapterCount, (newCount, oldCount) => {
+  if (oldCount !== undefined && newCount !== oldCount) {
+    fetchEmotionData();
+  }
 });
 
 watch(emotionPoints, (newPoints) => {

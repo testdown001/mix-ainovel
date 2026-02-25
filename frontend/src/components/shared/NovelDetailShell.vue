@@ -156,6 +156,8 @@
                 @add="startAddChapter"
                 @regenerate="handleRegenerate"
                 @delete-outlines="handleDeleteOutlines"
+                @batch-generate="handleBatchGenerate"
+                @batch-predict="handleBatchPredict"
               />
             </div>
           </div>
@@ -170,6 +172,7 @@
       :title="modalTitle"
       :content="modalContent"
       :field="modalField"
+      :power-systems="powerSystems"
       @close="isModalOpen = false"
       @save="handleSave"
     />
@@ -252,12 +255,34 @@ import ChapterOutlineSection from '@/components/novel-detail/ChapterOutlineSecti
 import ChaptersSection from '@/components/novel-detail/ChaptersSection.vue'
 import EmotionCurveSection from '@/components/novel-detail/EmotionCurveSection.vue'
 import ForeshadowingSection from '@/components/novel-detail/ForeshadowingSection.vue'
+import WriterPersonaPanel from '@/components/WriterPersonaPanel.vue'
+
+// Import PowerSystem related types and api
+// Note: We need a generic api fetcher for /api/power-systems
+const fetchPowerSystems = async () => {
+  try {
+    const authStore = useAuthStore()
+    const url = '/api/power-systems'
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    if (authStore.isAuthenticated && authStore.token) {
+      headers.set('Authorization', `Bearer ${authStore.token}`)
+    }
+    const response = await fetch(url, { headers })
+    if (response.ok) {
+      return await response.json()
+    }
+    return []
+  } catch (err) {
+    console.error('获取力量体系失败', err)
+    return []
+  }
+}
 
 interface Props {
   isAdmin?: boolean
 }
 
-type SectionKey = AllSectionType
+type SectionKey = AllSectionType | 'writer_persona'
 
 const props = withDefaults(defineProps<Props>(), {
   isAdmin: false
@@ -278,7 +303,8 @@ const sections: Array<{ key: SectionKey; label: string; description: string }> =
   { key: 'chapter_outline', label: '章节大纲', description: props.isAdmin ? '故事章节规划' : '故事结构规划' },
   { key: 'chapters', label: '章节内容', description: props.isAdmin ? '生成章节与正文' : '生成状态与摘要' },
   { key: 'emotion_curve', label: '情感曲线', description: '追踪章节情感变化' },
-  { key: 'foreshadowing', label: '伏笔管理', description: '故事线索与回收' }
+  { key: 'foreshadowing', label: '伏笔管理', description: '故事线索与回收' },
+  { key: 'writer_persona', label: 'Writer 设定', description: '写作风格与对齐' }
 ]
 
 const sectionComponents: Record<SectionKey, any> = {
@@ -289,7 +315,8 @@ const sectionComponents: Record<SectionKey, any> = {
   chapter_outline: ChapterOutlineSection,
   chapters: ChaptersSection,
   emotion_curve: EmotionCurveSection,
-  foreshadowing: ForeshadowingSection
+  foreshadowing: ForeshadowingSection,
+  writer_persona: WriterPersonaPanel
 }
 
 // Section icons as functional components
@@ -331,6 +358,9 @@ const getSectionIcon = (key: SectionKey) => {
     ]),
     foreshadowing: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
       h('path', { d: 'M13 10V3L4 14h7v7l9-11h-7z' })
+    ]),
+    writer_persona: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
+      h('path', { d: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' })
     ])
   }
   return icons[key]
@@ -345,7 +375,8 @@ const sectionLoading = reactive<Record<SectionKey, boolean>>({
   chapter_outline: false,
   chapters: false,
   emotion_curve: false,
-  foreshadowing: false
+  foreshadowing: false,
+  writer_persona: false
 })
 const sectionError = reactive<Record<SectionKey, string | null>>({
   overview: null,
@@ -355,7 +386,8 @@ const sectionError = reactive<Record<SectionKey, string | null>>({
   chapter_outline: null,
   chapters: null,
   emotion_curve: null,
-  foreshadowing: null
+  foreshadowing: null,
+  writer_persona: null
 })
 
 const overviewMeta = reactive<{ title: string; updated_at: string | null }>({
@@ -364,6 +396,9 @@ const overviewMeta = reactive<{ title: string; updated_at: string | null }>({
 })
 
 const activeSection = ref<SectionKey>('overview')
+
+// System settings data
+const powerSystems = ref<Array<{ id: number, name: string, levels: Array<{ id: number, name: string }> }>>([])
 
 // Modal state (user mode only)
 const isModalOpen = ref(false)
@@ -420,7 +455,7 @@ const loadSection = async (section: SectionKey, force = false) => {
   if (!projectId) return
   
   // 分析型Section使用独立的API，不需要在这里加载
-  const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing']
+  const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing', 'writer_persona']
   if (analysisSections.includes(section)) {
     return
   }
@@ -488,13 +523,15 @@ const componentProps = computed(() => {
     case 'world_setting':
       return { data: data || null, editable }
     case 'characters':
-      return { data: data || null, editable }
+      return { data: data || null, editable, powerSystems: powerSystems.value }
     case 'relationships':
       return { data: data || null, editable }
     case 'chapter_outline':
       return { outline: data?.chapter_outline || [], chapters: sectionData.chapters?.chapters || [], editable }
     case 'chapters':
       return { chapters: data?.chapters || [], isAdmin: props.isAdmin }
+    case 'writer_persona':
+      return { projectId }
     default:
       return {}
   }
@@ -601,6 +638,54 @@ const handleDeleteOutlines = async (payload: { chapterNumbers: number[] }) => {
   }
 }
 
+const handleBatchGenerate = async (payload: { chapterNumbers: number[] }) => {
+  if (props.isAdmin) return
+  await ensureProjectLoaded()
+  const project = novel.value
+  if (!project) return
+
+  sectionRef.value?.setBatchGenerating?.(true)
+  try {
+    const result = await NovelAPI.batchGenerateChapters(
+      project.id,
+      payload.chapterNumbers
+    )
+    // 使章节内容缓存失效，切换时重新加载
+    sectionData.chapters = null
+
+    const msg = `连续生成完成！成功 ${result.completed} 章` +
+      (result.failed > 0 ? `，失败 ${result.failed} 章` : '')
+    alert(msg)
+  } catch (error) {
+    console.error('批量生成失败:', error)
+    alert(error instanceof Error ? error.message : '批量生成失败')
+  } finally {
+    sectionRef.value?.setBatchGenerating?.(false)
+  }
+}
+
+const handleBatchPredict = async () => {
+  if (props.isAdmin) return
+  await ensureProjectLoaded()
+  const project = novel.value
+  if (!project) return
+
+  sectionRef.value?.setPredictGenerating?.(true)
+  try {
+    const result = await NovelAPI.batchGeneratePredictions(project.id)
+    if (result.queued === 0) {
+      alert(result.message)
+    } else {
+      alert(`已提交 ${result.queued} 章推演任务，后台生成中…刷新页面即可查看结果`)
+    }
+  } catch (error) {
+    console.error('批量推演失败:', error)
+    alert(error instanceof Error ? error.message : '批量推演失败')
+  } finally {
+    sectionRef.value?.setPredictGenerating?.(false)
+  }
+}
+
 const startAddChapter = async () => {
   if (props.isAdmin) return
   await ensureProjectLoaded()
@@ -655,6 +740,7 @@ onMounted(async () => {
   // 只加载必要的 section 数据，不预加载完整项目
   await loadSection('overview', true)
   loadSection('world_setting')
+  powerSystems.value = await fetchPowerSystems()
 })
 
 onBeforeUnmount(() => {

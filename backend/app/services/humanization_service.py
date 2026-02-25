@@ -44,8 +44,17 @@ SYMMETRIC_PATTERNS: List[re.Pattern] = [
     re.compile(r"虽然.{2,15}但.{2,15}"),
 ]
 
+# 层2: 章末环境隐喻收束正则
+AI_ENDING_PATTERNS: List[re.Pattern] = [
+    re.compile(r"(?:仿佛|似乎|好像|像是|宛如|犹如).{0,15}(?:在回应|在呼应|回应着|呼应着)"),
+    re.compile(r"(?:有什么|某种).{0,10}(?:正在|悄然|开始).{0,10}(?:苏醒|萌芽|觉醒|改变|生长|蠕动|涌动|震颤)"),
+    re.compile(r"(?:随着|跟着|伴着).{0,10}(?:心跳|呼吸|脉搏|决心|意志).{0,15}(?:震颤|跳动|涌动|苏醒|燃烧)"),
+    re.compile(r"(?:在|而).{0,6}(?:黑暗|风声|夜色|沉默|寂静).{0,6}(?:中|里).{0,15}(?:悄然|正在|似乎|仿佛)"),
+    re.compile(r".{0,10}(?:像是在为|仿佛在为|似乎在为).{0,15}(?:送行|倒计时|预告|宣告|铺路)"),
+]
 
-# ---------------------------------------------------------------------------
+
+
 # 数据结构
 # ---------------------------------------------------------------------------
 @dataclass
@@ -288,6 +297,22 @@ class HumanizationService:
                 category="symmetric_structure",
                 description=f"并列对称句式过多 ({symmetric_count} 组)",
                 severity=d,
+            ))
+
+        # 2e: 章末环境隐喻收束检测
+        tail_text = text[-300:] if len(text) > 300 else text
+        ending_hits = 0
+        for pattern in AI_ENDING_PATTERNS:
+            ending_hits += len(pattern.findall(tail_text))
+        if ending_hits > 0:
+            d = min(ending_hits * 8, 15)
+            total_deduction += d
+            report.issues.append(HumanizationIssue(
+                layer="structural",
+                category="ai_metaphor_ending",
+                description=f"章末检测到 {ending_hits} 处环境隐喻收束模式，疑似 AI 式结尾",
+                severity=d,
+                location="最后300字",
             ))
 
         report.structural_deduction = min(total_deduction, max_deduction)

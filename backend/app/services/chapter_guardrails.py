@@ -46,6 +46,7 @@ class ChapterGuardrails:
     D) MarkdownMarker：正文包含 Markdown 标签（中优先级）
     E) UnregisteredEntity：出现未注册的实体名称（低优先级）
     F) TrailingCamera：章末出现 POV 角色感知范围外的描写（高优先级）
+    G) AiMetaphorEnding：章末环境隐喻收束（中优先级）
     """
 
     # 全知视角 cue 词列表
@@ -191,6 +192,9 @@ class ChapterGuardrails:
 
         # F) 检测章末滞后镜头
         self._check_trailing_camera(generated_text, result)
+
+        # G) 检测章末环境隐喻收束
+        self._check_ai_ending(generated_text, result)
 
         return result
 
@@ -342,6 +346,21 @@ class ChapterGuardrails:
                     context=context,
                 )
             )
+
+    def _check_ai_ending(self, text: str, result: GuardrailResult) -> None:
+        """检测章末是否存在 AI 式环境隐喻收束。"""
+        tail = text[-300:] if len(text) > 300 else text
+        from .humanization_service import AI_ENDING_PATTERNS
+        for pattern in AI_ENDING_PATTERNS:
+            for match in pattern.finditer(tail):
+                abs_pos = max(0, len(text) - 300) + match.start()
+                result.add_violation(Violation(
+                    type="ai_metaphor_ending",
+                    severity="medium",
+                    description=f"章末疑似 AI 环境隐喻收束：「{match.group()[:30]}」",
+                    position=abs_pos,
+                    context=self._extract_context(text, abs_pos),
+                ))
 
     def format_violations_for_rewrite(self, result: GuardrailResult) -> str:
         """

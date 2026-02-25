@@ -49,18 +49,14 @@ class Settings(BaseSettings):
     db_provider: str = Field(
         default="mysql",
         env="DB_PROVIDER",
-        description="数据库类型，仅支持 mysql 或 sqlite"
+        description="数据库类型，仅支持 mysql"
     )
     mysql_host: str = Field(default="localhost", env="MYSQL_HOST", description="MySQL 主机名")
     mysql_port: int = Field(default=3306, env="MYSQL_PORT", description="MySQL 端口")
     mysql_user: str = Field(default="root", env="MYSQL_USER", description="MySQL 用户名")
     mysql_password: str = Field(default="", env="MYSQL_PASSWORD", description="MySQL 密码")
     mysql_database: str = Field(default="arboris", env="MYSQL_DATABASE", description="MySQL 数据库名称")
-    sqlite_db_path: Optional[str] = Field(
-        default=None,
-        env="SQLITE_DB_PATH",
-        description="SQLite 数据库文件路径（支持绝对或相对路径）",
-    )
+
 
     # -------------------- 管理员初始化配置 --------------------
     admin_default_username: str = Field(default="admin", env="ADMIN_DEFAULT_USERNAME", description="默认管理员用户名")
@@ -84,10 +80,20 @@ class Settings(BaseSettings):
         description="每次生成章节的候选版本数量",
     )
     writer_max_tokens: int = Field(
-        default=16000,
+        default=16384,
         ge=1024,
         env="WRITER_MAX_TOKENS",
         description="章节版本生成的最大 token 数",
+    )
+    writer_enable_thinking: bool = Field(
+        default=False,
+        env="WRITER_ENABLE_THINKING",
+        description="章节生成是否启用 thinking（Claude 模型），默认关闭以提升速度",
+    )
+    writer_fast_mode: bool = Field(
+        default=False,
+        env="WRITER_FAST_MODE",
+        description="快速模式：basic 预设强制 1 个版本、跳过 AI Review，缩短 60-120 秒",
     )
     rag_default_mode: str = Field(
         default="two_stage",
@@ -163,6 +169,18 @@ class Settings(BaseSettings):
         ge=0,
         env="VECTOR_CHUNK_OVERLAP",
         description="章节分块重叠字数",
+    )
+    vector_ingest_concurrency: int = Field(
+        default=4,
+        ge=1,
+        env="VECTOR_INGEST_CONCURRENCY",
+        description="章节向量化时 embedding 生成并发数",
+    )
+    vector_upsert_concurrency: int = Field(
+        default=8,
+        ge=1,
+        env="VECTOR_UPSERT_CONCURRENCY",
+        description="向量库写入并发数",
     )
 
     # -------------------- 反幻觉与实体一致性 --------------------
@@ -305,8 +323,8 @@ class Settings(BaseSettings):
     def _normalize_db_provider(cls, value: Optional[str]) -> str:
         """统一数据库类型大小写，并限制为受支持的驱动。"""
         candidate = (value or "mysql").strip().lower()
-        if candidate not in {"mysql", "sqlite"}:
-            raise ValueError("DB_PROVIDER 仅支持 mysql 或 sqlite")
+        if candidate not in {"mysql"}:
+            raise ValueError("DB_PROVIDER 仅支持 mysql")
         return candidate
     @validator("embedding_provider", pre=True)
     def _normalize_embedding_provider(cls, value: Optional[str]) -> str:
@@ -342,19 +360,7 @@ class Settings(BaseSettings):
             )
             return normalized.render_as_string(hide_password=False)
 
-        if self.db_provider == "sqlite":
-            project_root = Path(__file__).resolve().parents[2]
-            sqlite_path = (self.sqlite_db_path or "").strip()
-            if sqlite_path:
-                db_path = Path(sqlite_path).expanduser()
-                if not db_path.is_absolute():
-                    db_path = (project_root / db_path).resolve()
-            else:
-                # SQLite 默认使用 storage/arboris.db，并转换为绝对路径以避免运行目录差异
-                db_path = (project_root / "storage" / "arboris.db").resolve()
-            return f"sqlite+aiosqlite:///{db_path}"
-
-        # MySQL 分支：统一对密码进行 URL 编码，避免特殊字符破坏连接串
+        # MySQL：统一对密码进行 URL 编码，避免特殊字符破坏连接串
         from urllib.parse import quote_plus
 
         encoded_password = quote_plus(self.mysql_password)
@@ -363,11 +369,6 @@ class Settings(BaseSettings):
             f"mysql+asyncmy://{self.mysql_user}:{encoded_password}"
             f"@{self.mysql_host}:{self.mysql_port}/{database}"
         )
-
-    @property
-    def is_sqlite_backend(self) -> bool:
-        """辅助属性：判断当前连接串是否指向 SQLite，用于差异化初始化流程。"""
-        return make_url(self.sqlalchemy_database_uri).get_backend_name() == "sqlite"
 
     @property
     def vector_store_enabled(self) -> bool:

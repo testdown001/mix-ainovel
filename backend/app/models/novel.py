@@ -10,8 +10,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
 
-# 自定义列类型：兼容跨数据库环境
-BIGINT_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")
+# 自定义列类型：MySQL 专用
+BIGINT_PK_TYPE = BigInteger
 LONG_TEXT_TYPE = Text().with_variant(LONGTEXT, "mysql")
 
 
@@ -94,6 +94,7 @@ class NovelBlueprint(Base):
     one_sentence_summary: Mapped[Optional[str]] = mapped_column(Text)
     full_synopsis: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
     world_setting: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    golden_finger: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -115,6 +116,14 @@ class BlueprintCharacter(Base):
     relationship_to_protagonist: Mapped[Optional[str]] = mapped_column(Text)
     extra: Mapped[Optional[dict]] = mapped_column(JSON)
     position: Mapped[int] = mapped_column(Integer, default=0)
+
+    # 力量体系关联 (基于 MuMuAINovel 的职业等级约束)
+    power_system_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("power_systems.id", ondelete="SET NULL"), nullable=True, comment="角色绑定的体系"
+    )
+    current_power_level_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("power_levels.id", ondelete="SET NULL"), nullable=True, comment="角色当前所处境界/等级"
+    )
 
     project: Mapped[NovelProject] = relationship(back_populates="characters")
 

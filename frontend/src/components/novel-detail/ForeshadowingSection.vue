@@ -125,26 +125,24 @@
         class="md-card md-card-outlined p-4 transition-all duration-200 hover:shadow-md"
         style="border-radius: var(--md-radius-md);"
       >
-        <div class="flex items-start justify-between">
+        <div class="flex items-start justify-between gap-3">
           <div class="flex-1">
             <!-- Status & Importance -->
             <div class="flex items-center gap-2 mb-2">
-              <span 
+              <span
                 class="md-chip md-chip-filter selected px-2 py-1"
                 :style="{ backgroundColor: getStatusColor(item.status) + '20', color: getStatusColor(item.status) }"
               >
                 {{ getStatusLabel(item.status) }}
               </span>
-              <span 
-                class="md-chip md-chip-assist px-2 py-1"
-              >
+              <span class="md-chip md-chip-assist px-2 py-1">
                 {{ getImportanceLabel(item.importance) }}
               </span>
             </div>
-            
+
             <!-- Description -->
             <p class="md-body-medium mb-3" style="color: var(--md-on-surface);">{{ item.description }}</p>
-            
+
             <!-- Metadata -->
             <div class="flex flex-wrap gap-4">
               <div class="flex items-center gap-1">
@@ -172,6 +170,98 @@
                 </span>
               </div>
             </div>
+            <p
+              v-if="item.author_note"
+              class="md-body-small mt-2"
+              style="color: var(--md-on-surface-variant);"
+            >
+              备注：{{ item.author_note }}
+            </p>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              @click="startEdit(item)"
+              class="md-btn md-btn-text md-ripple px-3 py-1 md-label-medium"
+              :disabled="isSubmitting"
+            >
+              编辑
+            </button>
+            <button
+              @click="deleteForeshadowing(item)"
+              class="md-btn md-ripple px-3 py-1 md-label-medium"
+              style="background-color: var(--md-error-container); color: var(--md-error);"
+              :disabled="isSubmitting"
+            >
+              删除
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="editingId === item.id"
+          class="mt-4 pt-4 border-t space-y-3"
+          style="border-color: var(--md-outline-variant);"
+        >
+          <div>
+            <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">伏笔描述</label>
+            <textarea
+              v-model="editForm.description"
+              rows="3"
+              class="w-full px-3 py-2 border rounded-md md-body-medium"
+              style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+            ></textarea>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">预期回收章节</label>
+              <input
+                v-model.number="editForm.expected_payoff_chapter"
+                type="number"
+                min="1"
+                class="w-full px-3 py-2 border rounded-md md-body-medium"
+                style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+                placeholder="留空表示不限制"
+              />
+            </div>
+            <div>
+              <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">重要性</label>
+              <select
+                v-model="editForm.importance"
+                class="w-full px-3 py-2 border rounded-md md-body-medium"
+                style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+              >
+                <option value="short">短期伏笔</option>
+                <option value="medium">中期伏笔</option>
+                <option value="long">长期伏笔</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">备注</label>
+            <textarea
+              v-model="editForm.author_note"
+              rows="2"
+              class="w-full px-3 py-2 border rounded-md md-body-medium"
+              style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+              placeholder="可选"
+            ></textarea>
+          </div>
+          <div class="flex items-center justify-end gap-2">
+            <button
+              @click="cancelEdit"
+              class="md-btn md-btn-text md-ripple px-3 py-1.5 md-label-medium"
+              :disabled="isSubmitting"
+            >
+              取消
+            </button>
+            <button
+              @click="updateForeshadowing(item.id)"
+              class="md-btn md-btn-filled md-ripple px-3 py-1.5 md-label-medium"
+              :disabled="isSubmitting"
+            >
+              {{ isSubmitting ? '保存中...' : '保存修改' }}
+            </button>
           </div>
         </div>
       </div>
@@ -193,6 +283,7 @@ interface Foreshadowing {
   actual_payoff_chapter?: number
   status: 'planted' | 'paid_off' | 'overdue'
   importance: 'short' | 'medium' | 'long'
+  author_note?: string
 }
 
 interface ForeshadowingResponse {
@@ -218,6 +309,14 @@ const plantedCount = ref(0)
 const paidOffCount = ref(0)
 const overdueCount = ref(0)
 const activeTab = ref('all')
+const editingId = ref<string | null>(null)
+const isSubmitting = ref(false)
+const editForm = ref({
+  description: '',
+  expected_payoff_chapter: null as number | null,
+  importance: 'medium' as 'short' | 'medium' | 'long',
+  author_note: ''
+})
 
 const statusTabs = [
   { key: 'all', label: '全部', color: '#5F6368' },
@@ -266,6 +365,21 @@ const getImportanceLabel = (importance: string) => {
     'long': '长期伏笔'
   }
   return labels[importance] || importance
+}
+
+const toBackendImportance = (importance: 'short' | 'medium' | 'long') => {
+  if (importance === 'long') return 'major'
+  if (importance === 'short') return 'subtle'
+  return 'minor'
+}
+
+const parseErrorMessage = async (response: Response, fallback: string) => {
+  try {
+    const errorData = await response.json()
+    return errorData.detail || errorData.message || fallback
+  } catch {
+    return `HTTP ${response.status}: ${response.statusText}`
+  }
 }
 
 const fetchData = async () => {
@@ -359,6 +473,95 @@ const generateForeshadowings = async () => {
     error.value = e instanceof Error ? e.message : '生成失败，请稍后重试'
   } finally {
     isGenerating.value = false
+  }
+}
+
+const startEdit = (item: Foreshadowing) => {
+  editingId.value = item.id
+  editForm.value = {
+    description: item.description || '',
+    expected_payoff_chapter: item.expected_payoff_chapter ?? null,
+    importance: item.importance || 'medium',
+    author_note: item.author_note || ''
+  }
+}
+
+const cancelEdit = () => {
+  editingId.value = null
+}
+
+const updateForeshadowing = async (itemId: string) => {
+  const description = editForm.value.description.trim()
+  if (!description) {
+    error.value = '伏笔描述不能为空'
+    return
+  }
+
+  isSubmitting.value = true
+  error.value = null
+
+  try {
+    const rawTarget = editForm.value.expected_payoff_chapter as unknown
+    const targetRevealChapter = typeof rawTarget === 'number' && Number.isFinite(rawTarget) && rawTarget > 0
+      ? rawTarget
+      : null
+
+    const response = await fetch(`/api/novels/${projectId}/foreshadowings/${itemId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: description,
+        target_reveal_chapter: targetRevealChapter,
+        importance: toBackendImportance(editForm.value.importance),
+        author_note: editForm.value.author_note?.trim() || null
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(await parseErrorMessage(response, '更新伏笔失败'))
+    }
+
+    editingId.value = null
+    await fetchData()
+  } catch (e: any) {
+    console.error('伏笔更新错误:', e)
+    error.value = e instanceof Error ? e.message : '更新失败，请稍后重试'
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+const deleteForeshadowing = async (item: Foreshadowing) => {
+  if (!window.confirm('确认删除这条伏笔吗？该操作不可恢复。')) return
+
+  isSubmitting.value = true
+  error.value = null
+
+  try {
+    const response = await fetch(`/api/novels/${projectId}/foreshadowings/${item.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`,
+        'Content-Type': 'application/json'
+      }
+    })
+
+    if (!response.ok) {
+      throw new Error(await parseErrorMessage(response, '删除伏笔失败'))
+    }
+
+    if (editingId.value === item.id) {
+      editingId.value = null
+    }
+    await fetchData()
+  } catch (e: any) {
+    console.error('伏笔删除错误:', e)
+    error.value = e instanceof Error ? e.message : '删除失败，请稍后重试'
+  } finally {
+    isSubmitting.value = false
   }
 }
 

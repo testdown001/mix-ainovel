@@ -22,64 +22,35 @@
             <h3 class="md-title-medium md-on-surface mb-1">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
             <p class="md-body-small md-on-surface-variant">{{ selectedChapterOutline?.summary || '暂无章节描述' }}</p>
 
-            <!-- 剧情推演折叠区域 -->
-            <div v-if="isChapterCompleted(selectedChapterNumber)" class="mt-3">
-              <div class="flex items-center gap-2">
-                <button
-                  @click="showPrediction = !showPrediction"
-                  class="md-btn md-btn-text md-ripple flex items-center gap-1 !px-2 !py-1"
-                  style="font-size: 0.8125rem;"
+            <!-- 推演入口（紧凑按钮，仅在头部显示） -->
+            <div v-if="canShowPredictionPanel" class="mt-2 flex items-center gap-2">
+              <button
+                @click="showPrediction = !showPrediction"
+                class="md-btn md-btn-text md-ripple flex items-center gap-1 !px-2 !py-1"
+                style="font-size: 0.8125rem;"
+              >
+                <svg
+                  class="w-4 h-4 transition-transform"
+                  :class="showPrediction ? 'rotate-90' : ''"
+                  fill="currentColor" viewBox="0 0 20 20"
                 >
-                  <svg
-                    class="w-4 h-4 transition-transform"
-                    :class="showPrediction ? 'rotate-90' : ''"
-                    fill="currentColor" viewBox="0 0 20 20"
-                  >
-                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-                  </svg>
-                  剧情推演
-                  <span v-if="outlinePrediction" class="md-body-small md-on-surface-variant ml-1">(已有)</span>
-                </button>
-                <button
-                  @click="handleGeneratePrediction"
-                  :disabled="generatingPrediction"
-                  class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-2 !py-1 disabled:opacity-50"
-                  style="font-size: 0.8125rem;"
-                >
-                  <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-                  </svg>
-                  {{ generatingPrediction ? '推演中...' : (outlinePrediction ? '重新推演' : '生成推演') }}
-                </button>
-              </div>
-
-              <div v-if="showPrediction && outlinePrediction" class="mt-2 space-y-2">
-                <div v-for="section in predictionSections" :key="section.key" class="md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
-                  <h4 class="md-title-small font-medium mb-1.5" :style="{ color: section.color }">{{ section.label }}</h4>
-                  <ul class="space-y-0.5">
-                    <li v-for="(item, i) in section.items" :key="i" class="md-body-small md-on-surface-variant flex gap-2">
-                      <span class="shrink-0">{{ section.icon }}</span>
-                      <span>{{ item }}</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <!-- Beats 节拍编排 -->
-                <div v-if="outlinePrediction.beats?.length" class="md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
-                  <h4 class="md-title-small font-medium mb-1.5" style="color: var(--md-primary)">节拍编排</h4>
-                  <div class="space-y-1.5">
-                    <div v-for="(beat, i) in outlinePrediction.beats" :key="i" class="flex items-start gap-2">
-                      <span class="shrink-0 w-4 h-4 rounded-full text-[10px] flex items-center justify-center text-white font-medium"
-                            :style="{ backgroundColor: beatColor(beat.type) }">{{ i + 1 }}</span>
-                      <div>
-                        <span class="md-label-small font-medium" :style="{ color: beatColor(beat.type) }">{{ beatLabel(beat.type) }}</span>
-                        <span class="md-body-small md-on-surface-variant ml-1">{{ beat.content }}</span>
-                        <span class="md-label-small ml-1" style="color: var(--md-outline);">({{ beat.emotion }})</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                  <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+                </svg>
+                剧情推演
+                <span v-if="outlinePrediction" class="md-body-small md-on-surface-variant ml-1">(已有)</span>
+              </button>
+              <button
+                v-if="isChapterCompleted(selectedChapterNumber)"
+                @click="handleGeneratePrediction"
+                :disabled="generatingPrediction"
+                class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-2 !py-1 disabled:opacity-50"
+                style="font-size: 0.8125rem;"
+              >
+                <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+                </svg>
+                {{ generatingPrediction ? '推演中...' : (outlinePrediction ? '重新推演' : '生成推演') }}
+              </button>
             </div>
           </div>
 
@@ -123,6 +94,56 @@
 
       <!-- 章节内容展示区 -->
       <div class="md-card-content flex-1 overflow-y-auto">
+        <!-- 推演详情面板（在内容区域内，可跟随滚动） -->
+        <div v-if="showPrediction && outlinePrediction && canShowPredictionPanel" ref="predictionPanelRef" class="m3-prediction-panel mb-4">
+          <div class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-xl);">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="md-title-small font-semibold flex items-center gap-2">
+                <svg class="w-4 h-4" style="color: var(--md-primary);" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"></path>
+                </svg>
+                剧情推演详情
+              </h4>
+              <button
+                @click="showPrediction = false"
+                class="md-icon-btn md-ripple !w-7 !h-7"
+                title="收起推演"
+              >
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="max-h-80 overflow-y-auto space-y-2 pr-1">
+              <div v-for="section in predictionSections" :key="section.key" class="md-card md-card-filled p-3" style="border-radius: var(--md-radius-md);">
+                <h4 class="md-label-large font-medium mb-1.5" :style="{ color: section.color }">{{ section.label }}</h4>
+                <ul class="space-y-0.5">
+                  <li v-for="(item, i) in section.items" :key="i" class="md-body-small md-on-surface-variant flex gap-2">
+                    <span class="shrink-0">{{ section.icon }}</span>
+                    <span>{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Beats 节拍编排 -->
+              <div v-if="outlinePrediction.beats?.length" class="md-card md-card-filled p-3" style="border-radius: var(--md-radius-md);">
+                <h4 class="md-label-large font-medium mb-1.5" style="color: var(--md-primary)">节拍编排</h4>
+                <div class="space-y-1.5">
+                  <div v-for="(beat, i) in outlinePrediction.beats" :key="i" class="flex items-start gap-2">
+                    <span class="shrink-0 w-4 h-4 rounded-full text-[10px] flex items-center justify-center text-white font-medium"
+                          :style="{ backgroundColor: beatColor(beat.type) }">{{ i + 1 }}</span>
+                    <div>
+                      <span class="md-label-small font-medium" :style="{ color: beatColor(beat.type) }">{{ beatLabel(beat.type) }}</span>
+                      <span class="md-body-small md-on-surface-variant ml-1">{{ beat.content }}</span>
+                      <span class="md-label-small ml-1" style="color: var(--md-outline);">{{ beat.emotion }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <component
           :is="currentComponent"
           v-bind="currentComponentProps"
@@ -201,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, nextTick, ref, watch, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import { NovelAPI } from '@/api/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction } from '@/api/novel'
@@ -224,6 +245,7 @@ import ChapterEmpty from './workspace/ChapterEmpty.vue'
 interface Props {
   project: NovelProject | null
   selectedChapterNumber: number | null
+  openPredictionTick?: number
   generatingChapter: number | null
   evaluatingChapter: number | null
   showVersionSelector: boolean
@@ -260,10 +282,35 @@ const confirmRegenerateChapter = async () => {
 // 剧情推演
 const showPrediction = ref(false)
 const generatingPrediction = ref(false)
+const predictionPanelBlockedStatuses: Chapter['generation_status'][] = [
+  'waiting_for_confirm',
+  'evaluation_failed',
+  'evaluating',
+  'selecting'
+]
 
 const outlinePrediction = computed<ChapterPrediction | null>(
   () => selectedChapterOutline.value?.metadata?.prediction ?? null
 )
+const selectedChapterStatus = computed<Chapter['generation_status'] | null>(() => {
+  if (props.selectedChapterNumber === null || !props.project?.chapters) {
+    return null
+  }
+  return props.project.chapters.find(
+    chapter => chapter.chapter_number === props.selectedChapterNumber
+  )?.generation_status ?? null
+})
+const canShowPredictionPanel = computed(() => {
+  if (props.selectedChapterNumber === null) return false
+  if (
+    selectedChapterStatus.value &&
+    predictionPanelBlockedStatuses.includes(selectedChapterStatus.value)
+  ) {
+    return false
+  }
+  return isChapterCompleted(props.selectedChapterNumber) || !!outlinePrediction.value
+})
+const predictionPanelRef = ref<HTMLElement | null>(null)
 
 const predictionSections = computed(() => {
   const p = outlinePrediction.value
@@ -291,6 +338,17 @@ const handleGeneratePrediction = async () => {
   } finally {
     generatingPrediction.value = false
   }
+}
+
+const openPredictionPanel = async () => {
+  await nextTick()
+  if (!outlinePrediction.value || !canShowPredictionPanel.value) return
+  showPrediction.value = true
+  await nextTick()
+  predictionPanelRef.value?.scrollIntoView({
+    behavior: 'smooth',
+    block: 'nearest',
+  })
 }
 
 // 编辑模态框状态
@@ -485,6 +543,14 @@ watch(
   { immediate: true }
 )
 
+watch(
+  () => props.openPredictionTick,
+  async (current, previous) => {
+    if (current === undefined || current === previous) return
+    await openPredictionPanel()
+  }
+)
+
 onUnmounted(() => {
   stopPolling()
 })
@@ -551,5 +617,29 @@ const currentComponentProps = computed(() => {
   max-width: min(1200px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   border-radius: var(--md-radius-xl);
+}
+
+.m3-prediction-panel {
+  animation: m3-slide-down 0.25s ease-out both;
+}
+
+@keyframes m3-slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.m3-prediction-panel ::-webkit-scrollbar {
+  width: 4px;
+}
+
+.m3-prediction-panel ::-webkit-scrollbar-thumb {
+  background: var(--md-outline);
+  border-radius: 2px;
 }
 </style>

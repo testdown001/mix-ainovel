@@ -64,6 +64,10 @@ class WriterPersona(Base):
     description_style: Mapped[Optional[str]] = mapped_column(Text)  # 描写风格
     show_vs_tell_ratio: Mapped[Optional[str]] = mapped_column(String(64))  # 展示 vs 叙述比例
     sensory_focus: Mapped[Optional[list]] = mapped_column(JSON)  # 感官描写偏好
+    physiological_reactions: Mapped[Optional[list]] = mapped_column(JSON)  # 生理反应描写偏好（用于代替直接的情绪词）
+    
+    # ===== 范文对齐 (Few-Shot) =====
+    benchmark_texts: Mapped[Optional[list]] = mapped_column(JSON)  # 标杆对标文本
     
     # ===== 人类化特征（反 AI 检测核心）=====
     catchphrases: Mapped[Optional[list]] = mapped_column(JSON)  # 口头禅列表
@@ -143,8 +147,18 @@ class WriterPersona(Base):
             style_items.append(f"- 描写风格：{self.description_style}")
         if self.show_vs_tell_ratio:
             style_items.append(f"- 展示/叙述比例：{self.show_vs_tell_ratio}")
+        if self.physiological_reactions:
+            style_items.append(f"- 生理反应偏好：{', '.join(self.physiological_reactions)} (用于替代抽象情绪形容词)")
         if style_items:
             sections.append("## 写作风格\n" + "\n".join(style_items))
+        
+        # 范文对齐 (Few-Shot)
+        if self.benchmark_texts:
+            benchmark_section = ["## 标杆文本学习（Few-Shot 示范）"]
+            benchmark_section.append("请仔细体会以下片段的高信息密度、干练动词运用以及克制的形容词使用。要求在创作中严格对标此类行文质感：")
+            for i, text in enumerate(self.benchmark_texts, 1):
+                benchmark_section.append(f"**[标杆示范 {i}]**\n{text}")
+            sections.append("\n".join(benchmark_section))
         
         if not sections:
             return f"（使用默认 Writer：{self.name}）"
@@ -174,6 +188,8 @@ class WriterPersona(Base):
             description_style="镜头语言，画面感强，少用形容词堆砌",
             show_vs_tell_ratio="7:3 展示为主",
             sensory_focus=["视觉", "听觉", "触觉"],
+            physiological_reactions=["瞳孔收缩", "心跳漏了一拍", "后背发凉", "肌肉紧绷", "指节泛白"],
+            benchmark_texts=[],
             catchphrases=["说实话", "不是我说", "懂的都懂", "这波啊"],
             personal_quirks=["喜欢用省略号制造悬念", "关键对话后加一句内心吐槽"],
             imperfection_patterns=[

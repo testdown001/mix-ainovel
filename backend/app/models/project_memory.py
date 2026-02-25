@@ -17,8 +17,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
 
-# 自定义列类型：兼容跨数据库环境
-BIGINT_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")
+# 自定义列类型：MySQL 专用
+BIGINT_PK_TYPE = BigInteger
 LONG_TEXT_TYPE = Text().with_variant(LONGTEXT, "mysql")
 
 

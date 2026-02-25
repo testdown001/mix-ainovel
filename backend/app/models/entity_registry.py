@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.base import Base
 
-BIGINT_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")
+BIGINT_PK_TYPE = BigInteger
 
 
 class EntityRegistry(Base):

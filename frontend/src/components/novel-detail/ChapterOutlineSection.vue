@@ -51,6 +51,36 @@
             清除新生成标记
           </button>
           <button
+            v-if="unpredictedCount > 0"
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors"
+            :disabled="regenerating || predictGenerating"
+            @click="handleBatchPredict"
+          >
+            <svg v-if="predictGenerating" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            {{ predictGenerating ? '推演中...' : `一键推演 (${unpredictedCount})` }}
+          </button>
+          <button
+            v-if="uncompletedCount > 0"
+            type="button"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+            :disabled="regenerating || batchGenerating"
+            @click="handleBatchGenerate"
+          >
+            <svg v-if="batchGenerating" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {{ batchGenerating ? '连续生成中...' : `连续生成 (${uncompletedCount})` }}
+          </button>
+          <button
             v-if="uncompletedCount > 0"
             type="button"
             class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
@@ -222,6 +252,86 @@
             </div>
           </div>
           <p class="mt-3 text-sm text-slate-600 leading-6 whitespace-pre-line">{{ chapter.summary || '暂无摘要' }}</p>
+
+          <!-- 推演标签和展开按钮（仅已完成且有推演数据的章节显示） -->
+          <div v-if="isCompleted(chapter.chapter_number) && chapter.metadata?.prediction" class="mt-3">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span v-if="chapter.metadata.prediction.cool_points?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #F59E0B;">爽</span>
+              <span v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #3B82F6;">伏</span>
+              <span v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #10B981;">收</span>
+              <span v-if="getLastBeatType(chapter.metadata.prediction) === 'payoff'" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #EF4444;">爆</span>
+              <button
+                type="button"
+                class="text-xs text-indigo-600 hover:text-indigo-800 font-medium ml-1 transition-colors"
+                @click="togglePrediction(chapter.chapter_number)"
+              >
+                {{ expandedPrediction === chapter.chapter_number ? '收起推演' : '查看推演' }}
+              </button>
+            </div>
+
+            <!-- 推演详情展开区 -->
+            <div v-if="expandedPrediction === chapter.chapter_number" class="mt-3 space-y-2 animate-slideDown">
+              <div v-if="chapter.metadata.prediction.key_points?.length" class="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-blue-800 mb-1.5">章节要点</h5>
+                <ul class="space-y-0.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.key_points" :key="i" class="text-xs text-blue-700 flex gap-1.5">
+                    <span class="shrink-0">•</span>
+                    <span>{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="chapter.metadata.prediction.cool_points?.length" class="bg-amber-50 border border-amber-100 rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-amber-800 mb-1.5">✨ 爽点设计</h5>
+                <ul class="space-y-0.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.cool_points" :key="i" class="text-xs text-amber-700 flex gap-1.5">
+                    <span class="shrink-0">⚡</span>
+                    <span>{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-indigo-800 mb-1.5">🪝 伏笔/钩子</h5>
+                <ul class="space-y-0.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.foreshadowing_hooks" :key="i" class="text-xs text-indigo-700 flex gap-1.5">
+                    <span class="shrink-0">🪝</span>
+                    <span>{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="bg-green-50 border border-green-100 rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-green-800 mb-1.5">🎯 需回收伏笔</h5>
+                <ul class="space-y-0.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.foreshadowing_targets" :key="i" class="text-xs text-green-700 flex gap-1.5">
+                    <span class="shrink-0">🎯</span>
+                    <span>{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="chapter.metadata.prediction.limitations?.length" class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-slate-700 mb-1.5">⚠️ 章节限制</h5>
+                <ul class="space-y-0.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.limitations" :key="i" class="text-xs text-slate-600 flex gap-1.5">
+                    <span class="shrink-0">⚠</span>
+                    <span>{{ item }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-if="chapter.metadata.prediction.beats?.length" class="bg-purple-50 border border-purple-100 rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-purple-800 mb-1.5">节拍编排</h5>
+                <div class="space-y-1">
+                  <div v-for="(beat, i) in chapter.metadata.prediction.beats" :key="i" class="flex items-start gap-1.5 text-xs">
+                    <span class="shrink-0 w-4 h-4 rounded-full text-[9px] flex items-center justify-center text-white font-medium"
+                          :style="{ backgroundColor: beatColorMap[beat.type] || '#6B7280' }">{{ i + 1 }}</span>
+                    <div>
+                      <span class="font-medium" :style="{ color: beatColorMap[beat.type] || '#6B7280' }">{{ beatLabelMap[beat.type] || beat.type }}</span>
+                      <span class="text-slate-600 ml-1">{{ beat.content }}</span>
+                      <span class="text-slate-400 ml-1">({{ beat.emotion }})</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </li>
       <li v-if="!sortedOutline.length" class="ml-6 text-slate-400 text-sm">暂无章节大纲</li>
@@ -232,10 +342,20 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
+interface ChapterPredictionData {
+  key_points?: string[]
+  cool_points?: string[]
+  foreshadowing_hooks?: string[]
+  foreshadowing_targets?: string[]
+  limitations?: string[]
+  beats?: Array<{ type: string; content: string; emotion: string }>
+}
+
 interface OutlineItem {
   chapter_number: number
   title: string
   summary: string
+  metadata?: { prediction?: ChapterPredictionData } | null
 }
 
 interface ChapterItem {
@@ -254,8 +374,27 @@ const freshGenerating = ref(false) // 区分是"生成"还是"重新生成"
 const regeneratedNumbers = ref<Set<number>>(new Set())
 const regenerateResult = ref<{ updated: number; total: number } | null>(null)
 const batchMode = ref(false)
+const batchGenerating = ref(false)
+const predictGenerating = ref(false)
 const selectedNumbers = ref<Set<number>>(new Set())
 const deleting = ref(false)
+const expandedPrediction = ref<number | null>(null)
+
+const beatColorMap: Record<string, string> = {
+  setup: '#6B7280', provoke: '#F59E0B', twist: '#8B5CF6', payoff: '#EF4444', hook: '#3B82F6'
+}
+const beatLabelMap: Record<string, string> = {
+  setup: '铺垫', provoke: '激化', twist: '转折', payoff: '爆发', hook: '悬念'
+}
+
+const getLastBeatType = (prediction: ChapterPredictionData): string | null => {
+  if (!prediction.beats?.length) return null
+  return prediction.beats[prediction.beats.length - 1].type
+}
+
+const togglePrediction = (chapterNumber: number) => {
+  expandedPrediction.value = expandedPrediction.value === chapterNumber ? null : chapterNumber
+}
 
 // 按 chapter_number 排序，防止显示乱序
 const sortedOutline = computed(() =>
@@ -267,6 +406,8 @@ const emit = defineEmits<{
   (e: 'add'): void
   (e: 'regenerate', payload: { chapterNumbers?: number[]; totalChapters?: number }): void
   (e: 'delete-outlines', payload: { chapterNumbers: number[] }): void
+  (e: 'batch-generate', payload: { chapterNumbers: number[] }): void
+  (e: 'batch-predict'): void
 }>()
 
 const completedNumbers = computed(() => {
@@ -280,6 +421,10 @@ const completedNumbers = computed(() => {
 
 const uncompletedCount = computed(() => {
   return sortedOutline.value.filter(o => !completedNumbers.value.has(o.chapter_number)).length
+})
+
+const unpredictedCount = computed(() => {
+  return sortedOutline.value.filter(o => !(o.metadata?.prediction)).length
 })
 
 const generateFreshText = computed(() => {
@@ -328,6 +473,27 @@ const handleRegenerateUncompleted = () => {
 const handleRegenerateSingle = (chapterNumber: number) => {
   if (regenerating.value) return
   emit('regenerate', { chapterNumbers: [chapterNumber] })
+}
+
+const handleBatchGenerate = () => {
+  if (batchGenerating.value || regenerating.value) return
+  const maxCount = uncompletedCount.value
+  const defaultCount = Math.min(5, maxCount)
+  const input = window.prompt(`要连续生成几个章节？（最多 ${maxCount}）`, String(defaultCount))
+  if (!input) return
+  const count = parseInt(input, 10)
+  if (isNaN(count) || count < 1 || count > maxCount) {
+    alert(`请输入 1-${maxCount} 之间的正整数`)
+    return
+  }
+  // 取前 count 个未完成章节
+  const chapters = uncompletedNumbers.value.slice(0, count)
+  emit('batch-generate', { chapterNumbers: chapters })
+}
+
+const handleBatchPredict = () => {
+  if (predictGenerating.value || regenerating.value) return
+  emit('batch-predict')
 }
 
 const markRegenerated = (updatedChapters: number[], totalTarget: number) => {
@@ -394,6 +560,12 @@ defineExpose({
     deleting.value = v
     if (!v) exitBatchMode()
   },
+  setBatchGenerating: (v: boolean) => {
+    batchGenerating.value = v
+  },
+  setPredictGenerating: (v: boolean) => {
+    predictGenerating.value = v
+  },
   markRegenerated,
 })
 </script>
@@ -405,3 +577,21 @@ export default defineComponent({
   name: 'ChapterOutlineSection'
 })
 </script>
+
+<style scoped>
+.animate-slideDown {
+  animation: slideDown 0.2s ease-out both;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</style>
+

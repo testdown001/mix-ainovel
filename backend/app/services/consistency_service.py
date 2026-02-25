@@ -18,7 +18,8 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.project_memory import ProjectMemory
 from ..models.novel import NovelBlueprint, Chapter
@@ -154,7 +155,7 @@ class ConsistencyService:
     
     def __init__(
         self,
-        db: Session,
+        db: AsyncSession,
         llm_service: LLMService
     ):
         self.db = db
@@ -354,9 +355,10 @@ class ConsistencyService:
         context = {}
         
         # 获取小说设定
-        blueprint = self.db.query(NovelBlueprint).filter(
-            NovelBlueprint.project_id == project_id
-        ).first()
+        result = await self.db.execute(
+            select(NovelBlueprint).where(NovelBlueprint.project_id == project_id)
+        )
+        blueprint = result.scalars().first()
         
         if blueprint:
             setting_parts = []
@@ -371,9 +373,10 @@ class ConsistencyService:
             context["novel_setting"] = "\n".join(setting_parts)
         
         # 获取项目记忆
-        memory = self.db.query(ProjectMemory).filter(
-            ProjectMemory.project_id == project_id
-        ).first()
+        result = await self.db.execute(
+            select(ProjectMemory).where(ProjectMemory.project_id == project_id)
+        )
+        memory = result.scalars().first()
         
         if memory:
             context["global_summary"] = memory.global_summary or ""
@@ -383,9 +386,13 @@ class ConsistencyService:
         
         # 获取角色状态（简化版）
         from ..models.memory_layer import CharacterState
-        states = self.db.query(CharacterState).filter(
-            CharacterState.project_id == project_id
-        ).order_by(CharacterState.chapter_number.desc()).limit(10).all()
+        result = await self.db.execute(
+            select(CharacterState)
+            .where(CharacterState.project_id == project_id)
+            .order_by(CharacterState.chapter_number.desc())
+            .limit(10)
+        )
+        states = result.scalars().all()
         
         if states:
             state_texts = []
@@ -397,10 +404,13 @@ class ConsistencyService:
         
         # 获取未回收伏笔
         if include_foreshadowing:
-            foreshadowings = self.db.query(Foreshadowing).filter(
-                Foreshadowing.project_id == project_id,
-                Foreshadowing.status.in_(["planted", "developing"])
-            ).all()
+            result = await self.db.execute(
+                select(Foreshadowing).where(
+                    Foreshadowing.project_id == project_id,
+                    Foreshadowing.status.in_(["planted", "developing"])
+                )
+            )
+            foreshadowings = result.scalars().all()
             
             if foreshadowings:
                 foreshadowing_texts = [

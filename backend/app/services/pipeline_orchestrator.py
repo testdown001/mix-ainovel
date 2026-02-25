@@ -29,6 +29,7 @@ from ..services.writer_shared import (
     build_blueprint_constraints_for_mission,
     generate_chapter_mission as _shared_generate_chapter_mission,
     normalize_blueprint_relationships,
+    resolve_version_count as _shared_resolve_version_count,
     rewrite_with_guardrails as _shared_rewrite_with_guardrails,
 )
 from ..services.platinum_writing_context import (
@@ -37,7 +38,7 @@ from ..services.platinum_writing_context import (
     build_hook_continuity_brief,
     build_platinum_rhythm_brief,
 )
-from ..utils.json_utils import remove_think_tags, sanitize_chapter_plain_text, unwrap_markdown_json
+from ..utils.json_utils import extract_text_from_json, remove_think_tags, sanitize_chapter_plain_text, unwrap_markdown_json
 
 from .pipeline_context import PipelineContextMixin
 from .pipeline_prompt import PipelinePromptMixin
@@ -73,6 +74,7 @@ class PipelineConfig:
     enable_fingerprint: bool = False
     enable_polish: bool = False
     enable_mission_brief: bool = False
+    enable_density_compression: bool = False
 
 
 class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineReviewMixin):
@@ -162,7 +164,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         )
         _mark_stage("build_mission_inputs", stage_started)
 
+        # ========== Mission 生成 + 上下文准备（串行，共享 DB session） ==========
         stage_started = time.perf_counter()
+
+        # Mission 生成（内部会查 DB 加载 prompt，必须串行）
         chapter_mission = await _shared_generate_chapter_mission(
             self.llm_service,
             self.prompt_service,
@@ -180,6 +185,55 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             pattern_constraint=pattern_constraint,
         )
         _mark_stage("generate_chapter_mission", stage_started)
+
+        # 以下上下文准备串行执行（共享同一个 async session，不可并发）
+        stage_started = time.perf_counter()
+        enhanced_flow = None
+        enhanced_context = None
+        if config.enable_constitution or config.enable_persona or config.enable_foreshadowing or config.enable_faction:
+            enhanced_flow = EnhancedWritingFlow(self.session, self.llm_service, self.prompt_service)
+            enhanced_context = await enhanced_flow.prepare_writing_context(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                chapter_outline=outline_summary,
+            )
+
+        project_memory_text = await self._get_project_memory_text(project_id)
+
+        rag_context = None
+        knowledge_context = None
+        rag_stats = None
+        if config.enable_rag:
+            if config.rag_mode == "two_stage":
+                knowledge_context, rag_stats = await self._get_two_stage_rag_context(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    writing_notes=writing_notes,
+                    pov_character=self._resolve_pov_character(chapter_mission),
+                    user_id=user_id,
+                    retrieval_mode=config.rag_retrieval_mode,
+                )
+            else:
+                rag_context = await self._get_rag_context(
+                    project_id=project_id,
+                    outline_title=outline_title,
+                    outline_summary=outline_summary,
+                    writing_notes=writing_notes,
+                    user_id=user_id,
+                    retrieval_mode=config.rag_retrieval_mode,
+                )
+                rag_stats = {
+                    "mode": "simple",
+                    "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
+                    "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
+                }
+
+        writer_prompt = await self.prompt_service.get_prompt("writing_v2")
+        if not writer_prompt:
+            writer_prompt = await self.prompt_service.get_prompt("writing")
+        if not writer_prompt:
+            raise HTTPException(status_code=500, detail="缺少写作提示词，请联系管理员配置")
+        _mark_stage("prepare_context", stage_started)
 
         allowed_new_characters = chapter_mission.get("allowed_new_characters", []) if chapter_mission else []
 
@@ -208,6 +262,17 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             len(forbidden_characters),
         )
 
+        # Memory context 需要 introduced_characters，mission 之后才能获取
+        memory_context = None
+        if config.enable_memory:
+            stage_started = time.perf_counter()
+            memory_context = await self._get_memory_context(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                involved_characters=introduced_characters,
+            )
+            _mark_stage("prepare_memory_context", stage_started)
+
         mission_brief_text = None
         if chapter_mission and config.enable_mission_brief:
             stage_started = time.perf_counter()
@@ -223,69 +288,6 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 user_id=user_id,
             )
             _mark_stage("generate_mission_brief", stage_started)
-
-        enhanced_flow = None
-        enhanced_context = None
-        if config.enable_constitution or config.enable_persona or config.enable_foreshadowing or config.enable_faction:
-            stage_started = time.perf_counter()
-            enhanced_flow = EnhancedWritingFlow(self.session, self.llm_service, self.prompt_service)
-            enhanced_context = await enhanced_flow.prepare_writing_context(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                chapter_outline=outline_summary,
-            )
-            _mark_stage("prepare_enhanced_context", stage_started)
-
-        memory_context = None
-        if config.enable_memory:
-            stage_started = time.perf_counter()
-            memory_context = await self._get_memory_context(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                involved_characters=introduced_characters,
-            )
-            _mark_stage("prepare_memory_context", stage_started)
-
-        stage_started = time.perf_counter()
-        project_memory_text = await self._get_project_memory_text(project_id)
-        _mark_stage("load_project_memory", stage_started)
-
-        rag_context = None
-        knowledge_context = None
-        rag_stats = None
-        if config.enable_rag:
-            stage_started = time.perf_counter()
-            if config.rag_mode == "two_stage":
-                knowledge_context, rag_stats = await self._get_two_stage_rag_context(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    writing_notes=writing_notes,
-                    pov_character=self._resolve_pov_character(chapter_mission),
-                    user_id=user_id,
-                    retrieval_mode=config.rag_retrieval_mode,
-                )
-            else:
-                rag_context = await self._get_rag_context(
-                    project_id=project_id,
-                    outline_title=outline_title,
-                    outline_summary=outline_summary,
-                    writing_notes=writing_notes,
-                    user_id=user_id,
-                    retrieval_mode=config.rag_retrieval_mode,
-                )
-                rag_stats = {
-                    "mode": "simple",
-                    "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
-                    "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
-                }
-            _mark_stage("retrieve_rag_context", stage_started)
-
-        stage_started = time.perf_counter()
-        writer_prompt = await self.prompt_service.get_prompt("writing_v2")
-        if not writer_prompt:
-            writer_prompt = await self.prompt_service.get_prompt("writing")
-        if not writer_prompt:
-            raise HTTPException(status_code=500, detail="缺少写作提示词，请联系管理员配置")
 
         total_chapters = max(
             chapter_number,
@@ -499,9 +501,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             best_version = versions[best_version_index]
             best_content = best_version["content"]
 
-            # ========== 阶段 A：顺序执行修改 best_content 的步骤 ==========
+            # ========== 阶段 A：后处理步骤（优化版：部分并行）==========
             stage_started = time.perf_counter()
 
+            # ---- A.1 串行：revision + self_critique（依赖前者输出）----
             if ai_review_result and (ai_review_result.get("flaws") or ai_review_result.get("suggestions")):
                 best_content, revision_report = await self._revise_with_review_feedback(
                     best_content,
@@ -524,7 +527,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
                 review_summaries["self_critique"] = critique_summary
 
-            # ---- 一致性检查与人味化并行执行 ----
+            # ---- A.2 并行：一致性检查 + 人味化扫描 ----
             _consistency_enabled = config.enable_consistency
             _humanization_enabled = config.enable_humanization
 
@@ -608,21 +611,60 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                         logger.warning("人味化检查失败（不影响生成）: %s", e)
                         review_summaries["humanization"] = {"error": str(e)}
 
-            if config.enable_optimizer:
-                best_content, optimizer_report = await self._run_optimizer(best_content, user_id=user_id)
-                review_summaries["optimizer"] = optimizer_report
+            # ---- A.3 并行：optimizer(+polish) 与 enrichment ----
+            _optimizer_enabled = config.enable_optimizer
+            _enrichment_enabled = config.enable_enrichment
+            _polish_only = config.enable_polish and not config.enable_optimizer
 
-            if config.enable_polish:
-                best_content, polish_report = await self._run_polish(best_content, user_id=user_id)
-                review_summaries["polish"] = polish_report
+            if _optimizer_enabled and _enrichment_enabled:
+                # 并行执行 optimizer 和 enrichment，取 optimizer 结果
+                merge_polish = config.enable_polish
 
-            if config.enable_enrichment:
-                best_content, enrichment_report = await self._run_enrichment(
-                    best_content,
-                    user_id=user_id,
+                async def _do_optimizer():
+                    return await self._run_optimizer(
+                        best_content, user_id=user_id, include_polish=merge_polish,
+                    )
+
+                async def _do_enrichment():
+                    return await self._run_enrichment(
+                        best_content, user_id=user_id,
+                    )
+
+                (opt_content, opt_report), (enr_content, enr_report) = await asyncio.gather(
+                    _do_optimizer(), _do_enrichment(),
                 )
-                if enrichment_report:
-                    review_summaries["enrichment"] = enrichment_report
+                # optimizer 结果优先（包含更全面的优化）
+                best_content = opt_content
+                review_summaries["optimizer"] = opt_report
+                if merge_polish:
+                    review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
+                if enr_report:
+                    review_summaries["enrichment"] = enr_report
+                    review_summaries["enrichment"]["note"] = "并行执行，未应用（optimizer 优先）"
+            else:
+                if _optimizer_enabled:
+                    merge_polish = config.enable_polish
+                    best_content, optimizer_report = await self._run_optimizer(
+                        best_content, user_id=user_id, include_polish=merge_polish,
+                    )
+                    review_summaries["optimizer"] = optimizer_report
+                    if merge_polish:
+                        review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
+
+                if _polish_only:
+                    best_content, polish_report = await self._run_polish(best_content, user_id=user_id)
+                    review_summaries["polish"] = polish_report
+
+                if _enrichment_enabled:
+                    best_content, enrichment_report = await self._run_enrichment(
+                        best_content, user_id=user_id,
+                    )
+                    if enrichment_report:
+                        review_summaries["enrichment"] = enrichment_report
+
+            if config.enable_density_compression:
+                best_content, density_report = await self._run_density_compression(best_content, user_id=user_id)
+                review_summaries["density_compression"] = density_report
             _mark_stage("stage_a_post_processing", stage_started)
 
             # ========== 阶段 B：并行执行只读分析步骤 ==========
@@ -833,6 +875,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         if preset == "ultimate":
             config.enable_memory = True
+            config.enable_six_dimension = True
+            config.enable_consistency = True
+            config.enable_enrichment = True
+            config.enable_polish = True
 
         if preset == "platinum":
             config.enable_memory = True
@@ -845,6 +891,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         if preset == "basic":
             config.enable_rag = True
+            # Fast mode：basic 预设强制 1 个版本，跳过 AI Review
+            if getattr(settings, "writer_fast_mode", False):
+                config.version_count = 1
 
         for key in (
             "enable_preview",
@@ -855,6 +904,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "enable_rag",
             "enable_polish",
             "enable_mission_brief",
+            "enable_density_compression",
         ):
             if key in flow_config and flow_config[key] is not None:
                 setattr(config, key, bool(flow_config[key]))
@@ -868,47 +918,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         if flow_config.get("pacing_model"):
             config.pacing_model = str(flow_config["pacing_model"])
 
-        if preset == "ultimate":
-            config.enable_preview = False
-            config.enable_optimizer = False
-            config.enable_consistency = False
-            config.enable_enrichment = False
-            config.enable_six_dimension = False
-            config.enable_reader_sim = False
-            config.enable_self_critique = False
-
         return config
 
     async def _resolve_version_count(self, requested_count: Optional[int]) -> int:
-        if requested_count:
-            try:
-                count = int(requested_count)
-                return max(1, count)
-            except (TypeError, ValueError):
-                pass
-
-        repo = SystemConfigRepository(self.session)
-        for key in ("writer.chapter_versions", "writer.version_count"):
-            record = await repo.get_by_key(key)
-            if record and record.value:
-                try:
-                    val = int(record.value)
-                    if val >= 1:
-                        return val
-                except ValueError:
-                    pass
-
-        for env in ("WRITER_CHAPTER_VERSION_COUNT", "WRITER_CHAPTER_VERSIONS", "WRITER_VERSION_COUNT"):
-            v = os.getenv(env)
-            if v:
-                try:
-                    val = int(v)
-                    if val >= 1:
-                        return val
-                except ValueError:
-                    pass
-
-        return int(settings.writer_chapter_versions)
+        return await _shared_resolve_version_count(self.session, requested_count)
 
     @staticmethod
     def _resolve_style_hints(
@@ -1021,9 +1034,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
                 temperature=resolved_temp,
                 user_id=user_id,
-                timeout=300.0,
+                timeout=180.0,
                 response_format=None,
                 max_tokens=settings.writer_max_tokens,
+                disable_thinking=not settings.writer_enable_thinking,
             )
             cleaned = remove_think_tags(response)
             content = unwrap_markdown_json(cleaned or response)
@@ -1136,23 +1150,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
     @staticmethod
     def _extract_text(value: object) -> Optional[str]:
-        if not value:
-            return None
-        if isinstance(value, str):
-            return value
-        if isinstance(value, dict):
-            for key in ("content", "chapter_content", "chapter_text", "text", "body", "story"):
-                if value.get(key):
-                    nested = PipelineOrchestrator._extract_text(value.get(key))
-                    if nested:
-                        return nested
-            return None
-        if isinstance(value, list):
-            for item in value:
-                nested = PipelineOrchestrator._extract_text(item)
-                if nested:
-                    return nested
-        return None
+        return extract_text_from_json(value)
 
     @staticmethod
     def _build_stage_flags(config: PipelineConfig) -> Dict[str, bool]:
@@ -1172,6 +1170,56 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "rag": config.enable_rag,
             "rag_mode": config.rag_mode == "two_stage",
         }
+
+    @staticmethod
+    async def generate_chapter_batch(
+        *,
+        project_id: str,
+        chapter_numbers: List[int],
+        user_id: int,
+        writing_notes: Optional[str] = None,
+        flow_config: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """流水线批量生成章节。
+
+        按章节顺序逐章生成，每章使用独立 DB session。
+        每章完成后 real_summary 写入 DB，下一章自动获取正确的前章上下文，
+        确保剧情连贯。
+        """
+        sorted_numbers = sorted(chapter_numbers)
+        results: List[Dict[str, Any]] = []
+
+        for chapter_number in sorted_numbers:
+            try:
+                async with AsyncSessionLocal() as session:
+                    orchestrator = PipelineOrchestrator(session)
+                    result = await orchestrator.generate_chapter(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        user_id=user_id,
+                        writing_notes=writing_notes,
+                        flow_config=flow_config,
+                    )
+                    results.append({
+                        "chapter_number": chapter_number,
+                        "status": "success",
+                        "result": result,
+                    })
+                    logger.info(
+                        "批量生成: 章节 %s 完成 (%d/%d)",
+                        chapter_number,
+                        len(results),
+                        len(sorted_numbers),
+                    )
+            except Exception as e:
+                logger.error("批量生成: 章节 %s 失败: %s", chapter_number, e)
+                results.append({
+                    "chapter_number": chapter_number,
+                    "status": "failed",
+                    "error": str(e)[:500],
+                })
+
+        return results
 
 
 __all__ = ["PipelineOrchestrator", "PipelineConfig"]

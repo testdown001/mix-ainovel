@@ -137,8 +137,9 @@ class LLMClient:
         timeout: int = 120,
         **kwargs,
     ) -> AsyncGenerator[Dict[str, str], None]:
-        # OpenAI chat/completions 不支持 thinking_budget，移除避免透传
+        # OpenAI chat/completions 不支持这些控制参数，移除避免透传导致 SDK 抛错
         kwargs.pop("thinking_budget", None)
+        kwargs.pop("disable_thinking", None)
 
         payload = {
             "model": model or os.environ.get("MODEL", "gpt-3.5-turbo"),
@@ -796,30 +797,42 @@ class AnyRouterLLMClient:
                 "content": [{"type": "text", "text": "请继续。"}],
             })
 
-        thinking_config: Dict = {"type": "adaptive"}
         thinking_budget = kwargs.pop("thinking_budget", None)
-        if thinking_budget:
-            thinking_config["budget_tokens"] = thinking_budget
+        disable_thinking = kwargs.pop("disable_thinking", False)
+        if disable_thinking:
+            thinking_config = None
+        elif thinking_budget:
+            # budget_tokens 仅适用于 type="enabled"，adaptive 不接受此参数
+            thinking_config: Dict = {"type": "enabled", "budget_tokens": thinking_budget}
+        else:
+            thinking_config: Dict = {"type": "adaptive"}
 
         payload: Dict = {
             "model": model or "claude-sonnet-4-20250514",
-            "max_tokens": 128000,
+            "max_tokens": max_tokens or 128000,
             "stream": True,
             "messages": api_messages,
             "system": self._FIXED_SYSTEM,
-            "thinking": thinking_config,
         }
-        # thinking 模式不支持 temperature/top_p，记录被忽略的参数
-        if temperature is not None:
-            logger.info(
-                "AnyRouter adaptive thinking 模式忽略 temperature=%.2f: model=%s",
-                temperature, model,
-            )
-        if top_p is not None:
-            logger.info(
-                "AnyRouter adaptive thinking 模式忽略 top_p=%.2f: model=%s",
-                top_p, model,
-            )
+        if thinking_config is not None:
+            payload["thinking"] = thinking_config
+        # thinking 模式不支持 temperature/top_p；非 thinking 模式可以正常传递
+        if thinking_config is not None:
+            if temperature is not None:
+                logger.info(
+                    "AnyRouter adaptive thinking 模式忽略 temperature=%.2f: model=%s",
+                    temperature, model,
+                )
+            if top_p is not None:
+                logger.info(
+                    "AnyRouter adaptive thinking 模式忽略 top_p=%.2f: model=%s",
+                    top_p, model,
+                )
+        else:
+            if temperature is not None:
+                payload["temperature"] = temperature
+            if top_p is not None:
+                payload["top_p"] = top_p
 
         msg_summary = [{"role": m.role, "content_length": len(m.content)} for m in messages]
         log_payload = {k: v for k, v in payload.items() if k not in ("messages", "system")}

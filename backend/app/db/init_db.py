@@ -78,17 +78,8 @@ async def init_db() -> None:
 
 
 async def _ensure_database_exists() -> None:
-    """在首次连接前确认数据库存在，针对不同驱动做最小化准备工作。"""
+    """在首次连接前确认 MySQL 数据库存在。"""
     url = make_url(settings.sqlalchemy_database_uri)
-
-    if url.get_backend_name() == "sqlite":
-        # SQLite 采用文件数据库，确保父目录存在即可，无需额外建库语句
-        db_path = Path(url.database or "").expanduser()
-        if not db_path.is_absolute():
-            project_root = Path(__file__).resolve().parents[2]
-            db_path = (project_root / db_path).resolve()
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        return
 
     database = (url.database or "").strip("/")
     if not database:
@@ -118,9 +109,48 @@ async def _ensure_schema_updates() -> None:
     async with engine.begin() as conn:
         def _upgrade(sync_conn):
             inspector = inspect(sync_conn)
-            columns = {col["name"] for col in inspector.get_columns("chapter_outlines")}
-            if "metadata" not in columns:
-                sync_conn.execute(text("ALTER TABLE chapter_outlines ADD COLUMN metadata JSON"))
+
+            def _ensure_columns(table_name: str, column_sql: dict[str, str]) -> None:
+                if not inspector.has_table(table_name):
+                    return
+                existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+                for column_name, ddl in column_sql.items():
+                    if column_name in existing_columns:
+                        continue
+                    sync_conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
+
+            _ensure_columns(
+                "chapter_outlines",
+                {
+                    "metadata": "metadata JSON",
+                },
+            )
+
+            # writer_personas 表历史版本缺少以下列，导致 ORM refresh 时查询失败。
+            _ensure_columns(
+                "writer_personas",
+                {
+                    "physiological_reactions": "physiological_reactions JSON",
+                    "benchmark_texts": "benchmark_texts JSON",
+                },
+            )
+
+            # novel_blueprints 表新增 golden_finger 列
+            _ensure_columns(
+                "novel_blueprints",
+                {
+                    "golden_finger": "golden_finger JSON",
+                },
+            )
+
+            # blueprint_characters 表新增力量体系关联列
+            _ensure_columns(
+                "blueprint_characters",
+                {
+                    "power_system_id": "power_system_id BIGINT NULL",
+                    "current_power_level_id": "current_power_level_id BIGINT NULL",
+                },
+            )
         await conn.run_sync(_upgrade)
 
 
@@ -158,7 +188,7 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
             final_hash = file_hash
         else:
             db_hash = _sha256_text(prompt.content or "")
-            # 仅当 DB 内容仍与“上次同步版本”一致时，才安全覆盖为最新文件内容。
+            # 仅当 DB 内容仍与"上次同步版本"一致时，才安全覆盖为最新文件内容。
             if stored_hash and stored_hash == db_hash and db_hash != file_hash:
                 prompt.content = content
                 final_hash = file_hash

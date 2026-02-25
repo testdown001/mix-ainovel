@@ -33,6 +33,28 @@
           <label class="block text-sm font-medium text-gray-600 mb-1">与主角关系</label>
           <input type="text" v-model="character.relationship_to_protagonist" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
         </div>
+        
+        <!-- 新增：力量体系选择 -->
+        <div>
+          <label class="block text-sm font-medium text-gray-600 mb-1">力量体系</label>
+          <select v-model="character.power_system_id" @change="character.current_power_level_id = null" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent h-[34px]">
+            <option :value="null">无</option>
+            <option v-for="ps in powerSystems" :key="ps.id" :value="ps.id">{{ ps.name }}</option>
+          </select>
+        </div>
+        
+        <!-- 新增：当前境界选择 -->
+        <div v-if="character.power_system_id">
+          <label class="block text-sm font-medium text-gray-600 mb-1">当前境界</label>
+          <select v-model="character.current_power_level_id" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent h-[34px]">
+            <option :value="null">未知</option>
+            <template v-if="powerSystems.find(ps => ps.id === character.power_system_id)">
+              <option v-for="lvl in powerSystems.find(ps => ps.id === character.power_system_id)?.levels || []" :key="lvl.id" :value="lvl.id">
+                {{ lvl.name }}
+              </option>
+            </template>
+          </select>
+        </div>
       </div>
     </div>
     <button @click="addCharacter" class="w-full mt-4 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
@@ -51,11 +73,17 @@ interface Character {
   goals: string;
   abilities: string;
   relationship_to_protagonist: string;
+  power_system_id?: number | null;
+  current_power_level_id?: number | null;
 }
 
 const props = defineProps({
   modelValue: {
     type: Array as () => Character[],
+    default: () => []
+  },
+  powerSystems: {
+    type: Array as () => Array<{ id: number, name: string, levels: Array<{ id: number, name: string }> }>,
     default: () => []
   }
 });

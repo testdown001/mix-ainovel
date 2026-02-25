@@ -50,6 +50,7 @@ class LLMService:
         top_p: Optional[float] = None,
         max_retries: int = 2,
         thinking_budget: Optional[int] = None,
+        disable_thinking: bool = False,
     ) -> str:
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
         return await self._stream_and_collect(
@@ -62,6 +63,7 @@ class LLMService:
             top_p=top_p,
             max_retries=max_retries,
             thinking_budget=thinking_budget,
+            disable_thinking=disable_thinking,
         )
 
     async def generate(
@@ -224,6 +226,26 @@ class LLMService:
             return "openai-responses"
         return "openai"
 
+    @staticmethod
+    def _build_stream_extra_kwargs(
+        api_format: str,
+        *,
+        thinking_budget: Optional[int],
+        disable_thinking: bool,
+    ) -> Dict[str, Any]:
+        """按 provider 能力构建可透传的附加参数。"""
+        extra_kwargs: Dict[str, Any] = {}
+
+        # 仅 Anthropic/AnyRouter/Gemini 支持 thinking_budget。
+        if thinking_budget and api_format in {"anthropic", "anyrouter", "gemini"}:
+            extra_kwargs["thinking_budget"] = thinking_budget
+
+        # disable_thinking 当前仅 AnyRouter 客户端实现了显式关闭逻辑。
+        if disable_thinking and api_format == "anyrouter":
+            extra_kwargs["disable_thinking"] = True
+
+        return extra_kwargs
+
     async def _stream_and_collect(
         self,
         messages: List[Dict[str, str]],
@@ -237,6 +259,7 @@ class LLMService:
         top_p: Optional[float] = None,
         max_retries: int = 2,
         thinking_budget: Optional[int] = None,
+        disable_thinking: bool = False,
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
         chat_messages = [ChatMessage(role=msg["role"], content=msg["content"]) for msg in messages]
@@ -284,6 +307,15 @@ class LLMService:
                 logger.info("跳过 response_format=%s（Claude thinking 模型不兼容），model=%s", response_format, model_name)
                 effective_response_format = None
 
+        # Gemini 系列模型输出上限较高（至少 128K），自动提升 max_tokens 下限
+        _GEMINI_MIN_MAX_TOKENS = 128000
+        if "gemini" in model_name.lower() and (max_tokens is None or max_tokens < _GEMINI_MIN_MAX_TOKENS):
+            logger.info(
+                "Gemini 模型检测到，max_tokens 从 %s 提升至 %d: model=%s",
+                max_tokens, _GEMINI_MIN_MAX_TOKENS, model_name,
+            )
+            max_tokens = _GEMINI_MIN_MAX_TOKENS
+
         logger.info(
             "Streaming LLM response: base_url=%s model=%s user_id=%s messages=%d format=%s",
             config.get("base_url"),
@@ -318,9 +350,11 @@ class LLMService:
             finish_reason = None
 
             try:
-                extra_kwargs = {}
-                if thinking_budget:
-                    extra_kwargs["thinking_budget"] = thinking_budget
+                extra_kwargs = self._build_stream_extra_kwargs(
+                    api_format,
+                    thinking_budget=thinking_budget,
+                    disable_thinking=disable_thinking,
+                )
                 async for part in client.stream_chat(
                     messages=chat_messages,
                     model=config.get("model"),
@@ -588,19 +622,11 @@ class LLMService:
 
         if finish_reason == "length":
             logger.warning(
-                "LLM response truncated: model=%s user_id=%s response_length=%d",
+                "LLM response truncated (finish_reason=length), returning partial content: "
+                "model=%s user_id=%s response_length=%d",
                 config.get("model"),
                 user_id,
                 len(full_response),
-            )
-            for _c in _created_clients:
-                try:
-                    await _c.aclose()
-                except Exception:
-                    pass
-            raise HTTPException(
-                status_code=500,
-                detail=f"AI 响应因长度限制被截断（已生成 {len(full_response)} 字符），请缩短输入内容或调整模型参数"
             )
 
         if not full_response:

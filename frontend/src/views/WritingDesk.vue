@@ -47,6 +47,7 @@
           :is-rebuilding-rag="isRebuildingRag"
           @close-sidebar="closeSidebar"
           @select-chapter="selectChapter"
+          @preview-prediction="handlePreviewPrediction"
           @generate-chapter="generateChapter"
           @edit-chapter="openEditChapterModal"
           @delete-chapter="deleteChapter"
@@ -58,6 +59,7 @@
           <WDWorkspace
             :project="project"
             :selected-chapter-number="selectedChapterNumber"
+          :open-prediction-tick="openPredictionTick"
           :generating-chapter="generatingChapter"
           :evaluating-chapter="evaluatingChapter"
           :show-version-selector="showVersionSelector"
@@ -155,6 +157,7 @@ const isGeneratingOutline = ref(false)
 const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 const codexPanelOpen = ref(false)
+const openPredictionTick = ref(0)
 
 // 计算属性
 const project = computed(() => novelStore.currentProject)
@@ -382,19 +385,44 @@ const hideVersionSelector = () => {
 }
 
 const selectChapter = (chapterNumber: number) => {
+  const isSameChapter = selectedChapterNumber.value === chapterNumber
   selectedChapterNumber.value = chapterNumber
-  chapterGenerationResult.value = null
-  const chapter = project.value?.chapters?.find(ch => ch.chapter_number === chapterNumber)
-  if (typeof chapter?.recommended_version_index === 'number') {
-    const maxIndex = Math.max(0, (chapter.versions?.length || 1) - 1)
-    selectedVersionIndex.value = Math.min(
-      maxIndex,
-      Math.max(0, chapter.recommended_version_index)
-    )
-  } else {
-    selectedVersionIndex.value = 0
+
+  if (!isSameChapter) {
+    chapterGenerationResult.value = null
+    const chapter = project.value?.chapters?.find(ch => ch.chapter_number === chapterNumber)
+    if (typeof chapter?.recommended_version_index === 'number') {
+      const maxIndex = Math.max(0, (chapter.versions?.length || 1) - 1)
+      selectedVersionIndex.value = Math.min(
+        maxIndex,
+        Math.max(0, chapter.recommended_version_index)
+      )
+    } else {
+      selectedVersionIndex.value = 0
+    }
   }
+
   closeSidebar()
+}
+
+const predictionPreviewBlockedStatuses: Chapter['generation_status'][] = [
+  'waiting_for_confirm',
+  'evaluation_failed',
+  'evaluating',
+  'selecting'
+]
+
+const handlePreviewPrediction = (chapterNumber: number) => {
+  selectChapter(chapterNumber)
+  const chapterStatus = project.value?.chapters?.find(
+    chapter => chapter.chapter_number === chapterNumber
+  )?.generation_status
+
+  if (chapterStatus && predictionPreviewBlockedStatuses.includes(chapterStatus)) {
+    return
+  }
+
+  openPredictionTick.value += 1
 }
 
 const generateChapter = async (chapterNumber: number, writingNotes?: string) => {

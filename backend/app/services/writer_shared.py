@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..utils.json_utils import remove_think_tags, repair_json, unwrap_markdown_json
 
@@ -143,7 +146,7 @@ async def generate_chapter_mission(
             conversation_history=[{"role": "user", "content": plan_input}],
             temperature=temperature,
             user_id=user_id,
-            timeout=120.0,
+            timeout=90.0,
         )
         cleaned = remove_think_tags(response)
         # thinking 模型可能将全部内容包裹在 <think> 标签内，
@@ -229,3 +232,50 @@ def create_vector_store_or_none():
     except RuntimeError as exc:
         logger.warning("向量库初始化失败: %s", exc)
         return None
+
+
+async def resolve_version_count(
+    session: AsyncSession,
+    requested_count: Optional[int] = None,
+) -> int:
+    """解析章节版本数量配置。
+
+    优先级：
+    1) requested_count（来自 API 请求）
+    2) SystemConfig: writer.chapter_versions / writer.version_count
+    3) ENV: WRITER_CHAPTER_VERSION_COUNT / WRITER_CHAPTER_VERSIONS / WRITER_VERSION_COUNT
+    4) settings.writer_chapter_versions（默认=2）
+    """
+    from ..core.config import settings
+    from ..repositories.system_config_repository import SystemConfigRepository
+
+    if requested_count:
+        try:
+            count = int(requested_count)
+            return max(1, count)
+        except (TypeError, ValueError):
+            pass
+
+    repo = SystemConfigRepository(session)
+    for key in ("writer.chapter_versions", "writer.version_count"):
+        record = await repo.get_by_key(key)
+        if record and record.value:
+            try:
+                val = int(record.value)
+                if val >= 1:
+                    return val
+            except ValueError:
+                pass
+
+    for env in ("WRITER_CHAPTER_VERSION_COUNT", "WRITER_CHAPTER_VERSIONS", "WRITER_VERSION_COUNT"):
+        v = os.getenv(env)
+        if v:
+            try:
+                val = int(v)
+                if val >= 1:
+                    return val
+            except ValueError:
+                pass
+
+    return int(settings.writer_chapter_versions)
+

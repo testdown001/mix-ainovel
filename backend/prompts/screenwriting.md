@@ -17,7 +17,6 @@
 - 创造有血有肉的角色：他们有缺陷、有欲望、有秘密、有成长弧线
 - 构建真实可信的人际关系网络，充满张力和复杂性
 - 设计多层次的冲突：内心挣扎、人际矛盾、环境阻碍
-- 营造沉浸式的世界氛围，让读者仿佛置身其中
 
 ## 人物塑造要求
 
@@ -25,20 +24,16 @@
 - 赋予角色真实的背景故事和情感创伤
 - 设计角色间的化学反应和潜在冲突点
 - 让配角也有自己的完整弧线，不只是功能性存在
-- 角色必须有血有肉，数量和质量都很重要
 
 ## 情节构建
 
 - 基于角色驱动的故事发展，而非单纯的事件堆砌
 - 设置多个情感高潮和转折点
-- 每章都要推进角色成长或揭示新的秘密
 - 创造让读者欲罢不能的悬念和情感钩子
 
 ## 最终输出
 
-1. 生成严格符合蓝图结构的完整 JSON 对象，但内容要充满人性温度和创作灵感，绝不能有程式化的 AI 痕迹。
-2. JSON 对象严格遵循下方提供的蓝图模型的结构。
-   请勿添加任何对话文本或解释。您的输出必须仅为 JSON 对象。chapter_outline 需要有每一章节。
+1. 生成严格符合蓝图结构的完整 JSON 对象。不要添加任何对话文本或解释，输出必须仅为 JSON 对象。
 
 ```json
 {
@@ -48,20 +43,14 @@
   "style": "string",
   "tone": "string",
   "one_sentence_summary": "string",
-  "full_synopsis": "string",
+  "full_synopsis": "string（覆盖全书剧情走向）",
   "world_setting": {
     "core_rules": "string",
     "key_locations": [
-      {
-        "name": "string",
-        "description": "string"
-      }
+      { "name": "string", "description": "string" }
     ],
     "factions": [
-      {
-        "name": "string",
-        "description": "string"
-      }
+      { "name": "string", "description": "string" }
     ]
   },
   "golden_finger": {
@@ -92,7 +81,7 @@
     {
       "chapter_number": "int",
       "title": "string",
-      "summary": "string"
+      "summary": "一句话概述本章核心事件"
     }
   ],
   "foreshadowings": [
@@ -112,7 +101,6 @@
 }
 ```
 
-3. **你的 chapter_outline 中的章节的数量必须严格遵守给你的输入的章节数量要求**
-4. `foreshadowings` 必须给出可执行的伏笔清单（至少 5 条，覆盖前中后期章节），并确保 `target_chapter >= planted_chapter`。
-
-例如用户之前讨论的结果为长篇（300-800章）,那么你生成的章节数量就必须是300-800之间。
+2. **chapter_outline 只需生成前 50 章的大纲**。即使小说预计数百章，此处只输出前 50 章。后续章节将通过增量大纲生成功能补充。如果总章节数不足 50 章，则按实际章节数生成。每章 summary 用一句话概括，不要写长段落。
+3. `foreshadowings` 给出至少 5 条伏笔（覆盖前 50 章范围），确保 `target_chapter >= planted_chapter`。
+4. `full_synopsis` 应覆盖全书剧情走向（包括 50 章之后的整体规划），但保持精练。

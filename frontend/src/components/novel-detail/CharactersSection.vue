@@ -50,6 +50,17 @@
               <dt class="font-semibold text-slate-800 mb-1">与主角的关系</dt>
               <dd class="leading-6">{{ character.relationship_to_protagonist }}</dd>
             </div>
+            
+            <!-- 新增：显示力量体系和境界 -->
+            <div v-if="character.power_system_id">
+              <dt class="font-semibold text-slate-800 mb-1">力量体系</dt>
+              <dd class="leading-6 text-purple-600 font-medium">
+                {{ getPowerSystemName(character.power_system_id) }}
+                <span v-if="character.current_power_level_id" class="text-gray-500 text-sm ml-1">
+                  · {{ getPowerLevelName(character.power_system_id, character.current_power_level_id) }}
+                </span>
+              </dd>
+            </div>
           </dl>
         </div>
       </article>
@@ -70,11 +81,14 @@ interface CharacterItem {
   goals?: string
   abilities?: string
   relationship_to_protagonist?: string
+  power_system_id?: number | null
+  current_power_level_id?: number | null
 }
 
 const props = defineProps<{
   data: { characters?: CharacterItem[] } | null
   editable?: boolean
+  powerSystems?: Array<{ id: number, name: string, levels: Array<{ id: number, name: string }> }>
 }>()
 
 const emit = defineEmits<{
@@ -82,6 +96,21 @@ const emit = defineEmits<{
 }>()
 
 const characters = computed(() => props.data?.characters || [])
+
+// 辅助方法获取力量体系和境界名称
+const getPowerSystemName = (id: number) => {
+  if (!props.powerSystems) return `System #${id}`
+  const sys = props.powerSystems.find(p => p.id === id)
+  return sys ? sys.name : `System #${id}`
+}
+
+const getPowerLevelName = (sysId: number, levelId: number) => {
+  if (!props.powerSystems) return `Level #${levelId}`
+  const sys = props.powerSystems.find(p => p.id === sysId)
+  if (!sys) return `Level #${levelId}`
+  const lvl = sys.levels?.find(l => l.id === levelId)
+  return lvl ? lvl.name : `Level #${levelId}`
+}
 
 const emitEdit = (field: string, title: string, value: any) => {
   if (!props.editable) return

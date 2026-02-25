@@ -95,6 +95,8 @@ CREATE TABLE IF NOT EXISTS writer_personas (
     description_style TEXT,
     show_vs_tell_ratio VARCHAR(64),
     sensory_focus JSON,
+    physiological_reactions JSON,
+    benchmark_texts JSON,
     
     -- 人类化特征
     catchphrases JSON,
