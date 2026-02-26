@@ -300,59 +300,67 @@ AI的致命习惯：什么都写清楚。
 
 ## 12) 输出格式（严格JSON）
 
+输出分为 **hard_constraints**（必须执行）和 **soft_suggestions**（写作参考，可根据创作直觉调整）。
+
+**重要**：`scene_list` 给出的是骨架，不是脚本。写作者在遵守 hard_constraints 的前提下，可以：
+- 调整场景内的细节顺序
+- 添加未预设的生活噪音和感官细节
+- 让角色说出脚本里没有的话——如果写着写着觉得"这个角色在这里应该说这句话"，写出来
+- 对话中允许意外的跑题、沉默、答非所问
+
 ```json
 {
-  "pov": "视角角色名",
-  "macro_beat": "E|F|P|C",
-  "macro_beat_description": "一句话·本章只完成什么",
-  "chapter_type": "爽点章|过渡章|刀子章|蓄力章",
-  "title_strategy": "核心事件|悬念式|对话式|组合式",
-
-  "narrative_persona": {
-    "primary_tone": "冷叙述|痞气|热血|阴郁精密|市井烟火",
-    "secondary_tone": "副基调",
-    "narrator_habits": ["叙事者的1-2个表达癖好"]
+  "hard_constraints": {
+    "pov": "视角角色名",
+    "macro_beat": "E|F|P|C",
+    "macro_beat_description": "一句话·本章只完成什么",
+    "chapter_type": "爽点章|过渡章|刀子章|蓄力章",
+    "forbidden": [
+      "禁止跨章总结",
+      "禁止主角知道未获得信息",
+      "禁止全知转换词（与此同时/另一边/殊不知）",
+      "禁止章末总结句",
+      "禁止滞后镜头：角色转身/离开后，叙事不能留在原地描写身后画面"
+    ],
+    "allowed_new_characters": [],
+    "word_budget_total": 3000,
+    "chapter_end_style": "悬念|危机|误会|小爽|伏笔|身体反应"
   },
 
-  "tone_guide": {
-    "surface_texture": ["质感词1", "质感词2", "质感词3"],
-    "ink_distribution": "本章哪里浓墨哪里几笔带过（必须不均匀）"
+  "soft_suggestions": {
+    "title_strategy": "核心事件|悬念式|对话式|组合式",
+    "narrative_persona": {
+      "primary_tone": "冷叙述|痞气|热血|阴郁精密|市井烟火",
+      "secondary_tone": "副基调",
+      "narrator_habits": ["叙事者的1-2个表达癖好"]
+    },
+    "tone_guide": {
+      "surface_texture": ["质感词1", "质感词2", "质感词3"],
+      "ink_distribution": "本章哪里浓墨哪里几笔带过（必须不均匀）"
+    },
+    "opening_hook_type": "悬念式|冲突式|信息差|倒叙式|承接式|冷开场",
+    "emotion_curve": {
+      "type": "紧张|期待|憋屈|爽|温馨|悲伤",
+      "curve": "起始→峰值→结束（如3→7→5，必须是波浪不是直线）",
+      "breathing_point": "松弛点在哪、用什么内容"
+    },
+    "information_asymmetry": {
+      "reader_vs_protagonist": "读者比主角多/少知道什么",
+      "protagonist_vs_antagonist": "主角和对手的信息差",
+      "between_allies": "盟友/队友之间的信息差"
+    },
+    "satisfaction_design": {
+      "type": "认知爽|布局爽|逆袭爽|社交爽|情感爽|成长爽|无（蓄力中）",
+      "buildup_from": "爽感前蓄力了什么",
+      "cost_attached": "爽感伴随什么代价"
+    },
+    "deliberate_omission": {
+      "what": "本章主动不写透的内容",
+      "why": "留白的目的"
+    }
   },
 
-  "word_budget": {
-    "total": 3000,
-    "opening_hook": "200-500",
-    "development": "1200-1800",
-    "climax": "600-1200",
-    "ending_hook": "100-400",
-    "breathing_point": "松弛段位置和内容简述"
-  },
-
-  "opening_hook_type": "悬念式|冲突式|信息差|倒叙式|承接式",
-  "transition_mode": "直接承接|时间跳跃|视角切换",
-
-  "emotion_curve": {
-    "type": "紧张|期待|憋屈|爽|温馨|悲伤",
-    "curve": "起始→峰值→结束（如3→7→5，必须是波浪不是直线）",
-    "breathing_point": "松弛点在哪、用什么内容"
-  },
-
-  "information_asymmetry": {
-    "reader_vs_protagonist": "读者比主角多/少知道什么",
-    "protagonist_vs_antagonist": "主角和对手的信息差",
-    "between_allies": "盟友/队友之间的信息差"
-  },
-
-  "satisfaction_design": {
-    "type": "认知爽|布局爽|逆袭爽|社交爽|情感爽|成长爽|无（蓄力中）",
-    "buildup_from": "爽感前蓄力了什么（引用之前的铺垫）",
-    "cost_attached": "爽感伴随什么代价"
-  },
-
-  "deliberate_omission": {
-    "what": "本章主动不写透的内容",
-    "why": "留白的目的（让读者猜/为后续反转/情绪更浓）"
-  },
+  "creative_freedom": "在 hard_constraints 不被违反的前提下，你可以自由调整场景内细节、添加未预设的对话和动作。如果写着写着发现某个角色应该说一句脚本里没有的话——写出来。灵感比计划重要。",
 
   "payoff_level": "无|C|B|A|S",
   "pace_budget": {
@@ -392,39 +400,10 @@ AI的致命习惯：什么都写清楚。
   ],
 
   "anti_ai_controls": {
-    "exposition_replacements": [
-      {
-        "potential_exposition": "可能出现的讲解点",
-        "method": "物证|小场面|人物口吻|对比蒙太奇",
-        "detail": "具体呈现方式"
-      }
-    ],
-    "dialogue_noise": [
-      {
-        "scene": "场景号",
-        "noise_type": "打断|误解|嘴硬|跑题|沉默|动作穿插|环境侵入",
-        "execution": "具体写法"
-      }
-    ],
-    "inner_monologue_design": {
-      "character_voice": "内心戏的性格调性（吐槽型/冷静型/话痨型）",
-      "longest_unbroken": "最长不间断内心戏的字数上限（≤300）",
-      "humor_element": "内心戏中的趣味点（如有）"
-    },
-    "numeric_throttle": {
-      "anchor_number": "唯一精确数值",
-      "source": "信息来源",
-      "others": "模糊化口径"
-    },
-    "power_display": {
-      "cost": "代价",
-      "blind_spot": "盲区",
-      "display_mode": "过程磕绊|结果有争议|主角保留怀疑"
-    },
     "ending_design": {
       "final_image": "结尾画面/动作/身体反应（必须在POV角色感知范围内）",
       "unresolved_pressure": "未解决的压力",
-      "pov_anchor": "结尾最后一句的感知锚点（视觉/听觉/触觉/体感——必须是POV角色能感知的）"
+      "pov_anchor": "结尾最后一句的感知锚点"
     },
     "humor_design": [
       {
@@ -435,7 +414,6 @@ AI的致命习惯：什么都写清楚。
     ]
   },
 
-  "allowed_new_characters": [],
   "entrance_protocol": {
     "stage": "rumor|trace|meet|name_reveal",
     "intro_elements": ["外貌细节", "身份线索", "主角反应", "非功能细节"]
@@ -450,7 +428,6 @@ AI的致命习惯：什么都写清楚。
       "conflict": "阻力点",
       "human_texture": ["生活噪音1", "噪音2"],
       "dialogue_noise": "对话噪音设计",
-      "inner_monologue": "内心戏设计（含杂念和打断方式）",
       "relationship_temp": "关系温度及变化方向",
       "turn": "信息/情绪偏转",
       "transition_out": "转场方式（感官桥接/物件桥接/硬切/时间标记）",
@@ -458,57 +435,15 @@ AI的致命习惯：什么都写清楚。
     }
   ],
 
-  "sequel_required": true,
-  "sequel_description": "消化信息+犹豫+压回决心（禁止计划书式）",
-
-  "forbidden": [
-    "禁止跨章总结",
-    "禁止主角知道未获得信息",
-    "禁止未按登场协议提及角色",
-    "禁止全知转换词（与此同时/另一边/殊不知）",
-    "禁止章末总结句",
-    "禁止连续超100字纯讲解",
-    "禁止完美Demo式金手指",
-    "禁止纯口头投放反派钩子",
-    "禁止内心独白超150字不被打断",
-    "禁止角色说话方式雷同",
-    "禁止无代价的爽感",
-    "禁止全章情绪强度均匀（必须有波浪）",
-    "禁止环境描写像说明文",
-    "禁止滞后镜头：角色转身/离开/闭眼后，叙事不能留在原地描写身后画面",
-    "禁止连续3个以上超短段堆砌（碎片化微动作 = 读着累）",
-    "禁止连续多章全压抑收束（读者需要出口）"
-  ],
-
-  "chapter_end_style": "悬念|危机|误会|小爽|伏笔|身体反应",
-
   "self_checklist": [
     "□ 只完成一个macro_beat",
-    "□ 叙事腔调一致且有人格",
     "□ 笔力分布不均匀（有浓有淡）",
-    "□ ≥2处讲解被替换",
-    "□ 每个对话场景≥1噪音点",
     "□ 遮住名字能认出说话人",
-    "□ 精确数值≤1个",
-    "□ 内心戏有角色性格（不像哲学家）且不超300字无穿插",
-    "□ 系统展示带代价+盲区+不完美过程",
-    "□ 结尾用画面/动作/身体反应",
-    "□ 结尾无滞后镜头（最后一句POV角色能感知）",
-    "□ 结尾收束方式和前几章不重复（不要每章都压抑收束）",
-    "□ 反派/悬念用物证落地",
+    "□ 结尾落在具体动作/画面上（无总结、无环境隐喻）",
     "□ 至少1处松弛/呼吸点",
-    "□ 至少1人反常行为",
     "□ 至少1处主动留白",
-    "□ 信息差状态清晰",
-    "□ 情绪曲线是波浪不是直线",
     "□ 本章有至少1个让读者觉得'过瘾'的点",
-    "□ 本章有至少2个'趣味点'（读者至少嘴角上扬）",
-    "□ 对话占比35-55%，无连续400字以上纯叙述无对话",
-    "□ 没有连续3个以上超短段堆砌",
-    "□ 长线伏笔已浇水（如涉及）",
-    "□ 段落长度波浪分布（有长段，非均匀）",
-    "□ 连续3段未以相同方式开头",
-    "□ 转折词（然而/但是/不过）每500字≤2个",
-    "□ 至少1处口语化叙述或不完整句"
+    "□ 至少2个趣味点（读者嘴角上扬）",
+    "□ 情绪曲线是波浪不是直线"
   ]
 }

@@ -200,7 +200,7 @@ export interface ChapterGenerationResponse {
 }
 
 export interface AdvancedGenerateFlowConfig {
-  preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'custom'
+  preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'custom'
   versions?: number
   enable_preview?: boolean
   enable_optimizer?: boolean
@@ -209,6 +209,13 @@ export interface AdvancedGenerateFlowConfig {
   async_finalize?: boolean
   enable_rag?: boolean
   rag_mode?: 'simple' | 'two_stage'
+  enable_scene_by_scene?: boolean
+  enable_prose_sculpting?: boolean
+  enable_golden_paragraph?: boolean
+  enable_reference_prose?: boolean
+  enable_voice_samples?: boolean
+  enable_narrative_variety?: boolean
+  use_slim_prompt?: boolean
 }
 
 export interface AdvancedGenerateRequest {
@@ -350,7 +357,7 @@ export class NovelAPI {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset: 'ultimate' }
+      flow_config: { preset: 'literary' }
     }
 
     await request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
@@ -372,7 +379,7 @@ export class NovelAPI {
         project_id: projectId,
         chapter_numbers: chapterNumbers,
         ...(writingNotes ? { writing_notes: writingNotes } : {}),
-        flow_config: { preset: 'ultimate' }
+        flow_config: { preset: 'literary' }
       })
     })
   }

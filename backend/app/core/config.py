@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     mysql_password: str = Field(default="", env="MYSQL_PASSWORD", description="MySQL 密码")
     mysql_database: str = Field(default="arboris", env="MYSQL_DATABASE", description="MySQL 数据库名称")
 
+    # -------------------- Qdrant 向量数据库配置 (供 Mem0 使用) --------------------
+    qdrant_host: str = Field(default="localhost", env="QDRANT_HOST", description="Qdrant 主机地址")
+    qdrant_port: int = Field(default=6333, env="QDRANT_PORT", description="Qdrant 端口号")
+    qdrant_api_key: Optional[str] = Field(default=None, env="QDRANT_API_KEY", description="Qdrant API Key (若是远程云服务或加了认证需填写)")
 
     # -------------------- 管理员初始化配置 --------------------
     admin_default_username: str = Field(default="admin", env="ADMIN_DEFAULT_USERNAME", description="默认管理员用户名")
@@ -78,6 +82,16 @@ class Settings(BaseSettings):
         env="WRITER_CHAPTER_VERSION_COUNT",
         validation_alias=AliasChoices("WRITER_CHAPTER_VERSION_COUNT", "WRITER_CHAPTER_VERSIONS"),
         description="每次生成章节的候选版本数量",
+    )
+    writer_chapter_word_count_min: int = Field(
+        default=3000,
+        env="WRITER_CHAPTER_WORD_COUNT_MIN",
+        description="小说的章节生成最低字数限制",
+    )
+    writer_chapter_word_count_max: int = Field(
+        default=4000,
+        env="WRITER_CHAPTER_WORD_COUNT_MAX",
+        description="小说的章节生成最高字数限制",
     )
     writer_max_tokens: int = Field(
         default=16384,

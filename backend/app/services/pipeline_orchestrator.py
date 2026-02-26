@@ -75,6 +75,14 @@ class PipelineConfig:
     enable_polish: bool = False
     enable_mission_brief: bool = False
     enable_density_compression: bool = False
+    # Literary mode features (改进 1-10)
+    enable_scene_by_scene: bool = False
+    enable_prose_sculpting: bool = False
+    enable_golden_paragraph: bool = False
+    enable_reference_prose: bool = False
+    enable_voice_samples: bool = False
+    enable_narrative_variety: bool = False
+    use_slim_prompt: bool = False
 
 
 class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineReviewMixin):
@@ -440,13 +448,229 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             user_style_rules=user_style_rules,
         )
 
+        # ---- 章节字数限制 ----
+        if settings.writer_chapter_word_count_min and settings.writer_chapter_word_count_max:
+            word_count_constraint = f"本章目标核心字数要求：{settings.writer_chapter_word_count_min} - {settings.writer_chapter_word_count_max} 字之间。\n请合理分配内容节奏，加入必要的环境描写、人物心理、丰富动作与对话，确保字数达标且不冗长水文。"
+            prompt_sections.append(("[字数与节奏要求]", word_count_constraint))
+
+        # ---- Literary 模式：范文注入 + 叙事多样性约束 ----
+        reference_prose_text = ""
+        if config.enable_reference_prose:
+            try:
+                from .reference_prose_service import ReferenceProseService
+                refs = ReferenceProseService.select_references(outline_summary, chapter_mission)
+                reference_prose_text = ReferenceProseService.format_for_prompt(refs)
+                if reference_prose_text:
+                    prompt_sections.append(("[风格参考]", reference_prose_text))
+            except Exception as e:
+                logger.warning("范文注入失败（不影响生成）: %s", e)
+
+        narrative_variety_text = ""
+        if config.enable_narrative_variety:
+            try:
+                from .narrative_variety_tracker import NarrativeVarietyTracker, ChapterPattern
+                recent_patterns = []
+                for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
+                    if ch.chapter_number < chapter_number and ch.selected_version:
+                        ch_mission = (ch.selected_version.metadata_ or {}).get("chapter_mission")
+                        pattern = ChapterPattern.from_mission_and_text(
+                            ch.chapter_number, ch_mission, ch.selected_version.content
+                        )
+                        recent_patterns.append(pattern)
+
+                if len(recent_patterns) >= 2:
+                    tracker = NarrativeVarietyTracker()
+                    variety_constraints = tracker.analyze_variety(recent_patterns, chapter_number)
+                    structure_suggestion = tracker.suggest_structure(recent_patterns, chapter_mission)
+                    variety_constraints.update(structure_suggestion)
+                    narrative_variety_text = tracker.format_constraints_for_prompt(variety_constraints)
+                    if narrative_variety_text:
+                        prompt_sections.append(("[叙事差异化约束]", narrative_variety_text))
+            except Exception as e:
+                logger.warning("叙事多样性追踪失败（不影响生成）: %s", e)
+
         if enhanced_flow and enhanced_context:
             prompt_sections = enhanced_flow.build_enhanced_prompt_sections(prompt_sections, enhanced_context)
 
         prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
         logger.debug("Pipeline prompt length: %s chars", len(prompt_input))
+
+        # ---- Literary 模式：加载精简 prompt ----
+        if config.use_slim_prompt:
+            slim_prompt = await self.prompt_service.get_prompt("writing_v3")
+            if slim_prompt:
+                writer_prompt = slim_prompt
+
         _mark_stage("build_generation_prompt", stage_started)
 
+        # ========== Literary 模式：场景级分步生成 ==========
+        if config.enable_scene_by_scene:
+            stage_started = time.perf_counter()
+
+            voice_samples_text = ""
+            if config.enable_voice_samples:
+                characters_for_voice = writer_blueprint.get("characters", [])
+                voice_samples_text = await self._generate_voice_samples(
+                    characters=characters_for_voice,
+                    outline_summary=outline_summary,
+                    chapter_mission=chapter_mission,
+                    user_id=user_id,
+                )
+
+            prompt_sections_data = {
+                "chapter_goals": f"[当前章节目标]\n标题：{outline_title}\n摘要：{outline_summary}\n写作指令：{writing_notes}",
+                "mission_brief": mission_brief_text or "",
+                "director_script": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else "",
+                "story_skeleton": history_context.get("story_skeleton", ""),
+                "previous_summary": history_context["previous_summary"],
+                "previous_tail": history_context["previous_tail"],
+                "writer_blueprint": json.dumps(writer_blueprint, ensure_ascii=False, indent=2)[:3000],
+                "forbidden_characters": ", ".join(forbidden_characters) if forbidden_characters else "",
+                "reference_prose": reference_prose_text,
+                "voice_samples": voice_samples_text,
+            }
+
+            version = await self._generate_scene_by_scene(
+                prompt_sections_data=prompt_sections_data,
+                writer_prompt=writer_prompt,
+                chapter_mission=chapter_mission,
+                forbidden_characters=forbidden_characters,
+                allowed_new_characters=allowed_new_characters,
+                user_id=user_id,
+                genre_profile=genre_profile,
+                voice_samples_text=voice_samples_text,
+            )
+            versions = [version]
+            _mark_stage("generate_scene_by_scene", stage_started)
+
+            # ---- Literary 后处理：雕塑式重写（替代 multi-version review + optimizer） ----
+            stage_started = time.perf_counter()
+            best_content = version["content"]
+            review_summaries: Dict[str, Any] = {}
+
+            if config.enable_prose_sculpting:
+                from .prose_sculptor_service import ProseSculptorService
+                sculptor = ProseSculptorService(self.llm_service)
+
+                best_content, rhythm_report = await sculptor.sculpt_rhythm(
+                    best_content, user_id=user_id,
+                )
+                review_summaries["rhythm_sculpting"] = rhythm_report
+
+                best_content, density_report = await sculptor.sculpt_density(
+                    best_content, user_id=user_id,
+                )
+                review_summaries["density_sculpting"] = density_report
+
+            if config.enable_golden_paragraph:
+                from .prose_sculptor_service import ProseSculptorService
+                sculptor = ProseSculptorService(self.llm_service)
+                best_content, golden_report = await sculptor.enhance_peak_moments(
+                    best_content, user_id=user_id, chapter_mission=chapter_mission,
+                )
+                review_summaries["golden_paragraph"] = golden_report
+
+            # 人味化扫描 + 修复
+            if config.enable_humanization:
+                try:
+                    from .humanization_service import HumanizationService
+                    h_service = HumanizationService(self.session, self.llm_service)
+                    h_report = h_service.scan(best_content)
+                    humanized = False
+                    if h_report.score < config.humanization_threshold:
+                        best_content = await h_service.humanize(
+                            best_content, h_report, user_id=user_id,
+                        )
+                        humanized = True
+                    review_summaries["humanization"] = {
+                        "score": h_report.score,
+                        "issues_count": len(h_report.issues),
+                        "humanized": humanized,
+                    }
+                except Exception as e:
+                    logger.warning("人味化检查失败: %s", e)
+
+            # 最终护栏
+            guardrail_result = self.guardrails.check(
+                generated_text=best_content,
+                forbidden_characters=forbidden_characters,
+                allowed_new_characters=allowed_new_characters,
+                pov=chapter_mission.get("pov") if chapter_mission else None,
+            )
+            if not guardrail_result.passed:
+                best_content = self.guardrails.apply_local_patches(best_content, guardrail_result)
+
+            _mark_stage("literary_post_processing", stage_started)
+
+            version["content"] = best_content
+            version.setdefault("metadata", {})["review_summaries"] = review_summaries
+
+            # 背景分析任务
+            six_dimension_payload = None
+            if enhanced_flow and config.enable_six_dimension:
+                six_dimension_payload = {
+                    "project_id": project_id,
+                    "chapter_number": chapter_number,
+                    "chapter_title": outline_title,
+                    "chapter_content": best_content,
+                    "chapter_plan": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
+                    "previous_summary": history_context["previous_summary"],
+                }
+
+            async def _do_quality_detection_literary() -> None:
+                recent_openings = [
+                    ch["summary"][:200]
+                    for ch in history_context.get("completed_chapters", [])
+                    if ch.get("summary")
+                ][-3:]
+                quality_report = await self._run_quality_detection(
+                    best_content,
+                    chapter_number=chapter_number,
+                    chapter_mission=chapter_mission,
+                    previous_chapters_openings=recent_openings,
+                    user_id=user_id,
+                )
+                review_summaries["quality_detection"] = quality_report
+
+            stage_started = time.perf_counter()
+            await _do_quality_detection_literary()
+            _mark_stage("literary_readonly_analyses", stage_started)
+
+            # 持久化
+            contents = [version["content"]]
+            metadata_list = [version.get("metadata")]
+            stage_started = time.perf_counter()
+            versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata_list)
+            _mark_stage("persist_versions", stage_started)
+
+            if six_dimension_payload and versions_models:
+                best_version_id = versions_models[0].id
+                six_dim_task = asyncio.create_task(
+                    self._run_six_dimension_review_async(version_id=best_version_id, **six_dimension_payload)
+                )
+                self._background_tasks.add(six_dim_task)
+                six_dim_task.add_done_callback(self._background_tasks.discard)
+
+            variants = [{"index": 0, "version_id": versions_models[0].id, "content": version["content"], "metadata": version.get("metadata")}]
+            stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
+
+            return {
+                "project_id": project_id,
+                "chapter_number": chapter_number,
+                "preset": config.preset,
+                "best_version_index": 0,
+                "variants": variants,
+                "review_summaries": review_summaries,
+                "debug_metadata": {
+                    "version_count": 1,
+                    "mode": "literary_scene_by_scene",
+                    "stages": self._build_stage_flags(config),
+                    "retrieval_stats": rag_stats,
+                    "stage_timings_ms": stage_timings_ms,
+                },
+            }
+
+        # ========== 标准模式：多版本并行生成 ==========
         version_count = config.version_count
         version_style_hints = self._resolve_style_hints(enhanced_context, version_count)
 
@@ -758,6 +982,20 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             six_dimension_task.add_done_callback(self._background_tasks.discard)
         _mark_stage("schedule_async_six_dimension", stage_started)
 
+        if config.enable_memory:
+            stage_started = time.perf_counter()
+            from ..services.memory_layer_service import MemoryLayerService
+            memory_layer = MemoryLayerService(self.session, self.llm_service, self.prompt_service)
+            
+            await memory_layer.update_memory_after_chapter(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                chapter_content=best_content,
+                character_names=introduced_characters,
+                user_id=user_id,
+            )
+            _mark_stage("update_memory_after_chapter", stage_started)
+
         variants = []
         for idx, version_model in enumerate(versions_models):
             variant = {
@@ -889,9 +1127,30 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             config.enable_enrichment = True
             config.enable_polish = True
 
+        if preset == "literary":
+            config.version_count = 1
+            config.enable_rag = True
+            config.rag_mode = settings.rag_default_mode
+            config.enable_constitution = True
+            config.enable_persona = True
+            config.enable_foreshadowing = True
+            config.enable_faction = True
+            config.enable_memory = True
+            config.enable_humanization = True
+            config.enable_fingerprint = True
+            config.enable_mission_brief = True
+            config.enable_scene_by_scene = True
+            config.enable_prose_sculpting = True
+            config.enable_golden_paragraph = True
+            config.enable_reference_prose = True
+            config.enable_voice_samples = True
+            config.enable_narrative_variety = True
+            config.use_slim_prompt = True
+            if getattr(settings, "enable_entity_registry", True):
+                config.enable_anti_hallucination = True
+
         if preset == "basic":
             config.enable_rag = True
-            # Fast mode：basic 预设强制 1 个版本，跳过 AI Review
             if getattr(settings, "writer_fast_mode", False):
                 config.version_count = 1
 
@@ -905,6 +1164,13 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "enable_polish",
             "enable_mission_brief",
             "enable_density_compression",
+            "enable_scene_by_scene",
+            "enable_prose_sculpting",
+            "enable_golden_paragraph",
+            "enable_reference_prose",
+            "enable_voice_samples",
+            "enable_narrative_variety",
+            "use_slim_prompt",
         ):
             if key in flow_config and flow_config[key] is not None:
                 setattr(config, key, bool(flow_config[key]))
@@ -979,6 +1245,206 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 return 0.60
 
         return 0.75
+
+    async def _generate_scene_by_scene(
+        self,
+        *,
+        prompt_sections_data: Dict[str, Any],
+        writer_prompt: str,
+        chapter_mission: Optional[dict],
+        forbidden_characters: List[str],
+        allowed_new_characters: List[str],
+        user_id: int,
+        genre_profile: Optional[Dict[str, Any]] = None,
+        voice_samples_text: str = "",
+    ) -> Dict[str, Any]:
+        """场景级分步生成：按 scene_list 逐场景生成，每场景一次 LLM 调用。
+
+        每次调用的 prompt 只包含该场景任务 + 已写内容 + 精简上下文，
+        释放 LLM 认知带宽，让它聚焦在"把这 700 字写好"。
+        """
+        metadata: Dict[str, Any] = {
+            "chapter_mission": chapter_mission,
+            "pipeline": {"preset": "literary", "mode": "scene_by_scene"},
+            "resolved_temperature": self._resolve_temperature(chapter_mission),
+        }
+
+        scenes = (chapter_mission or {}).get("scene_list") or []
+        if not scenes or len(scenes) < 2:
+            scenes = self._build_fallback_scenes(chapter_mission)
+
+        core_context = self._build_slim_context(prompt_sections_data)
+
+        chapter_parts: List[str] = []
+        scene_timings: List[int] = []
+
+        for i, scene in enumerate(scenes):
+            scene_start = time.perf_counter()
+            is_first = i == 0
+            is_last = i == len(scenes) - 1
+
+            scene_prompt_parts = []
+
+            if is_first:
+                scene_prompt_parts.append(core_context)
+            else:
+                scene_prompt_parts.append("[精简上下文]\n" + self._compress_context(core_context, max_len=1500))
+
+            if chapter_parts:
+                recent_text = "\n\n".join(chapter_parts)
+                if len(recent_text) > 2000:
+                    recent_text = "（前文省略）\n\n" + recent_text[-2000:]
+                scene_prompt_parts.append(f"[已写正文——你要无缝接续]\n{recent_text}")
+
+            scene_goal = scene.get("goal", "推进剧情")
+            scene_words = scene.get("target_words", 700)
+            scene_location = scene.get("location", "")
+            scene_conflict = scene.get("conflict", "")
+            human_texture = scene.get("human_texture", [])
+            dialogue_noise = scene.get("dialogue_noise", "")
+
+            scene_instruction = f"[本场景任务——场景 {i + 1}/{len(scenes)}]\n"
+            scene_instruction += f"- 目标：{scene_goal}\n"
+            if scene_location:
+                scene_instruction += f"- 地点：{scene_location}\n"
+            if scene_conflict:
+                scene_instruction += f"- 阻力/冲突：{scene_conflict}\n"
+            scene_instruction += f"- 目标字数：约{scene_words}字\n"
+            if human_texture:
+                scene_instruction += f"- 生活噪音：{'、'.join(human_texture)}\n"
+            if dialogue_noise:
+                scene_instruction += f"- 对话噪音：{dialogue_noise}\n"
+
+            if is_first:
+                scene_instruction += "- 这是开篇，需要吸引读者\n"
+            if is_last:
+                scene_instruction += "- 这是本章最后一个场景，结尾必须落在具体动作/画面上，戛然而止\n"
+
+            scene_prompt_parts.append(scene_instruction)
+
+            if voice_samples_text and is_first:
+                scene_prompt_parts.append(voice_samples_text)
+
+            scene_prompt = "\n\n".join(scene_prompt_parts)
+
+            resolved_temp = self._resolve_temperature(chapter_mission)
+            if is_last:
+                resolved_temp = min(resolved_temp + 0.05, 0.95)
+
+            response = await self.llm_service.get_llm_response(
+                system_prompt=writer_prompt,
+                conversation_history=[{"role": "user", "content": scene_prompt}],
+                temperature=resolved_temp,
+                user_id=user_id,
+                timeout=60.0,
+                response_format=None,
+                max_tokens=min(4096, settings.writer_max_tokens),
+                disable_thinking=not settings.writer_enable_thinking,
+            )
+            cleaned = remove_think_tags(response)
+            scene_text = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
+
+            if scene_text:
+                chapter_parts.append(scene_text)
+
+            scene_timings.append(int((time.perf_counter() - scene_start) * 1000))
+
+        content = "\n\n".join(chapter_parts)
+
+        omniscient_tolerance = "medium"
+        if genre_profile:
+            from .genre_profile_service import GenreProfileService
+            omniscient_tolerance = GenreProfileService.get_omniscient_tolerance(genre_profile)
+
+        guardrail_result = self.guardrails.check(
+            generated_text=content,
+            forbidden_characters=forbidden_characters,
+            allowed_new_characters=allowed_new_characters,
+            pov=chapter_mission.get("pov") if chapter_mission else None,
+            omniscient_tolerance=omniscient_tolerance,
+        )
+        if not guardrail_result.passed:
+            content = self.guardrails.apply_local_patches(content, guardrail_result)
+
+        metadata["scene_timings_ms"] = scene_timings
+        metadata["scene_count"] = len(scenes)
+
+        return {"index": 0, "content": content, "metadata": metadata}
+
+    @staticmethod
+    def _build_fallback_scenes(chapter_mission: Optional[dict]) -> List[dict]:
+        word_budget = (chapter_mission or {}).get("word_budget", {})
+        total = word_budget.get("total", 3000) if isinstance(word_budget, dict) else 3000
+        return [
+            {"goal": "开篇：承接上文，建立本章情境", "target_words": int(total * 0.25), "scene": "1"},
+            {"goal": "发展：推进核心冲突", "target_words": int(total * 0.45), "scene": "2"},
+            {"goal": "高潮+收束：情绪峰值，刀切结尾", "target_words": int(total * 0.30), "scene": "3"},
+        ]
+
+    @staticmethod
+    def _build_slim_context(prompt_sections_data: Dict[str, Any]) -> str:
+        priority_keys = [
+            "chapter_goals", "mission_brief", "director_script",
+            "story_skeleton", "previous_summary", "previous_tail",
+            "writer_blueprint", "forbidden_characters",
+        ]
+        parts = []
+        for key in priority_keys:
+            val = prompt_sections_data.get(key, "")
+            if val:
+                parts.append(str(val)[:2000])
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _compress_context(context: str, max_len: int = 1500) -> str:
+        if len(context) <= max_len:
+            return context
+        return context[:max_len] + "\n（上下文已压缩）"
+
+    async def _generate_voice_samples(
+        self,
+        *,
+        characters: List[Dict[str, Any]],
+        outline_summary: str,
+        chapter_mission: Optional[dict],
+        user_id: int,
+    ) -> str:
+        """为出场角色生成对话声纹样本，锁定每个角色的说话方式。"""
+        if not characters or len(characters) < 2:
+            return ""
+
+        char_list = []
+        for ch in characters[:6]:
+            name = ch.get("name", "")
+            personality = ch.get("personality", "")
+            role = ch.get("role", "")
+            if name:
+                char_list.append(f"- {name}：{role}，{personality}")
+
+        if not char_list:
+            return ""
+
+        prompt = (
+            f"以下角色将在本章出场。为每个角色写2句对话样本，展示他们的说话方式。\n"
+            f"要求：遮住名字能认出是谁。对话要口语化、有性格差异。\n\n"
+            f"角色：\n{''.join(char_list)}\n\n"
+            f"当前情境：{outline_summary[:200]}\n\n"
+            f"格式：每个角色名后跟2句示例台词，简短即可。"
+        )
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一个角色对话设计师。为每个角色写出有辨识度的对话样本。",
+                conversation_history=[{"role": "user", "content": prompt}],
+                temperature=0.8,
+                user_id=user_id,
+                timeout=30.0,
+            )
+            result = (remove_think_tags(response) or response).strip()
+            return f"[角色声纹参考——遮住名字要能认出谁在说话]\n{result}" if result else ""
+        except Exception as e:
+            logger.warning("声纹样本生成失败（不影响生成）: %s", e)
+            return ""
 
     async def _generate_single_version(
         self,
@@ -1169,6 +1635,13 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "memory": config.enable_memory,
             "rag": config.enable_rag,
             "rag_mode": config.rag_mode == "two_stage",
+            "scene_by_scene": config.enable_scene_by_scene,
+            "prose_sculpting": config.enable_prose_sculpting,
+            "golden_paragraph": config.enable_golden_paragraph,
+            "reference_prose": config.enable_reference_prose,
+            "voice_samples": config.enable_voice_samples,
+            "narrative_variety": config.enable_narrative_variety,
+            "slim_prompt": config.use_slim_prompt,
         }
 
     @staticmethod

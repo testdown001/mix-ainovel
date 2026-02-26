@@ -13,10 +13,9 @@ services:
       DEBUG: ${DEBUG:-false}
       LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
 
-      DB_PROVIDER: ${DB_PROVIDER:-sqlite}
-      SQLITE_DB_PATH: ${SQLITE_DB_PATH:-/app/storage/arboris.db}
+      DB_PROVIDER: ${DB_PROVIDER:-mysql}
 
-      MYSQL_HOST: ${MYSQL_HOST:-db}
+      MYSQL_HOST: ${MYSQL_HOST:-host.docker.internal}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
       MYSQL_USER: ${MYSQL_USER:-arboris}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请设置数据库密码}
@@ -62,8 +61,7 @@ services:
       LINUXDO_TOKEN_URL: ${LINUXDO_TOKEN_URL:-https://connect.linux.do/oauth2/token}
       LINUXDO_USER_INFO_URL: ${LINUXDO_USER_INFO_URL:-https://connect.linux.do/api/user}
     restart: unless-stopped
-    volumes:
-      - ${SQLITE_STORAGE_SOURCE:-sqlite-data}:/app/storage
+      - app-storage:/app/storage
     networks:
       - app-network
     healthcheck:
@@ -73,38 +71,22 @@ services:
       retries: 3
       start_period: 90s
 
-  # MySQL 数据库服务（通过 profile mysql 启用）
-  db:
-    image: mysql:8.0
-    container_name: arboris-db
-    profiles:
-      - mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-ChangeMe_RootPassword123}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-arboris}
-      MYSQL_USER: ${MYSQL_USER:-arboris}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ChangeMe_Password123}
-      TZ: Asia/Shanghai
+  # Qdrant 向量数据库服务用于 mem0
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: arboris-qdrant
+    ports:
+      - "6333:6333"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - qdrant-data:/qdrant/storage
     restart: unless-stopped
     networks:
       - app-network
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-      - --max_connections=1000
 
 volumes:
-  mysql-data:
+  app-storage:
     driver: local
-  sqlite-data:
+  qdrant-data:
     driver: local
 
 networks:

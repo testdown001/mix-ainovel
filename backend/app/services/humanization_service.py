@@ -163,6 +163,7 @@ class HumanizationService:
         self._scan_lexical(text, report)
         self._scan_structural(text, report)
         self._scan_statistical(text, report)
+        self._scan_missing_human_elements(text, report)
 
         report.score = max(0, min(100, 100 - report.lexical_deduction - report.structural_deduction - report.statistical_deduction))
         return report
@@ -380,3 +381,75 @@ class HumanizationService:
                 ))
 
         report.statistical_deduction = min(total_deduction, max_deduction)
+
+    # -----------------------------------------------------------------------
+    # 层4: 缺失人味元素检测（"加法"检测）
+    # -----------------------------------------------------------------------
+    def _scan_missing_human_elements(self, text: str, report: HumanizationReport) -> None:
+        """检测缺失的"人味"元素——不是找错，而是找缺。"""
+        total_deduction = 0
+        max_deduction = 20
+        sentences = _split_sentences(text)
+        paragraphs = _split_paragraphs(text)
+
+        incomplete_markers = ["——", "\u2026\u2026", '——"', '\u2026\u201d']
+        incomplete_count = sum(
+            1 for s in sentences
+            if any(s.rstrip().endswith(m) for m in incomplete_markers) or len(s) < 6
+        )
+        if incomplete_count < max(1, len(sentences) // 25) and len(sentences) > 10:
+            d = 5
+            total_deduction += d
+            report.issues.append(HumanizationIssue(
+                layer="missing_human",
+                category="no_incomplete_sentences",
+                description="全文缺少不完整句/省略句/截断句——真人写作偶尔会有话说一半、破折号截断的情况",
+                severity=d,
+            ))
+
+        explanation_markers = ["因为", "所以", "原来是", "这才明白", "这意味着", "换句话说", "也就是说"]
+        explanation_count = sum(text.count(m) for m in explanation_markers)
+        text_k = max(1, len(text) / 1000)
+        explanation_density = explanation_count / text_k
+        if explanation_density > 2.5:
+            d = min(8, int(explanation_density - 2.0) * 3)
+            total_deduction += d
+            report.issues.append(HumanizationIssue(
+                layer="missing_human",
+                category="over_explanation",
+                description=f"因果解释密度偏高({explanation_density:.1f}/千字)——真人作者更多用动作和暗示代替显式解释，应增加留白",
+                severity=d,
+            ))
+
+        dialogue_lines = sum(
+            1 for p in paragraphs
+            if p.startswith("\u201c") or p.startswith("\u300c") or p.startswith('"')
+        )
+        if len(paragraphs) > 8:
+            d_ratio = dialogue_lines / len(paragraphs)
+            if d_ratio < 0.15:
+                d = 5
+                total_deduction += d
+                report.issues.append(HumanizationIssue(
+                    layer="missing_human",
+                    category="low_dialogue",
+                    description=f"对话占比过低({d_ratio:.0%})——网文节奏感50%靠对话，当前叙述比重过大",
+                    severity=d,
+                ))
+
+        short_non_dialogue = [
+            p for p in paragraphs
+            if len(p) < 60
+            and not p.startswith("\u201c") and not p.startswith("\u300c") and not p.startswith('"')
+        ]
+        if len(short_non_dialogue) < 2 and len(paragraphs) > 12:
+            d = 5
+            total_deduction += d
+            report.issues.append(HumanizationIssue(
+                layer="missing_human",
+                category="no_waste_details",
+                description="全文每段都在推剧情，缺少'有意义的废笔'（踢石子、看天、闻到饭香等不推剧情但推真实感的细节）",
+                severity=d,
+            ))
+
+        report.structural_deduction += min(total_deduction, max_deduction)

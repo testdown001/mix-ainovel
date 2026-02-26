@@ -1,16 +1,19 @@
 """
-记忆层服务
+记忆层服务 (集成 mem0)
 
-提供角色状态追踪、时间线管理、因果链维护的核心功能。
+提供角色状态追踪、时间线管理、因果链维护的核心功能，
+并使用 mem0 提供长期、跨章节的非结构化事实记忆检索池。
 """
 from typing import Optional, List, Dict, Any
 import json
 import logging
 from datetime import datetime
 
+from mem0 import Memory
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc, func
 
+from ..core.config import settings
 from ..models.memory_layer import (
     CharacterState,
     TimelineEvent,
@@ -24,12 +27,42 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryLayerService:
-    """记忆层服务"""
+    """基于 mem0 的记忆层服务"""
 
     def __init__(self, db: AsyncSession, llm_service: LLMService, prompt_service: PromptService):
         self.db = db
         self.llm_service = llm_service
         self.prompt_service = prompt_service
+        
+        # 初始化 mem0
+        qdrant_config = {
+            "host": settings.qdrant_host,
+            "port": settings.qdrant_port,
+        }
+        if settings.qdrant_api_key:
+            qdrant_config["api_key"] = settings.qdrant_api_key
+            
+        config = {
+            "vector_store": {
+                "provider": "qdrant",
+                "config": qdrant_config
+            },
+            "llm": {
+                "provider": "openai",
+                "config": {
+                    "model": settings.openai_model_name,
+                    "api_key": settings.openai_api_key,
+                }
+            },
+            "embedder": {
+                "provider": "openai",
+                "config": {
+                    "model": settings.embedding_model,
+                    "api_key": settings.embedding_api_key or settings.openai_api_key,
+                }
+            }
+        }
+        self.memory = Memory.from_config(config_dict=config)
 
     # ===== 角色状态管理 =====
 
@@ -412,7 +445,7 @@ class MemoryLayerService:
         chapter_number: int,
         involved_characters: Optional[List[str]] = None
     ) -> str:
-        """生成记忆层上下文（用于注入到写作提示词）"""
+        """生成记忆层上下文（用于注入到写作提示词） - 现含长期记忆(mem0)检索"""
         lines = ["# 记忆层上下文\n"]
         
         # 1. 角色状态
@@ -464,6 +497,28 @@ class MemoryLayerService:
             if tracker.current_date:
                 lines.append(f"- 当前日期：{tracker.current_date}")
             lines.append("")
+
+        # 5. Mem0 长期记忆检索
+        lines.append("## 长期核心记忆 (mem0)\n")
+        query_parts = []
+        if involved_characters:
+            query_parts.append(f"关于角色: {', '.join(involved_characters)}")
+        query_parts.append(f"项目 ID: {project_id}, 第 {chapter_number} 章的背景和重要事件")
+        
+        query = "\n".join(query_parts)
+        try:
+            results = self.memory.search(query, user_id=project_id)
+            if results:
+                for res in results:
+                    mem_text = res.get('memory', '')
+                    if mem_text:
+                        lines.append(f"- {mem_text}")
+            else:
+                lines.append("（暂无相关的长期核心记忆）")
+        except Exception as e:
+            logger.error(f"从 mem0 检索记忆失败: {e}")
+            lines.append("（检索长期核心记忆失败）")
+        lines.append("")
         
         return "\n".join(lines) if len(lines) > 1 else "（无记忆层上下文）"
 
@@ -475,11 +530,12 @@ class MemoryLayerService:
         character_names: List[str],
         user_id: int
     ) -> Dict[str, Any]:
-        """章节完成后更新记忆层"""
+        """章节完成后更新记忆层，包括提取新事实存入 mem0"""
         results = {
             "character_states_updated": 0,
             "timeline_events_added": 0,
-            "causal_chains_added": 0
+            "causal_chains_added": 0,
+            "mem0_memories_added": 0
         }
         
         # 1. 提取并更新角色状态
@@ -505,11 +561,53 @@ class MemoryLayerService:
                 **event_data
             )
             results["timeline_events_added"] += 1
+
+        # 3. 将本章核心事实存入 mem0 长期记忆池
+        mem0_prompt = f"""分析以下小说章节内容，提取重要的人物状态变化、关键情节转折、获得的物品信息、时间和地点的变化。
+
+[章节内容]
+{chapter_content[:8000]}
+
+请以 JSON 格式输出将被作为长期记忆存入数据库的精简事实性句子列表：
+```json
+{{
+  "facts": [
+    "角色 A 在第 X 章获得了神秘卷轴",
+    "角色 B 的左臂在与 C 的战斗中受了重伤",
+    "故事的主线目标变为了寻找遗失的神器"
+  ]
+}}
+```
+提取的事实必须是绝对准确的、简练的陈述句。"""
+
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一个专业的小说剧情记忆提取助手。请严格按照 JSON 格式输出。",
+                conversation_history=[{"role": "user", "content": mem0_prompt}],
+                temperature=0.2,
+                user_id=user_id,
+                timeout=120.0
+            )
+            
+            content = response
+            json_start = content.find("{")
+            json_end = content.rfind("}") + 1
+            if json_start >= 0 and json_end > json_start:
+                result = json.loads(content[json_start:json_end])
+                facts = result.get("facts", [])
+                
+                if facts:
+                    messages = [{"role": "user", "content": fact} for fact in facts]
+                    self.memory.add(messages, user_id=project_id)
+                    results["mem0_memories_added"] = len(facts)
+        except Exception as e:
+            logger.warning(f"提取并存入 mem0 记忆失败: {e}")
         
         logger.info(
             f"项目 {project_id} 第 {chapter_number} 章记忆层更新完成: "
             f"角色状态 {results['character_states_updated']}, "
-            f"时间线事件 {results['timeline_events_added']}"
+            f"时间线事件 {results['timeline_events_added']}, "
+            f"长期记忆(mem0) {results['mem0_memories_added']}"
         )
         
         return results
