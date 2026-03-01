@@ -1,82 +1,56 @@
 // AIMETA P=LLM_API客户端_模型配置接口|R=LLM配置CRUD|NR=不含UI逻辑|E=api:llm|X=internal|A=llmApi对象|D=axios|S=net|RD=./README.ai
-import { useAuthStore } from '@/stores/auth';
+import { requestJson } from './http'
 
-const API_PREFIX = '/api';
-const LLM_BASE = `${API_PREFIX}/llm-config`;
+const API_PREFIX = '/api'
+const LLM_BASE = `${API_PREFIX}/llm-config`
 
 export interface LLMConfig {
-  user_id: number;
-  llm_provider_url: string | null;
-  llm_provider_api_key: string | null;
-  llm_provider_model: string | null;
-  llm_provider_api_format: string | null;
+  user_id: number
+  llm_provider_url: string | null
+  llm_provider_api_key: string | null
+  llm_provider_model: string | null
+  llm_provider_api_format: string | null
 }
 
 export interface LLMConfigCreate {
-  llm_provider_url?: string;
-  llm_provider_api_key?: string;
-  llm_provider_model?: string;
-  llm_provider_api_format?: string;
+  llm_provider_url?: string
+  llm_provider_api_key?: string
+  llm_provider_model?: string
+  llm_provider_api_format?: string
 }
 
-const getHeaders = () => {
-  const authStore = useAuthStore();
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${authStore.token}`,
-  };
-};
-
 export const getLLMConfig = async (): Promise<LLMConfig | null> => {
-  const response = await fetch(LLM_BASE, {
+  return requestJson<LLMConfig | null>(LLM_BASE, {
     method: 'GET',
-    headers: getHeaders(),
-  });
-  if (response.status === 404) {
-    return null;
-  }
-  if (!response.ok) {
-    throw new Error('Failed to fetch LLM config');
-  }
-  return response.json();
-};
+    notFoundValue: null,
+    errorMessage: 'Failed to fetch LLM config'
+  })
+}
 
 export const createOrUpdateLLMConfig = async (config: LLMConfigCreate): Promise<LLMConfig> => {
-  const response = await fetch(LLM_BASE, {
+  return requestJson<LLMConfig>(LLM_BASE, {
     method: 'PUT',
-    headers: getHeaders(),
     body: JSON.stringify(config),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to save LLM config');
-  }
-  return response.json();
-};
+    errorMessage: 'Failed to save LLM config'
+  })
+}
 
 export const deleteLLMConfig = async (): Promise<void> => {
-  const response = await fetch(LLM_BASE, {
+  await requestJson<void>(LLM_BASE, {
     method: 'DELETE',
-    headers: getHeaders(),
-  });
-  if (!response.ok) {
-    throw new Error('Failed to delete LLM config');
-  }
-};
+    errorMessage: 'Failed to delete LLM config'
+  })
+}
 
 export interface ModelListRequest {
-  llm_provider_url?: string;
-  llm_provider_api_key: string;
+  llm_provider_url?: string
+  llm_provider_api_key: string
 }
 
 export const getAvailableModels = async (request: ModelListRequest): Promise<string[]> => {
-  const response = await fetch(`${LLM_BASE}/models`, {
+  return requestJson<string[]>(`${LLM_BASE}/models`, {
     method: 'POST',
-    headers: getHeaders(),
     body: JSON.stringify(request),
-  });
-  if (!response.ok) {
-    // 获取模型列表失败时返回空数组，不影响主流程
-    return [];
-  }
-  return response.json();
-};
+    errorFallbackValue: []
+  })
+}

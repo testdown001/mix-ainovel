@@ -23,6 +23,42 @@ class LLMConfigService:
         self.repo = LLMConfigRepository(session)
         self.system_config_repo = SystemConfigRepository(session)
 
+    @staticmethod
+    def _normalize_base_url(base_url: Optional[str]) -> Optional[str]:
+        """规范化 LLM 服务地址，缺协议时自动补全。"""
+        if base_url is None:
+            return None
+
+        normalized = str(base_url).strip()
+        if not normalized:
+            return None
+
+        # 兼容常见误填：把 https:/host 或 http:/host 修复为双斜杠
+        if normalized.lower().startswith("https:/") and not normalized.lower().startswith("https://"):
+            normalized = "https://" + normalized[len("https:/"):].lstrip("/")
+        elif normalized.lower().startswith("http:/") and not normalized.lower().startswith("http://"):
+            normalized = "http://" + normalized[len("http:/"):].lstrip("/")
+
+        lower = normalized.lower()
+        has_http_scheme = lower.startswith("http://") or lower.startswith("https://")
+        has_any_scheme = "://" in normalized
+        if not has_http_scheme and not has_any_scheme:
+            host = normalized.split("/", 1)[0].lower()
+            is_local = (
+                host.startswith("localhost")
+                or host.startswith("127.")
+                or host.startswith("0.0.0.0")
+                or host.startswith("[::1]")
+                or host.startswith("::1")
+                or host.startswith("192.168.")
+                or host.startswith("10.")
+                or host.startswith("172.")
+            )
+            scheme = "http" if is_local else "https"
+            normalized = f"{scheme}://{normalized}"
+
+        return normalized.rstrip("/")
+
     def _identify_provider(self, base_url: Optional[str]) -> str:
         """根据 base_url 识别 LLM 提供商"""
         if not base_url:
@@ -73,7 +109,7 @@ class LLMConfigService:
         data = payload.model_dump(exclude_unset=True)
         if "llm_provider_url" in data and data["llm_provider_url"] is not None:
             # HttpUrl 类型在 sqlite 中无法直接写入，需要提前转为字符串
-            data["llm_provider_url"] = str(data["llm_provider_url"])
+            data["llm_provider_url"] = self._normalize_base_url(str(data["llm_provider_url"]))
         if instance:
             await self.repo.update_fields(instance, **data)
         else:
@@ -101,6 +137,8 @@ class LLMConfigService:
         if not api_key:
             logger.warning("获取模型列表失败：未提供 API Key")
             return []
+
+        base_url = self._normalize_base_url(base_url)
 
         # 识别提供商
         provider = self._identify_provider(base_url)

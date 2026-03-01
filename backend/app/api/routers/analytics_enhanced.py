@@ -169,7 +169,7 @@ async def get_enhanced_emotion_curve(
     # 获取所有已完成的章节
     stmt = select(Chapter).where(
         Chapter.project_id == project_id,
-        Chapter.status == "completed"
+        Chapter.status == "successful"
     ).order_by(Chapter.chapter_number)
     
     result = await session.execute(stmt)

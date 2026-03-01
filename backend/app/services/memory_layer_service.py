@@ -2,9 +2,9 @@
 记忆层服务 (集成 mem0)
 
 提供角色状态追踪、时间线管理、因果链维护的核心功能，
-并使用 mem0 提供长期、跨章节的非结构化事实记忆检索池。
-"""
-from typing import Optional, List, Dict, Any
+并使用 mem0 提供长期、跨章节的非结构化事实记忆检索池。"""
+from typing import ClassVar, Optional, List, Dict, Any
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -29,40 +29,68 @@ logger = logging.getLogger(__name__)
 class MemoryLayerService:
     """基于 mem0 的记忆层服务"""
 
+    # 类级别单例：避免每次请求都重建 Memory → Qdrant 连接
+    _memory_instance: ClassVar[Optional[Memory]] = None
+    _memory_config_hash: ClassVar[Optional[int]] = None
+
     def __init__(self, db: AsyncSession, llm_service: LLMService, prompt_service: PromptService):
         self.db = db
         self.llm_service = llm_service
         self.prompt_service = prompt_service
-        
-        # 初始化 mem0
-        qdrant_config = {
+        self.memory = self._get_or_create_memory()
+
+    @classmethod
+    def _build_mem0_config(cls) -> dict:
+        """构建 mem0 配置字典。"""
+        qdrant_config: Dict[str, Any] = {
             "host": settings.qdrant_host,
             "port": settings.qdrant_port,
         }
         if settings.qdrant_api_key:
             qdrant_config["api_key"] = settings.qdrant_api_key
-            
-        config = {
+
+        # LLM base_url：使用项目配置的第三方兼容 API 地址
+        llm_base_url = str(settings.openai_base_url) if settings.openai_base_url else None
+
+        # Embedder base_url：优先使用专用的 embedding base_url，否则回退到 LLM base_url
+        embedder_base_url = (
+            str(settings.embedding_base_url) if settings.embedding_base_url
+            else llm_base_url
+        )
+
+        return {
             "vector_store": {
                 "provider": "qdrant",
-                "config": qdrant_config
+                "config": qdrant_config,
             },
             "llm": {
                 "provider": "openai",
                 "config": {
                     "model": settings.openai_model_name,
                     "api_key": settings.openai_api_key,
-                }
+                    "openai_base_url": llm_base_url,
+                },
             },
             "embedder": {
                 "provider": "openai",
                 "config": {
                     "model": settings.embedding_model,
                     "api_key": settings.embedding_api_key or settings.openai_api_key,
-                }
-            }
+                    "openai_base_url": embedder_base_url,
+                },
+            },
         }
-        self.memory = Memory.from_config(config_dict=config)
+
+    @classmethod
+    def _get_or_create_memory(cls) -> Memory:
+        """获取或创建 Memory 单例。配置变更时自动重建。"""
+        config = cls._build_mem0_config()
+        config_hash = hash(json.dumps(config, sort_keys=True, default=str))
+        if cls._memory_instance is None or cls._memory_config_hash != config_hash:
+            logger.info("初始化 mem0 Memory 实例（单例模式）...")
+            cls._memory_instance = Memory.from_config(config_dict=config)
+            cls._memory_config_hash = config_hash
+        return cls._memory_instance
 
     # ===== 角色状态管理 =====
 
@@ -507,7 +535,8 @@ class MemoryLayerService:
         
         query = "\n".join(query_parts)
         try:
-            results = self.memory.search(query, user_id=project_id)
+            # mem0 的 search() 是同步阻塞方法，使用 to_thread 避免阻塞事件循环
+            results = await asyncio.to_thread(self.memory.search, query, user_id=project_id)
             if results:
                 for res in results:
                     mem_text = res.get('memory', '')
@@ -522,47 +551,10 @@ class MemoryLayerService:
         
         return "\n".join(lines) if len(lines) > 1 else "（无记忆层上下文）"
 
-    async def update_memory_after_chapter(
-        self,
-        project_id: str,
-        chapter_number: int,
-        chapter_content: str,
-        character_names: List[str],
-        user_id: int
-    ) -> Dict[str, Any]:
-        """章节完成后更新记忆层，包括提取新事实存入 mem0"""
-        results = {
-            "character_states_updated": 0,
-            "timeline_events_added": 0,
-            "causal_chains_added": 0,
-            "mem0_memories_added": 0
-        }
-        
-        # 1. 提取并更新角色状态
-        character_states = await self.extract_character_states_from_chapter(
-            project_id, chapter_number, chapter_content, character_names, user_id
-        )
-        for state_data in character_states:
-            char_name = state_data.pop("character_name", None)
-            if char_name:
-                await self.update_character_state(
-                    project_id, char_name, chapter_number, state_data
-                )
-                results["character_states_updated"] += 1
-        
-        # 2. 提取并添加时间线事件
-        events = await self.extract_timeline_events_from_chapter(
-            project_id, chapter_number, chapter_content, user_id
-        )
-        for event_data in events:
-            await self.add_timeline_event(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                **event_data
-            )
-            results["timeline_events_added"] += 1
-
-        # 3. 将本章核心事实存入 mem0 长期记忆池
+    async def _extract_mem0_facts(
+        self, chapter_content: str, user_id: int
+    ) -> List[str]:
+        """从章节内容中提取核心事实（用于存入 mem0 长期记忆池）。"""
         mem0_prompt = f"""分析以下小说章节内容，提取重要的人物状态变化、关键情节转折、获得的物品信息、时间和地点的变化。
 
 [章节内容]
@@ -580,36 +572,107 @@ class MemoryLayerService:
 ```
 提取的事实必须是绝对准确的、简练的陈述句。"""
 
+        response = await self.llm_service.get_llm_response(
+            system_prompt="你是一个专业的小说剧情记忆提取助手。请严格按照 JSON 格式输出。",
+            conversation_history=[{"role": "user", "content": mem0_prompt}],
+            temperature=0.2,
+            user_id=user_id,
+            timeout=120.0
+        )
+
+        content = response
+        json_start = content.find("{")
+        json_end = content.rfind("}") + 1
+        if json_start >= 0 and json_end > json_start:
+            result = json.loads(content[json_start:json_end])
+            return result.get("facts", [])
+        return []
+
+    async def update_memory_after_chapter(
+        self,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        character_names: List[str],
+        user_id: int
+    ) -> Dict[str, Any]:
+        """章节完成后更新记忆层，包括提取新事实存入 mem0
+
+        使用 asyncio.gather 并行执行 3 个 LLM 提取步骤，每个步骤独立错误隔离。
+        """
+        results = {
+            "character_states_updated": 0,
+            "timeline_events_added": 0,
+            "causal_chains_added": 0,
+            "mem0_memories_added": 0
+        }
+
+        # ---- 顺序执行 3 个 LLM 提取（共享同一 async session，不可并发） ----
+        character_states: Any = []
+        events: Any = []
+        facts: Any = []
+
         try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt="你是一个专业的小说剧情记忆提取助手。请严格按照 JSON 格式输出。",
-                conversation_history=[{"role": "user", "content": mem0_prompt}],
-                temperature=0.2,
-                user_id=user_id,
-                timeout=120.0
+            character_states = await self.extract_character_states_from_chapter(
+                project_id, chapter_number, chapter_content, character_names, user_id
             )
-            
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
-                facts = result.get("facts", [])
-                
-                if facts:
-                    messages = [{"role": "user", "content": fact} for fact in facts]
-                    self.memory.add(messages, user_id=project_id)
-                    results["mem0_memories_added"] = len(facts)
         except Exception as e:
-            logger.warning(f"提取并存入 mem0 记忆失败: {e}")
-        
+            logger.warning(f"提取角色状态失败: {e}")
+
+        try:
+            events = await self.extract_timeline_events_from_chapter(
+                project_id, chapter_number, chapter_content, user_id
+            )
+        except Exception as e:
+            logger.warning(f"提取时间线事件失败: {e}")
+
+        try:
+            facts = await self._extract_mem0_facts(chapter_content, user_id)
+        except Exception as e:
+            logger.warning(f"提取 mem0 事实失败: {e}")
+            facts = []
+
+        # ---- 步骤 1: 写入角色状态（独立错误隔离） ----
+        try:
+            for state_data in character_states:
+                char_name = state_data.pop("character_name", None)
+                if char_name:
+                    await self.update_character_state(
+                        project_id, char_name, chapter_number, state_data
+                    )
+                    results["character_states_updated"] += 1
+        except Exception as e:
+            logger.warning(f"写入角色状态到数据库失败: {e}")
+
+        # ---- 步骤 2: 写入时间线事件（独立错误隔离） ----
+        try:
+            for event_data in events:
+                await self.add_timeline_event(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    **event_data
+                )
+                results["timeline_events_added"] += 1
+        except Exception as e:
+            logger.warning(f"写入时间线事件到数据库失败: {e}")
+
+        # ---- 步骤 3: 存入 mem0 长期记忆（独立错误隔离） ----
+
+        try:
+            if facts:
+                messages = [{"role": "user", "content": fact} for fact in facts]
+                await asyncio.to_thread(self.memory.add, messages, user_id=project_id)
+                results["mem0_memories_added"] = len(facts)
+        except Exception as e:
+            logger.warning(f"存入 mem0 记忆失败: {e}")
+
         logger.info(
             f"项目 {project_id} 第 {chapter_number} 章记忆层更新完成: "
             f"角色状态 {results['character_states_updated']}, "
             f"时间线事件 {results['timeline_events_added']}, "
             f"长期记忆(mem0) {results['mem0_memories_added']}"
         )
-        
+
         return results
 
     async def check_consistency(

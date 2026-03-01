@@ -195,12 +195,44 @@ def repair_json(text: str) -> str:
 
 
 def sanitize_chapter_plain_text(raw_text: str) -> str:
-    """清理章节正文中的 Markdown 标签，确保输出为纯文本叙事。"""
+    """清理章节正文中的 Markdown 标签和 LLM 前言，确保输出为纯文本叙事。"""
     if not raw_text:
         return raw_text
 
     # 先剥离可能泄漏的推理文本
     text = remove_think_tags(raw_text)
+
+    # ── 去除 LLM 对话式前言（安全网） ──
+    # 某些 LLM 会在正文前添加 "可以，下面是…" "好的，以下是第X章…" 等回应
+    lines = text.split("\n")
+    skip_count = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            skip_count += 1
+            continue
+        # 检测常见 LLM 对话式前言
+        if re.match(
+            r'^(可以[，。,.]|好的[，。,.]|当然[，。,.]|没问题[，。,.]|'
+            r'下面是|以下是|这是|我来|让我|'
+            r'精简后|精简版|概要版|缩写版|草稿版|'
+            r'如需扩展|如果需要|你(要是|需要|想)|'
+            r'我先给你|先给你|给你一版)',
+            stripped,
+        ):
+            skip_count += 1
+            continue
+        if re.match(r'^#{1,4}\s+.*(精简版|精简稿|概要版|草稿|压缩版|缩写版)', stripped):
+            skip_count += 1
+            continue
+        # 带括号的字数说明行：(约2600字)、（控制在4000字以内）
+        if re.match(r'^[\(（].*字.*[\)）][：:.]?\s*$', stripped):
+            skip_count += 1
+            continue
+        # 第一个看起来像正文的行，停止
+        break
+    if skip_count > 0:
+        text = "\n".join(lines[skip_count:]).lstrip("\n")
 
     # 先移除代码块围栏标记（保留内部文本）
     text = re.sub(r"(?m)^\s*```(?:\w+)?\s*$", "", text)

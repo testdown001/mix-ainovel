@@ -281,7 +281,8 @@ class EnrichmentService:
         chapter_text: str,
         target_word_count: int,
         current_word_count: int,
-        user_id: int
+        user_id: int,
+        max_word_count: int = 0,
     ) -> Optional[str]:
         """执行章节扩写"""
         prompt = ENRICH_CHAPTER_PROMPT.format(
@@ -289,12 +290,15 @@ class EnrichmentService:
             target_word_count=target_word_count,
             current_word_count=current_word_count
         )
-        
+
+        # 动态计算 max_tokens：优先使用 max_word_count 限制，否则使用默认值 8000
+        _enrich_max_tokens = int(max_word_count * 1.5) if max_word_count else 8000
+
         try:
             response = await self.llm_service.generate(
                 prompt=prompt,
                 user_id=user_id,
-                max_tokens=8000,
+                max_tokens=_enrich_max_tokens,
                 temperature=0.6
             )
             return response.strip() if response else None

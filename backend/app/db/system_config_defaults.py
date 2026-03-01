@@ -168,4 +168,24 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         value_getter=lambda _: None,
         description="润色优化专用 API 格式，留空则使用默认 llm.api_format。",
     ),
+    SystemConfigDefault(
+        key="llm_search.api_key",
+        value_getter=lambda _: None,
+        description="参考小说搜索专用 API Key，留空表示关闭网络搜索。",
+    ),
+    SystemConfigDefault(
+        key="llm_search.base_url",
+        value_getter=lambda _: None,
+        description="参考小说搜索专用 Base URL，留空表示关闭网络搜索。",
+    ),
+    SystemConfigDefault(
+        key="llm_search.model",
+        value_getter=lambda _: None,
+        description="参考小说搜索专用模型名称（如 grok-3），留空表示关闭网络搜索。",
+    ),
+    SystemConfigDefault(
+        key="llm_search.api_format",
+        value_getter=lambda _: None,
+        description="参考小说搜索专用 API 格式，留空表示关闭网络搜索。",
+    ),
 ]

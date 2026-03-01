@@ -2,13 +2,17 @@
 import json
 import logging
 import traceback
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from sqlalchemy import select
 
 from ...core.dependencies import get_current_user
 from ...db.session import get_session
+from ...models.entity_registry import EntityRegistry, EntityAlias
 from ...schemas.novel import (
     Blueprint,
     BlueprintGenerationResponse,
@@ -16,6 +20,8 @@ from ...schemas.novel import (
     Chapter as ChapterSchema,
     ConverseRequest,
     ConverseResponse,
+    ReferenceSearchRequest,
+    ReferenceSearchResponse,
     NovelProject as NovelProjectSchema,
     NovelProjectSummary,
     NovelSectionResponse,
@@ -26,6 +32,7 @@ from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
+from ...services.web_search_service import WebSearchService
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -55,6 +62,28 @@ def _ensure_prompt(prompt: str | None, name: str) -> str:
     if not prompt:
         raise HTTPException(status_code=500, detail=f"未配置名为 {name} 的提示词，请联系管理员")
     return prompt
+
+
+def _normalize_reference_novel_names(novel_names: Optional[List[str]]) -> List[str]:
+    cleaned: List[str] = []
+    for raw in (novel_names or [])[:3]:
+        text = (raw or "").strip()
+        if not text or text in cleaned:
+            continue
+        cleaned.append(text)
+    return cleaned
+
+
+def _inject_reference_context(system_prompt: str, reference_context: str) -> str:
+    context = (reference_context or "").strip()
+    if not context:
+        return system_prompt
+    return (
+        f"{system_prompt}\n\n"
+        "以下为用户提供的参考小说检索结果，请将其作为创作灵感参考，"
+        "但不要机械复刻具体剧情：\n"
+        f"{context}\n"
+    )
 
 
 @router.post("", response_model=NovelProjectSchema, status_code=status.HTTP_201_CREATED)
@@ -172,6 +201,45 @@ async def converse_with_concept(
     conversation_history.append({"role": "user", "content": user_content})
 
     system_prompt = _ensure_prompt(await prompt_service.get_prompt("concept"), "concept")
+    reference_context = (request.reference_context or "").strip()
+    normalized_reference_novels = _normalize_reference_novel_names(request.reference_novels)
+    if not history_records and not reference_context and normalized_reference_novels:
+        web_search_service = WebSearchService(session)
+        try:
+            reference_context = await web_search_service.search_reference_novels(
+                normalized_reference_novels,
+                user_id=current_user.id,
+                project_id=project_id,
+            )
+            logger.info(
+                "项目 %s 已注入参考小说搜索上下文: user=%s novels=%s",
+                project_id,
+                current_user.id,
+                normalized_reference_novels,
+            )
+        except HTTPException as exc:
+            if exc.status_code == 503:
+                logger.info(
+                    "项目 %s 未配置参考小说搜索模型，跳过搜索注入: user=%s",
+                    project_id,
+                    current_user.id,
+                )
+            else:
+                logger.warning(
+                    "项目 %s 参考小说搜索失败，继续执行概念对话: user=%s error=%s",
+                    project_id,
+                    current_user.id,
+                    exc.detail,
+                )
+        except Exception as exc:  # pragma: no cover - 防御性降级
+            logger.warning(
+                "项目 %s 参考小说搜索异常，继续执行概念对话: user=%s error=%s",
+                project_id,
+                current_user.id,
+                exc,
+            )
+    if reference_context:
+        system_prompt = _inject_reference_context(system_prompt, reference_context)
     system_prompt = f"{system_prompt}\n{JSON_RESPONSE_INSTRUCTION}"
 
     llm_response = await llm_service.get_llm_response(
@@ -214,6 +282,79 @@ async def converse_with_concept(
 
     parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
     return ConverseResponse(**parsed)
+
+
+@router.post("/{project_id}/reference-search", response_model=ReferenceSearchResponse)
+async def search_reference_novels(
+    project_id: str,
+    request: ReferenceSearchRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ReferenceSearchResponse:
+    """搜索参考小说信息并返回可注入灵感模式的上下文。"""
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    normalized_names = _normalize_reference_novel_names(request.novel_names)
+    if not normalized_names:
+        return ReferenceSearchResponse(
+            reference_context="",
+            search_completed=False,
+            skipped=True,
+            message="未提供参考小说，已跳过搜索",
+            searched_novels=[],
+        )
+
+    web_search_service = WebSearchService(session)
+    try:
+        reference_context = await web_search_service.search_reference_novels(
+            normalized_names,
+            user_id=current_user.id,
+            project_id=project_id,
+        )
+        return ReferenceSearchResponse(
+            reference_context=reference_context,
+            search_completed=True,
+            skipped=False,
+            message="参考小说搜索完成",
+            searched_novels=normalized_names,
+        )
+    except HTTPException as exc:
+        if exc.status_code == 503:
+            return ReferenceSearchResponse(
+                reference_context="",
+                search_completed=False,
+                skipped=True,
+                message=str(exc.detail),
+                searched_novels=normalized_names,
+            )
+        logger.warning(
+            "参考小说搜索失败: project=%s user=%s error=%s",
+            project_id,
+            current_user.id,
+            exc.detail,
+        )
+        return ReferenceSearchResponse(
+            reference_context="",
+            search_completed=False,
+            skipped=False,
+            message=f"参考小说搜索失败：{exc.detail}",
+            searched_novels=normalized_names,
+        )
+    except Exception as exc:  # pragma: no cover - 防御性降级
+        logger.exception(
+            "参考小说搜索异常: project=%s user=%s error=%s",
+            project_id,
+            current_user.id,
+            exc,
+        )
+        return ReferenceSearchResponse(
+            reference_context="",
+            search_completed=False,
+            skipped=False,
+            message="参考小说搜索失败，已自动降级为普通灵感模式",
+            searched_novels=normalized_names,
+        )
 
 
 @router.post("/{project_id}/blueprint/generate", response_model=BlueprintGenerationResponse)
@@ -424,3 +565,685 @@ async def patch_blueprint(
     await novel_service.patch_blueprint(project_id, update_data)
     logger.info("项目 %s 局部更新蓝图字段：%s", project_id, list(update_data.keys()))
     return await novel_service.get_project_schema(project_id, current_user.id)
+
+
+# ---------------------------------------------------------------------------
+# 角色 DNA 档案自动推演
+# ---------------------------------------------------------------------------
+
+class GenerateDNARequest(BaseModel):
+    """角色DNA自动推演请求"""
+    character_names: Optional[List[str]] = None  # 为空则为所有角色生成
+    overwrite: bool = False  # 是否覆盖已有的DNA档案
+
+
+DNA_GENERATION_SYSTEM_PROMPT = """\
+# 角色DNA档案推演专家
+
+你是一位资深的角色心理分析师和文学评论家。你的任务是根据小说的蓝图信息（角色设定、故事大纲、世界观、人物关系等），为每个角色推演出深层的"DNA档案"。
+
+## DNA档案八大维度
+
+你必须为每个角色填充以下八个维度：
+
+1. **childhood_trauma** (童年经历/创伤)：角色人格形成的根基，年少时的关键经历或创伤事件
+2. **core_fear** (核心恐惧)：驱动角色行为的深层恐惧，是行动的底层动力
+3. **inner_desire** (内心渴望)：角色真正想要的，可能连角色自己都不清楚的深层渴望
+4. **speech_habits** (说话习惯)：角色独特的语言特征——口头禅、语速、用词偏好、紧张时的变化
+5. **body_language** (身体语言)：非语言表达——紧张时的小动作、思考时的习惯、特有的姿态
+6. **thinking_pattern** (思维模式)：角色处理信息和做判断的方式——理性/感性、乐观/悲观等
+7. **decision_style** (决策方式)：角色做出选择的风格——果断/犹豫、逻辑/情感驱动等
+8. **hidden_secret** (隐藏的秘密)：角色不愿被人知道的事，以及这个秘密如何影响日常行为
+
+## 推演原则
+
+1. **基于已有设定推演**：从角色的身份、性格、目标、能力、关系出发，合理推导深层心理
+2. **与故事大纲一致**：推演结果要符合故事走向和角色在剧情中的定位
+3. **角色之间要有差异化**：不同角色的DNA应体现鲜明对比，避免雷同
+4. **具体而非抽象**：每个维度都要给出具体的描述，有画面感，不要泛泛而谈
+5. **中文回答**：所有内容使用中文
+
+## 输出格式
+
+严格按照以下 JSON 格式输出，不要输出任何额外文本：
+
+```json
+{
+  "characters": {
+    "角色名1": {
+      "childhood_trauma": "具体描述",
+      "core_fear": "具体描述",
+      "inner_desire": "具体描述",
+      "speech_habits": "具体描述",
+      "body_language": "具体描述",
+      "thinking_pattern": "具体描述",
+      "decision_style": "具体描述",
+      "hidden_secret": "具体描述"
+    },
+    "角色名2": { ... }
+  }
+}
+```
+"""
+
+
+@router.post("/{project_id}/characters/generate-dna")
+async def generate_character_dna(
+    project_id: str,
+    request: GenerateDNARequest = Body(default_factory=GenerateDNARequest),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """
+    基于小说的蓝图、大纲、世界观等信息，使用AI自动推演角色的DNA档案。
+    """
+    novel_service = NovelService(session)
+    llm_service = LLMService(session)
+
+    # 验证项目所有权并加载蓝图
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    project_schema = await novel_service._serialize_project(project)
+
+    if not project_schema.blueprint:
+        raise HTTPException(status_code=400, detail="项目尚未生成蓝图，请先完成蓝图生成")
+
+    bp = project_schema.blueprint
+    characters = bp.characters or []
+    if not characters:
+        raise HTTPException(status_code=400, detail="项目尚未配置角色信息")
+
+    # 筛选需要生成DNA的角色
+    target_characters = []
+    for char in characters:
+        name = char.get("name", "")
+        if not name:
+            continue
+        # 如果指定了角色名列表，只处理指定角色
+        if request.character_names and name not in request.character_names:
+            continue
+        # 如果角色已有DNA且不覆盖，跳过
+        existing_dna = char.get("extra", {}).get("dna_profile", {}) if isinstance(char.get("extra"), dict) else {}
+        if existing_dna and not request.overwrite:
+            has_content = any(v and str(v).strip() for v in existing_dna.values())
+            if has_content:
+                continue
+        target_characters.append(char)
+
+    if not target_characters:
+        return {
+            "status": "skipped",
+            "message": "所有角色已有DNA档案（如需覆盖请设置 overwrite=true）",
+            "updated_characters": [],
+        }
+
+    # 构建上下文：角色信息 + 大纲 + 故事梗概 + 世界观 + 人物关系
+    context_parts = []
+
+    # 故事基本信息
+    if bp.title:
+        context_parts.append(f"## 小说标题\n{bp.title}")
+    if bp.genre:
+        context_parts.append(f"## 类型\n{bp.genre}")
+    if bp.one_sentence_summary:
+        context_parts.append(f"## 一句话概要\n{bp.one_sentence_summary}")
+    if bp.full_synopsis:
+        context_parts.append(f"## 完整梗概\n{bp.full_synopsis}")
+
+    # 世界观
+    if bp.world_setting:
+        ws_text = json.dumps(bp.world_setting, ensure_ascii=False, indent=2)
+        context_parts.append(f"## 世界观设定\n{ws_text}")
+
+    # 所有角色基础信息
+    char_info_parts = []
+    for char in characters:
+        info_lines = [f"- 姓名：{char.get('name', '未命名')}"]
+        if char.get("identity"):
+            info_lines.append(f"  身份：{char['identity']}")
+        if char.get("personality"):
+            info_lines.append(f"  性格：{char['personality']}")
+        if char.get("goals"):
+            info_lines.append(f"  目标：{char['goals']}")
+        if char.get("abilities"):
+            info_lines.append(f"  能力：{char['abilities']}")
+        if char.get("relationship_to_protagonist"):
+            info_lines.append(f"  与主角关系：{char['relationship_to_protagonist']}")
+        char_info_parts.append("\n".join(info_lines))
+    context_parts.append(f"## 角色设定\n" + "\n\n".join(char_info_parts))
+
+    # 人物关系
+    if bp.relationships:
+        rel_lines = []
+        for rel in bp.relationships:
+            if hasattr(rel, "character_from"):
+                rel_lines.append(
+                    f"- {rel.character_from} → {rel.character_to}：{rel.description}"
+                )
+            elif isinstance(rel, dict):
+                rel_lines.append(
+                    f"- {rel.get('character_from', '?')} → {rel.get('character_to', '?')}：{rel.get('description', '')}"
+                )
+        if rel_lines:
+            context_parts.append(f"## 人物关系\n" + "\n".join(rel_lines))
+
+    # 章节大纲（取前30章避免过长）
+    if bp.chapter_outline:
+        outline_lines = []
+        for outline in bp.chapter_outline[:30]:
+            line = f"第{outline.chapter_number}章 {outline.title}：{outline.summary}"
+            outline_lines.append(line)
+        context_parts.append(f"## 章节大纲\n" + "\n".join(outline_lines))
+
+    context_text = "\n\n".join(context_parts)
+
+    # 构建用户请求
+    target_names = [c.get("name", "") for c in target_characters]
+    user_message = f"""请根据以下小说信息，为这些角色推演DNA档案：
+
+**需要推演的角色**：{", ".join(target_names)}
+
+---
+
+{context_text}"""
+
+    logger.info(
+        "用户 %s 请求为项目 %s 的 %d 个角色生成DNA档案",
+        current_user.id, project_id, len(target_names),
+    )
+
+    # 调用 LLM
+    try:
+        llm_response = await llm_service.get_llm_response(
+            system_prompt=DNA_GENERATION_SYSTEM_PROMPT,
+            conversation_history=[{"role": "user", "content": user_message}],
+            temperature=0.7,
+            user_id=current_user.id,
+            timeout=600.0,
+            max_tokens=8192,
+        )
+
+        cleaned = remove_think_tags(llm_response)
+        normalized = unwrap_markdown_json(cleaned)
+        result = json.loads(repair_json(sanitize_json_like_text(normalized)))
+
+    except json.JSONDecodeError as exc:
+        logger.error("项目 %s DNA推演JSON解析失败: %s\n原始响应: %s", project_id, exc, llm_response[:500])
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI返回的DNA档案格式不正确，请重试。错误: {str(exc)[:200]}"
+        ) from exc
+    except Exception as exc:
+        logger.exception("项目 %s DNA推演LLM调用失败: %s", project_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"DNA推演过程中发生错误: {str(exc)[:200]}"
+        ) from exc
+
+    # 解析结果并更新角色
+    generated_dna = result.get("characters", result)
+    if not isinstance(generated_dna, dict):
+        raise HTTPException(status_code=500, detail="AI返回的DNA数据格式不符合预期，请重试")
+
+    # 更新角色数据
+    updated_names = []
+    updated_characters = []
+    for char in characters:
+        name = char.get("name", "")
+        char_copy = dict(char)
+
+        if name in generated_dna:
+            dna_data = generated_dna[name]
+            if isinstance(dna_data, dict):
+                # 确保 extra 结构正确
+                if "extra" not in char_copy or not isinstance(char_copy.get("extra"), dict):
+                    char_copy["extra"] = {}
+                char_copy["extra"]["dna_profile"] = {
+                    "childhood_trauma": dna_data.get("childhood_trauma", ""),
+                    "core_fear": dna_data.get("core_fear", ""),
+                    "inner_desire": dna_data.get("inner_desire", ""),
+                    "speech_habits": dna_data.get("speech_habits", ""),
+                    "body_language": dna_data.get("body_language", ""),
+                    "thinking_pattern": dna_data.get("thinking_pattern", ""),
+                    "decision_style": dna_data.get("decision_style", ""),
+                    "hidden_secret": dna_data.get("hidden_secret", ""),
+                }
+                updated_names.append(name)
+
+        updated_characters.append(char_copy)
+
+    # 通过 patch_blueprint 保存更新后的角色
+    await novel_service.patch_blueprint(project_id, {"characters": updated_characters})
+
+    logger.info(
+        "项目 %s DNA推演完成，更新了 %d 个角色: %s",
+        project_id, len(updated_names), updated_names,
+    )
+
+    return {
+        "status": "success",
+        "message": f"成功为 {len(updated_names)} 个角色生成DNA档案",
+        "updated_characters": updated_names,
+    }
+
+
+# ============================================================
+# 概念库 / 设定百科 API
+# ============================================================
+
+class ConceptCreate(BaseModel):
+    entity_type: str = "character"
+    canonical_name: str
+    description: Optional[str] = None
+    properties: Optional[dict] = None
+    aliases: Optional[List[str]] = None
+
+
+class ConceptUpdate(BaseModel):
+    entity_type: Optional[str] = None
+    canonical_name: Optional[str] = None
+    description: Optional[str] = None
+    properties: Optional[dict] = None
+    aliases: Optional[List[str]] = None
+
+
+@router.get("/{project_id}/concepts")
+async def list_concepts(
+    project_id: str,
+    entity_type: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取项目的所有概念 / 设定百科条目"""
+    stmt = select(EntityRegistry).where(
+        EntityRegistry.project_id == project_id,
+        EntityRegistry.is_active == True,
+    )
+    if entity_type:
+        stmt = stmt.where(EntityRegistry.entity_type == entity_type)
+    stmt = stmt.order_by(EntityRegistry.entity_type, EntityRegistry.canonical_name)
+
+    result = await session.execute(stmt)
+    entities = result.scalars().all()
+
+    concepts = []
+    for e in entities:
+        # 加载别名
+        alias_stmt = select(EntityAlias).where(EntityAlias.entity_id == e.id)
+        alias_result = await session.execute(alias_stmt)
+        aliases = [a.alias for a in alias_result.scalars().all()]
+
+        concepts.append({
+            "id": e.id,
+            "entity_type": e.entity_type,
+            "canonical_name": e.canonical_name,
+            "description": e.description,
+            "properties": e.properties or {},
+            "aliases": aliases,
+            "source": e.source,
+            "first_chapter": e.first_chapter,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
+        })
+
+    return concepts
+
+
+@router.post("/{project_id}/concepts")
+async def create_concept(
+    project_id: str,
+    data: ConceptCreate = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """创建新概念"""
+    entity = EntityRegistry(
+        project_id=project_id,
+        entity_type=data.entity_type,
+        canonical_name=data.canonical_name,
+        description=data.description,
+        properties=data.properties or {},
+        source="manual",
+        confidence=1.0,
+    )
+    session.add(entity)
+    await session.flush()
+
+    if data.aliases:
+        for alias_name in data.aliases:
+            alias = EntityAlias(entity_id=entity.id, alias=alias_name, alias_type="alias")
+            session.add(alias)
+
+    await session.commit()
+    return {"id": entity.id, "message": "概念创建成功"}
+
+
+@router.put("/{project_id}/concepts/{concept_id}")
+async def update_concept(
+    project_id: str,
+    concept_id: int,
+    data: ConceptUpdate = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """更新概念"""
+    stmt = select(EntityRegistry).where(
+        EntityRegistry.id == concept_id,
+        EntityRegistry.project_id == project_id,
+    )
+    result = await session.execute(stmt)
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="概念不存在")
+
+    if data.entity_type is not None:
+        entity.entity_type = data.entity_type
+    if data.canonical_name is not None:
+        entity.canonical_name = data.canonical_name
+    if data.description is not None:
+        entity.description = data.description
+    if data.properties is not None:
+        entity.properties = data.properties
+
+    if data.aliases is not None:
+        # 删除旧别名
+        old_aliases = await session.execute(
+            select(EntityAlias).where(EntityAlias.entity_id == concept_id)
+        )
+        for old in old_aliases.scalars().all():
+            await session.delete(old)
+        # 添加新别名
+        for alias_name in data.aliases:
+            session.add(EntityAlias(entity_id=concept_id, alias=alias_name, alias_type="alias"))
+
+    await session.commit()
+    return {"message": "概念更新成功"}
+
+
+@router.delete("/{project_id}/concepts/{concept_id}")
+async def delete_concept(
+    project_id: str,
+    concept_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """删除概念"""
+    stmt = select(EntityRegistry).where(
+        EntityRegistry.id == concept_id,
+        EntityRegistry.project_id == project_id,
+    )
+    result = await session.execute(stmt)
+    entity = result.scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="概念不存在")
+
+    await session.delete(entity)
+    await session.commit()
+    return {"message": "概念已删除"}
+
+
+CONCEPT_EXTRACTION_PROMPT = """你是一名专业的世界观设定分析师。请根据以下小说蓝图信息，提取并整理所有关键设定概念。
+
+## 小说信息
+{context}
+
+## 任务
+请从上述信息中提取所有重要的设定概念，分类为以下类型：
+- character: 重要角色
+- location: 地点/场景
+- organization: 组织/势力/门派
+- item: 重要物品/道具
+- ability: 能力/技能/法术
+
+对于每个概念，提供：
+- canonical_name: 规范名称
+- entity_type: 类型
+- description: 详细描述（50-100字）
+- aliases: 别名列表
+
+## 输出格式（严格JSON）
+```json
+{
+  "concepts": [
+    {
+      "canonical_name": "名称",
+      "entity_type": "character",
+      "description": "描述",
+      "aliases": ["别名1", "别名2"]
+    }
+  ]
+}
+```
+"""
+
+
+@router.post("/{project_id}/concepts/generate")
+async def generate_concepts(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """AI一键从蓝图提取概念"""
+    novel_service = NovelService(session)
+    llm_service = LLMService(session)
+
+    project_data = await novel_service._serialize_project(project_id)
+    if not project_data:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    # 构建上下文
+    context_parts = []
+    bp = project_data.get("blueprint", {})
+    if bp.get("title"):
+        context_parts.append(f"标题: {bp['title']}")
+    if bp.get("genre"):
+        context_parts.append(f"类型: {bp['genre']}")
+    if bp.get("full_synopsis"):
+        context_parts.append(f"梗概: {bp['full_synopsis']}")
+    ws = bp.get("world_setting", {})
+    if ws:
+        context_parts.append(f"世界设定: {json.dumps(ws, ensure_ascii=False)}")
+    chars = project_data.get("characters", [])
+    if chars:
+        char_summary = "; ".join([f"{c.get('name','?')}({c.get('identity','')})" for c in chars])
+        context_parts.append(f"角色: {char_summary}")
+
+    context = "\n".join(context_parts)
+    prompt = CONCEPT_EXTRACTION_PROMPT.format(context=context)
+
+    try:
+        llm_response = await llm_service.get_llm_response(
+            system_prompt=prompt,
+            user_message="请提取所有概念。",
+            user_id=current_user.id,
+            timeout=300.0,
+        )
+        cleaned = remove_think_tags(llm_response)
+        normalized = unwrap_markdown_json(cleaned)
+        result = json.loads(repair_json(sanitize_json_like_text(normalized)))
+    except Exception as exc:
+        logger.exception("概念提取失败: %s", exc)
+        raise HTTPException(status_code=500, detail=f"概念提取失败: {str(exc)[:200]}")
+
+    concepts_data = result.get("concepts", [])
+    created_count = 0
+
+    for c in concepts_data:
+        name = c.get("canonical_name", "").strip()
+        if not name:
+            continue
+
+        # 检查是否已存在
+        existing = await session.execute(
+            select(EntityRegistry).where(
+                EntityRegistry.project_id == project_id,
+                EntityRegistry.canonical_name == name,
+            )
+        )
+        if existing.scalar_one_or_none():
+            continue
+
+        entity = EntityRegistry(
+            project_id=project_id,
+            entity_type=c.get("entity_type", "item"),
+            canonical_name=name,
+            description=c.get("description", ""),
+            properties={},
+            source="auto_detected",
+            confidence=0.8,
+        )
+        session.add(entity)
+        await session.flush()
+
+        for alias_name in c.get("aliases", []):
+            if alias_name.strip():
+                session.add(EntityAlias(entity_id=entity.id, alias=alias_name.strip(), alias_type="alias"))
+
+        created_count += 1
+
+    await session.commit()
+    return {"status": "success", "message": f"成功提取 {created_count} 个概念", "count": created_count}
+
+
+# ============================================================
+# 场景级管理 API
+# ============================================================
+
+class SceneItem(BaseModel):
+    title: str
+    summary: Optional[str] = ""
+    location: Optional[str] = ""
+    characters: Optional[List[str]] = []
+    mood: Optional[str] = ""
+
+
+class ScenesUpdate(BaseModel):
+    scenes: List[SceneItem]
+
+
+@router.get("/{project_id}/outlines/{chapter_number}/scenes")
+async def get_chapter_scenes(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取章节的场景列表"""
+    from ...models.novel import ChapterOutline
+    stmt = select(ChapterOutline).where(
+        ChapterOutline.project_id == project_id,
+        ChapterOutline.chapter_number == chapter_number,
+    )
+    result = await session.execute(stmt)
+    outline = result.scalar_one_or_none()
+    if not outline:
+        raise HTTPException(status_code=404, detail="章节大纲不存在")
+
+    metadata = outline.metadata_ or {}
+    scenes = metadata.get("scenes", [])
+    return {"chapter_number": chapter_number, "scenes": scenes}
+
+
+@router.put("/{project_id}/outlines/{chapter_number}/scenes")
+async def update_chapter_scenes(
+    project_id: str,
+    chapter_number: int,
+    data: ScenesUpdate = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """更新章节的场景列表"""
+    from ...models.novel import ChapterOutline
+    stmt = select(ChapterOutline).where(
+        ChapterOutline.project_id == project_id,
+        ChapterOutline.chapter_number == chapter_number,
+    )
+    result = await session.execute(stmt)
+    outline = result.scalar_one_or_none()
+    if not outline:
+        raise HTTPException(status_code=404, detail="章节大纲不存在")
+
+    metadata = dict(outline.metadata_ or {})
+    metadata["scenes"] = [s.model_dump() for s in data.scenes]
+    outline.metadata_ = metadata
+    await session.commit()
+    return {"message": "场景更新成功", "scenes": metadata["scenes"]}
+
+
+SCENE_SPLIT_PROMPT = """你是一名专业的小说结构分析师。请将以下章节大纲拆分为多个场景。
+
+## 章节信息
+标题: {title}
+摘要: {summary}
+
+## 任务
+将该章节的内容按照叙事逻辑拆分为2-5个场景。每个场景应包含：
+- title: 场景标题（简短，3-8字）
+- summary: 场景摘要（50-100字）
+- location: 场景地点
+- characters: 涉及角色列表
+- mood: 情感基调（如：紧张、温馨、悲伤、轻松）
+
+## 输出格式（严格JSON）
+```json
+{{
+  "scenes": [
+    {{
+      "title": "场景标题",
+      "summary": "场景摘要",
+      "location": "地点",
+      "characters": ["角色1", "角色2"],
+      "mood": "紧张"
+    }}
+  ]
+}}
+```
+"""
+
+
+@router.post("/{project_id}/outlines/{chapter_number}/scenes/generate")
+async def generate_chapter_scenes(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """AI自动拆分章节为场景"""
+    from ...models.novel import ChapterOutline
+    llm_service = LLMService(session)
+
+    stmt = select(ChapterOutline).where(
+        ChapterOutline.project_id == project_id,
+        ChapterOutline.chapter_number == chapter_number,
+    )
+    result = await session.execute(stmt)
+    outline = result.scalar_one_or_none()
+    if not outline:
+        raise HTTPException(status_code=404, detail="章节大纲不存在")
+
+    prompt = SCENE_SPLIT_PROMPT.format(
+        title=outline.title or f"第{chapter_number}章",
+        summary=outline.summary or "无摘要",
+    )
+
+    try:
+        llm_response = await llm_service.get_llm_response(
+            system_prompt=prompt,
+            user_message="请拆分场景。",
+            user_id=current_user.id,
+            timeout=120.0,
+        )
+        cleaned = remove_think_tags(llm_response)
+        normalized = unwrap_markdown_json(cleaned)
+        result_data = json.loads(repair_json(sanitize_json_like_text(normalized)))
+    except Exception as exc:
+        logger.exception("场景拆分失败: %s", exc)
+        raise HTTPException(status_code=500, detail=f"场景拆分失败: {str(exc)[:200]}")
+
+    scenes = result_data.get("scenes", [])
+
+    # 保存到 metadata
+    metadata = dict(outline.metadata_ or {})
+    metadata["scenes"] = scenes
+    outline.metadata_ = metadata
+    await session.commit()
+
+    return {"status": "success", "message": f"成功拆分为 {len(scenes)} 个场景", "scenes": scenes}

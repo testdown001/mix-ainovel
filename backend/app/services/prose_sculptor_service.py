@@ -96,9 +96,10 @@ class ProseSculptorService:
         self.llm_service = llm_service
 
     async def sculpt_rhythm(
-        self, chapter_content: str, *, user_id: int
+        self, chapter_content: str, *, user_id: int, max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         prompt = RHYTHM_SCULPT_PROMPT.replace("{chapter_content}", chapter_content)
+        _rhythm_max_tokens = int(max_word_count * 1.5) if max_word_count else settings.writer_max_tokens
         try:
             response = await self.llm_service.get_llm_response(
                 system_prompt=RHYTHM_SCULPT_SYSTEM,
@@ -107,7 +108,7 @@ class ProseSculptorService:
                 user_id=user_id,
                 timeout=60.0,
                 response_format=None,
-                max_tokens=settings.writer_max_tokens,
+                max_tokens=_rhythm_max_tokens,
             )
             result = (remove_think_tags(response) or response).strip()
             if len(result) < len(chapter_content) * 0.6:
@@ -119,9 +120,10 @@ class ProseSculptorService:
             return chapter_content, {"applied": False, "error": str(e)}
 
     async def sculpt_density(
-        self, chapter_content: str, *, user_id: int
+        self, chapter_content: str, *, user_id: int, max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         prompt = DENSITY_SCULPT_PROMPT.replace("{chapter_content}", chapter_content)
+        _density_max_tokens = int(max_word_count * 1.5) if max_word_count else settings.writer_max_tokens
         try:
             response = await self.llm_service.get_llm_response(
                 system_prompt=DENSITY_SCULPT_SYSTEM,
@@ -130,7 +132,7 @@ class ProseSculptorService:
                 user_id=user_id,
                 timeout=60.0,
                 response_format=None,
-                max_tokens=settings.writer_max_tokens,
+                max_tokens=_density_max_tokens,
             )
             result = (remove_think_tags(response) or response).strip()
             if len(result) < len(chapter_content) * 0.6:
@@ -170,6 +172,7 @@ class ProseSculptorService:
                     user_id=user_id,
                     timeout=45.0,
                     response_format=None,
+                    max_tokens=4096,
                 )
                 rewrite = (remove_think_tags(response) or response).strip()
                 if rewrite and len(rewrite) > len(para_text) * 0.4:

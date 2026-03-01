@@ -1,46 +1,13 @@
 // AIMETA P=管理员API客户端_管理接口调用|R=用户管理_系统配置_统计|NR=不含UI逻辑|E=api:admin|X=internal|A=adminApi对象|D=axios|S=net|RD=./README.ai
-import { useAuthStore } from '@/stores/auth'
-import router from '@/router'
 import type { NovelSectionResponse, NovelSectionType } from '@/api/novel'
+import { requestJson } from './http'
 
 // API 配置
 export const API_BASE_URL = ''
 export const ADMIN_API_PREFIX = '/api/admin'
 
-// 统一请求封装
-const request = async (url: string, options: RequestInit = {}) => {
-  const authStore = useAuthStore()
-  const headers = new Headers({
-    'Content-Type': 'application/json',
-    ...options.headers
-  })
-
-  if (authStore.isAuthenticated && authStore.token) {
-    headers.set('Authorization', `Bearer ${authStore.token}`)
-  }
-
-  const response = await fetch(url, { ...options, headers })
-
-  if (response.status === 401) {
-    authStore.logout()
-    router.push('/login')
-    throw new Error('会话已过期，请重新登录')
-  }
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(errorData.detail || `请求失败，状态码: ${response.status}`)
-  }
-
-  if (response.status === 204) {
-    return
-  }
-
-  return response.json()
-}
-
-const adminRequest = (path: string, options: RequestInit = {}) =>
-  request(`${API_BASE_URL}${ADMIN_API_PREFIX}${path}`, options)
+const adminRequest = <T = any>(path: string, options: RequestInit = {}) =>
+  requestJson<T>(`${API_BASE_URL}${ADMIN_API_PREFIX}${path}`, options)
 
 // 类型定义
 export interface Statistics {
@@ -156,8 +123,8 @@ export interface SystemConfigUpsertPayload {
 export type SystemConfigUpdatePayload = Partial<SystemConfigUpsertPayload>
 
 export class AdminAPI {
-  private static request(path: string, options: RequestInit = {}) {
-    return adminRequest(path, options)
+  private static request<T = any>(path: string, options: RequestInit = {}) {
+    return adminRequest<T>(path, options)
   }
 
   // Overview

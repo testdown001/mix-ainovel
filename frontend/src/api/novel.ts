@@ -181,6 +181,14 @@ export interface ConverseResponse {
   ready_for_blueprint?: boolean  // 新增：表示准备生成蓝图
 }
 
+export interface ReferenceSearchResponse {
+  reference_context: string
+  search_completed: boolean
+  skipped: boolean
+  message?: string
+  searched_novels: string[]
+}
+
 export interface BlueprintGenerationResponse {
   blueprint: Blueprint
   ai_message: string
@@ -315,15 +323,44 @@ export class NovelAPI {
   static async converseConcept(
     projectId: string,
     userInput: any,
-    conversationState: any = {}
+    conversationState: any = {},
+    options: {
+      referenceNovels?: string[]
+      referenceContext?: string
+    } = {}
   ): Promise<ConverseResponse> {
     const formattedUserInput = userInput || { id: null, value: null }
+    const payload: Record<string, any> = {
+      user_input: formattedUserInput,
+      conversation_state: conversationState
+    }
+    const normalizedReferenceNovels = (options.referenceNovels || [])
+      .map((name) => (name || '').trim())
+      .filter(Boolean)
+      .slice(0, 3)
+    if (normalizedReferenceNovels.length > 0) {
+      payload.reference_novels = normalizedReferenceNovels
+    }
+    if (options.referenceContext && options.referenceContext.trim()) {
+      payload.reference_context = options.referenceContext.trim()
+    }
     return request(`${NOVELS_BASE}/${projectId}/concept/converse`, {
       method: 'POST',
-      body: JSON.stringify({
-        user_input: formattedUserInput,
-        conversation_state: conversationState
-      })
+      body: JSON.stringify(payload)
+    })
+  }
+
+  static async searchReferenceNovels(
+    projectId: string,
+    novelNames: string[]
+  ): Promise<ReferenceSearchResponse> {
+    const normalized = (novelNames || [])
+      .map((name) => (name || '').trim())
+      .filter(Boolean)
+      .slice(0, 3)
+    return request(`${NOVELS_BASE}/${projectId}/reference-search`, {
+      method: 'POST',
+      body: JSON.stringify({ novel_names: normalized })
     })
   }
 
@@ -509,8 +546,102 @@ export class NovelAPI {
       })
     })
   }
+
+  /**
+   * 一键生成角色DNA档案
+   */
+  static async generateCharacterDNA(
+    projectId: string,
+    characterNames?: string[],
+    overwrite: boolean = false
+  ): Promise<{ status: string; message: string; updated_characters: string[] }> {
+    return request(`${NOVELS_BASE}/${projectId}/characters/generate-dna`, {
+      method: 'POST',
+      body: JSON.stringify({
+        character_names: characterNames || null,
+        overwrite
+      })
+    })
+  }
+
+  // ---- 场景管理 API ----
+
+  static async getChapterScenes(projectId: string, chapterNumber: number): Promise<{ chapter_number: number; scenes: any[] }> {
+    return request(`${NOVELS_BASE}/${projectId}/outlines/${chapterNumber}/scenes`)
+  }
+
+  static async updateChapterScenes(projectId: string, chapterNumber: number, scenes: any[]): Promise<any> {
+    return request(`${NOVELS_BASE}/${projectId}/outlines/${chapterNumber}/scenes`, {
+      method: 'PUT',
+      body: JSON.stringify({ scenes })
+    })
+  }
+
+  static async generateChapterScenes(projectId: string, chapterNumber: number): Promise<any> {
+    return request(`${NOVELS_BASE}/${projectId}/outlines/${chapterNumber}/scenes/generate`, {
+      method: 'POST'
+    })
+  }
 }
 
+// ---- 概念库 / 设定百科 API ----
+
+export interface Concept {
+  id: number
+  entity_type: string
+  canonical_name: string
+  description: string | null
+  properties: Record<string, any>
+  aliases: string[]
+  source: string
+  first_chapter: number | null
+  created_at: string | null
+}
+
+export class ConceptAPI {
+  static async list(projectId: string, entityType?: string): Promise<Concept[]> {
+    const params = entityType ? `?entity_type=${entityType}` : ''
+    return request(`${NOVELS_BASE}/${projectId}/concepts${params}`)
+  }
+
+  static async create(projectId: string, data: {
+    entity_type: string
+    canonical_name: string
+    description?: string
+    properties?: Record<string, any>
+    aliases?: string[]
+  }): Promise<{ id: number; message: string }> {
+    return request(`${NOVELS_BASE}/${projectId}/concepts`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  static async update(projectId: string, conceptId: number, data: {
+    entity_type?: string
+    canonical_name?: string
+    description?: string
+    properties?: Record<string, any>
+    aliases?: string[]
+  }): Promise<{ message: string }> {
+    return request(`${NOVELS_BASE}/${projectId}/concepts/${conceptId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  static async delete(projectId: string, conceptId: number): Promise<{ message: string }> {
+    return request(`${NOVELS_BASE}/${projectId}/concepts/${conceptId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  static async generate(projectId: string): Promise<{ status: string; message: string; count: number }> {
+    return request(`${NOVELS_BASE}/${projectId}/concepts/generate`, {
+      method: 'POST'
+    })
+  }
+}
 
 // 优化相关类型定义
 export interface EmotionBeat {

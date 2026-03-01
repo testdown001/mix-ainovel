@@ -285,7 +285,8 @@ class SelfCritiqueService:
         chapter_content: str,
         issues: List[Dict[str, Any]],
         context: Optional[Dict[str, Any]] = None,
-        user_id: int = 0
+        user_id: int = 0,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """
         根据批评意见修改章节
@@ -338,13 +339,16 @@ class SelfCritiqueService:
 直接输出修改后的完整章节，不要输出其他内容。"""
 
         try:
-            response = await self.llm_service.get_llm_response(
+            _llm_kwargs = dict(
                 system_prompt="你是一位资深网文作者，擅长根据编辑意见修改文章。",
                 conversation_history=[{"role": "user", "content": prompt}],
                 temperature=0.7,
                 user_id=user_id,
-                timeout=180.0
+                timeout=180.0,
             )
+            if max_tokens:
+                _llm_kwargs["max_tokens"] = max_tokens
+            response = await self.llm_service.get_llm_response(**_llm_kwargs)
             
             return response.strip()
         except Exception as e:
@@ -358,7 +362,8 @@ class SelfCritiqueService:
         target_score: float = 75.0,
         dimensions: Optional[List[CritiqueDimension]] = None,
         context: Optional[Dict[str, Any]] = None,
-        user_id: int = 0
+        user_id: int = 0,
+        max_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         执行完整的批评-修正循环
@@ -437,7 +442,8 @@ class SelfCritiqueService:
                 chapter_content=current_content,
                 issues=critique["priority_fixes"],
                 context=context,
-                user_id=user_id
+                user_id=user_id,
+                max_tokens=max_tokens,
             )
             
             if revised_content and revised_content != current_content:

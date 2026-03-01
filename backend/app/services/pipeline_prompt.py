@@ -5,7 +5,13 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from ..core.constants import CHAPTER_STYLE_HARD_RULE, CHAPTER_WORD_COUNT_RULE
+from ..core.constants import (
+    CHAPTER_MAX_WORDS,
+    CHAPTER_MIN_WORDS,
+    CHAPTER_RECOMMENDED_WORDS,
+    CHAPTER_STYLE_HARD_RULE,
+    CHAPTER_WORD_COUNT_RULE,
+)
 from ..utils.json_utils import remove_think_tags
 
 logger = logging.getLogger(__name__)
@@ -13,6 +19,37 @@ logger = logging.getLogger(__name__)
 
 class PipelinePromptMixin:
     """流水线提示词构建相关方法。"""
+
+    @staticmethod
+    def _build_word_count_rule(
+        chapter_word_count_min: Optional[int],
+        chapter_word_count_max: Optional[int],
+        chapter_target_word_count: Optional[int],
+    ) -> str:
+        """构建章节字数规则，优先使用运行时配置，失败时回退常量。"""
+        try:
+            min_words = int(chapter_word_count_min or CHAPTER_MIN_WORDS)
+            max_words = int(chapter_word_count_max or CHAPTER_MAX_WORDS)
+            if min_words < 1:
+                min_words = CHAPTER_MIN_WORDS
+            if max_words < min_words:
+                max_words = min_words
+
+            fallback_target = min_words + (max_words - min_words) // 2
+            target_words = int(chapter_target_word_count or fallback_target)
+            target_words = max(min_words, min(max_words, target_words))
+            if target_words < 1:
+                target_words = CHAPTER_RECOMMENDED_WORDS
+
+            return (
+                f"【硬性要求】本章正文必须控制在 {min_words} 到 {max_words} 字之间，"
+                f"目标约 {target_words} 字。超过 {max_words} 字即为不合格，必须精简。"
+                f"宁可少写一个场景细节，也绝对不要超过 {max_words} 字。"
+                "冲突/动作段可用短句提速，铺垫/心理段可用长句展开；长短句必须交替变化，"
+                "禁止整章单一句式。不要为凑字数硬加空描写，也不要因压字数跳过关键动作与情绪递进。"
+            )
+        except (TypeError, ValueError):
+            return CHAPTER_WORD_COUNT_RULE
 
     @staticmethod
     def _build_emotion_expression_brief(completed_chapters: List[Dict[str, Any]]) -> str:
@@ -215,6 +252,9 @@ class PipelinePromptMixin:
         fingerprint_context: Optional[str] = None,
         prediction_text: Optional[str] = None,
         user_style_rules: Optional[str] = None,
+        chapter_word_count_min: Optional[int] = None,
+        chapter_word_count_max: Optional[int] = None,
+        chapter_target_word_count: Optional[int] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -232,11 +272,20 @@ class PipelinePromptMixin:
             mission_text = json.dumps(chapter_mission, ensure_ascii=False, indent=2)
             sections.append(("[章节导演脚本](JSON)", mission_text))
 
-        sections.append(("[章节字数要求]", CHAPTER_WORD_COUNT_RULE))
+        sections.append(
+            (
+                "[章节字数要求]",
+                PipelinePromptMixin._build_word_count_rule(
+                    chapter_word_count_min=chapter_word_count_min,
+                    chapter_word_count_max=chapter_word_count_max,
+                    chapter_target_word_count=chapter_target_word_count,
+                ),
+            )
+        )
 
         # --- TIER 2: 上下文参考（中间位置）---
         if story_skeleton:
-            sections.append(("[故事骨架](前情关键节点采样，帮助你把握全局走向)", story_skeleton))
+            sections.append(("[故事骨架](三层压缩：近章详细/中距摘要/远距关键事件)", story_skeleton))
 
         sections.extend(
             [

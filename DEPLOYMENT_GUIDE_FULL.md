@@ -120,7 +120,7 @@ nano .env
 SECRET_KEY=your_random_secret_key_here
 
 # 数据库配置
-DB_PROVIDER=mysql  # 或 sqlite
+DB_PROVIDER=mysql
 MYSQL_HOST=db
 MYSQL_PORT=3306
 MYSQL_USER=arboris
@@ -157,11 +157,7 @@ bash deploy/scripts/verify_migration.sh
 ```bash
 cd deploy
 
-# 如果使用 MySQL
-docker-compose --profile mysql build --no-cache
-docker-compose --profile mysql up -d
-
-# 如果使用 SQLite
+# 构建并启动（当前仅支持 MySQL）
 docker-compose build --no-cache
 docker-compose up -d
 ```
@@ -227,7 +223,7 @@ bash deploy/scripts/verify_migration.sh
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `DB_PROVIDER` | 数据库类型 | `sqlite` |
+| `DB_PROVIDER` | 数据库类型 | `mysql` |
 | `MYSQL_HOST` | MySQL 主机 | `db` |
 | `MYSQL_PORT` | MySQL 端口 | `3306` |
 | `MYSQL_USER` | MySQL 用户 | `arboris` |
@@ -309,7 +305,9 @@ docker-compose -f deploy/docker-compose.yml logs --since 1h app
 ### 查看数据库日志
 
 ```bash
-docker-compose -f deploy/docker-compose.yml --profile mysql logs -f db
+# 当前 compose 不内置 MySQL 服务，请在数据库主机侧查看 MySQL 日志
+# 例如（宿主机 MySQL）：
+journalctl -u mysql -f
 ```
 
 ### 查看 Nginx 日志
@@ -352,7 +350,7 @@ docker-compose down
 mysql -h localhost -u arboris -p arboris < backups/backup_20260113_120000.sql
 
 # 3. 重启服务
-docker-compose --profile mysql up -d
+docker-compose up -d
 ```
 
 ---
@@ -381,10 +379,10 @@ docker-compose logs app
 **解决方案**：
 ```bash
 # 检查数据库容器状态
-docker-compose --profile mysql ps
+docker-compose ps
 
 # 检查数据库日志
-docker-compose --profile mysql logs db
+# 当前 compose 不内置 MySQL 服务，请在数据库主机侧查看 MySQL 日志
 
 # 验证数据库配置
 cat .env | grep MYSQL

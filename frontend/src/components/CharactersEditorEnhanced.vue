@@ -1,6 +1,30 @@
 <!-- AIMETA P=增强角色编辑器_增强版角色编辑|R=增强角色编辑|NR=不含基础功能|E=component:CharactersEditorEnhanced|X=internal|A=增强编辑器|D=vue|S=dom|RD=./README.ai -->
 <template>
   <div class="space-y-4 max-h-[600px] overflow-y-auto p-1">
+    <!-- 批量生成DNA按钮 -->
+    <div v-if="projectId" class="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
+      <div class="flex items-center gap-2">
+        <span class="text-purple-600 text-lg">🧬</span>
+        <span class="text-sm text-purple-700 font-medium">角色DNA档案</span>
+        <span class="text-xs text-gray-500">基于大纲和剧情自动推演角色心理档案</span>
+      </div>
+      <button
+        @click="generateAllDNA(false)"
+        :disabled="isGeneratingDNA"
+        class="px-4 py-1.5 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+      >
+        <svg v-if="isGeneratingDNA" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>{{ isGeneratingDNA ? '推演中...' : '一键生成全部DNA' }}</span>
+      </button>
+    </div>
+    <!-- DNA生成状态提示 -->
+    <div v-if="dnaMessage" class="p-3 rounded-lg text-sm" :class="dnaMessageType === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : dnaMessageType === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'">
+      {{ dnaMessage }}
+    </div>
+
     <div v-for="(character, index) in localCharacters" :key="index" class="p-4 border border-gray-200 rounded-lg bg-gray-50 relative">
       <button @click="removeCharacter(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 transition-colors p-1">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -59,7 +83,7 @@
       </div>
 
       <!-- DNA档案展开按钮 -->
-      <div class="mt-4 border-t border-gray-200 pt-3">
+      <div class="mt-4 border-t border-gray-200 pt-3 flex items-center justify-between">
         <button 
           @click="toggleDNA(index)" 
           class="flex items-center gap-2 text-sm font-medium text-purple-600 hover:text-purple-800 transition-colors"
@@ -76,6 +100,14 @@
           </svg>
           <span>🧬 角色DNA档案</span>
           <span class="text-xs text-gray-400">(让角色更立体)</span>
+        </button>
+        <button
+          v-if="projectId && character.name"
+          @click.stop="generateSingleDNA(character.name)"
+          :disabled="isGeneratingDNA"
+          class="px-3 py-1 text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {{ isGeneratingDNA ? '推演中...' : 'AI推演' }}
         </button>
       </div>
 
@@ -241,6 +273,7 @@
 
 <script setup lang="ts">
 import { ref, watch, reactive, nextTick } from 'vue';
+import { NovelAPI } from '@/api/novel';
 
 interface DNAProfile {
   childhood_trauma: string;
@@ -272,6 +305,10 @@ const props = defineProps({
   modelValue: {
     type: Array as () => Character[],
     default: () => []
+  },
+  projectId: {
+    type: String,
+    default: ''
   },
   powerSystems: {
     type: Array as () => Array<{ id: number, name: string, levels: Array<{ id: number, name: string }> }>,
@@ -359,6 +396,78 @@ const addCharacter = () => {
 const removeCharacter = (index: number) => {
   localCharacters.value.splice(index, 1);
   delete expandedDNA[index];
+};
+
+// DNA 自动推演
+const isGeneratingDNA = ref(false);
+const dnaMessage = ref('');
+const dnaMessageType = ref<'success' | 'error' | 'info'>('info');
+
+const showDNAMessage = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+  dnaMessage.value = msg;
+  dnaMessageType.value = type;
+  setTimeout(() => { dnaMessage.value = ''; }, 5000);
+};
+
+const generateAllDNA = async (overwrite: boolean = false) => {
+  if (!props.projectId || isGeneratingDNA.value) return;
+  isGeneratingDNA.value = true;
+  dnaMessage.value = '';
+  try {
+    const result = await NovelAPI.generateCharacterDNA(props.projectId, undefined, overwrite);
+    if (result.status === 'skipped') {
+      showDNAMessage(result.message, 'info');
+    } else {
+      showDNAMessage(result.message, 'success');
+      // 重新加载角色数据以获取更新后的DNA
+      await refreshCharacters();
+    }
+  } catch (error: any) {
+    showDNAMessage(error.message || 'DNA推演失败，请重试', 'error');
+  } finally {
+    isGeneratingDNA.value = false;
+  }
+};
+
+const generateSingleDNA = async (characterName: string) => {
+  if (!props.projectId || isGeneratingDNA.value) return;
+  isGeneratingDNA.value = true;
+  dnaMessage.value = '';
+  try {
+    const result = await NovelAPI.generateCharacterDNA(props.projectId, [characterName], true);
+    if (result.status === 'skipped') {
+      showDNAMessage(result.message, 'info');
+    } else {
+      showDNAMessage(`已为 ${characterName} 生成DNA档案`, 'success');
+      await refreshCharacters();
+    }
+  } catch (error: any) {
+    showDNAMessage(error.message || 'DNA推演失败，请重试', 'error');
+  } finally {
+    isGeneratingDNA.value = false;
+  }
+};
+
+const refreshCharacters = async () => {
+  if (!props.projectId) return;
+  try {
+    const sectionData = await NovelAPI.getSection(props.projectId, 'characters');
+    const updatedCharacters = sectionData.data?.characters || [];
+    syncing = true;
+    localCharacters.value = JSON.parse(JSON.stringify(updatedCharacters));
+    nextTick(() => { syncing = false; });
+    // 展开所有有DNA的角色面板
+    updatedCharacters.forEach((char: any, idx: number) => {
+      if (char?.extra?.dna_profile) {
+        const profile = char.extra.dna_profile;
+        const hasContent = Object.values(profile).some((v: any) => v && String(v).trim());
+        if (hasContent) expandedDNA[idx] = true;
+      }
+    });
+    emit('update:modelValue', JSON.parse(JSON.stringify(localCharacters.value)));
+  } catch (error) {
+    console.error('刷新角色数据失败:', error);
+  }
 };
 </script>
 

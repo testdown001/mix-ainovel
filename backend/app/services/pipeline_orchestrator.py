@@ -14,9 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.constants import CHAPTER_MAX_WORDS
+from ..core.constants import CHAPTER_MAX_WORDS, CHAPTER_MIN_WORDS
 from ..db.session import AsyncSessionLocal
-from ..models.novel import ChapterVersion
+from ..models.novel import Chapter, ChapterVersion
 from ..repositories.system_config_repository import SystemConfigRepository
 from ..services.chapter_guardrails import default_guardrails
 from ..services.enhanced_writing_flow import EnhancedWritingFlow
@@ -83,6 +83,7 @@ class PipelineConfig:
     enable_voice_samples: bool = False
     enable_narrative_variety: bool = False
     use_slim_prompt: bool = False
+    literary_adaptive_postprocess: bool = True
 
 
 class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineReviewMixin):
@@ -194,6 +195,23 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         )
         _mark_stage("generate_chapter_mission", stage_started)
 
+        # P1 优化: Mission Brief LLM 调用提前启动（与后续 DB 操作并行）
+        _mission_brief_task = None
+        if chapter_mission and config.enable_mission_brief:
+            _mission_brief_task = asyncio.create_task(
+                self._generate_mission_brief(
+                    chapter_mission=chapter_mission,
+                    previous_summary=history_context["previous_summary"],
+                    previous_tail=history_context["previous_tail"],
+                    outline_title=outline_title,
+                    outline_summary=outline_summary,
+                    writing_notes=writing_notes,
+                    introduced_characters=introduced_characters_for_mission,
+                    forbidden_characters=[],  # 此时尚未计算，使用空列表
+                    user_id=user_id,
+                )
+            )
+
         # 以下上下文准备串行执行（共享同一个 async session，不可并发）
         stage_started = time.perf_counter()
         enhanced_flow = None
@@ -281,20 +299,14 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             )
             _mark_stage("prepare_memory_context", stage_started)
 
+        # P1: 等待 mission brief 结果（LLM 调用已在后台运行，此处几乎零等待）
         mission_brief_text = None
-        if chapter_mission and config.enable_mission_brief:
+        if _mission_brief_task is not None:
             stage_started = time.perf_counter()
-            mission_brief_text = await self._generate_mission_brief(
-                chapter_mission=chapter_mission,
-                previous_summary=history_context["previous_summary"],
-                previous_tail=history_context["previous_tail"],
-                outline_title=outline_title,
-                outline_summary=outline_summary,
-                writing_notes=writing_notes,
-                introduced_characters=introduced_characters,
-                forbidden_characters=forbidden_characters,
-                user_id=user_id,
-            )
+            try:
+                mission_brief_text = await _mission_brief_task
+            except Exception as e:
+                logger.warning("Mission brief 生成失败（不影响生成）: %s", e)
             _mark_stage("generate_mission_brief", stage_started)
 
         total_chapters = max(
@@ -422,6 +434,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         except Exception as e:
             logger.warning("加载用户写作风格偏好失败（不影响生成）: %s", e)
 
+        chapter_word_count_min, chapter_word_count_max, chapter_target_word_count = self._resolve_word_count_bounds()
         prompt_sections = self._build_prompt_sections(
             writer_blueprint=writer_blueprint,
             previous_summary=history_context["previous_summary"],
@@ -446,12 +459,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             fingerprint_context=fingerprint_context,
             prediction_text=prediction_text,
             user_style_rules=user_style_rules,
+            chapter_word_count_min=chapter_word_count_min,
+            chapter_word_count_max=chapter_word_count_max,
+            chapter_target_word_count=chapter_target_word_count,
         )
-
-        # ---- 章节字数限制 ----
-        if settings.writer_chapter_word_count_min and settings.writer_chapter_word_count_max:
-            word_count_constraint = f"本章目标核心字数要求：{settings.writer_chapter_word_count_min} - {settings.writer_chapter_word_count_max} 字之间。\n请合理分配内容节奏，加入必要的环境描写、人物心理、丰富动作与对话，确保字数达标且不冗长水文。"
-            prompt_sections.append(("[字数与节奏要求]", word_count_constraint))
 
         # ---- Literary 模式：范文注入 + 叙事多样性约束 ----
         reference_prose_text = ""
@@ -491,6 +502,12 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         if enhanced_flow and enhanced_context:
             prompt_sections = enhanced_flow.build_enhanced_prompt_sections(prompt_sections, enhanced_context)
+
+        # P5 优化: Prompt Token Budget — 截断超额 section + 重排以利用 Prompt Cache
+        from .prompt_budget_manager import PromptBudgetManager
+        _budget_mgr = PromptBudgetManager()
+        prompt_sections = _budget_mgr.apply_budget(prompt_sections)
+        prompt_sections = _budget_mgr.reorder_for_cache(prompt_sections)
 
         prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
         logger.debug("Pipeline prompt length: %s chars", len(prompt_input))
@@ -547,22 +564,28 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             stage_started = time.perf_counter()
             best_content = version["content"]
             review_summaries: Dict[str, Any] = {}
+            literary_profile = self._resolve_literary_postprocess_profile(
+                config=config,
+                chapter_mission=chapter_mission,
+                target_word_count=chapter_target_word_count,
+            )
+            review_summaries["literary_profile"] = literary_profile
 
-            if config.enable_prose_sculpting:
+            if literary_profile["enable_prose_sculpting"]:
                 from .prose_sculptor_service import ProseSculptorService
                 sculptor = ProseSculptorService(self.llm_service)
 
                 best_content, rhythm_report = await sculptor.sculpt_rhythm(
-                    best_content, user_id=user_id,
+                    best_content, user_id=user_id, max_word_count=chapter_word_count_max,
                 )
                 review_summaries["rhythm_sculpting"] = rhythm_report
 
                 best_content, density_report = await sculptor.sculpt_density(
-                    best_content, user_id=user_id,
+                    best_content, user_id=user_id, max_word_count=chapter_word_count_max,
                 )
                 review_summaries["density_sculpting"] = density_report
 
-            if config.enable_golden_paragraph:
+            if literary_profile["enable_golden_paragraph"]:
                 from .prose_sculptor_service import ProseSculptorService
                 sculptor = ProseSculptorService(self.llm_service)
                 best_content, golden_report = await sculptor.enhance_peak_moments(
@@ -571,7 +594,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 review_summaries["golden_paragraph"] = golden_report
 
             # 人味化扫描 + 修复
-            if config.enable_humanization:
+            if literary_profile["enable_humanization"]:
                 try:
                     from .humanization_service import HumanizationService
                     h_service = HumanizationService(self.session, self.llm_service)
@@ -589,6 +612,16 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     }
                 except Exception as e:
                     logger.warning("人味化检查失败: %s", e)
+
+            best_content, enrichment_report = await self._run_enrichment(
+                best_content,
+                user_id=user_id,
+                target_word_count=chapter_target_word_count,
+                min_word_count=chapter_word_count_min,
+                max_word_count=chapter_word_count_max,
+            )
+            if enrichment_report:
+                review_summaries["enrichment"] = enrichment_report
 
             # 最终护栏
             guardrail_result = self.guardrails.check(
@@ -636,6 +669,12 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             await _do_quality_detection_literary()
             _mark_stage("literary_readonly_analyses", stage_started)
 
+            # 最终字数兜底：如果后处理导致超限，执行压缩
+            if len(best_content) > chapter_word_count_max:
+                logger.info("Literary最终字数超限 (%d > %d)，触发兜底压缩", len(best_content), chapter_word_count_max)
+                best_content = await self._compress_overlength(best_content, target_max=chapter_word_count_max, user_id=user_id)
+                version["content"] = best_content
+
             # 持久化
             contents = [version["content"]]
             metadata_list = [version.get("metadata")]
@@ -650,6 +689,21 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
                 self._background_tasks.add(six_dim_task)
                 six_dim_task.add_done_callback(self._background_tasks.discard)
+
+            # Literary 模式同样需要更新记忆层（与标准模式保持一致）
+            # 使用后台任务避免阻塞章节返回
+            if config.enable_memory:
+                memory_task = asyncio.create_task(
+                    self._run_memory_update_async(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_content=best_content,
+                        character_names=introduced_characters,
+                        user_id=user_id,
+                    )
+                )
+                self._background_tasks.add(memory_task)
+                memory_task.add_done_callback(self._background_tasks.discard)
 
             variants = [{"index": 0, "version_id": versions_models[0].id, "content": version["content"], "metadata": version.get("metadata")}]
             stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
@@ -697,6 +751,8 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     memory_context=memory_context,
                     enhanced_context=enhanced_context,
                     config=config,
+                    target_word_count=chapter_target_word_count,
+                    max_word_count=chapter_word_count_max,
                     genre_profile=genre_profile,
                 )
             )
@@ -736,6 +792,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     refinement_suggestions=ai_review_result.get("suggestions") or "",
                     chapter_mission=chapter_mission,
                     user_id=user_id,
+                    max_word_count=chapter_word_count_max,
                 )
                 review_summaries["review_driven_revision"] = revision_report
 
@@ -748,6 +805,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                         "previous_summary": history_context["previous_summary"],
                     },
                     max_iterations=1,
+                    max_word_count=chapter_word_count_max,
                 )
                 review_summaries["self_critique"] = critique_summary
 
@@ -835,59 +893,38 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                         logger.warning("人味化检查失败（不影响生成）: %s", e)
                         review_summaries["humanization"] = {"error": str(e)}
 
-            # ---- A.3 并行：optimizer(+polish) 与 enrichment ----
+            # ---- A.3 optimizer(+polish) / enrichment ----
             _optimizer_enabled = config.enable_optimizer
-            _enrichment_enabled = config.enable_enrichment
+            # P4 优化: optimizer 启用时跳过 enrichment（结果会被丢弃）
+            _enrichment_enabled = config.enable_enrichment and not _optimizer_enabled
             _polish_only = config.enable_polish and not config.enable_optimizer
-
-            if _optimizer_enabled and _enrichment_enabled:
-                # 并行执行 optimizer 和 enrichment，取 optimizer 结果
+            if _optimizer_enabled:
                 merge_polish = config.enable_polish
-
-                async def _do_optimizer():
-                    return await self._run_optimizer(
-                        best_content, user_id=user_id, include_polish=merge_polish,
-                    )
-
-                async def _do_enrichment():
-                    return await self._run_enrichment(
-                        best_content, user_id=user_id,
-                    )
-
-                (opt_content, opt_report), (enr_content, enr_report) = await asyncio.gather(
-                    _do_optimizer(), _do_enrichment(),
+                best_content, optimizer_report = await self._run_optimizer(
+                    best_content, user_id=user_id, include_polish=merge_polish,
+                    max_word_count=chapter_word_count_max,
                 )
-                # optimizer 结果优先（包含更全面的优化）
-                best_content = opt_content
-                review_summaries["optimizer"] = opt_report
+                review_summaries["optimizer"] = optimizer_report
                 if merge_polish:
                     review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
-                if enr_report:
-                    review_summaries["enrichment"] = enr_report
-                    review_summaries["enrichment"]["note"] = "并行执行，未应用（optimizer 优先）"
-            else:
-                if _optimizer_enabled:
-                    merge_polish = config.enable_polish
-                    best_content, optimizer_report = await self._run_optimizer(
-                        best_content, user_id=user_id, include_polish=merge_polish,
-                    )
-                    review_summaries["optimizer"] = optimizer_report
-                    if merge_polish:
-                        review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
 
-                if _polish_only:
-                    best_content, polish_report = await self._run_polish(best_content, user_id=user_id)
-                    review_summaries["polish"] = polish_report
+            if _polish_only:
+                best_content, polish_report = await self._run_polish(best_content, user_id=user_id, max_word_count=chapter_word_count_max)
+                review_summaries["polish"] = polish_report
 
-                if _enrichment_enabled:
-                    best_content, enrichment_report = await self._run_enrichment(
-                        best_content, user_id=user_id,
-                    )
-                    if enrichment_report:
-                        review_summaries["enrichment"] = enrichment_report
+            if _enrichment_enabled:
+                best_content, enrichment_report = await self._run_enrichment(
+                    best_content,
+                    user_id=user_id,
+                    target_word_count=chapter_target_word_count,
+                    min_word_count=chapter_word_count_min,
+                    max_word_count=chapter_word_count_max,
+                )
+                if enrichment_report:
+                    review_summaries["enrichment"] = enrichment_report
 
             if config.enable_density_compression:
-                best_content, density_report = await self._run_density_compression(best_content, user_id=user_id)
+                best_content, density_report = await self._run_density_compression(best_content, user_id=user_id, max_word_count=chapter_word_count_max)
                 review_summaries["density_compression"] = density_report
             _mark_stage("stage_a_post_processing", stage_started)
 
@@ -963,6 +1000,12 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             best_version["content"] = best_content
             best_version.setdefault("metadata", {})["review_summaries"] = review_summaries
 
+        # 最终字数兜底
+        if len(best_content) > chapter_word_count_max:
+            logger.info("标准模式最终字数超限 (%d > %d)，触发兜底压缩", len(best_content), chapter_word_count_max)
+            best_content = await self._compress_overlength(best_content, target_max=chapter_word_count_max, user_id=user_id)
+            best_version["content"] = best_content
+
         contents = [v.get("content", "") for v in versions]
         metadata = [v.get("metadata") for v in versions]
         stage_started = time.perf_counter()
@@ -982,19 +1025,19 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             six_dimension_task.add_done_callback(self._background_tasks.discard)
         _mark_stage("schedule_async_six_dimension", stage_started)
 
+        # 使用后台任务更新记忆层，避免阻塞章节返回（节省 30-60s）
         if config.enable_memory:
-            stage_started = time.perf_counter()
-            from ..services.memory_layer_service import MemoryLayerService
-            memory_layer = MemoryLayerService(self.session, self.llm_service, self.prompt_service)
-            
-            await memory_layer.update_memory_after_chapter(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                chapter_content=best_content,
-                character_names=introduced_characters,
-                user_id=user_id,
+            memory_task = asyncio.create_task(
+                self._run_memory_update_async(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    chapter_content=best_content,
+                    character_names=introduced_characters,
+                    user_id=user_id,
+                )
             )
-            _mark_stage("update_memory_after_chapter", stage_started)
+            self._background_tasks.add(memory_task)
+            memory_task.add_done_callback(self._background_tasks.discard)
 
         variants = []
         for idx, version_model in enumerate(versions_models):
@@ -1078,12 +1121,55 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 version_id,
             )
 
+    async def _run_memory_update_async(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        character_names: List[str],
+        user_id: int,
+    ) -> None:
+        """后台异步执行记忆层更新，使用独立 DB session 避免影响主流程。"""
+        try:
+            async with AsyncSessionLocal() as background_session:
+                try:
+                    llm_service = LLMService(background_session)
+                    prompt_service = PromptService(background_session)
+                    from ..services.memory_layer_service import MemoryLayerService
+                    memory_layer = MemoryLayerService(
+                        background_session, llm_service, prompt_service
+                    )
+                    results = await memory_layer.update_memory_after_chapter(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_content=chapter_content,
+                        character_names=character_names,
+                        user_id=user_id,
+                    )
+                    logger.info(
+                        "异步记忆层更新完成 project=%s chapter=%s results=%s",
+                        project_id, chapter_number, results,
+                    )
+                except Exception:
+                    await background_session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步记忆层更新失败 project=%s chapter=%s",
+                project_id,
+                chapter_number,
+            )
+
     async def _resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
         flow_config = flow_config or {}
         preset = flow_config.get("preset", "basic")
 
         config = PipelineConfig(preset=preset)
         config.version_count = await self._resolve_version_count(flow_config.get("versions"))
+        config.literary_adaptive_postprocess = bool(
+            getattr(settings, "writer_literary_adaptive_postprocess", True)
+        )
 
         # 从全局配置读取新功能默认值
         config.rag_retrieval_mode = getattr(settings, "rag_retrieval_mode", "vector")
@@ -1154,6 +1240,28 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             if getattr(settings, "writer_fast_mode", False):
                 config.version_count = 1
 
+        # Ultra fast mode: 仅保留核心生成+护栏，跳过所有后处理
+        if getattr(settings, "writer_ultra_fast_mode", False):
+            config.version_count = 1
+            config.enable_self_critique = False
+            config.enable_consistency = False
+            config.enable_humanization = False
+            config.enable_optimizer = False
+            config.enable_enrichment = False
+            config.enable_polish = False
+            config.enable_reader_sim = False
+            config.enable_anti_hallucination = False
+            config.enable_density_compression = False
+            config.enable_six_dimension = False
+            config.enable_fingerprint = False
+            config.enable_mission_brief = False
+            config.enable_narrative_variety = False
+            config.enable_reference_prose = False
+            config.enable_voice_samples = False
+            config.enable_prose_sculpting = False
+            config.enable_golden_paragraph = False
+            logger.info("Ultra fast mode: 已跳过所有后处理步骤")
+
         for key in (
             "enable_preview",
             "enable_optimizer",
@@ -1171,6 +1279,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "enable_voice_samples",
             "enable_narrative_variety",
             "use_slim_prompt",
+            "literary_adaptive_postprocess",
         ):
             if key in flow_config and flow_config[key] is not None:
                 setattr(config, key, bool(flow_config[key]))
@@ -1188,6 +1297,26 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
     async def _resolve_version_count(self, requested_count: Optional[int]) -> int:
         return await _shared_resolve_version_count(self.session, requested_count)
+
+    @staticmethod
+    def _resolve_word_count_bounds() -> Tuple[int, int, int]:
+        """解析章节字数上下限与目标字数，优先采用运行时配置。"""
+        try:
+            min_words = int(getattr(settings, "writer_chapter_word_count_min", CHAPTER_MIN_WORDS))
+        except (TypeError, ValueError):
+            min_words = CHAPTER_MIN_WORDS
+        try:
+            max_words = int(getattr(settings, "writer_chapter_word_count_max", CHAPTER_MAX_WORDS))
+        except (TypeError, ValueError):
+            max_words = CHAPTER_MAX_WORDS
+
+        if min_words < 1:
+            min_words = CHAPTER_MIN_WORDS
+        if max_words < min_words:
+            max_words = min_words
+
+        target_words = min_words + (max_words - min_words) // 2
+        return min_words, max_words, target_words
 
     @staticmethod
     def _resolve_style_hints(
@@ -1245,6 +1374,60 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 return 0.60
 
         return 0.75
+
+    @staticmethod
+    def _resolve_literary_intensity_signal(chapter_mission: Optional[dict]) -> str:
+        if not chapter_mission:
+            return ""
+        chapter_type = str(chapter_mission.get("chapter_type", "")).lower()
+        macro_beat = str(chapter_mission.get("macro_beat_description", "")).lower()
+        sat_type = str((chapter_mission.get("satisfaction_design") or {}).get("type", "")).lower()
+        return f"{chapter_type} {macro_beat} {sat_type}".strip()
+
+    def _resolve_literary_postprocess_profile(
+        self,
+        *,
+        config: PipelineConfig,
+        chapter_mission: Optional[dict],
+        target_word_count: int,
+    ) -> Dict[str, Any]:
+        profile = {
+            "adaptive_enabled": bool(config.literary_adaptive_postprocess),
+            "enable_prose_sculpting": bool(config.enable_prose_sculpting),
+            "enable_golden_paragraph": bool(config.enable_golden_paragraph),
+            "enable_humanization": bool(config.enable_humanization),
+            "reason": "config_static",
+        }
+        if not config.literary_adaptive_postprocess:
+            return profile
+
+        signal = self._resolve_literary_intensity_signal(chapter_mission)
+        short_target_threshold = int(getattr(settings, "writer_literary_adaptive_short_target", 2800))
+        is_short_target = target_word_count <= short_target_threshold
+        is_high_intensity = any(
+            kw in signal for kw in ("高潮", "爆发", "决战", "反转", "逆袭", "巅峰", "climax", "boss", "twist")
+        )
+        is_low_intensity = any(
+            kw in signal for kw in ("过渡", "衔接", "铺垫", "日常", "休整", "喘息", "setup", "transition", "slice")
+        )
+
+        if is_low_intensity:
+            profile["enable_golden_paragraph"] = False
+            profile["reason"] = "low_intensity"
+
+        if is_low_intensity and is_short_target:
+            profile["enable_prose_sculpting"] = False
+            profile["reason"] = "low_intensity_short_target"
+
+        if is_short_target and not is_high_intensity:
+            profile["enable_humanization"] = False
+            if profile["reason"] == "config_static":
+                profile["reason"] = "short_target"
+
+        profile["intensity_signal"] = signal[:120]
+        profile["target_word_count"] = target_word_count
+        profile["short_target_threshold"] = short_target_threshold
+        return profile
 
     async def _generate_scene_by_scene(
         self,
@@ -1338,7 +1521,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 user_id=user_id,
                 timeout=60.0,
                 response_format=None,
-                max_tokens=min(4096, settings.writer_max_tokens),
+                max_tokens=min(4096, int(max(700, scene_words) * 1.8)),
                 disable_thinking=not settings.writer_enable_thinking,
             )
             cleaned = remove_think_tags(response)
@@ -1465,6 +1648,8 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         memory_context: Optional[str],
         enhanced_context: Optional[Dict[str, Any]],
         config: PipelineConfig,
+        target_word_count: int,
+        max_word_count: int = 4000,
         genre_profile: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         metadata: Dict[str, Any] = {
@@ -1485,6 +1670,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 memory_context=memory_context,
                 style_hint=style_hint,
                 enhanced_context=enhanced_context,
+                target_word_count=target_word_count,
                 user_id=user_id,
             )
             metadata["preview"] = preview_meta
@@ -1495,6 +1681,12 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 final_prompt_input += f"\n\n[版本风格提示]\n{style_hint}"
 
             resolved_temp = self._resolve_temperature(chapter_mission)
+            # P2: 根据字数上限动态计算 max_tokens，限制物理输出长度
+            # 中文约 1.5 tokens/字，取 1.5 作为安全系数
+            dynamic_max_tokens = min(
+                settings.writer_max_tokens,
+                int(max_word_count * 1.5),
+            )
             response = await self.llm_service.get_llm_response(
                 system_prompt=writer_prompt,
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
@@ -1502,7 +1694,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 user_id=user_id,
                 timeout=180.0,
                 response_format=None,
-                max_tokens=settings.writer_max_tokens,
+                max_tokens=dynamic_max_tokens,
                 disable_thinking=not settings.writer_enable_thinking,
             )
             cleaned = remove_think_tags(response)
@@ -1565,6 +1757,23 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         final_text = sanitize_chapter_plain_text(extracted_text or content)
 
+        # P3: 超字数后处理压缩——如果生成内容超过上限 102%，使用 LLM 压缩
+        overflow_threshold = int(max_word_count * 1.02)
+        if len(final_text) > overflow_threshold:
+            logger.info(
+                "章节字数超限 (%d > %d)，触发压缩 target=%d",
+                len(final_text), overflow_threshold, max_word_count,
+            )
+            compressed = await self._compress_overlength(
+                final_text, target_max=max_word_count, user_id=user_id,
+            )
+            metadata["word_count_compression"] = {
+                "original_length": len(final_text),
+                "compressed_length": len(compressed),
+                "target_max": max_word_count,
+            }
+            final_text = compressed
+
         metadata["guardrail"] = guardrail_metadata
         if parsed_json is not None:
             metadata["parsed_json"] = parsed_json
@@ -1574,6 +1783,114 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "content": final_text,
             "metadata": metadata,
         }
+
+    @staticmethod
+    def _strip_compression_preamble(text: str) -> str:
+        """去除 LLM 压缩时可能添加的前言/元注释。
+
+        例如: "可以，下面是精简后的版本（控制在4000字以内）：\n\n正文..."
+        或: "### 第49章 全村致富的第一步（精简版）\n\n正文..."
+        """
+        import re
+        lines = text.split("\n")
+        skip_count = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                skip_count += 1
+                continue
+            # 检测常见 LLM 元注释模式
+            if re.match(
+                r'^(可以|好的|当然|没问题|下面是|以下是|精简后|精简版|控制在|保留|压缩)',
+                stripped,
+            ):
+                skip_count += 1
+                continue
+            if re.match(r'^#{1,4}\s+.*(精简版|精简|压缩版|缩写版)', stripped):
+                skip_count += 1
+                continue
+            if re.match(r'^[\(（].*字.*[\)）][：:]?\s*$', stripped):
+                skip_count += 1
+                continue
+            # 第一个看起来像正文的行，停止
+            break
+        if skip_count > 0:
+            text = "\n".join(lines[skip_count:]).lstrip("\n")
+        return text
+
+    async def _compress_overlength(
+        self,
+        chapter_text: str,
+        *,
+        target_max: int,
+        user_id: int,
+    ) -> str:
+        """使用 LLM 将超字数章节压缩到目标范围内。
+
+        保留核心剧情、对话和关键动作，精简冗余描写和过渡。
+        最多重试一次，确保最终结果在目标范围内。
+        """
+        system_prompt = (
+            "你是一个精炼大师。你的任务是将给定的小说章节精简到指定字数以内，"
+            "同时保留核心剧情、角色对话、关键动作和情绪转折。\n"
+            "精简策略：\n"
+            "1. 删除冗余的环境描写和重复的内心戏\n"
+            "2. 压缩过渡段落，用更少的笔墨完成场景切换\n"
+            "3. 精简对话中的废话，保留有性格的台词\n"
+            "4. 不要删除关键剧情节点和伏笔\n"
+            "5. 保持开头和结尾的质量\n\n"
+            "【绝对禁止】\n"
+            "- 禁止输出任何前言、说明、注释、标题或元信息\n"
+            "- 禁止写「可以」「下面是」「精简版」等任何非正文内容\n"
+            "- 禁止添加章节标题或「精简版」标记\n"
+            "- 你的输出第一个字必须是小说正文的第一个字\n"
+            "- 你的输出最后一个字必须是小说正文的最后一个字\n"
+            "只输出精简后的纯小说正文，没有任何其他内容。"
+        )
+
+        current_text = chapter_text
+        max_attempts = 2
+
+        for attempt in range(max_attempts):
+            user_prompt = (
+                f"将以下 {len(current_text)} 字章节正文精简到 {target_max} 字以内。"
+                f"直接输出精简后的纯正文，第一个字就是小说内容。\n\n"
+                f"{current_text}"
+            )
+            try:
+                response = await self.llm_service.get_llm_response(
+                    system_prompt=system_prompt,
+                    conversation_history=[{"role": "user", "content": user_prompt}],
+                    temperature=0.3,
+                    user_id=user_id,
+                    timeout=180.0,
+                    max_tokens=int(target_max * 1.2),
+                )
+                cleaned = remove_think_tags(response)
+                result = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
+
+                # 去除 LLM 可能残留的前言/元注释
+                if result:
+                    result = self._strip_compression_preamble(result)
+
+                if not result or len(result) >= len(current_text):
+                    logger.warning("压缩结果无效（更长或为空），保留当前文本 (attempt=%d)", attempt + 1)
+                    break
+
+                logger.info(
+                    "超字数压缩完成 (attempt=%d): %d -> %d 字 (目标 %d)",
+                    attempt + 1, len(current_text), len(result), target_max,
+                )
+                current_text = result
+
+                # 如果已在目标范围内，停止重试
+                if len(current_text) <= target_max:
+                    break
+            except Exception as e:
+                logger.warning("超字数压缩失败 (attempt=%d)，保留当前文本: %s", attempt + 1, e)
+                break
+
+        return current_text
 
     async def _generate_with_preview(
         self,
@@ -1586,6 +1903,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         memory_context: Optional[str],
         style_hint: Optional[str],
         enhanced_context: Optional[Dict[str, Any]],
+        target_word_count: int,
         user_id: int,
     ) -> Tuple[str, Dict[str, Any]]:
         preview_service = PreviewGenerationService(self.session, self.llm_service, self.prompt_service)
@@ -1608,6 +1926,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             blueprint_context=blueprint_context,
             emotion_context="（无情绪曲线指导）",
             memory_context=memory_context or "（无记忆层上下文）",
+            target_word_count=target_word_count,
             style_hint=style_hint or "",
             user_id=user_id,
         )
@@ -1642,6 +1961,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             "voice_samples": config.enable_voice_samples,
             "narrative_variety": config.enable_narrative_variety,
             "slim_prompt": config.use_slim_prompt,
+            "literary_adaptive_postprocess": config.literary_adaptive_postprocess,
         }
 
     @staticmethod
@@ -1655,14 +1975,59 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
     ) -> List[Dict[str, Any]]:
         """流水线批量生成章节。
 
-        按章节顺序逐章生成，每章使用独立 DB session。
-        每章完成后 real_summary 写入 DB，下一章自动获取正确的前章上下文，
-        确保剧情连贯。
+        采用“前序依赖感知并发”：
+        - 若某章节最近可用前章来自本批次，则等待该前章完成（保证上下文连贯）；
+        - 若依赖不在本批次内，则可与其他独立章节并发执行。
+        每章使用独立 DB session，默认并行度为 1（等价串行，可通过配置提升）。
         """
-        sorted_numbers = sorted(chapter_numbers)
-        results: List[Dict[str, Any]] = []
+        sorted_numbers = sorted(set(chapter_numbers))
+        if not sorted_numbers:
+            return []
+
+        flow_config = flow_config or {}
+        max_requested = sorted_numbers[-1]
+
+        try:
+            parallel_workers = int(
+                flow_config.get(
+                    "batch_parallel_workers",
+                    getattr(settings, "writer_batch_parallel_workers", 1),
+                )
+            )
+        except (TypeError, ValueError):
+            parallel_workers = 1
+        parallel_workers = max(1, min(8, parallel_workers))
+
+        existing_generated: set[int] = set()
+        try:
+            async with AsyncSessionLocal() as dependency_session:
+                stmt = (
+                    select(Chapter.chapter_number)
+                    .where(Chapter.project_id == project_id)
+                    .where(Chapter.chapter_number < max_requested)
+                    .where(Chapter.selected_version_id.is_not(None))
+                )
+                rows = await dependency_session.execute(stmt)
+                existing_generated = {int(num) for num in rows.scalars().all()}
+        except Exception as exc:
+            logger.warning("批量依赖预扫描失败，将回退为保守依赖计算: %s", exc)
+
+        dependencies: Dict[int, Optional[int]] = {}
+        dependents: Dict[int, List[int]] = {}
+        last_requested: Optional[int] = None
 
         for chapter_number in sorted_numbers:
+            dependency: Optional[int] = None
+            if last_requested is not None:
+                nearest_existing = max((n for n in existing_generated if n < chapter_number), default=None)
+                if nearest_existing is None or last_requested > nearest_existing:
+                    dependency = last_requested
+            dependencies[chapter_number] = dependency
+            if dependency is not None:
+                dependents.setdefault(dependency, []).append(chapter_number)
+            last_requested = chapter_number
+
+        async def _generate_one(chapter_number: int) -> Dict[str, Any]:
             try:
                 async with AsyncSessionLocal() as session:
                     orchestrator = PipelineOrchestrator(session)
@@ -1673,26 +2038,59 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                         writing_notes=writing_notes,
                         flow_config=flow_config,
                     )
-                    results.append({
+                    return {
                         "chapter_number": chapter_number,
                         "status": "success",
                         "result": result,
-                    })
-                    logger.info(
-                        "批量生成: 章节 %s 完成 (%d/%d)",
-                        chapter_number,
-                        len(results),
-                        len(sorted_numbers),
-                    )
+                    }
             except Exception as e:
                 logger.error("批量生成: 章节 %s 失败: %s", chapter_number, e)
-                results.append({
+                return {
                     "chapter_number": chapter_number,
                     "status": "failed",
                     "error": str(e)[:500],
-                })
+                }
 
-        return results
+        ready = [num for num in sorted_numbers if dependencies.get(num) is None]
+        ready.sort()
+        running: Dict[asyncio.Task, int] = {}
+        results_by_chapter: Dict[int, Dict[str, Any]] = {}
+        remaining = set(sorted_numbers)
+
+        while remaining:
+            while ready and len(running) < parallel_workers:
+                chapter_number = ready.pop(0)
+                if chapter_number not in remaining:
+                    continue
+                task = asyncio.create_task(_generate_one(chapter_number))
+                running[task] = chapter_number
+
+            if not running:
+                fallback = min(remaining)
+                logger.warning("批量调度出现空转，回退执行章节 %s", fallback)
+                ready.append(fallback)
+                continue
+
+            done, _ = await asyncio.wait(set(running.keys()), return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                chapter_number = running.pop(task)
+                remaining.discard(chapter_number)
+                task_result = task.result()
+                results_by_chapter[chapter_number] = task_result
+
+                logger.info(
+                    "批量生成: 章节 %s 完成 (%d/%d)",
+                    chapter_number,
+                    len(results_by_chapter),
+                    len(sorted_numbers),
+                )
+
+                for dependent in dependents.get(chapter_number, []):
+                    if dependent in remaining:
+                        ready.append(dependent)
+                ready.sort()
+
+        return [results_by_chapter[num] for num in sorted_numbers]
 
 
 __all__ = ["PipelineOrchestrator", "PipelineConfig"]

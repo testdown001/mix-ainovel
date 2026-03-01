@@ -77,11 +77,11 @@ class Settings(BaseSettings):
     )
     openai_model_name: str = Field(default="gpt-4o-mini", env="OPENAI_MODEL_NAME", description="默认 LLM 模型名称")
     writer_chapter_versions: int = Field(
-        default=2,
+        default=1,
         ge=1,
         env="WRITER_CHAPTER_VERSION_COUNT",
         validation_alias=AliasChoices("WRITER_CHAPTER_VERSION_COUNT", "WRITER_CHAPTER_VERSIONS"),
-        description="每次生成章节的候选版本数量",
+        description="每次生成章节的候选版本数量（默认 1，优先保证速度）",
     )
     writer_chapter_word_count_min: int = Field(
         default=3000,
@@ -109,10 +109,33 @@ class Settings(BaseSettings):
         env="WRITER_FAST_MODE",
         description="快速模式：basic 预设强制 1 个版本、跳过 AI Review，缩短 60-120 秒",
     )
+    writer_ultra_fast_mode: bool = Field(
+        default=False,
+        env="WRITER_ULTRA_FAST_MODE",
+        description="极速模式：仅保留核心生成+护栏，跳过所有后处理步骤，节省 30-60 秒",
+    )
+    writer_literary_adaptive_postprocess: bool = Field(
+        default=True,
+        env="WRITER_LITERARY_ADAPTIVE_POSTPROCESS",
+        description="文学模式是否启用自适应后处理（按章节强度动态裁剪重写步骤）",
+    )
+    writer_literary_adaptive_short_target: int = Field(
+        default=2800,
+        ge=1200,
+        env="WRITER_LITERARY_ADAPTIVE_SHORT_TARGET",
+        description="文学模式短章阈值，低于该目标字数将自动收敛重处理步骤",
+    )
+    writer_batch_parallel_workers: int = Field(
+        default=1,
+        ge=1,
+        le=8,
+        env="WRITER_BATCH_PARALLEL_WORKERS",
+        description="批量生成并行工作数（带前序依赖感知，默认 1）",
+    )
     rag_default_mode: str = Field(
-        default="two_stage",
+        default="simple",
         env="RAG_DEFAULT_MODE",
-        description="enhanced/platinum 预设的默认 RAG 模式，可设为 simple 降低耗时",
+        description="enhanced/platinum/literary 预设的默认 RAG 模式，默认 simple 以降低耗时",
     )
     embedding_provider: str = Field(
         default="openai",

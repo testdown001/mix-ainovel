@@ -8,12 +8,17 @@
         <p class="text-lg text-gray-600 mt-4 mb-8">
           准备好释放你的创造力了吗？让AI引导你，一步步构建出独一无二的故事世界。
         </p>
+        <ReferenceNovelInput
+          v-model="referenceNovels"
+          :search-status="referenceSearchStatus"
+          :status-message="referenceSearchMessage"
+        />
         <button
           @click="startConversation"
-          :disabled="novelStore.isLoading"
+          :disabled="novelStore.isLoading || isPreparingConversation"
           class="bg-indigo-500 text-white font-bold py-3 px-8 rounded-full hover:bg-indigo-600 transition-all duration-300 transform hover:scale-105 shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {{ novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
+          {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
         </button>
         <button
           @click="goBack"
@@ -115,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import type { UIControl, Blueprint } from '@/api/novel'
@@ -124,6 +129,7 @@ import ConversationInput from '@/components/ConversationInput.vue'
 import BlueprintConfirmation from '@/components/BlueprintConfirmation.vue'
 import BlueprintDisplay from '@/components/BlueprintDisplay.vue'
 import InspirationLoading from '@/components/InspirationLoading.vue'
+import ReferenceNovelInput from '@/components/ReferenceNovelInput.vue'
 import { globalAlert } from '@/composables/useAlert'
 
 interface ChatMessage {
@@ -136,6 +142,7 @@ const route = useRoute()
 const novelStore = useNovelStore()
 
 const conversationStarted = ref(false)
+const isPreparingConversation = ref(false)
 const isInitialLoading = ref(false)
 const showBlueprintConfirmation = ref(false)
 const showBlueprint = ref(false)
@@ -146,14 +153,25 @@ const completedBlueprint = ref<Blueprint | null>(null)
 const confirmationMessage = ref('')
 const blueprintMessage = ref('')
 const chatArea = ref<HTMLElement>()
+const referenceNovels = ref<string[]>([''])
+const referenceContext = ref('')
+const referenceSearchStatus = ref<'idle' | 'searching' | 'success' | 'error' | 'skipped'>('idle')
+const referenceSearchMessage = ref('')
+const normalizedReferenceNovels = computed(() =>
+  referenceNovels.value
+    .map((name) => (name || '').trim())
+    .filter(Boolean)
+    .slice(0, 3)
+)
 
 const goBack = () => {
   router.push('/')
 }
 
 // 清空所有状态，开始新的灵感对话
-const resetInspirationMode = () => {
+const resetInspirationMode = (options: { keepReferenceNovels?: boolean } = {}) => {
   conversationStarted.value = false
+  isPreparingConversation.value = false
   isInitialLoading.value = false
   showBlueprintConfirmation.value = false
   showBlueprint.value = false
@@ -163,7 +181,13 @@ const resetInspirationMode = () => {
   completedBlueprint.value = null
   confirmationMessage.value = ''
   blueprintMessage.value = ''
-  
+  referenceContext.value = ''
+  referenceSearchStatus.value = 'idle'
+  referenceSearchMessage.value = ''
+  if (!options.keepReferenceNovels) {
+    referenceNovels.value = ['']
+  }
+
   // 清空 store 中的当前项目和对话状态
   novelStore.setCurrentProject(null)
   novelStore.currentConversationState = {}
@@ -189,20 +213,51 @@ const backToConversation = () => {
 }
 
 const startConversation = async () => {
+  const selectedReferenceNovels = [...normalizedReferenceNovels.value]
+
   // 重置所有状态，开始全新的对话
-  resetInspirationMode()
-  conversationStarted.value = true
-  isInitialLoading.value = true
-  
+  resetInspirationMode({ keepReferenceNovels: true })
+  isPreparingConversation.value = true
+
   try {
     await novelStore.createProject('未命名灵感', '开始灵感模式')
-    
+
+    if (selectedReferenceNovels.length > 0) {
+      referenceSearchStatus.value = 'searching'
+      referenceSearchMessage.value = `正在搜索 ${selectedReferenceNovels.length} 本参考小说...`
+      try {
+        const result = await novelStore.searchReferenceNovels(selectedReferenceNovels)
+        referenceContext.value = result.reference_context || ''
+        if (result.search_completed) {
+          referenceSearchStatus.value = 'success'
+        } else if (result.skipped) {
+          referenceSearchStatus.value = 'skipped'
+        } else {
+          referenceSearchStatus.value = 'error'
+        }
+        referenceSearchMessage.value = result.message || ''
+      } catch (error) {
+        console.error('参考小说搜索失败:', error)
+        referenceSearchStatus.value = 'error'
+        referenceSearchMessage.value = '参考小说搜索失败，已自动降级为普通灵感模式'
+        referenceContext.value = ''
+      }
+    }
+
+    conversationStarted.value = true
+    isInitialLoading.value = true
+
     // 发起第一次对话
-    await handleUserInput(null)
+    await handleUserInput(null, {
+      referenceNovels: selectedReferenceNovels,
+      referenceContext: referenceContext.value
+    })
   } catch (error) {
     console.error('启动灵感模式失败:', error)
     globalAlert.showError(`无法开始灵感模式: ${error instanceof Error ? error.message : '未知错误'}`, '启动失败')
-    resetInspirationMode() // 失败时重置回初始状态
+    resetInspirationMode({ keepReferenceNovels: true }) // 失败时保留参考小说输入
+  } finally {
+    isPreparingConversation.value = false
   }
 }
 
@@ -254,7 +309,13 @@ const restoreConversation = async (projectId: string) => {
   }
 }
 
-const handleUserInput = async (userInput: any) => {
+const handleUserInput = async (
+  userInput: any,
+  options: {
+    referenceNovels?: string[]
+    referenceContext?: string
+  } = {}
+) => {
   try {
     // 如果有用户输入，添加到聊天记录
     if (userInput && userInput.value) {
@@ -265,7 +326,7 @@ const handleUserInput = async (userInput: any) => {
       await scrollToBottom()
     }
 
-    const response = await novelStore.sendConversation(userInput)
+    const response = await novelStore.sendConversation(userInput, options)
 
     // 首次加载完成后，关闭加载动画
     if (isInitialLoading.value) {

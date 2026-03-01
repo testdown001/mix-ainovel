@@ -69,6 +69,7 @@ class PipelineReviewMixin:
         refinement_suggestions: str,
         chapter_mission: Optional[dict],
         user_id: int,
+        max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         """利用 AI 评审的 critical_flaws 和 refinement_suggestions 做定向修订。"""
         if not critical_flaws and not refinement_suggestions:
@@ -102,12 +103,14 @@ class PipelineReviewMixin:
 直接输出修改后的完整章节，不要输出其他内容。"""
 
         try:
+            _revision_max_tokens = int(max_word_count * 1.5) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长根据编辑反馈精修文章的网文作者。",
                 conversation_history=[{"role": "user", "content": revision_prompt}],
                 temperature=0.5,
                 user_id=user_id,
                 timeout=180.0,
+                max_tokens=_revision_max_tokens,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -133,8 +136,10 @@ class PipelineReviewMixin:
         user_id: int,
         context: Optional[Dict[str, Any]] = None,
         max_iterations: int = 1,
+        max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         service = SelfCritiqueService(self.session, self.llm_service, self.prompt_service)
+        _critique_max_tokens = int(max_word_count * 1.5) if max_word_count else None
         critique = await service.critique_and_revise_loop(
             chapter_content=chapter_content,
             max_iterations=max_iterations,
@@ -148,6 +153,7 @@ class PipelineReviewMixin:
             ],
             context=context,
             user_id=user_id,
+            max_tokens=_critique_max_tokens,
         )
         return critique.get("final_content", chapter_content), {
             "iterations": len(critique.get("iterations", [])),
@@ -213,7 +219,7 @@ class PipelineReviewMixin:
         return chapter_text, report
 
     async def _run_optimizer(
-        self, chapter_content: str, *, user_id: int, include_polish: bool = False,
+        self, chapter_content: str, *, user_id: int, include_polish: bool = False, max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         """使用综合优化 prompt 一次性优化多个维度（对话/环境/心理/节奏/爽点）。
 
@@ -248,12 +254,14 @@ class PipelineReviewMixin:
 }}}}"""
 
         try:
+            _optimizer_max_tokens = int(max_word_count * 1.5) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长多维度同步优化网文章节的资深编辑。只输出JSON，不要其他内容。",
                 conversation_history=[{"role": "user", "content": optimize_prompt}],
                 temperature=0.7,
                 user_id=user_id,
                 timeout=180.0,
+                max_tokens=_optimizer_max_tokens,
             )
             cleaned = remove_think_tags(response)
             if not cleaned:
@@ -280,7 +288,7 @@ class PipelineReviewMixin:
             logger.warning("综合优化失败: %s", exc)
             return chapter_content, {"steps": []}
 
-    async def _run_polish(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
+    async def _run_polish(self, chapter_content: str, *, user_id: int, max_word_count: int = 0) -> Tuple[str, Dict[str, Any]]:
         """使用独立配置的润色模型对章节进行文学性润色。"""
         polish_prompt = f"""你是一位文学功底深厚的网文润色编辑。请对以下章节内容进行润色优化。
 
@@ -298,11 +306,13 @@ class PipelineReviewMixin:
 直接输出润色后的完整章节，不要输出其他内容。"""
 
         try:
+            _polish_max_tokens = int(max_word_count * 1.5) if max_word_count else None
             response = await self.llm_service.get_optimize_llm_response(
                 system_prompt="你是一位擅长小说润色的文学编辑，你的任务是在保持原有情节不变的前提下，提升文字的文学性和画面感。",
                 conversation_history=[{"role": "user", "content": polish_prompt}],
                 temperature=0.75,
                 timeout=180.0,
+                max_tokens=_polish_max_tokens,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -329,13 +339,21 @@ class PipelineReviewMixin:
         *,
         user_id: int,
         target_word_count: int = CHAPTER_RECOMMENDED_WORDS,
+        min_word_count: int = CHAPTER_MIN_WORDS,
+        max_word_count: int = 0,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         service = EnrichmentService(self.session, self.llm_service)
+        target_word_count = max(target_word_count, min_word_count)
         curent_word_count = len(chapter_content or "")
 
-        # 先做下限兜底：低于 2000 字时直接走迭代扩写，避免章节明显偏短
-        if curent_word_count < CHAPTER_MIN_WORDS:
-            min_recovery_target = max(CHAPTER_MIN_WORDS + 200, target_word_count)
+        # 上限检查：如果当前字数已达到或超过上限，跳过扩写避免进一步膨胀
+        if max_word_count and curent_word_count >= max_word_count:
+            logger.info("章节字数已达上限 (%d >= %d)，跳过扩写", curent_word_count, max_word_count)
+            return chapter_content, None
+
+        # 先做下限兜底：低于最小字数时直接走迭代扩写，避免章节明显偏短
+        if curent_word_count < min_word_count:
+            min_recovery_target = max(min_word_count + 200, target_word_count)
             enriched_text = await service.enrich_to_target(
                 chapter_text=chapter_content,
                 target_word_count=min_recovery_target,
@@ -351,11 +369,12 @@ class PipelineReviewMixin:
                     "enrichment_type": "min_length_recovery",
                 }
 
+        dynamic_threshold = max(0.82, min(0.95, min_word_count / target_word_count))
         result = await service.check_and_enrich(
             chapter_text=chapter_content,
             target_word_count=target_word_count,
             user_id=user_id,
-            threshold=0.82,
+            threshold=dynamic_threshold,
         )
         if not result:
             return chapter_content, None
@@ -367,7 +386,7 @@ class PipelineReviewMixin:
             "enrichment_type": result.enrichment_type,
         }
 
-    async def _run_density_compression(self, chapter_content: str, *, user_id: int) -> Tuple[str, Dict[str, Any]]:
+    async def _run_density_compression(self, chapter_content: str, *, user_id: int, max_word_count: int = 0) -> Tuple[str, Dict[str, Any]]:
         """执行信息密度压缩 (Chain of Density)"""
         prompt = await self.prompt_service.get_prompt("density_compression")
         if not prompt:
@@ -375,12 +394,14 @@ class PipelineReviewMixin:
             return chapter_content, {"applied": False, "reason": "missing_prompt"}
 
         try:
+            _density_max_tokens = int(max_word_count * 1.5) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长高信息密度写作的网文编辑。任务是压缩和提纯文字。",
                 conversation_history=[{"role": "user", "content": f"{prompt}\n\n[原章节内容]\n{chapter_content}"}],
                 temperature=0.3, # 较低的温度保证不乱加戏
                 user_id=user_id,
                 timeout=180.0,
+                max_tokens=_density_max_tokens,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -483,7 +504,7 @@ class PipelineReviewMixin:
             normalized = unwrap_markdown_json(cleaned or response)
             try:
                 result = json.loads(normalized)
-            except json.JSONDecodeEror:
+            except json.JSONDecodeError:
                 result = json.loads(repair_json(normalized))
 
             logger.info(
@@ -495,4 +516,4 @@ class PipelineReviewMixin:
             return result
         except Exception as exc:
             logger.warning("质量检测失败: %s", exc)
-            return {"eror": str(exc), "coolpoint_score": -1, "repetition_score": -1}
+            return {"error": str(exc), "coolpoint_score": -1, "repetition_score": -1}

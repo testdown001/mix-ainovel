@@ -77,7 +77,10 @@ class PipelineContextMixin:
                 ch.real_summary = remove_think_tags(summary)
             await self.session.commit()
 
-        # 第二轮：构建 completed_chapters 列表
+        # 第二轮：构建 completed_chapters 列表（三层递减压缩）
+        # T1（最近 2 章）= 完整 summary + excerpts
+        # T2（3~10 章前）= summary 截断 200 字，无 excerpts
+        # T3（11 章+前）= 关键事件句 ≤80 字，无 excerpts
         for existing in chapters:
             if existing.chapter_number >= chapter_number:
                 continue
@@ -86,23 +89,45 @@ class PipelineContextMixin:
             if not existing.real_summary:
                 continue
 
-            completed_chapters.append(
-                {
-                    "chapter_number": existing.chapter_number,
-                    "title": outlines_map.get(existing.chapter_number).title
-                    if outlines_map.get(existing.chapter_number)
-                    else f"第{existing.chapter_number}章",
-                    "summary": existing.real_summary,
-                    "opening_excerpt": existing.selected_version.content[:150] if existing.selected_version.content else "",
-                    "ending_excerpt": existing.selected_version.content[-150:] if existing.selected_version.content and len(existing.selected_version.content) > 150 else (existing.selected_version.content or ""),
-                    "chapter_mission_patterns": self._extract_mission_patterns(existing.selected_version),
-                }
-            )
-            completed_summaries.append(existing.real_summary or "")
+            distance = chapter_number - existing.chapter_number
+            raw_summary = existing.real_summary or ""
+
+            if distance <= 2:
+                # T1 近距：完整保留
+                tier_summary = raw_summary
+                opening_excerpt = existing.selected_version.content[:150] if existing.selected_version.content else ""
+                ending_excerpt = existing.selected_version.content[-150:] if existing.selected_version.content and len(existing.selected_version.content) > 150 else (existing.selected_version.content or "")
+            elif distance <= 10:
+                # T2 中距：summary 截断 200 字
+                tier_summary = raw_summary[:200] + ("…" if len(raw_summary) > 200 else "")
+                opening_excerpt = ""
+                ending_excerpt = ""
+            else:
+                # T3 远距：仅关键事件句 ≤80 字
+                tier_summary = self._compress_to_key_event(raw_summary, max_len=80)
+                opening_excerpt = ""
+                ending_excerpt = ""
+
+            chapter_entry = {
+                "chapter_number": existing.chapter_number,
+                "title": outlines_map.get(existing.chapter_number).title
+                if outlines_map.get(existing.chapter_number)
+                else f"第{existing.chapter_number}章",
+                "summary": tier_summary,
+                "chapter_mission_patterns": self._extract_mission_patterns(existing.selected_version),
+            }
+            # T1 层才附带 excerpts（节省远程章节 token）
+            if distance <= 2:
+                chapter_entry["opening_excerpt"] = opening_excerpt
+                chapter_entry["ending_excerpt"] = ending_excerpt
+
+            completed_chapters.append(chapter_entry)
+            # completed_summaries 也按层级压缩（用于 build_visibility_context 角色检测）
+            completed_summaries.append(tier_summary)
 
             if existing.chapter_number > latest_prev_number:
                 latest_prev_number = existing.chapter_number
-                previous_summary_text = existing.real_summary or ""
+                previous_summary_text = raw_summary  # previous_summary 始终保留完整
                 previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
 
         story_skeleton = self._build_story_skeleton(completed_chapters, chapter_number)
@@ -122,10 +147,13 @@ class PipelineContextMixin:
     ) -> Optional[str]:
         """从历史章节中采样构建故事骨架，为 Writer 提供长程上下文。
 
-        采样策略：
-        - ≤5章：全部包含
-        - >5章：第1章 + 每隔N章采样 + 最近2章（最近2章已有专门的 previous_summary，此处不重复）
+        三层递减策略 + 3000 字总预算：
+        - 最近 10 章内：全部包含，summary 按原始层级（已由 _collect_history_context 处理）
+        - 10 章以外：采样（第1章 + 每隔 N 章），summary 限 80 字
+        - 排除最近 1 章（已有专门的 [上一章摘要] 覆盖）
         """
+        SKELETON_BUDGET = 3000  # 故事骨架总字数上限
+
         if not completed_chapters or len(completed_chapters) <= 1:
             return None
 
@@ -136,27 +164,77 @@ class PipelineContextMixin:
         if not candidates:
             return None
 
-        if len(candidates) <= 5:
-            sampled = candidates
+        # 分层：近距（10 章内）全部保留，远距采样
+        near_chapters = [c for c in candidates if current_chapter - c["chapter_number"] <= 10]
+        far_chapters = [c for c in candidates if current_chapter - c["chapter_number"] > 10]
+
+        # 远距采样：第1章必选 + 均匀采样
+        if len(far_chapters) <= 5:
+            far_sampled = far_chapters
         else:
-            # 第1章必选 + 均匀采样中间 + 倒数第2章
-            sampled = [candidates[0]]
-            step = max(2, len(candidates) // 4)
-            for i in range(step, len(candidates) - 1, step):
-                sampled.append(candidates[i])
-            if candidates[-1] not in sampled:
-                sampled.append(candidates[-1])
+            far_sampled = [far_chapters[0]]  # 第1章必选
+            step = max(2, len(far_chapters) // 4)
+            for i in range(step, len(far_chapters) - 1, step):
+                far_sampled.append(far_chapters[i])
+            if far_chapters[-1] not in far_sampled:
+                far_sampled.append(far_chapters[-1])
+
+        # 合并：远距采样 + 近距全部
+        sampled = far_sampled + near_chapters
 
         lines = []
+        total_len = 0
         for ch in sampled:
             num = ch["chapter_number"]
             title = ch.get("title", f"第{num}章")
             summary = ch.get("summary", "")
-            if summary and len(summary) > 150:
-                summary = summary[:150] + "…"
-            lines.append(f"第{num}章 {title}：{summary}")
+            distance = current_chapter - num
+
+            # 根据距离决定截断长度
+            if distance > 10:
+                max_summary_len = 80
+            else:
+                max_summary_len = 200
+
+            if summary and len(summary) > max_summary_len:
+                summary = summary[:max_summary_len] + "…"
+
+            line = f"第{num}章 {title}：{summary}"
+
+            # 预算检查
+            if total_len + len(line) > SKELETON_BUDGET:
+                # 超预算时截断并标注
+                remaining = SKELETON_BUDGET - total_len - 20
+                if remaining > 30:
+                    lines.append(line[:remaining] + "…")
+                lines.append(f"（以上为 {len(sampled)} 章中的 {len(lines)} 章采样，已达 3000 字上限）")
+                break
+
+            lines.append(line)
+            total_len += len(line) + 1  # +1 for newline
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _compress_to_key_event(summary: str, max_len: int = 80) -> str:
+        """将完整摘要压缩为一句关键事件描述。
+
+        策略：取第一个句号/感叹号/问号之前的内容作为关键事件。
+        如果第一句太长则直接截断。
+        """
+        if not summary:
+            return ""
+        if len(summary) <= max_len:
+            return summary
+
+        # 尝试提取第一句话
+        for sep in ("。", "！", "？", "；", ".", "!", "?"):
+            idx = summary.find(sep)
+            if 0 < idx <= max_len:
+                return summary[: idx + 1]
+
+        # 第一句太长，直接截断
+        return summary[:max_len] + "…"
 
     async def _get_rag_context(
         self,

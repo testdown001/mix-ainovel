@@ -73,28 +73,21 @@ AI 生成的内容不一定第一次就完美，但你可以让它多试几版�
 
 ```bash
 # 1. 复制配置文件
-cp .env.example .env
+cp deploy/.env.example .env
 
 # 2. 改几个必填项（用你喜欢的编辑器打开 .env）
 #    - SECRET_KEY: 随便敲点字符，越长越安全
 #    - OPENAI_API_KEY: 你的大模型 API Key
+#    - MYSQL_PASSWORD: 数据库密码
 #    - ADMIN_DEFAULT_PASSWORD: 管理员密码，别用默认的
 
-# 3. 启动（默认用 SQLite，不需要装数据库）
+# 3. 启动（当前默认连接 MySQL）
 docker compose up -d
 
 # 搞定！浏览器打开 http://localhost:<端口> 就能用了
 ```
 
-### 方式二：我想用 MySQL
-
-```bash
-# 在 .env 里改一下 DB_PROVIDER=mysql
-# 然后用这个命令启动（会自动带上 MySQL 容器）
-DB_PROVIDER=mysql docker compose --profile mysql up -d
-```
-
-### 方式三：我有自己的 MySQL 服务器
+### 方式二：我有自己的 MySQL 服务器
 
 ```bash
 # 在 .env 里填好你的数据库地址、用户名、密码
@@ -106,7 +99,7 @@ DB_PROVIDER=mysql docker compose up -d
 
 ## 环境变量速查表
 
-这些是你可能需要改的配置（完整列表在 `.env.example` 里）：
+这些是你可能需要改的配置（完整列表在 `deploy/.env.example` 里）：
 
 | 配置项 | 必填吗 | 说明 |
 |--------|--------|------|
@@ -119,7 +112,7 @@ DB_PROVIDER=mysql docker compose up -d
 | `SMTP_SERVER` / `SMTP_USERNAME` | 开注册就得填 | 邮件服务配置，用来发验证码 |
 
 > 💡 **数据存哪？**  
-> 默认用 SQLite，数据存在 Docker 卷里。想映射到本地？在 `.env` 里设置 `SQLITE_STORAGE_SOURCE=./storage` 就行。
+> 项目数据存在 MySQL；向量与本地存储数据默认在 Docker 卷（`app-storage` / `qdrant-data`）。
 
 ---
 

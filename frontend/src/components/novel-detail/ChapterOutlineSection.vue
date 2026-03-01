@@ -332,6 +332,13 @@
               </div>
             </div>
           </div>
+
+          <!-- 场景编辑器 -->
+          <SceneEditor
+            :project-id="projectId"
+            :chapter-number="chapter.chapter_number"
+            :initial-scenes="chapter.metadata?.scenes || []"
+          />
         </div>
       </li>
       <li v-if="!sortedOutline.length" class="ml-6 text-slate-400 text-sm">暂无章节大纲</li>
@@ -341,6 +348,11 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import SceneEditor from './SceneEditor.vue'
+
+const route = useRoute()
+const projectId = route.params.id as string
 
 interface ChapterPredictionData {
   key_points?: string[]
@@ -355,7 +367,7 @@ interface OutlineItem {
   chapter_number: number
   title: string
   summary: string
-  metadata?: { prediction?: ChapterPredictionData } | null
+  metadata?: { prediction?: ChapterPredictionData; scenes?: any[] } | null
 }
 
 interface ChapterItem {

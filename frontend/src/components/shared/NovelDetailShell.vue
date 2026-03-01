@@ -172,6 +172,7 @@
       :title="modalTitle"
       :content="modalContent"
       :field="modalField"
+      :project-id="projectId"
       :power-systems="powerSystems"
       @close="isModalOpen = false"
       @save="handleSave"
@@ -242,6 +243,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
+import { useAuthStore } from '@/stores/auth'
 import { NovelAPI } from '@/api/novel'
 import { AdminAPI } from '@/api/admin'
 import type { NovelProject, NovelSectionResponse, NovelSectionType, AllSectionType } from '@/api/novel'
@@ -256,6 +258,7 @@ import ChaptersSection from '@/components/novel-detail/ChaptersSection.vue'
 import EmotionCurveSection from '@/components/novel-detail/EmotionCurveSection.vue'
 import ForeshadowingSection from '@/components/novel-detail/ForeshadowingSection.vue'
 import WriterPersonaPanel from '@/components/WriterPersonaPanel.vue'
+import ConceptLibrarySection from '@/components/novel-detail/ConceptLibrarySection.vue'
 
 // Import PowerSystem related types and api
 // Note: We need a generic api fetcher for /api/power-systems
@@ -282,7 +285,7 @@ interface Props {
   isAdmin?: boolean
 }
 
-type SectionKey = AllSectionType | 'writer_persona'
+type SectionKey = AllSectionType | 'writer_persona' | 'concept_library'
 
 const props = withDefaults(defineProps<Props>(), {
   isAdmin: false
@@ -304,7 +307,8 @@ const sections: Array<{ key: SectionKey; label: string; description: string }> =
   { key: 'chapters', label: '章节内容', description: props.isAdmin ? '生成章节与正文' : '生成状态与摘要' },
   { key: 'emotion_curve', label: '情感曲线', description: '追踪章节情感变化' },
   { key: 'foreshadowing', label: '伏笔管理', description: '故事线索与回收' },
-  { key: 'writer_persona', label: 'Writer 设定', description: '写作风格与对齐' }
+  { key: 'writer_persona', label: 'Writer 设定', description: '写作风格与对齐' },
+  { key: 'concept_library', label: '设定百科', description: '世界观元素管理' }
 ]
 
 const sectionComponents: Record<SectionKey, any> = {
@@ -316,7 +320,8 @@ const sectionComponents: Record<SectionKey, any> = {
   chapters: ChaptersSection,
   emotion_curve: EmotionCurveSection,
   foreshadowing: ForeshadowingSection,
-  writer_persona: WriterPersonaPanel
+  writer_persona: WriterPersonaPanel,
+  concept_library: ConceptLibrarySection
 }
 
 // Section icons as functional components
@@ -361,6 +366,9 @@ const getSectionIcon = (key: SectionKey) => {
     ]),
     writer_persona: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
       h('path', { d: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' })
+    ]),
+    concept_library: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
+      h('path', { d: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' })
     ])
   }
   return icons[key]
@@ -376,7 +384,8 @@ const sectionLoading = reactive<Record<SectionKey, boolean>>({
   chapters: false,
   emotion_curve: false,
   foreshadowing: false,
-  writer_persona: false
+  writer_persona: false,
+  concept_library: false
 })
 const sectionError = reactive<Record<SectionKey, string | null>>({
   overview: null,
@@ -387,7 +396,8 @@ const sectionError = reactive<Record<SectionKey, string | null>>({
   chapters: null,
   emotion_curve: null,
   foreshadowing: null,
-  writer_persona: null
+  writer_persona: null,
+  concept_library: null
 })
 
 const overviewMeta = reactive<{ title: string; updated_at: string | null }>({
@@ -455,7 +465,7 @@ const loadSection = async (section: SectionKey, force = false) => {
   if (!projectId) return
   
   // 分析型Section使用独立的API，不需要在这里加载
-  const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing', 'writer_persona']
+  const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing', 'writer_persona', 'concept_library']
   if (analysisSections.includes(section)) {
     return
   }
@@ -497,6 +507,10 @@ const switchSection = (section: SectionKey) => {
   if (section === 'chapter_outline') {
     loadSection('chapters')
   }
+  // 关系图谱需要角色数据
+  if (section === 'relationships') {
+    loadSection('characters')
+  }
 }
 
 const goBack = () => router.push(props.isAdmin ? '/admin' : '/workspace')
@@ -525,7 +539,7 @@ const componentProps = computed(() => {
     case 'characters':
       return { data: data || null, editable, powerSystems: powerSystems.value }
     case 'relationships':
-      return { data: data || null, editable }
+      return { data: { ...(data || {}), characters: sectionData.characters?.characters || [] }, editable }
     case 'chapter_outline':
       return { outline: data?.chapter_outline || [], chapters: sectionData.chapters?.chapters || [], editable }
     case 'chapters':

@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .llm_service import LLMService
 from .prompt_service import PromptService
+from ..core.config import settings
 from ..core.constants import CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,86 @@ class PreviewGenerationService:
         self.db = db
         self.llm_service = llm_service
         self.prompt_service = prompt_service
+
+    @staticmethod
+    def _resolve_word_count_bounds() -> tuple[int, int]:
+        """解析章节字数上下限，优先使用运行时配置。"""
+        try:
+            min_words = int(getattr(settings, "writer_chapter_word_count_min", CHAPTER_MIN_WORDS))
+        except (TypeError, ValueError):
+            min_words = CHAPTER_MIN_WORDS
+        try:
+            max_words = int(getattr(settings, "writer_chapter_word_count_max", CHAPTER_MAX_WORDS))
+        except (TypeError, ValueError):
+            max_words = CHAPTER_MAX_WORDS
+
+        if min_words < 1:
+            min_words = CHAPTER_MIN_WORDS
+        if max_words < min_words:
+            max_words = min_words
+        return min_words, max_words
+
+    def _normalize_plot_points(self, preview: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """标准化并按顺序排序关键情节点。"""
+        raw_points = preview.get("key_plot_points", [])
+        if not isinstance(raw_points, list):
+            raw_points = []
+
+        normalized: List[Dict[str, Any]] = []
+        for index, point in enumerate(raw_points, start=1):
+            if not isinstance(point, dict):
+                continue
+
+            description = str(point.get("description", "")).strip()
+            if not description:
+                continue
+
+            try:
+                order = int(point.get("order", index))
+            except (TypeError, ValueError):
+                order = index
+
+            normalized.append(
+                {
+                    "order": order,
+                    "description": description,
+                    "purpose": str(point.get("purpose", "")).strip(),
+                    "emotion_target": str(point.get("emotion_target", "")).strip(),
+                }
+            )
+
+        normalized.sort(key=lambda item: item["order"])
+        for index, item in enumerate(normalized, start=1):
+            item["order"] = index
+
+        if normalized:
+            return normalized
+
+        preview_text = str(preview.get("preview_text", "")).strip()
+        if preview_text:
+            return [
+                {
+                    "order": 1,
+                    "description": preview_text[:120].replace("\n", " "),
+                    "purpose": "沿预览主线推进",
+                    "emotion_target": "与预览保持一致",
+                }
+            ]
+
+        return []
+
+    def _build_plot_point_checklist(self, plot_points: List[Dict[str, Any]]) -> str:
+        """生成阶段 3 扩写执行清单，约束模型按顺序展开。"""
+        if not plot_points:
+            return "1. 以章节大纲摘要为主线推进，形成清晰的起承转合。"
+
+        lines: List[str] = []
+        for point in plot_points:
+            lines.append(
+                f"{point['order']}. {point['description']}（作用：{point.get('purpose') or '推进主线'}；"
+                f"目标情绪：{point.get('emotion_target') or '与上下文一致'}）"
+            )
+        return "\n".join(lines)
 
     async def generate_preview(
         self,
@@ -222,7 +303,17 @@ class PreviewGenerationService:
         Returns:
             完整的章节正文
         """
-        target_word_count = max(CHAPTER_MIN_WORDS, min(CHAPTER_MAX_WORDS, target_word_count))
+        min_words, max_words = self._resolve_word_count_bounds()
+        target_word_count = max(min_words, min(max_words, target_word_count))
+        normalized_plot_points = self._normalize_plot_points(preview)
+        plot_point_checklist = self._build_plot_point_checklist(normalized_plot_points)
+        preview_text = str(preview.get("preview_text", "")).strip()
+        if not preview_text:
+            preview_text = f"根据大纲扩写：{outline.get('summary', '')}".strip()
+
+        expected_emotions = preview.get("expected_emotions", [])
+        if not isinstance(expected_emotions, list):
+            expected_emotions = []
 
         prompt = f"""你是一位资深网文作者，现在需要将章节预览扩写成完整的章节正文。
 
@@ -237,10 +328,13 @@ class PreviewGenerationService:
 摘要：{outline.get('summary', '')}
 
 [章节预览]
-{preview.get('preview_text', '')}
+{preview_text}
 
-[关键情节点]
-{json.dumps(preview.get('key_plot_points', []), ensure_ascii=False, indent=2)}
+[关键情节点（已标准化顺序）]
+{json.dumps(normalized_plot_points, ensure_ascii=False, indent=2)}
+
+[情节点执行清单]
+{plot_point_checklist}
 
 [开场设定]
 {json.dumps(preview.get('opening', {}), ensure_ascii=False, indent=2)}
@@ -248,23 +342,27 @@ class PreviewGenerationService:
 [结尾钩子]
 {json.dumps(preview.get('ending_hook', {}), ensure_ascii=False, indent=2)}
 
+[预期读者情绪]
+{json.dumps(expected_emotions, ensure_ascii=False, indent=2)}
+
 [风格提示]
 {style_hint or '无特殊要求'}
 
 [字数硬约束]
-- 正文字数目标区间：{CHAPTER_MIN_WORDS} 到 {CHAPTER_MAX_WORDS} 字
+- 正文字数目标区间：{min_words} 到 {max_words} 字
 - 建议目标字数：{target_word_count} 字左右（可随剧情节奏上下浮动）
 - 冲突场景可多用短句提速，铺垫/心理段可用长句展开，长短句需交替，不要整章同一节奏
 
 请严格按照预览中的情节点顺序，扩写成完整的章节正文。
 
 写作要求：
-1. 必须包含预览中的所有关键情节点
-2. 开场必须符合设定的时间、地点、人物状态
-3. 结尾必须实现设计的钩子
-4. 使用镜头语言，多写动作、对话、感官描写
-5. 禁止总结性结尾，禁止"他知道..."、"他明白..."等全知视角
-6. 禁止使用"值得注意的是"、"总而言之"等 AI 典型词汇
+1. 必须按“情节点执行清单”顺序推进，不得跳序、逆序或遗漏
+2. 必须覆盖预览中的所有关键情节点（可扩展细节，不可删除主干事件）
+3. 开场必须符合设定的时间、地点、人物状态
+4. 结尾必须实现设计的钩子
+5. 使用镜头语言，多写动作、对话、感官描写
+6. 禁止总结性结尾，禁止"他知道..."、"他明白..."等全知视角
+7. 禁止使用"值得注意的是"、"总而言之"等 AI 典型词汇
 
 直接输出章节正文，不要输出 JSON 或其他格式。"""
 
@@ -297,7 +395,7 @@ class PreviewGenerationService:
         user_id: int = 0
     ) -> Dict[str, Any]:
         """
-        完整的两阶段生成流程
+        完整的三阶段生成流程（预览生成 -> 预览评估 -> 扩写正文）
         
         Args:
             auto_approve: 是否自动批准预览（True 则不需要人工确认）
@@ -313,7 +411,8 @@ class PreviewGenerationService:
             "retries": 0,
             "status": "pending"
         }
-        target_word_count = max(CHAPTER_MIN_WORDS, min(CHAPTER_MAX_WORDS, target_word_count))
+        min_words, max_words = self._resolve_word_count_bounds()
+        target_word_count = max(min_words, min(max_words, target_word_count))
         
         # 阶段 1：生成预览
         for retry in range(max_preview_retries + 1):
@@ -364,7 +463,7 @@ class PreviewGenerationService:
             if suggestions:
                 style_hint = style_hint + "\n注意：" + "；".join(suggestions)
         
-        # 阶段 2：扩写正文
+        # 阶段 3：扩写正文
         if result["preview"]:
             full_chapter = await self.expand_preview_to_full_chapter(
                 preview=result["preview"],

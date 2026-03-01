@@ -137,6 +137,19 @@ async def generate_chapter_mission(
 [写作指令]
 {writing_notes or "无额外指令"}
 """
+    # P4: 注入动态字数配置到导演脚本生成
+    from ..core.config import settings
+    from ..core.constants import CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS
+    try:
+        wc_min = int(getattr(settings, "writer_chapter_word_count_min", CHAPTER_MIN_WORDS))
+        wc_max = int(getattr(settings, "writer_chapter_word_count_max", CHAPTER_MAX_WORDS))
+    except (TypeError, ValueError):
+        wc_min, wc_max = CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS
+    plan_input += (
+        f"\n[章节字数限制]\n"
+        f"正文必须控制在 {wc_min}-{wc_max} 字之间。"
+        f"输出JSON中 word_budget_total 必须设置在此范围内（推荐 {wc_min + (wc_max - wc_min) // 2}）。\n"
+    )
     if pattern_constraint:
         plan_input += f"\n{pattern_constraint}\n"
 

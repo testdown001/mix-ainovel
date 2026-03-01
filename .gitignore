@@ -1,5 +1,6 @@
 /.vscode
 /.venv
+/backend/.venv
 /frontend/.vscode
 /frontend/node_modules
 /backend/app/__pycache__/*.pyc
@@ -7,6 +8,9 @@
 /backend/dist
 /backend/storage/*.db
 /frontend/dist
+*.backup
+/backend/.pytest_cache
+/backend/.mypy_cache
 
 # 环境变量文件
 .env

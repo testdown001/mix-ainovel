@@ -1,7 +1,16 @@
 // AIMETA P=小说状态_当前小说数据管理|R=currentNovel_chapters_fetch|NR=不含API调用|E=store:novel|X=internal|A=useNovelStore|D=pinia|S=none|RD=./README.ai
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { NovelProject, NovelProjectSummary, ConverseResponse, BlueprintGenerationResponse, Blueprint, DeleteNovelsResponse, ChapterOutline } from '@/api/novel'
+import type {
+  NovelProject,
+  NovelProjectSummary,
+  ConverseResponse,
+  BlueprintGenerationResponse,
+  Blueprint,
+  DeleteNovelsResponse,
+  ChapterOutline,
+  ReferenceSearchResponse
+} from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
 
 export const useNovelStore = defineStore('novel', () => {
@@ -87,7 +96,13 @@ export const useNovelStore = defineStore('novel', () => {
     }
   }
 
-  async function sendConversation(userInput: any): Promise<ConverseResponse> {
+  async function sendConversation(
+    userInput: any,
+    options: {
+      referenceNovels?: string[]
+      referenceContext?: string
+    } = {}
+  ): Promise<ConverseResponse> {
     isLoading.value = true
     error.value = null
     try {
@@ -97,12 +112,29 @@ export const useNovelStore = defineStore('novel', () => {
       const response = await NovelAPI.converseConcept(
         currentProject.value.id,
         userInput,
-        currentConversationState.value
+        currentConversationState.value,
+        options
       )
       currentConversationState.value = response.conversation_state
       return response
     } catch (err) {
       error.value = err instanceof Error ? err.message : '对话失败'
+      throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  async function searchReferenceNovels(novelNames: string[]): Promise<ReferenceSearchResponse> {
+    isLoading.value = true
+    error.value = null
+    try {
+      if (!currentProject.value) {
+        throw new Error('没有当前项目')
+      }
+      return await NovelAPI.searchReferenceNovels(currentProject.value.id, novelNames)
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : '参考小说搜索失败'
       throw err
     } finally {
       isLoading.value = false
@@ -358,6 +390,7 @@ export const useNovelStore = defineStore('novel', () => {
     loadProject,
     loadChapter,
     sendConversation,
+    searchReferenceNovels,
     generateBlueprint,
     saveBlueprint,
     generateChapter,

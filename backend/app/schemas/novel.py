@@ -35,6 +35,31 @@ class ConverseRequest(BaseModel):
 
     user_input: Dict[str, Any]
     conversation_state: Dict[str, Any]
+    reference_novels: Optional[List[str]] = Field(
+        default=None,
+        max_length=3,
+        description="参考小说名称列表，最多 3 本",
+    )
+    reference_context: Optional[str] = Field(
+        default=None,
+        description="已检索并糅合的参考上下文（可选）",
+    )
+
+
+class ReferenceSearchRequest(BaseModel):
+    """参考小说搜索请求体。"""
+
+    novel_names: List[str] = Field(default_factory=list, max_length=3, description="参考小说名称，最多 3 本")
+
+
+class ReferenceSearchResponse(BaseModel):
+    """参考小说搜索响应体。"""
+
+    reference_context: str = ""
+    search_completed: bool = False
+    skipped: bool = False
+    message: Optional[str] = None
+    searched_novels: List[str] = Field(default_factory=list)
 
 
 class ChapterGenerationStatus(str, Enum):
@@ -166,6 +191,17 @@ class FlowConfig(BaseModel):
     async_finalize: Optional[bool] = Field(default=None, description="是否异步定稿")
     enable_rag: Optional[bool] = Field(default=None, description="是否启用 RAG")
     rag_mode: Optional[str] = Field(default=None, description="simple|two_stage")
+    rag_retrieval_mode: Optional[str] = Field(default=None, description="vector|hybrid")
+    pacing_model: Optional[str] = Field(default=None, description="default|strand_weave")
+    enable_scene_by_scene: Optional[bool] = Field(default=None, description="是否启用场景级分步生成")
+    enable_prose_sculpting: Optional[bool] = Field(default=None, description="是否启用节奏/密度雕塑")
+    enable_golden_paragraph: Optional[bool] = Field(default=None, description="是否启用黄金段落增强")
+    enable_reference_prose: Optional[bool] = Field(default=None, description="是否启用范文注入")
+    enable_voice_samples: Optional[bool] = Field(default=None, description="是否启用角色声纹样本")
+    enable_narrative_variety: Optional[bool] = Field(default=None, description="是否启用叙事差异化约束")
+    use_slim_prompt: Optional[bool] = Field(default=None, description="是否启用精简提示词")
+    literary_adaptive_postprocess: Optional[bool] = Field(default=None, description="文学模式是否自适应裁剪后处理步骤")
+    batch_parallel_workers: Optional[int] = Field(default=None, ge=1, le=8, description="批量生成并行工作数")
 
 
 class AdvancedGenerateRequest(BaseModel):

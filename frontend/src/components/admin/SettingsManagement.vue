@@ -80,6 +80,51 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
+          <span class="card-title">参考小说搜索模型配置</span>
+        </div>
+      </template>
+      <n-spin :show="searchModelLoading">
+        <n-alert v-if="searchModelError" type="error" closable @close="searchModelError = null">
+          {{ searchModelError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          配置灵感模式的联网搜索模型。全部留空表示关闭参考小说网络搜索。
+        </n-alert>
+        <n-form label-placement="top" class="search-form">
+          <n-form-item label="API Key">
+            <n-input
+              v-model:value="searchModelForm.api_key"
+              type="password"
+              show-password-on="click"
+              placeholder="留空表示关闭搜索"
+            />
+          </n-form-item>
+          <n-form-item label="Base URL">
+            <n-input v-model:value="searchModelForm.base_url" placeholder="例如：https://api.x.ai/v1" />
+          </n-form-item>
+          <n-form-item label="模型名称">
+            <n-input v-model:value="searchModelForm.model" placeholder="例如：grok-3" />
+          </n-form-item>
+          <n-form-item label="API 格式">
+            <n-select
+              v-model:value="searchModelForm.api_format"
+              :options="apiFormatOptions"
+              placeholder="留空自动识别"
+              clearable
+            />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button type="primary" :loading="searchModelSaving" @click="saveSearchModelConfig">
+              保存设置
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
           <span class="card-title">系统配置</span>
           <n-button type="primary" size="small" @click="openCreateModal">
             新增配置
@@ -217,6 +262,57 @@ const fetchPolishConfig = async () => {
     polishError.value = err instanceof Error ? err.message : '加载润色模型配置失败'
   } finally {
     polishLoading.value = false
+  }
+}
+
+// ---- 参考小说搜索模型配置 ----
+const searchModelLoading = ref(false)
+const searchModelSaving = ref(false)
+const searchModelError = ref<string | null>(null)
+const searchModelForm = reactive({
+  api_key: '',
+  base_url: '',
+  model: '',
+  api_format: null as string | null
+})
+
+const fetchSearchModelConfig = async () => {
+  searchModelLoading.value = true
+  searchModelError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const configMap = new Map(allConfigs.map((c) => [c.key, c.value]))
+    searchModelForm.api_key = configMap.get('llm_search.api_key') || ''
+    searchModelForm.base_url = configMap.get('llm_search.base_url') || ''
+    searchModelForm.model = configMap.get('llm_search.model') || ''
+    searchModelForm.api_format = configMap.get('llm_search.api_format') || null
+  } catch (err) {
+    searchModelError.value = err instanceof Error ? err.message : '加载搜索模型配置失败'
+  } finally {
+    searchModelLoading.value = false
+  }
+}
+
+const saveSearchModelConfig = async () => {
+  searchModelSaving.value = true
+  try {
+    const entries: Array<{ key: string; value: string; description: string }> = [
+      { key: 'llm_search.api_key', value: searchModelForm.api_key, description: '参考小说搜索专用 API Key' },
+      { key: 'llm_search.base_url', value: searchModelForm.base_url, description: '参考小说搜索专用 Base URL' },
+      { key: 'llm_search.model', value: searchModelForm.model, description: '参考小说搜索专用模型名称' },
+      { key: 'llm_search.api_format', value: searchModelForm.api_format || '', description: '参考小说搜索专用 API 格式' }
+    ]
+    for (const entry of entries) {
+      await AdminAPI.upsertSystemConfig(entry.key, {
+        value: entry.value,
+        description: entry.description
+      })
+    }
+    showAlert('参考小说搜索模型配置已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    searchModelSaving.value = false
   }
 }
 
@@ -430,6 +526,7 @@ const columns: DataTableColumns<SystemConfig> = [
 onMounted(() => {
   fetchDailyLimit()
   fetchPolishConfig()
+  fetchSearchModelConfig()
   fetchConfigs()
 })
 </script>
@@ -458,6 +555,10 @@ onMounted(() => {
 }
 
 .polish-form {
+  max-width: 480px;
+}
+
+.search-form {
   max-width: 480px;
 }
 

@@ -27,6 +27,46 @@ class CacheService:
     def is_available(self) -> bool:
         """检查 Redis 是否可用"""
         return self.redis_client is not None
+
+    async def get(self, key: str) -> Optional[Any]:
+        """通用读取接口，供异步路由直接调用。"""
+        if not self.is_available():
+            return None
+
+        try:
+            data = self.redis_client.get(key)
+            return json.loads(data) if data else None
+        except Exception as e:
+            logger.warning(f"读取缓存失败: key={key}, error={e}")
+            return None
+
+    async def set(self, key: str, value: Any, expire: int = 3600) -> bool:
+        """通用写入接口，供异步路由直接调用。"""
+        if not self.is_available():
+            return False
+
+        try:
+            payload = json.dumps(value, default=str, ensure_ascii=False)
+            if expire and expire > 0:
+                self.redis_client.setex(key, expire, payload)
+            else:
+                self.redis_client.set(key, payload)
+            return True
+        except Exception as e:
+            logger.warning(f"写入缓存失败: key={key}, error={e}")
+            return False
+
+    async def delete(self, key: str) -> bool:
+        """通用删除接口，供异步路由直接调用。"""
+        if not self.is_available():
+            return False
+
+        try:
+            self.redis_client.delete(key)
+            return True
+        except Exception as e:
+            logger.warning(f"删除缓存失败: key={key}, error={e}")
+            return False
     
     def get_emotion_curve(self, novel_id: str) -> Optional[Dict]:
         """获取缓存的情感曲线"""

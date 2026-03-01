@@ -60,7 +60,15 @@ services:
       LINUXDO_AUTH_URL: ${LINUXDO_AUTH_URL:-https://connect.linux.do/oauth2/authorize}
       LINUXDO_TOKEN_URL: ${LINUXDO_TOKEN_URL:-https://connect.linux.do/oauth2/token}
       LINUXDO_USER_INFO_URL: ${LINUXDO_USER_INFO_URL:-https://connect.linux.do/api/user}
+
+      # Qdrant 向量数据库（供 Mem0 长期记忆使用）
+      QDRANT_HOST: ${QDRANT_HOST:-qdrant}
+      QDRANT_PORT: ${QDRANT_PORT:-6333}
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
     restart: unless-stopped
+    depends_on:
+      - qdrant
+    volumes:
       - app-storage:/app/storage
     networks:
       - app-network

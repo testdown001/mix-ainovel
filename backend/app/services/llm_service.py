@@ -28,6 +28,9 @@ except ImportError:  # pragma: no cover - Ollama 为可选依赖
 class LLMService:
     """封装与大模型交互的所有逻辑，包括配额控制与配置选择。"""
 
+    # P2 优化: 进程级 LLM 客户端缓存，避免每次调用重建连接
+    _CLIENT_CACHE: Dict[str, Any] = {}
+
     def __init__(self, session):
         self.session = session
         self.llm_repo = LLMConfigRepository(session)
@@ -36,6 +39,27 @@ class LLMService:
         self.admin_setting_service = AdminSettingService(session)
         self.usage_service = UsageService(session)
         self._embedding_dimensions: Dict[str, int] = {}
+
+    @classmethod
+    def _get_or_create_client(cls, api_format: str, api_key: str, base_url: Optional[str]) -> Any:
+        """从缓存获取或创建 LLM 客户端，避免重复 TLS 握手。"""
+        cache_key = f"{api_format}|{base_url or ''}|{api_key[:8]}..."
+        if cache_key in cls._CLIENT_CACHE:
+            return cls._CLIENT_CACHE[cache_key]
+
+        if api_format == "anyrouter":
+            client = AnyRouterLLMClient(api_key=api_key, base_url=base_url)
+        elif api_format == "anthropic":
+            client = AnthropicLLMClient(api_key=api_key, base_url=base_url)
+        elif api_format == "gemini":
+            client = GeminiLLMClient(api_key=api_key, base_url=base_url)
+        elif api_format == "openai-responses":
+            client = OpenAIResponsesLLMClient(api_key=api_key, base_url=base_url)
+        else:
+            client = LLMClient(api_key=api_key, base_url=base_url)
+
+        cls._CLIENT_CACHE[cache_key] = client
+        return client
 
     async def get_llm_response(
         self,
@@ -115,6 +139,8 @@ class LLMService:
     # 网络瞬断类异常，可安全重试
     _RETRYABLE_ERRORS = (
         httpx.RemoteProtocolError,
+        httpx.ConnectError,
+        httpx.ConnectTimeout,
         httpx.ReadError,
         httpx.ReadTimeout,
         APIConnectionError,
@@ -122,6 +148,42 @@ class LLMService:
     )
     # 进程级缓存：记录不支持 response_format 的 provider 组合（base_url|model）
     _UNSUPPORTED_RESPONSE_FORMAT_TARGETS: set[str] = set()
+
+    @staticmethod
+    def _normalize_base_url(base_url: Optional[str]) -> Optional[str]:
+        """规范化第三方 LLM 地址，自动补全缺失协议。"""
+        if base_url is None:
+            return None
+
+        normalized = str(base_url).strip()
+        if not normalized:
+            return None
+
+        # 兼容常见误填：把 https:/host 或 http:/host 修复为双斜杠
+        if normalized.lower().startswith("https:/") and not normalized.lower().startswith("https://"):
+            normalized = "https://" + normalized[len("https:/"):].lstrip("/")
+        elif normalized.lower().startswith("http:/") and not normalized.lower().startswith("http://"):
+            normalized = "http://" + normalized[len("http:/"):].lstrip("/")
+
+        lower = normalized.lower()
+        has_http_scheme = lower.startswith("http://") or lower.startswith("https://")
+        has_any_scheme = "://" in normalized
+        if not has_http_scheme and not has_any_scheme:
+            host = normalized.split("/", 1)[0].lower()
+            is_local = (
+                host.startswith("localhost")
+                or host.startswith("127.")
+                or host.startswith("0.0.0.0")
+                or host.startswith("[::1]")
+                or host.startswith("::1")
+                or host.startswith("192.168.")
+                or host.startswith("10.")
+                or host.startswith("172.")
+            )
+            scheme = "http" if is_local else "https"
+            normalized = f"{scheme}://{normalized}"
+
+        return normalized.rstrip("/")
 
     @staticmethod
     def _is_claude_model(model_name: Optional[str]) -> bool:
@@ -262,6 +324,7 @@ class LLMService:
         disable_thinking: bool = False,
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
+        config["base_url"] = self._normalize_base_url(config.get("base_url"))
         chat_messages = [ChatMessage(role=msg["role"], content=msg["content"]) for msg in messages]
 
         model_name = config.get("model") or ""
@@ -307,8 +370,8 @@ class LLMService:
                 logger.info("跳过 response_format=%s（Claude thinking 模型不兼容），model=%s", response_format, model_name)
                 effective_response_format = None
 
-        # Gemini 系列模型输出上限较高（至少 128K），自动提升 max_tokens 下限
-        _GEMINI_MIN_MAX_TOKENS = 128000
+        # Gemini 系列模型输出上限较高，自动提升 max_tokens 下限
+        _GEMINI_MIN_MAX_TOKENS = 65536
         if "gemini" in model_name.lower() and (max_tokens is None or max_tokens < _GEMINI_MIN_MAX_TOKENS):
             logger.info(
                 "Gemini 模型检测到，max_tokens 从 %s 提升至 %d: model=%s",
@@ -330,22 +393,11 @@ class LLMService:
         responses_endpoint_fallback_applied = False
         _active_format: Optional[str] = None
         client = None
-        _created_clients: list = []
         for attempt in range(1, max_retries + 2):  # max_retries + 1 次总尝试
-            # 仅当 api_format 变更时重建客户端，避免每次重试都创建新连接
+            # P2 优化: 使用客户端缓存，仅当 api_format 变更时切换客户端
             if api_format != _active_format:
-                if api_format == "anyrouter":
-                    client = AnyRouterLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-                elif api_format == "anthropic":
-                    client = AnthropicLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-                elif api_format == "gemini":
-                    client = GeminiLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-                elif api_format == "openai-responses":
-                    client = OpenAIResponsesLLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
-                else:
-                    client = LLMClient(api_key=config["api_key"], base_url=config.get("base_url"))
+                client = self._get_or_create_client(api_format, config["api_key"], config.get("base_url"))
                 _active_format = api_format
-                _created_clients.append(client)
             full_response = ""
             finish_reason = None
 
@@ -572,6 +624,21 @@ class LLMService:
                              config.get("base_url"), model_name, detail)
                 raise HTTPException(status_code=502, detail=detail) from exc
 
+            except httpx.UnsupportedProtocol as exc:
+                detail = (
+                    "LLM 服务地址配置无效：请为 llm.base_url 或个人 LLM 地址填写完整的 "
+                    "http:// 或 https:// 前缀"
+                )
+                logger.error(
+                    "LLM unsupported protocol: base_url=%s model=%s user_id=%s detail=%s",
+                    config.get("base_url"),
+                    model_name,
+                    user_id,
+                    exc,
+                    exc_info=exc,
+                )
+                raise HTTPException(status_code=500, detail=detail) from exc
+
             except self._RETRYABLE_ERRORS as exc:
                 last_exc = exc
                 collected_chars = len(full_response)
@@ -600,6 +667,20 @@ class LLMService:
                 # 重试耗尽
                 if isinstance(exc, httpx.RemoteProtocolError):
                     detail = f"AI 服务连接被意外中断（已重试 {max_retries} 次），请稍后重试"
+                elif isinstance(exc, httpx.ConnectTimeout):
+                    detail = f"AI 服务连接超时（已重试 {max_retries} 次），请检查网络或服务地址配置"
+                elif isinstance(exc, httpx.ConnectError):
+                    raw_msg = str(exc)
+                    if "name resolution" in raw_msg.lower():
+                        detail = (
+                            f"AI 服务域名解析失败（已重试 {max_retries} 次）。"
+                            f"请检查 llm.base_url 或个人 LLM 地址是否可解析：{config.get('base_url') or '未配置'}"
+                        )
+                    else:
+                        detail = (
+                            f"无法连接到 AI 服务（已重试 {max_retries} 次）。"
+                            f"请检查服务地址与网络连通性：{config.get('base_url') or '未配置'}"
+                        )
                 elif isinstance(exc, (httpx.ReadTimeout, APITimeoutError)):
                     detail = f"AI 服务响应超时（已重试 {max_retries} 次），请稍后重试"
                 else:
@@ -636,11 +717,7 @@ class LLMService:
                 user_id,
                 finish_reason,
             )
-            for _c in _created_clients:
-                try:
-                    await _c.aclose()
-                except Exception:
-                    pass
+            # P2: 使用缓存客户端，不再逐次关闭
             raise HTTPException(
                 status_code=500,
                 detail=f"AI 未返回有效内容（结束原因: {finish_reason or '未知'}），请稍后重试或联系管理员"
@@ -654,12 +731,7 @@ class LLMService:
             user_id,
             len(full_response),
         )
-        # 清理：关闭所有创建的 LLM 客户端连接
-        for _c in _created_clients:
-            try:
-                await _c.aclose()
-            except Exception:
-                pass
+        # P2: 使用缓存客户端，不再逐次关闭
         return full_response
 
     async def _resolve_llm_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
@@ -668,7 +740,7 @@ class LLMService:
             if config and config.llm_provider_api_key:
                 return {
                     "api_key": config.llm_provider_api_key,
-                    "base_url": config.llm_provider_url,
+                    "base_url": self._normalize_base_url(config.llm_provider_url),
                     "model": config.llm_provider_model,
                     "api_format": config.llm_provider_api_format,
                 }
@@ -678,7 +750,7 @@ class LLMService:
             await self._enforce_daily_limit(user_id)
 
         api_key = await self._get_config_value("llm.api_key")
-        base_url = await self._get_config_value("llm.base_url")
+        base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
         model = await self._get_config_value("llm.model")
 
         if not api_key:
@@ -693,7 +765,7 @@ class LLMService:
     async def _resolve_optimize_llm_config(self) -> Dict[str, Optional[str]]:
         """解析润色优化专用 LLM 配置，未设置的字段回退到默认 llm.* 配置。"""
         opt_api_key = await self._get_config_value("llm_optimize.api_key")
-        opt_base_url = await self._get_config_value("llm_optimize.base_url")
+        opt_base_url = self._normalize_base_url(await self._get_config_value("llm_optimize.base_url"))
         opt_model = await self._get_config_value("llm_optimize.model")
         opt_api_format = await self._get_config_value("llm_optimize.api_format")
 
@@ -702,7 +774,7 @@ class LLMService:
         if not has_any:
             # 全部留空，完全回退到默认配置（不走用户级配置）
             api_key = await self._get_config_value("llm.api_key")
-            base_url = await self._get_config_value("llm.base_url")
+            base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
             model = await self._get_config_value("llm.model")
             if not api_key:
                 raise HTTPException(
@@ -713,7 +785,7 @@ class LLMService:
 
         # 逐字段回退
         api_key = opt_api_key or await self._get_config_value("llm.api_key")
-        base_url = opt_base_url or await self._get_config_value("llm.base_url")
+        base_url = opt_base_url or self._normalize_base_url(await self._get_config_value("llm.base_url"))
         model = opt_model or await self._get_config_value("llm.model")
         api_format = opt_api_format  # 留空时由 _resolve_api_format 自动判断
 
@@ -721,6 +793,34 @@ class LLMService:
             raise HTTPException(
                 status_code=500,
                 detail="润色优化模型与默认 LLM 均未配置 API Key",
+            )
+
+        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+
+    async def _resolve_search_llm_config(self) -> Dict[str, Optional[str]]:
+        """解析参考小说搜索专用 LLM 配置；未启用 llm_search.* 时返回未配置错误。"""
+        search_api_key = await self._get_config_value("llm_search.api_key")
+        search_base_url = self._normalize_base_url(await self._get_config_value("llm_search.base_url"))
+        search_model = await self._get_config_value("llm_search.model")
+        search_api_format = await self._get_config_value("llm_search.api_format")
+
+        # 搜索配置默认按“显式启用”处理：完全留空表示关闭搜索能力
+        has_any = any(v for v in (search_api_key, search_base_url, search_model, search_api_format))
+        if not has_any:
+            raise HTTPException(
+                status_code=503,
+                detail="未配置参考小说搜索模型（llm_search.*），已跳过网络搜索",
+            )
+
+        api_key = search_api_key or await self._get_config_value("llm.api_key")
+        base_url = search_base_url or self._normalize_base_url(await self._get_config_value("llm.base_url"))
+        model = search_model or await self._get_config_value("llm.model")
+        api_format = search_api_format
+
+        if not api_key:
+            raise HTTPException(
+                status_code=500,
+                detail="搜索模型与默认 LLM 均未配置 API Key",
             )
 
         return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
@@ -736,6 +836,28 @@ class LLMService:
     ) -> str:
         """使用润色优化专用模型生成响应，不走用户级配置，不扣用户配额。"""
         config = await self._resolve_optimize_llm_config()
+        messages = [{"role": "system", "content": system_prompt}, *conversation_history]
+        return await self._stream_and_collect(
+            messages,
+            temperature=temperature,
+            user_id=None,
+            timeout=timeout,
+            config_override=config,
+            response_format=None,
+            max_tokens=max_tokens,
+        )
+
+    async def get_search_llm_response(
+        self,
+        system_prompt: str,
+        conversation_history: List[Dict[str, str]],
+        *,
+        temperature: float = 0.4,
+        timeout: float = 120.0,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """使用搜索专用模型生成响应，不走用户级配置，不扣用户配额。"""
+        config = await self._resolve_search_llm_config()
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
         return await self._stream_and_collect(
             messages,
@@ -768,7 +890,7 @@ class LLMService:
                 logger.error("未安装 ollama 依赖，无法调用本地嵌入模型。")
                 raise HTTPException(status_code=500, detail="缺少 Ollama 依赖，请先安装 ollama 包。")
 
-            base_url = (
+            base_url = self._normalize_base_url(
                 await self._get_config_value("ollama.embedding_base_url")
                 or await self._get_config_value("embedding.base_url")
             )
@@ -797,7 +919,7 @@ class LLMService:
         else:
             config = await self._resolve_llm_config(user_id)
             embedding_api_key = await self._get_config_value("embedding.api_key")
-            embedding_base_url = await self._get_config_value("embedding.base_url")
+            embedding_base_url = self._normalize_base_url(await self._get_config_value("embedding.base_url"))
             api_key = embedding_api_key or config["api_key"]
             base_url = embedding_base_url or config.get("base_url")
 
