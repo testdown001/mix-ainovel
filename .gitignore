@@ -29,3 +29,4 @@ __pycache__/
 
 # 日志文件
 /backend/logs/
+/backend/.enve/
