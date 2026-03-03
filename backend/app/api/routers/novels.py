@@ -577,6 +577,409 @@ class GenerateDNARequest(BaseModel):
     overwrite: bool = False  # 是否覆盖已有的DNA档案
 
 
+DNA_PROFILE_FIELDS = (
+    "childhood_trauma",
+    "core_fear",
+    "inner_desire",
+    "speech_habits",
+    "body_language",
+    "thinking_pattern",
+    "decision_style",
+    "hidden_secret",
+)
+
+
+def _normalize_character_name(name: str) -> str:
+    text = str(name or "").strip()
+    if not text:
+        return ""
+    for token in ("角色", "人物", "角色名", "姓名", "：", ":", "（", "）", "(", ")", "「", "」", "“", "”", '"'):
+        text = text.replace(token, "")
+    return "".join(text.split()).strip()
+
+def _force_convert_to_dna(value: dict) -> dict:
+    """如果 LLM 幻觉了自定义字段名，尝试使用启发式映射，确保返回标准的 8 大维度。"""
+    profile = {
+        "childhood_trauma": _pick_first_text(value, ["childhood_trauma", "origin_wound", "wound", "trauma", "形成事件", "早期创伤", "背景创伤", "past", "过去"]),
+        "core_fear": _pick_first_text(value, ["core_fear", "fear", "primary_fear", "loss_fear", "核心恐惧", "恐惧", "弱点"]),
+        "inner_desire": _pick_first_text(value, ["inner_desire", "core_desire", "desire", "ultimate_goal", "long_term_goal", "内在渴望", "长期目标", "motivation", "动机", "core_drive", "drive"]),
+        "speech_habits": _pick_first_text(value, ["speech", "dialog", "对话", "语言", "口头禅", "表达", "沟通"]),
+        "body_language": _pick_first_text(value, ["body_language", "gesture", "动作", "肢体", "姿态", "行为", "behavior_pattern", "surface_persona", "public_persona", "表象"]),
+        "thinking_pattern": _pick_first_text(value, ["thinking_pattern", "mindset", "cognitive", "思维", "认知", "分析", "deep_persona", "内在", "archetype", "base_core", "内核"]),
+        "decision_style": _pick_first_text(value, ["decision_style", "decision", "行动", "决策", "执行", "strategy", "策略", "ability_stack", "能力"]),
+        "hidden_secret": _pick_first_text(value, ["hidden_secret", "secret", "shadow", "隐藏秘密", "秘密", "代价", "value_priority", "value", "价值观", "moral_baseline", "底线"]),
+    }
+    
+    # 如果全空，则将全部文本强行塞入 thinking_pattern 或其他部位，避免丢弃数据
+    if not any(v for v in profile.values()):
+        text = _value_to_text(value)
+        if text:
+            profile["thinking_pattern"] = text
+            return profile
+        return None
+    return profile
+
+
+def _looks_like_dna_profile(value) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return any(k in value for k in DNA_PROFILE_FIELDS)
+
+
+def _value_to_text(value, max_items: int = 4) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        parts = []
+        for item in value[:max_items]:
+            text = _value_to_text(item, max_items=max(2, max_items - 1))
+            if text:
+                parts.append(text)
+        return "；".join(parts)
+    if isinstance(value, dict):
+        for key in ("summary", "description", "content", "text", "detail", "key_trait", "trait", "value"):
+            if key in value:
+                text = _value_to_text(value.get(key), max_items=max_items)
+                if text:
+                    return text
+        parts = []
+        for k, v in list(value.items())[:max_items]:
+            text = _value_to_text(v, max_items=max(2, max_items - 1))
+            if text:
+                parts.append(f"{k}:{text}")
+        return "；".join(parts)
+    return ""
+
+
+def _pick_first_text(container, keys: List[str]) -> str:
+    if not isinstance(container, dict):
+        return ""
+    for key in keys:
+        if key in container:
+            text = _value_to_text(container.get(key))
+            if text:
+                return text
+    return ""
+
+
+def _extract_module_text(modules, keywords: List[str]) -> str:
+    if not isinstance(modules, list):
+        return ""
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_name = _value_to_text(
+            module.get("module") or module.get("name") or module.get("模块") or module.get("名称")
+        )
+        module_lower = module_name.lower()
+        if not any((kw in module_name) or (kw.lower() in module_lower) for kw in keywords):
+            continue
+        text = _value_to_text({
+            "key_trait": module.get("key_trait") or module.get("trait") or module.get("核心特征") or module.get("特征"),
+            "expression": module.get("expression") or module.get("表现") or module.get("habits") or module.get("习惯"),
+            "triggers": module.get("triggers") or module.get("触发器") or module.get("触发"),
+        })
+        if text:
+            return text
+        fallback = _value_to_text(module)
+        if fallback:
+            return fallback
+    return ""
+
+
+def _convert_structured_profile_to_dna(value):
+    if not isinstance(value, dict):
+        return None
+
+    structured_markers = {
+        "core_signature",
+        "dna_modules",
+        "trait_scores",
+        "conflict_profile",
+        "relationship_dna",
+        "growth_arc",
+        "risk_and_compensation",
+        "narrative_function",
+    }
+    if not any(k in value for k in structured_markers):
+        return None
+
+    core_signature = value.get("core_signature") if isinstance(value.get("core_signature"), dict) else {}
+    conflict_profile = value.get("conflict_profile") if isinstance(value.get("conflict_profile"), dict) else {}
+    relationship_dna = value.get("relationship_dna") if isinstance(value.get("relationship_dna"), dict) else {}
+    growth_arc = value.get("growth_arc") if isinstance(value.get("growth_arc"), dict) else {}
+    risk_and_comp = value.get("risk_and_compensation") if isinstance(value.get("risk_and_compensation"), dict) else {}
+    narrative_function = value.get("narrative_function") if isinstance(value.get("narrative_function"), dict) else {}
+    trait_scores = value.get("trait_scores") if isinstance(value.get("trait_scores"), dict) else {}
+    dna_modules = value.get("dna_modules")
+
+    profile = {
+        "childhood_trauma": _pick_first_text(
+            conflict_profile,
+            ["childhood_trauma", "origin_wound", "wound", "trauma", "形成事件", "早期创伤", "背景创伤"],
+        ),
+        "core_fear": _pick_first_text(
+            conflict_profile,
+            ["core_fear", "fear", "primary_fear", "loss_fear", "核心恐惧", "恐惧"],
+        ),
+        "inner_desire": _pick_first_text(
+            growth_arc,
+            ["inner_desire", "core_desire", "desire", "ultimate_goal", "long_term_goal", "内在渴望", "长期目标"],
+        ),
+        "speech_habits": _extract_module_text(dna_modules, ["沟通", "表达", "语言", "speech", "dialog", "对话"]),
+        "body_language": _extract_module_text(dna_modules, ["肢体", "动作", "姿态", "身体", "body", "gesture"]),
+        "thinking_pattern": _extract_module_text(
+            dna_modules, ["认知", "思维", "分析", "判断", "thinking", "mindset", "cognitive"]
+        ),
+        "decision_style": _extract_module_text(dna_modules, ["决策", "执行", "行动", "选择", "decision"]),
+        "hidden_secret": _pick_first_text(
+            risk_and_comp,
+            ["hidden_secret", "secret", "shadow", "dark_secret", "隐藏秘密", "代价", "补偿机制"],
+        ),
+    }
+
+    if not profile["inner_desire"]:
+        profile["inner_desire"] = _pick_first_text(
+            conflict_profile, ["core_desire", "desire", "inner_desire", "核心渴望", "欲望"]
+        ) or _pick_first_text(core_signature, ["summary", "archetype"])
+    if not profile["core_fear"]:
+        profile["core_fear"] = _pick_first_text(risk_and_comp, ["risk", "fear", "风险", "恐惧"])
+    if not profile["childhood_trauma"]:
+        profile["childhood_trauma"] = _pick_first_text(
+            risk_and_comp, ["origin", "source", "形成原因", "触发源"]
+        ) or _pick_first_text(core_signature, ["summary"])
+    if not profile["speech_habits"]:
+        profile["speech_habits"] = _pick_first_text(
+            relationship_dna, ["communication_style", "speech_style", "沟通方式", "说话风格"]
+        )
+    if not profile["body_language"]:
+        profile["body_language"] = _pick_first_text(
+            relationship_dna, ["non_verbal", "body_language", "nonverbal_style", "非语言", "肢体语言"]
+        )
+    if not profile["thinking_pattern"]:
+        profile["thinking_pattern"] = _pick_first_text(
+            trait_scores, ["cognitive_style", "thinking_style", "思维风格", "认知风格"]
+        ) or _pick_first_text(core_signature, ["archetype", "summary"])
+    if not profile["decision_style"]:
+        profile["decision_style"] = _pick_first_text(
+            growth_arc, ["decision_pattern", "strategy", "决策模式", "行动策略"]
+        ) or _pick_first_text(conflict_profile, ["coping_style", "应对方式"])
+    if not profile["hidden_secret"]:
+        profile["hidden_secret"] = _pick_first_text(
+            narrative_function, ["secret", "shadow", "dramatic_irony", "隐藏设定", "叙事暗线"]
+        )
+
+    if any(v and str(v).strip() for v in profile.values()):
+        return profile
+    return None
+
+
+def _extract_profile_candidate(value):
+    """从候选对象中提取 DNA profile。"""
+    if not isinstance(value, dict):
+        return None
+    for key in ("dna_profile", "profile", "dna", "traits", "dnaProfile", "character_dna"):
+        candidate = value.get(key)
+        if isinstance(candidate, dict) and _looks_like_dna_profile(candidate):
+            return candidate
+        converted = _convert_structured_profile_to_dna(candidate)
+        if converted:
+            return converted
+        # 新增兜底：如果找到了对应的键，但既不满足标准格式也不是旧格式，强制转换
+        if isinstance(candidate, dict) and candidate:
+            forced = _force_convert_to_dna(candidate)
+            if forced:
+                return forced
+
+    if _looks_like_dna_profile(value):
+        return value
+    converted = _convert_structured_profile_to_dna(value)
+    if converted:
+        return converted
+    
+    # 最后兜底：如果字典看起来像是有内容的设定，但 key 都不匹配，尝试强转
+    if isinstance(value, dict) and len(value) > 0:
+        # 如果是顶层对象且带有 character 属性，我们跳过顶层的强转以免误把 wrapper 当 profile
+        if "character" in value or "characters" in value or "name" in value:
+            pass # 由上层递归处理
+        elif all(isinstance(v, dict) for v in value.values()):
+            pass # 全部是字典，极大概率是外层 wrapper (e.g. {"角色A": {...}, "角色B": {...}})
+        elif any(isinstance(v, dict) and _looks_like_dna_profile(v) for v in value.values()):
+            pass # 包含至少一个合规的内层 profile，说明自身是 wrapper
+        else:
+            forced = _force_convert_to_dna(value)
+            if forced:
+                return forced
+
+    return None
+
+
+def _extract_generated_dna_map(result) -> Dict[str, Dict[str, str]]:
+    """把模型输出统一转成 {角色名: dna_profile} 映射。"""
+    payload = result.get("characters", result) if isinstance(result, dict) else result
+
+    wrapper_keys = (
+        "characters",
+        "character_dna",
+        "character_profiles",
+        "dna_profiles",
+        "profiles",
+        "data",
+        "result",
+        "角色",
+        "角色DNA",
+        "角色档案",
+        "DNA档案",
+    )
+
+    def _parse_payload(node, depth: int = 0) -> Dict[str, Dict[str, str]]:
+        if depth > 4:
+            return {}
+
+        mapping: Dict[str, Dict[str, str]] = {}
+
+        if isinstance(node, dict):
+            direct_profile = _extract_profile_candidate(node)
+            if direct_profile:
+                name = (
+                    node.get("character")
+                    or node.get("name")
+                    or node.get("character_name")
+                    or node.get("角色名")
+                    or node.get("姓名")
+                )
+                if name:
+                    return {str(name).strip(): direct_profile}
+                return {"__single__": direct_profile}
+
+            for key in wrapper_keys:
+                child = node.get(key)
+                if child is None:
+                    continue
+                child_map = _parse_payload(child, depth + 1)
+                if child_map:
+                    return child_map
+
+            for key, value in node.items():
+                if isinstance(value, dict):
+                    profile = _extract_profile_candidate(value)
+                    if profile:
+                        mapping[str(key).strip()] = profile
+                        continue
+
+                if isinstance(value, (dict, list)):
+                    child_map = _parse_payload(value, depth + 1)
+                    if child_map:
+                        if "__single__" in child_map and len(child_map) == 1 and isinstance(value, dict):
+                            mapping[str(key).strip()] = child_map["__single__"]
+                        else:
+                            for child_name, profile in child_map.items():
+                                mapping[child_name] = profile
+            return mapping
+
+        if isinstance(node, list):
+            for item in node:
+                if isinstance(item, dict):
+                    name = (
+                        item.get("name")
+                        or item.get("character_name")
+                        or item.get("character")
+                        or item.get("角色名")
+                        or item.get("角色")
+                        or item.get("姓名")
+                    )
+                    profile = _extract_profile_candidate(item)
+                    if name and profile:
+                        mapping[str(name).strip()] = profile
+                        continue
+                    if profile and len(node) == 1:
+                        mapping["__single__"] = profile
+                        continue
+
+                if isinstance(item, (dict, list)):
+                    child_map = _parse_payload(item, depth + 1)
+                    if child_map:
+                        for child_name, profile in child_map.items():
+                            mapping[child_name] = profile
+            return mapping
+
+        return mapping
+
+    return _parse_payload(payload)
+
+
+def _resolve_dna_by_character_name(target_names: List[str], generated_dna_map: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+    """尽可能把模型返回映射到目标角色名（精确、归一化、顺序兜底）。"""
+    resolved: Dict[str, Dict[str, str]] = {}
+    if not target_names or not generated_dna_map:
+        return resolved
+
+    used_keys = set()
+    normalized_map: Dict[str, tuple[str, Dict[str, str]]] = {}
+    for key, profile in generated_dna_map.items():
+        norm = _normalize_character_name(key)
+        if norm and norm not in normalized_map:
+            normalized_map[norm] = (key, profile)
+
+    # 1) 精确匹配
+    for name in target_names:
+        if name in generated_dna_map:
+            resolved[name] = generated_dna_map[name]
+            used_keys.add(name)
+
+    # 2) 归一化匹配
+    for name in target_names:
+        if name in resolved:
+            continue
+        norm_name = _normalize_character_name(name)
+        if norm_name and norm_name in normalized_map:
+            raw_key, profile = normalized_map[norm_name]
+            resolved[name] = profile
+            used_keys.add(raw_key)
+
+    unresolved = [name for name in target_names if name not in resolved]
+    if not unresolved:
+        return resolved
+
+    remaining_profiles = [profile for key, profile in generated_dna_map.items() if key not in used_keys]
+
+    # 3) 单角色兜底：只生成了一个有效档案时，直接应用到唯一目标角色
+    if len(unresolved) == 1 and len(remaining_profiles) == 1:
+        resolved[unresolved[0]] = remaining_profiles[0]
+        return resolved
+
+    # 4) 数量一致兜底：目标角色数与剩余档案数一致时按顺序映射
+    if len(unresolved) == len(remaining_profiles):
+        for name, profile in zip(unresolved, remaining_profiles):
+            resolved[name] = profile
+
+    return resolved
+
+
+def _parse_llm_json_payload(raw_response: str):
+    """尽可能从 LLM 原始返回中提取并解析 JSON。"""
+    raw_text = "" if raw_response is None else str(raw_response)
+    cleaned = remove_think_tags(raw_text)
+    normalized = unwrap_markdown_json(cleaned)
+    raw_unwrapped = unwrap_markdown_json(raw_text)
+
+    for candidate in (normalized, cleaned, raw_unwrapped, raw_text):
+        if not candidate:
+            continue
+        candidate_text = str(candidate).lstrip("\ufeff").strip()
+        if not candidate_text:
+            continue
+        try:
+            return json.loads(repair_json(sanitize_json_like_text(candidate_text)))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    return None
+
+
 DNA_GENERATION_SYSTEM_PROMPT = """\
 # 角色DNA档案推演专家
 
@@ -603,11 +1006,13 @@ DNA_GENERATION_SYSTEM_PROMPT = """\
 4. **具体而非抽象**：每个维度都要给出具体的描述，有画面感，不要泛泛而谈
 5. **中文回答**：所有内容使用中文
 
-## 输出格式
+## 绝对输出格式要求 (CRITICAL)
 
-严格按照以下 JSON 格式输出，不要输出任何额外文本：
+你必须**严格**、**仅仅**使用上述8个英文键名作为角色DNA的属性。
+【禁止】返回诸如 archetype, core_theme, public_persona, deep_persona 等自定义键名！必须完全匹配下面的 JSON 结构：
 
-```json
+严格按照以下 JSON 格式输出，**不要输出任何额外文本，绝对不要包含 ```json 等 Markdown 标记，直接输出 JSON 大括号**：
+
 {
   "characters": {
     "角色名1": {
@@ -623,7 +1028,6 @@ DNA_GENERATION_SYSTEM_PROMPT = """\
     "角色名2": { ... }
   }
 }
-```
 """
 
 
@@ -752,6 +1156,7 @@ async def generate_character_dna(
     )
 
     # 调用 LLM
+    llm_response = ""
     try:
         llm_response = await llm_service.get_llm_response(
             system_prompt=DNA_GENERATION_SYSTEM_PROMPT,
@@ -760,11 +1165,40 @@ async def generate_character_dna(
             user_id=current_user.id,
             timeout=600.0,
             max_tokens=8192,
+            response_format="json_object",
+            disable_thinking=True,
         )
 
-        cleaned = remove_think_tags(llm_response)
-        normalized = unwrap_markdown_json(cleaned)
-        result = json.loads(repair_json(sanitize_json_like_text(normalized)))
+        result = _parse_llm_json_payload(llm_response)
+        if result is None:
+            logger.warning(
+                "项目 %s DNA推演首次解析失败，触发一次严格JSON纠错重试",
+                project_id,
+            )
+            correction_message = (
+                "你上一条回复不是合法JSON，或格式不符。"
+                "请严格按照以下格式重新输出，只包含一个JSON对象，不要附加任何说明或markdown标记（绝对不要有```json）：\n"
+                "{\n  \"characters\": {\n    \"角色名称\": {\n      \"childhood_trauma\": \"...\",\n      \"core_fear\": \"...\",\n      \"inner_desire\": \"...\",\n      \"speech_habits\": \"...\",\n      \"body_language\": \"...\",\n      \"thinking_pattern\": \"...\",\n      \"decision_style\": \"...\",\n      \"hidden_secret\": \"...\"\n    }\n  }\n}"
+            )
+            llm_response = await llm_service.get_llm_response(
+                system_prompt=DNA_GENERATION_SYSTEM_PROMPT,
+                conversation_history=[
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": str(llm_response)[:4000]},
+                    {"role": "user", "content": correction_message},
+                ],
+                temperature=0.2,
+                user_id=current_user.id,
+                timeout=300.0,
+                max_tokens=4096,
+                response_format="json_object",
+                disable_thinking=True,
+            )
+            result = _parse_llm_json_payload(llm_response)
+
+        if result is None:
+            preview = unwrap_markdown_json(remove_think_tags(str(llm_response or "")))[:300]
+            raise json.JSONDecodeError("无法从模型响应中提取有效JSON", preview, 0)
 
     except json.JSONDecodeError as exc:
         logger.error("项目 %s DNA推演JSON解析失败: %s\n原始响应: %s", project_id, exc, llm_response[:500])
@@ -780,9 +1214,30 @@ async def generate_character_dna(
         ) from exc
 
     # 解析结果并更新角色
-    generated_dna = result.get("characters", result)
-    if not isinstance(generated_dna, dict):
+    generated_dna_map = _extract_generated_dna_map(result)
+    if not generated_dna_map:
+        result_type = type(result).__name__
+        result_keys = list(result.keys())[:20] if isinstance(result, dict) else []
+        result_preview = str(result)[:500]
+        logger.error(
+            "项目 %s DNA数据提取失败: result_type=%s keys=%s preview=%s",
+            project_id,
+            result_type,
+            result_keys,
+            result_preview,
+        )
         raise HTTPException(status_code=500, detail="AI返回的DNA数据格式不符合预期，请重试")
+
+    resolved_dna_map = _resolve_dna_by_character_name(target_names, generated_dna_map)
+    unresolved_names = [name for name in target_names if name not in resolved_dna_map]
+    if unresolved_names:
+        logger.warning(
+            "项目 %s DNA角色名未完全匹配: target_names=%s generated_keys=%s unresolved=%s",
+            project_id,
+            target_names,
+            list(generated_dna_map.keys())[:30],
+            unresolved_names,
+        )
 
     # 更新角色数据
     updated_names = []
@@ -791,8 +1246,8 @@ async def generate_character_dna(
         name = char.get("name", "")
         char_copy = dict(char)
 
-        if name in generated_dna:
-            dna_data = generated_dna[name]
+        if name in resolved_dna_map:
+            dna_data = resolved_dna_map[name]
             if isinstance(dna_data, dict):
                 # 确保 extra 结构正确
                 if "extra" not in char_copy or not isinstance(char_copy.get("extra"), dict):
@@ -810,6 +1265,12 @@ async def generate_character_dna(
                 updated_names.append(name)
 
         updated_characters.append(char_copy)
+
+    if target_names and not updated_names:
+        raise HTTPException(
+            status_code=500,
+            detail="AI已返回DNA内容，但角色名无法与项目角色匹配，请重试或缩小到单个角色重试"
+        )
 
     # 通过 patch_blueprint 保存更新后的角色
     await novel_service.patch_blueprint(project_id, {"characters": updated_characters})

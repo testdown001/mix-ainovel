@@ -87,7 +87,38 @@ async def _load_project_schema(service: NovelService, project_id: str, user_id: 
     return await service.get_project_schema(project_id, user_id)
 
 
+async def _ensure_chapter_summary(
+    project_id: str,
+    chapter_number: int,
+    content: str,
+    user_id: int,
+) -> None:
+    """后台确保章节 real_summary 已生成。使用独立 session，不阻塞调用方。"""
+    async with AsyncSessionLocal() as session:
+        try:
+            llm_service = LLMService(session)
 
+            stmt = select(Chapter).where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number == chapter_number,
+            )
+            result = await session.execute(stmt)
+            chapter = result.scalars().first()
+            if not chapter or chapter.real_summary:
+                return
+
+            summary = await llm_service.get_summary(
+                content,
+                temperature=0.15,
+                user_id=user_id,
+            )
+            summary_text = remove_think_tags(summary)
+            if summary_text:
+                chapter.real_summary = summary_text
+                await session.commit()
+                logger.info("章节 %d real_summary 自动生成成功", chapter_number)
+        except Exception as exc:
+            logger.warning("章节 %d real_summary 自动生成失败: %s", chapter_number, exc)
 
 async def _refresh_edit_summary_and_ingest(
     project_id: str,
@@ -394,6 +425,23 @@ async def finalize_chapter(
     chapter.word_count = len(selected_version.content or "")
     await session.commit()
 
+    # 定稿时同步生成 real_summary（避免下一章生成时在 _collect_history_context 补生）
+    if not chapter.real_summary:
+        try:
+            llm_service = LLMService(session)
+            summary = await llm_service.get_summary(
+                selected_version.content,
+                temperature=0.15,
+                user_id=current_user.id,
+            )
+            summary_text = remove_think_tags(summary)
+            if summary_text:
+                chapter.real_summary = summary_text
+                await session.commit()
+                logger.info("定稿时自动生成章节 %d real_summary 成功", chapter_number)
+        except Exception as exc:
+            logger.warning("定稿时自动生成章节 %d real_summary 失败: %s", chapter_number, exc)
+
     vector_store = None
     if not request.skip_vector_update:
         vector_store = create_vector_store_or_none()
@@ -456,6 +504,17 @@ async def select_chapter_version(
     except Exception as e:
         logger.error(f"章节 {request.chapter_number} 向量化入库失败: {e}")
         # 向量化失败不应阻止版本选择，仅记录错误
+
+    # 后台生成 real_summary（不阻塞 API 响应）
+    if not chapter.real_summary:
+        asyncio.create_task(
+            _ensure_chapter_summary(
+                project_id=project_id,
+                chapter_number=request.chapter_number,
+                content=selected_version.content,
+                user_id=current_user.id,
+            )
+        )
 
     return await _load_project_schema(novel_service, project_id, current_user.id)
 

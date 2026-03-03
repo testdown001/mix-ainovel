@@ -351,6 +351,11 @@ class PipelineReviewMixin:
             logger.info("章节字数已达上限 (%d >= %d)，跳过扩写", curent_word_count, max_word_count)
             return chapter_content, None
 
+        # 接近目标检查：字数已达目标的 95% 时，无需扩写
+        if curent_word_count >= target_word_count * 0.95:
+            logger.info("章节字数已接近目标 (%d >= %d * 0.95)，跳过扩写", curent_word_count, target_word_count)
+            return chapter_content, None
+
         # 先做下限兜底：低于最小字数时直接走迭代扩写，避免章节明显偏短
         if curent_word_count < min_word_count:
             min_recovery_target = max(min_word_count + 200, target_word_count)

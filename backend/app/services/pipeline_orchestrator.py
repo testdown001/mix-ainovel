@@ -893,7 +893,66 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                         logger.warning("人味化检查失败（不影响生成）: %s", e)
                         review_summaries["humanization"] = {"error": str(e)}
 
-            # ---- A.3 optimizer(+polish) / enrichment ----
+            # ---- Stage B 准备：A.2 完成后捕获内容快照，提前启动只读分析（与 A.3 并行） ----
+            _analysis_snapshot = best_content
+
+            async def _do_reader_simulation(_snapshot: str) -> None:
+                if not config.enable_reader_sim:
+                    return
+                feedback = await self._run_reader_simulation(
+                    _snapshot,
+                    chapter_number=chapter_number,
+                    previous_summary=history_context["previous_summary"],
+                    user_id=user_id,
+                )
+                review_summaries["reader_simulator"] = feedback
+
+            async def _do_anti_hallucination(_snapshot: str) -> None:
+                if not config.enable_anti_hallucination:
+                    return
+                try:
+                    from .anti_hallucination_service import AntiHallucinationService
+                    ah_service = AntiHallucinationService(self.session, self.llm_service)
+                    ah_report = await ah_service.check_chapter(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_text=_snapshot,
+                        user_id=user_id,
+                    )
+                    review_summaries["anti_hallucination"] = {
+                        "passed": ah_report.passed,
+                        "registered_count": ah_report.registered_count,
+                        "warning_count": ah_report.warning_count,
+                        "critical_count": ah_report.critical_count,
+                        "report": AntiHallucinationService.format_report_for_review(ah_report),
+                    }
+                except Exception as e:
+                    logger.warning("反幻觉检查失败（不影响生成）: %s", e)
+                    review_summaries["anti_hallucination"] = {"error": str(e)}
+
+            async def _do_quality_detection(_snapshot: str) -> None:
+                recent_openings = [
+                    ch["summary"][:200]
+                    for ch in history_context.get("completed_chapters", [])
+                    if ch.get("summary")
+                ][-3:]
+                quality_report = await self._run_quality_detection(
+                    _snapshot,
+                    chapter_number=chapter_number,
+                    chapter_mission=chapter_mission,
+                    previous_chapters_openings=recent_openings,
+                    user_id=user_id,
+                )
+                review_summaries["quality_detection"] = quality_report
+
+            stage_b_started = time.perf_counter()
+            stage_b_task = asyncio.create_task(asyncio.gather(
+                _do_reader_simulation(_analysis_snapshot),
+                _do_anti_hallucination(_analysis_snapshot),
+                _do_quality_detection(_analysis_snapshot),
+            ))
+
+            # ---- A.3 optimizer(+polish) / enrichment / density（与 Stage B 并行执行） ----
             _optimizer_enabled = config.enable_optimizer
             # P4 优化: optimizer 启用时跳过 enrichment（结果会被丢弃）
             _enrichment_enabled = config.enable_enrichment and not _optimizer_enabled
@@ -924,11 +983,19 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     review_summaries["enrichment"] = enrichment_report
 
             if config.enable_density_compression:
-                best_content, density_report = await self._run_density_compression(best_content, user_id=user_id, max_word_count=chapter_word_count_max)
-                review_summaries["density_compression"] = density_report
+                _current_len = len(best_content)
+                if chapter_word_count_max and _current_len < chapter_word_count_max * 0.90:
+                    logger.info(
+                        "章节字数低于上限90%% (%d < %d)，跳过密度压缩",
+                        _current_len, int(chapter_word_count_max * 0.90),
+                    )
+                    review_summaries["density_compression"] = {"applied": False, "reason": "below_90pct_max"}
+                else:
+                    best_content, density_report = await self._run_density_compression(best_content, user_id=user_id, max_word_count=chapter_word_count_max)
+                    review_summaries["density_compression"] = density_report
             _mark_stage("stage_a_post_processing", stage_started)
 
-            # ========== 阶段 B：并行执行只读分析步骤 ==========
+            # ========== six_dimension 使用最终内容 ==========
             if enhanced_flow and config.enable_six_dimension:
                 six_dimension_payload = {
                     "project_id": project_id,
@@ -940,62 +1007,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 }
                 review_summaries["enhanced_review"] = {"status": "scheduled"}
 
-            async def _do_reader_simulation() -> None:
-                if not config.enable_reader_sim:
-                    return
-                feedback = await self._run_reader_simulation(
-                    best_content,
-                    chapter_number=chapter_number,
-                    previous_summary=history_context["previous_summary"],
-                    user_id=user_id,
-                )
-                review_summaries["reader_simulator"] = feedback
-
-            async def _do_anti_hallucination() -> None:
-                if not config.enable_anti_hallucination:
-                    return
-                try:
-                    from .anti_hallucination_service import AntiHallucinationService
-                    ah_service = AntiHallucinationService(self.session, self.llm_service)
-                    ah_report = await ah_service.check_chapter(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_text=best_content,
-                        user_id=user_id,
-                    )
-                    review_summaries["anti_hallucination"] = {
-                        "passed": ah_report.passed,
-                        "registered_count": ah_report.registered_count,
-                        "warning_count": ah_report.warning_count,
-                        "critical_count": ah_report.critical_count,
-                        "report": AntiHallucinationService.format_report_for_review(ah_report),
-                    }
-                except Exception as e:
-                    logger.warning("反幻觉检查失败（不影响生成）: %s", e)
-                    review_summaries["anti_hallucination"] = {"error": str(e)}
-
-            async def _do_quality_detection() -> None:
-                recent_openings = [
-                    ch["summary"][:200]
-                    for ch in history_context.get("completed_chapters", [])
-                    if ch.get("summary")
-                ][-3:]
-                quality_report = await self._run_quality_detection(
-                    best_content,
-                    chapter_number=chapter_number,
-                    chapter_mission=chapter_mission,
-                    previous_chapters_openings=recent_openings,
-                    user_id=user_id,
-                )
-                review_summaries["quality_detection"] = quality_report
-
-            stage_started = time.perf_counter()
-            await asyncio.gather(
-                _do_reader_simulation(),
-                _do_anti_hallucination(),
-                _do_quality_detection(),
-            )
-            _mark_stage("stage_b_readonly_analyses", stage_started)
+            # ========== 等待 Stage B 完成 ==========
+            await stage_b_task
+            _mark_stage("stage_b_readonly_analyses", stage_b_started)
 
             best_version["content"] = best_content
             best_version.setdefault("metadata", {})["review_summaries"] = review_summaries
