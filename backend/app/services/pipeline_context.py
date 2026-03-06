@@ -30,6 +30,7 @@ class PipelineContextMixin:
         outlines_map: Dict[int, Any],
         chapters: list,
         user_id: int,
+        allow_summary_backfill: bool = True,
     ) -> Dict[str, Any]:
         completed_summaries = []
         completed_chapters = []
@@ -47,7 +48,7 @@ class PipelineContextMixin:
             if not existing.real_summary:
                 missing_summary_chapters.append(existing)
 
-        if missing_summary_chapters:
+        if allow_summary_backfill and missing_summary_chapters:
             logger.info(
                 "并行生成 %d 个缺失章节摘要: chapters=%s",
                 len(missing_summary_chapters),
@@ -87,10 +88,26 @@ class PipelineContextMixin:
             if existing.selected_version is None or not existing.selected_version.content:
                 continue
             if not existing.real_summary:
-                continue
+                if allow_summary_backfill:
+                    continue
+                outline_ref = outlines_map.get(existing.chapter_number)
+                fallback_summary = ""
+                if outline_ref:
+                    fallback_summary = (
+                        (outline_ref.summary or "").strip()
+                        or (outline_ref.title or "").strip()
+                    )
+                if not fallback_summary:
+                    fallback_summary = (
+                        (existing.selected_version.content or "").strip()[:200]
+                    )
+                if not fallback_summary:
+                    continue
+                raw_summary = fallback_summary
+            else:
+                raw_summary = existing.real_summary or ""
 
             distance = chapter_number - existing.chapter_number
-            raw_summary = existing.real_summary or ""
 
             if distance <= 2:
                 # T1 近距：完整保留

@@ -1,8 +1,9 @@
 # AIMETA P=LLM服务_大模型调用封装|R=API调用_流式生成|NR=不含业务逻辑|E=LLMService|X=internal|A=服务类|D=openai,httpx|S=net|RD=./README.ai
 import asyncio
+import inspect
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import httpx
 from fastapi import HTTPException, status
@@ -75,6 +76,7 @@ class LLMService:
         max_retries: int = 2,
         thinking_budget: Optional[int] = None,
         disable_thinking: bool = False,
+        on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> str:
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
         return await self._stream_and_collect(
@@ -88,6 +90,7 @@ class LLMService:
             max_retries=max_retries,
             thinking_budget=thinking_budget,
             disable_thinking=disable_thinking,
+            on_chunk=on_chunk,
         )
 
     async def generate(
@@ -322,6 +325,7 @@ class LLMService:
         max_retries: int = 2,
         thinking_budget: Optional[int] = None,
         disable_thinking: bool = False,
+        on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
         config["base_url"] = self._normalize_base_url(config.get("base_url"))
@@ -417,8 +421,16 @@ class LLMService:
                     top_p=effective_top_p,
                     **extra_kwargs,
                 ):
-                    if part.get("content"):
-                        full_response += part["content"]
+                    delta = part.get("content")
+                    if delta:
+                        full_response += delta
+                        if on_chunk:
+                            try:
+                                callback_result = on_chunk(delta)
+                                if inspect.isawaitable(callback_result):
+                                    await callback_result
+                            except Exception as callback_exc:
+                                logger.debug("LLM on_chunk 回调异常（已忽略）: %s", callback_exc)
                     if part.get("finish_reason"):
                         finish_reason = part["finish_reason"]
                 # 流式读取正常完成，跳出重试循环

@@ -16,10 +16,12 @@ from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from ..core.config import settings
+from ..db.init_db import repair_schema_if_needed
 from ..models.project_memory import ProjectMemory
 from ..models.chapter_blueprint import ChapterBlueprint
 from .llm_service import LLMService
@@ -182,10 +184,19 @@ class KnowledgeRetrievalService:
 
     async def _execute_stmt(self, stmt):
         """统一执行 SQL 语句，兼容 Session / AsyncSession。"""
-        result = self.db.execute(stmt)
-        if inspect.isawaitable(result):
-            return await result
-        return result
+        try:
+            result = self.db.execute(stmt)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+        except OperationalError as exc:
+            repaired = await repair_schema_if_needed(exc)
+            if not repaired:
+                raise
+            result = self.db.execute(stmt)
+            if inspect.isawaitable(result):
+                return await result
+            return result
     
     async def retrieve_and_filter(
         self,
@@ -196,6 +207,7 @@ class KnowledgeRetrievalService:
         user_guidance: Optional[str] = None,
         top_k: int = 5,
         retrieval_mode: str = "vector",
+        use_simple_mode: bool = False,
     ) -> FilteredContext:
         """
         检索并过滤知识
@@ -207,12 +219,27 @@ class KnowledgeRetrievalService:
             pov_character: POV角色（用于可见性过滤）
             user_guidance: 用户指导
             top_k: 检索数量
+            retrieval_mode: 检索模式
+            use_simple_mode: 简单模式 — 跳过 LLM 检索规划和过滤，
+                             直接从蓝图提取关键词进行向量检索并按分数截断
             
         Returns:
             FilteredContext
         """
         # 1. 获取章节蓝图信息
         blueprint = await self._get_chapter_blueprint(project_id, chapter_number)
+
+        if use_simple_mode:
+            return await self._retrieve_simple(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                blueprint=blueprint,
+                user_id=user_id,
+                user_guidance=user_guidance,
+                pov_character=pov_character,
+                top_k=top_k,
+                retrieval_mode=retrieval_mode,
+            )
 
         # 2. P2: 智能检索规划（多源路由）
         plan = await self._plan_retrieval(blueprint, user_guidance, user_id)
@@ -300,6 +327,63 @@ class KnowledgeRetrievalService:
         }
 
         return filtered
+
+    async def _retrieve_simple(
+        self,
+        project_id: str,
+        chapter_number: int,
+        blueprint: Optional[ChapterBlueprint],
+        user_id: int,
+        user_guidance: Optional[str],
+        pov_character: Optional[str],
+        top_k: int,
+        retrieval_mode: str,
+    ) -> FilteredContext:
+        """简单检索模式：0 次 LLM 调用，从蓝图提取关键词 + 向量检索 + 分数截断。"""
+        queries: List[str] = []
+        if blueprint:
+            for field in (blueprint.chapter_focus, blueprint.brief_summary, blueprint.chapter_function):
+                if field:
+                    queries.append(field)
+        if user_guidance:
+            queries.append(user_guidance)
+        if not queries:
+            queries = [f"第{chapter_number}章"]
+
+        retrieved: List[RetrievedKnowledge] = []
+        if self.vector_store_service:
+            retrieved = await self._retrieve_from_vector_store(
+                project_id=project_id,
+                queries=queries[:3],
+                top_k=top_k,
+                user_id=user_id,
+                retrieval_mode=retrieval_mode,
+            )
+
+        # 按分数截断（score > 0.5）代替 LLM 过滤
+        MIN_RELEVANCE = 0.5
+        retrieved = [r for r in retrieved if r.relevance_score >= MIN_RELEVANCE]
+
+        # 简单分类：所有内容归入 plot_fuel
+        plot_fuel = [r.content for r in retrieved]
+        hit_chapters = sorted({r.chapter_number for r in retrieved if r.chapter_number})
+
+        result = FilteredContext(
+            plot_fuel=plot_fuel,
+            character_info=[],
+            world_fragments=[],
+            narrative_techniques=[],
+            warnings=[],
+            stats={
+                "query_count": len(queries),
+                "retrieved_count": len(retrieved),
+                "top_k": top_k,
+                "hit_chapters": hit_chapters,
+                "mode": "simple",
+                "pov_character": pov_character,
+            },
+        )
+        return result
     
     async def get_chapter_context(
         self,
@@ -521,7 +605,7 @@ class KnowledgeRetrievalService:
                             retrieved.append(RetrievedKnowledge(
                                 content=chunk.content,
                                 source="chapter",
-                                relevance_score=1.0 - chunk.score,
+                                relevance_score=chunk.score,
                                 chapter_number=chunk.chapter_number,
                             ))
                         continue
@@ -548,7 +632,7 @@ class KnowledgeRetrievalService:
                             "content": chunk.content,
                             "source": "chapter",
                             "chapter_number": chunk.chapter_number,
-                            "score": 1.0 - chunk.score,
+                            "score": chunk.score,
                         }
                         for chunk in chunks
                     ]

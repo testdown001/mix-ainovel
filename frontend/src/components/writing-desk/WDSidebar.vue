@@ -54,6 +54,50 @@
           </div>
         </div>
 
+        <div class="reference-panel">
+          <div class="reference-panel-header">
+            <div>
+              <p class="reference-panel-title">参考小说</p>
+              <p class="reference-panel-subtitle">绑定后可在灵感模式与章节生成中复用风格/记忆卡</p>
+            </div>
+            <div class="reference-panel-actions">
+              <button class="reference-panel-link" type="button" @click="refreshReferenceNovels">
+                刷新
+              </button>
+              <button class="reference-panel-link" type="button" @click="openReferenceLibrary">
+                管理
+              </button>
+              <button
+                class="reference-panel-link text-red-500"
+                type="button"
+                @click="handleUnbindReferences"
+                :disabled="!boundReferenceNovels.length"
+              >
+                解绑
+              </button>
+            </div>
+          </div>
+          <div class="reference-panel-body">
+            <div v-if="referencePanelLoading" class="reference-panel-empty">加载中...</div>
+            <div v-else-if="boundReferenceNovels.length" class="reference-panel-list">
+              <div
+                v-for="novel in boundReferenceNovels"
+                :key="novel.id"
+                class="reference-panel-item"
+              >
+                <div>
+                  <p class="text-sm font-medium">{{ novel.title }}</p>
+                  <p class="text-xs text-gray-500">{{ novel.genre || '未设定题材' }}</p>
+                </div>
+                <span class="reference-panel-tag" :data-status="novel.status">{{ novel.status }}</span>
+              </div>
+            </div>
+            <div v-else class="reference-panel-empty">
+              当前项目未绑定参考小说，可在灵感模式中选取并生成后自动绑定。
+            </div>
+          </div>
+        </div>
+
         <!-- 章节列表 -->
         <div ref="listContainer" class="flex-1 overflow-y-auto">
           <div class="p-6 pb-4">
@@ -228,7 +272,7 @@
                     <button
                       v-if="canGenerateChapter(chapter.chapter_number) || isChapterFailed(chapter.chapter_number) || hasChapterInProgress(chapter.chapter_number)"
                       @click.stop="confirmGenerateChapter(chapter.chapter_number)"
-                      :disabled="generatingChapter === chapter.chapter_number || isChapterGenerating(chapter.chapter_number)"
+                      :disabled="generatingChapter === chapter.chapter_number || isChapterGenerating(chapter.chapter_number) || props.batchGenerating"
                       class="md-icon-btn md-ripple disabled:opacity-50"
                       style="color: var(--md-primary);"
                       :title="isChapterCompleted(chapter.chapter_number) ? '重新生成' : isChapterFailed(chapter.chapter_number) ? '重试' : hasChapterInProgress(chapter.chapter_number) ? '重新生成版本' : '开始创作'"
@@ -266,7 +310,7 @@
             <div class="mt-4">
               <button
                 @click="$emit('generateOutline')"
-                :disabled="props.isGeneratingOutline"
+                :disabled="props.isGeneratingOutline || props.batchGenerating"
                 class="md-btn md-btn-tonal md-ripple w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <svg v-if="props.isGeneratingOutline" class="w-5 h-5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
@@ -276,6 +320,31 @@
                   <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
                 </svg>
                 <span>{{ props.isGeneratingOutline ? '生成中...' : '生成后续大纲' }}</span>
+              </button>
+            </div>
+            <!-- 连续生成按钮 -->
+            <div class="mt-3">
+              <button
+                v-if="!props.batchGenerating"
+                @click="$emit('batchGenerate')"
+                :disabled="props.isGeneratingOutline || !!props.generatingChapter"
+                class="md-btn md-btn-filled md-ripple w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"></path>
+                </svg>
+                <span>连续生成</span>
+              </button>
+              <button
+                v-else
+                @click="$emit('cancelBatch')"
+                class="md-btn md-btn-outlined md-ripple w-full flex items-center justify-center gap-2"
+                style="border-color: var(--md-error); color: var(--md-error);"
+              >
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                </svg>
+                <span>取消连续生成 ({{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }})</span>
               </button>
             </div>
             <div class="mt-3">
@@ -298,14 +367,17 @@
       </div>
     </div>
   </div>
+  <ReferenceNovelLibrary v-model:show="referenceLibraryVisible" @select="handleSelectReferenceNovel" />
 </template>
 
 <script setup lang="ts">
-import { computed, ref, nextTick } from 'vue'
+import { computed, ref, nextTick, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
-import type { NovelProject, ChapterOutline, ChapterPrediction } from '@/api/novel'
+import type { NovelProject, ChapterOutline, ChapterPrediction, ReferenceNovelSummary } from '@/api/novel'
 import Tooltip from '@/components/Tooltip.vue'
+import { useNovelStore } from '@/stores/novel'
+import ReferenceNovelLibrary from '@/components/ReferenceNovelLibrary.vue'
 
 // 获取最后一个 beat 的 type
 const getLastBeatType = (prediction: ChapterPrediction): string | null => {
@@ -334,9 +406,12 @@ interface Props {
   evaluatingChapter: number | null
   isGeneratingOutline: boolean
   isRebuildingRag: boolean
+  batchGenerating: boolean
+  batchProgress: { current: number; total: number } | null
 }
 
 const props = defineProps<Props>()
+const novelStore = useNovelStore()
 
 const emit = defineEmits([
   'closeSidebar',
@@ -346,12 +421,15 @@ const emit = defineEmits([
   'editChapter',
   'deleteChapter',
   'generateOutline',
-  'rebuildRag'
+  'rebuildRag',
+  'batchGenerate',
+  'cancelBatch'
 ])
 
 const selectedForDeletion = ref<number[]>([])
 const listContainer = ref<HTMLElement | null>(null)
 const chapterRefs = ref<Record<number, HTMLElement | null>>({})
+const referenceLibraryVisible = ref(false)
 
 const characterCount = computed(() => {
   return props.project?.blueprint?.characters?.length || 0
@@ -360,6 +438,11 @@ const characterCount = computed(() => {
 const relationshipCount = computed(() => {
   return props.project?.blueprint?.relationships?.length || 0
 })
+
+const boundReferenceNovels = computed(() => novelStore.projectReferenceNovels)
+const referencePanelLoading = computed(
+  () => novelStore.referenceNovelsLoading || novelStore.bindingReferenceNovels
+)
 
 const lastChapterNumber = computed(() => {
   if (!props.project?.blueprint?.chapter_outline || props.project.blueprint.chapter_outline.length === 0) {
@@ -465,6 +548,66 @@ const scrollToFirstIncompleteChapter = async () => {
   }
 }
 
+const refreshReferenceNovels = async () => {
+  if (!props.project?.id) return
+  try {
+    await novelStore.loadProjectReferenceNovels(props.project.id)
+  } catch (err) {
+    console.error('加载参考小说失败:', err)
+  }
+}
+
+watch(
+  () => props.project?.id,
+  () => {
+    refreshReferenceNovels()
+  },
+  { immediate: true }
+)
+
+watch(
+  () => referenceLibraryVisible.value,
+  (visible) => {
+    if (!visible) {
+      refreshReferenceNovels()
+    }
+  }
+)
+
+const openReferenceLibrary = () => {
+  referenceLibraryVisible.value = true
+}
+
+const handleSelectReferenceNovel = async (novel: ReferenceNovelSummary) => {
+  if (!props.project?.id) return
+  const currentIds = (boundReferenceNovels.value || []).map((n) => n.id)
+  if (currentIds.includes(novel.id)) {
+    // 已存在，仅刷新列表
+    await refreshReferenceNovels()
+    return
+  }
+  const newIds = [...currentIds, novel.id].slice(0, 3)
+  try {
+    await novelStore.bindProjectReferenceNovels(props.project.id, newIds)
+  } catch (err) {
+    globalAlert.showError(
+      `绑定参考小说失败: ${err instanceof Error ? err.message : '请稍后重试'}`,
+      '绑定失败'
+    )
+  }
+}
+
+const handleUnbindReferences = async () => {
+  if (!props.project?.id || !boundReferenceNovels.value.length) return
+  const confirmed = await globalAlert.showConfirm('解绑后将清空当前项目的参考小说绑定，确认继续？', '解绑参考小说')
+  if (!confirmed) return
+  try {
+    await novelStore.bindProjectReferenceNovels(props.project.id, [])
+  } catch (err) {
+    globalAlert.showError(`解绑失败: ${err instanceof Error ? err.message : '请稍后重试'}`, '解绑失败')
+  }
+}
+
 // 章节状态检查
 const isChapterCompleted = (chapterNumber: number) => {
   if (!props.project?.chapters) return false
@@ -505,7 +648,7 @@ const isChapterSelecting = (chapterNumber: number) => {
 const canGenerateChapter = (chapterNumber: number) => {
   if (!props.project?.blueprint?.chapter_outline) return false
 
-  const outlines = props.project.blueprint.chapter_outline.sort((a, b) => a.chapter_number - b.chapter_number)
+  const outlines = [...props.project.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
   
   for (const outline of outlines) {
     if (outline.chapter_number >= chapterNumber) break
@@ -524,6 +667,103 @@ const canGenerateChapter = (chapterNumber: number) => {
   return true
 }
 </script>
+
+<style scoped>
+.reference-panel {
+  margin: 0 1rem 1rem;
+  padding: 0.75rem;
+  border-radius: 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.reference-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.reference-panel-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.reference-panel-subtitle {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #475569;
+}
+
+.reference-panel-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.reference-panel-link {
+  background: transparent;
+  border: none;
+  color: #2563eb;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.75rem;
+}
+
+.reference-panel-link:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.reference-panel-body {
+  margin-top: 0.6rem;
+}
+
+.reference-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.reference-panel-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+}
+
+.reference-panel-tag {
+  font-size: 0.7rem;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  text-transform: capitalize;
+}
+
+.reference-panel-tag[data-status="ready"] {
+  background: #dcfce7;
+  color: #065f46;
+}
+
+.reference-panel-tag[data-status="analyzing"] {
+  background: #e0f2fe;
+  color: #0c4a6e;
+}
+
+.reference-panel-tag[data-status="failed"] {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.reference-panel-empty {
+  font-size: 0.75rem;
+  color: #475569;
+}
+</style>
 
 <style scoped>
 .m3-chapter-card {

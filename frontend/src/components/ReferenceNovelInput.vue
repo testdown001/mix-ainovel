@@ -41,6 +41,13 @@
         >
           删除
         </button>
+        <button
+          type="button"
+          class="select-btn"
+          @click="openLibrary(index)"
+        >
+          从库中选择
+        </button>
       </div>
     </transition-group>
 
@@ -52,11 +59,17 @@
         {{ renderedStatus }}
       </p>
     </transition>
+    <ReferenceNovelLibrary
+      v-model:show="libraryVisible"
+      @select="handleLibrarySelect"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type { ReferenceNovelSummary } from '@/api/novel'
+import ReferenceNovelLibrary from './ReferenceNovelLibrary.vue'
 
 type SearchStatus = 'idle' | 'searching' | 'success' | 'error' | 'skipped'
 
@@ -73,51 +86,109 @@ const props = withDefaults(
   }
 )
 
+interface LibrarySelection {
+  index: number
+  id: number | null
+  title: string
+}
+
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
+  'library-selection-change': [selections: LibrarySelection[]]
 }>()
 
 const rows = ref<string[]>([''])
+const librarySelections = ref<(number | null)[]>([null])
+const libraryVisible = ref(false)
+const libraryRowIndex = ref(0)
 
 const normalizeRows = (values: string[] | undefined): string[] => {
   const target = Array.isArray(values) ? values.slice(0, 3) : []
   return target.length > 0 ? target : ['']
 }
 
-watch(
-  () => props.modelValue,
-  (next) => {
-    rows.value = normalizeRows(next)
-  },
-  { immediate: true, deep: true }
-)
+const syncLibrarySelections = () => {
+  while (librarySelections.value.length < rows.value.length) {
+    librarySelections.value.push(null)
+  }
+  if (librarySelections.value.length > rows.value.length) {
+    librarySelections.value.splice(rows.value.length)
+  }
+}
 
 const emitRows = () => {
   emit('update:modelValue', rows.value.slice(0, 3))
 }
 
+const emitLibrarySelection = () => {
+  const selections: LibrarySelection[] = rows.value.map((title, idx) => ({
+    index: idx,
+    id: librarySelections.value[idx] ?? null,
+    title: title ?? ''
+  }))
+  emit('library-selection-change', selections)
+}
+
+watch(
+  () => props.modelValue,
+  (next) => {
+    rows.value = normalizeRows(next)
+    syncLibrarySelections()
+    emitLibrarySelection()
+  },
+  { immediate: true, deep: true }
+)
+
 const addRow = () => {
   if (rows.value.length >= 3) return
   rows.value.push('')
+  librarySelections.value.push(null)
   emitRows()
+  emitLibrarySelection()
 }
 
 const removeRow = (index: number) => {
   rows.value.splice(index, 1)
+  librarySelections.value.splice(index, 1)
   if (rows.value.length === 0) {
     rows.value.push('')
+    librarySelections.value.push(null)
   }
   emitRows()
+  emitLibrarySelection()
 }
 
 const clearRow = (index: number) => {
   rows.value[index] = ''
+  librarySelections.value[index] = null
   emitRows()
+  emitLibrarySelection()
 }
 
 const onInput = (index: number, value: string) => {
   rows.value[index] = value
+  librarySelections.value[index] = null
   emitRows()
+  emitLibrarySelection()
+}
+
+const openLibrary = (index: number) => {
+  libraryRowIndex.value = index
+  libraryVisible.value = true
+}
+
+const handleLibrarySelect = (novel: ReferenceNovelSummary) => {
+  const index = libraryRowIndex.value
+  if (index >= rows.value.length) {
+    rows.value.push(novel.title)
+    librarySelections.value.push(novel.id)
+  } else {
+    rows.value[index] = novel.title
+    librarySelections.value[index] = novel.id
+  }
+  emitRows()
+  emitLibrarySelection()
+  libraryVisible.value = false
 }
 
 const renderedStatus = computed(() => {
@@ -219,6 +290,20 @@ const renderedStatus = computed(() => {
 
 .remove-btn:hover {
   background: #fecaca;
+}
+
+.select-btn {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 8px;
+  border: 0;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.select-btn:hover {
+  background: #c7d2fe;
 }
 
 .status-text {

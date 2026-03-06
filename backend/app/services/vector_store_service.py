@@ -108,6 +108,44 @@ class VectorStoreService:
         else:
             self._schema_ready = True
 
+    async def _search_points(
+        self,
+        *,
+        collection_name: str,
+        embedding: Sequence[float],
+        project_id: str,
+        limit: int,
+    ) -> List[rest.ScoredPoint]:
+        """兼容不同 qdrant-client 版本的检索接口。"""
+        query_filter = rest.Filter(
+            must=[
+                rest.FieldCondition(
+                    key="project_id",
+                    match=rest.MatchValue(value=project_id),
+                )
+            ]
+        )
+
+        # qdrant-client>=1.12 使用 query_points，旧版本仍可能保留 search。
+        if hasattr(self._client, "query_points"):
+            response = await self._client.query_points(
+                collection_name=collection_name,
+                query=list(embedding),
+                query_filter=query_filter,
+                limit=limit,
+                with_payload=True,
+            )
+            return response.points or []
+
+        search_result = await self._client.search(
+            collection_name=collection_name,
+            query_vector=embedding,
+            query_filter=query_filter,
+            limit=limit,
+            with_payload=True,
+        )
+        return search_result or []
+
     async def query_chunks(
         self,
         *,
@@ -125,19 +163,11 @@ class VectorStoreService:
             return []
 
         try:
-            search_result = await self._client.search(
+            search_result = await self._search_points(
                 collection_name=self.COLLECTION_CHUNKS,
-                query_vector=embedding,
-                query_filter=rest.Filter(
-                    must=[
-                        rest.FieldCondition(
-                            key="project_id",
-                            match=rest.MatchValue(value=project_id)
-                        )
-                    ]
-                ),
+                embedding=embedding,
+                project_id=project_id,
                 limit=top_k,
-                with_payload=True,
             )
         except Exception as exc:
             logger.warning("向量检索剧情片段失败: %s", exc)
@@ -174,19 +204,11 @@ class VectorStoreService:
             return []
 
         try:
-            search_result = await self._client.search(
+            search_result = await self._search_points(
                 collection_name=self.COLLECTION_SUMMARIES,
-                query_vector=embedding,
-                query_filter=rest.Filter(
-                    must=[
-                        rest.FieldCondition(
-                            key="project_id",
-                            match=rest.MatchValue(value=project_id)
-                        )
-                    ]
-                ),
+                embedding=embedding,
+                project_id=project_id,
                 limit=top_k,
-                with_payload=True,
             )
         except Exception as exc:
             logger.warning("向量检索章节摘要失败: %s", exc)

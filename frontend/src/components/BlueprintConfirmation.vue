@@ -103,12 +103,12 @@
 
     <!-- 操作按钮 -->
     <div v-else class="text-center space-x-4">
-      <!-- <button
+      <button
         @click="$emit('back')"
         class="bg-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full hover:bg-gray-300 transition-all duration-300 transform hover:scale-105"
       >
         返回对话
-      </button> -->
+      </button>
       <button
         @click="generateBlueprint"
         :disabled="isGenerating"

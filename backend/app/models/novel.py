@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import JSON, BigInteger, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -59,6 +59,8 @@ class NovelProject(Base):
     chapters: Mapped[list["Chapter"]] = relationship(
         back_populates="project", cascade="all, delete-orphan", order_by="Chapter.chapter_number"
     )
+    reference_novel_ids: Mapped[Optional[List[int]]] = mapped_column(JSON, default=list)
+    fusion_dna: Mapped[Optional[dict]] = mapped_column(JSON)
 
 
 class NovelConversation(Base):

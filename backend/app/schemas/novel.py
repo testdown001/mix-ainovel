@@ -44,6 +44,10 @@ class ConverseRequest(BaseModel):
         default=None,
         description="已检索并糅合的参考上下文（可选）",
     )
+    exclusions: Optional[str] = Field(
+        default=None,
+        description="创作禁区：用户不希望出现的元素、方向或套路",
+    )
 
 
 class ReferenceSearchRequest(BaseModel):
@@ -135,6 +139,7 @@ class NovelProject(BaseModel):
     title: str
     initial_prompt: str
     conversation_history: List[Dict[str, Any]] = []
+    reference_novel_ids: List[int] = Field(default_factory=list)
     blueprint: Optional[Blueprint] = None
     chapters: List[Chapter] = []
 
@@ -181,7 +186,7 @@ class GenerateChapterRequest(BaseModel):
 
 
 class FlowConfig(BaseModel):
-    preset: str = Field(default="basic", description="basic|enhanced|ultimate|platinum|custom")
+    preset: str = Field(default="basic", description="basic|enhanced|ultimate|platinum|literary|fast|custom")
     versions: Optional[int] = Field(default=None, description="生成版本数量")
     enable_preview: Optional[bool] = Field(default=None, description="是否启用预演生成")
     enable_optimizer: Optional[bool] = Field(default=None, description="是否启用优化器")
@@ -201,6 +206,10 @@ class FlowConfig(BaseModel):
     enable_narrative_variety: Optional[bool] = Field(default=None, description="是否启用叙事差异化约束")
     use_slim_prompt: Optional[bool] = Field(default=None, description="是否启用精简提示词")
     literary_adaptive_postprocess: Optional[bool] = Field(default=None, description="文学模式是否自适应裁剪后处理步骤")
+    enable_fast_path: Optional[bool] = Field(default=None, description="是否启用 fast 单次生成路径")
+    disable_guardrail_rewrite: Optional[bool] = Field(default=None, description="护栏未通过时是否跳过 LLM 重写")
+    skip_history_summary_backfill: Optional[bool] = Field(default=None, description="是否跳过历史章节摘要补写")
+    use_local_anti_hallucination: Optional[bool] = Field(default=None, description="是否使用本地实体规则反幻觉检查")
     batch_parallel_workers: Optional[int] = Field(default=None, ge=1, le=8, description="批量生成并行工作数")
 
 

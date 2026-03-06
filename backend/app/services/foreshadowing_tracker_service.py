@@ -5,6 +5,7 @@
 """
 from typing import Optional, List, Dict, Any
 import json
+import logging
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ from ..models.foreshadowing import (
 )
 from .llm_service import LLMService
 from .prompt_service import PromptService
+
+logger = logging.getLogger(__name__)
 
 
 class ForeshadowingTrackerService:
@@ -155,7 +158,8 @@ class ForeshadowingTrackerService:
         self,
         project_id: str,
         chapter_number: int,
-        chapter_outline: Optional[str] = None
+        chapter_outline: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """获取伏笔提醒和发展建议"""
         
@@ -190,7 +194,8 @@ class ForeshadowingTrackerService:
         # 调用 LLM 获取建议
         response = await self.llm_service.generate(
             prompt=prompt,
-            system_prompt="你是一位专业的小说编辑，负责追踪伏笔状态并提供发展建议。请以 JSON 格式输出。"
+            system_prompt="你是一位专业的小说编辑，负责追踪伏笔状态并提供发展建议。请以 JSON 格式输出。",
+            user_id=user_id,
         )
         
         # 解析结果

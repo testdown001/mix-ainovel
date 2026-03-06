@@ -129,6 +129,112 @@ class PipelineReviewMixin:
             logger.warning("审查反馈修订失败，保留原文: %s", exc)
             return chapter_content, {"applied": False, "reason": str(exc)}
 
+    async def _run_combined_revision(
+        self,
+        chapter_content: str,
+        *,
+        critical_flaws: List[str],
+        refinement_suggestions: str,
+        enable_self_critique: bool,
+        chapter_mission: Optional[dict],
+        user_id: int,
+        context: Optional[Dict[str, Any]] = None,
+        max_word_count: int = 0,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """合并 AI 评审反馈修订 + 自我批评为一次 LLM 调用，减少串行延迟。"""
+        has_review_feedback = bool(critical_flaws or refinement_suggestions)
+        if not has_review_feedback and not enable_self_critique:
+            return chapter_content, {"applied": False, "reason": "no_feedback_no_critique"}
+
+        flaws_text = "\n".join(f"- {flaw}" for flaw in critical_flaws) if critical_flaws else "无"
+        suggestions_text = refinement_suggestions or "无"
+
+        mission_hint = ""
+        if chapter_mission:
+            macro_beat = chapter_mission.get("macro_beat_description", "")
+            if macro_beat:
+                mission_hint = f"\n本章核心任务：{macro_beat}"
+
+        character_context = ""
+        if context and context.get("character_profiles"):
+            character_context = f"\n\n[角色档案参考]\n{context['character_profiles']}"
+
+        previous_summary_context = ""
+        if context and context.get("previous_summary"):
+            previous_summary_context = f"\n\n[前文摘要参考]\n{context['previous_summary']}"
+
+        # 构建合并 prompt
+        review_section = ""
+        if has_review_feedback:
+            review_section = f"""
+## 一、AI 评审反馈（需优先修复）
+
+[关键缺陷]
+{flaws_text}
+
+[改进建议]
+{suggestions_text}
+"""
+
+        critique_section = ""
+        if enable_self_critique:
+            critique_section = """
+## """ + ("二" if has_review_feedback else "一") + """、自我批评维度（需同步检查并修正）
+
+请从以下 5 个维度审视章节，发现问题后在修订中一并修正：
+1. **逻辑一致性**：情节逻辑是否自洽，时间线和因果关系是否合理
+2. **人设一致性**：角色言行是否符合人设，性格特征是否前后一致
+3. **文笔质量**：遣词造句是否恰当，是否存在重复表达或生硬措辞
+4. **节奏控制**：叙事松紧是否得当，铺垫和爆发是否合理分配
+5. **对话质量**：台词是否自然有个性，是否符合角色身份和语境
+"""
+
+        combined_prompt = f"""你是一位资深网文编辑，兼具批评眼光和修稿能力。请对以下章节进行一次性综合修订。
+
+**修订原则：**
+1. 只修改存在问题的部分，不改变整体情节走向和结构
+2. 保持原有字数规模（±10%）
+3. 修改要自然融入，不能有明显修补痕迹
+4. 保持原文的叙事风格和语气{mission_hint}
+{review_section}{critique_section}{character_context}{previous_summary_context}
+
+[原章节内容]
+{chapter_content}
+
+直接输出修改后的完整章节，不要输出其他内容。"""
+
+        try:
+            _max_tokens = int(max_word_count * 1.5) if max_word_count else None
+            response = await self.llm_service.get_llm_response(
+                system_prompt="你是一位擅长根据多维度反馈精修网文章节的资深编辑。综合所有反馈一次性完成修订。",
+                conversation_history=[{"role": "user", "content": combined_prompt}],
+                temperature=0.5,
+                user_id=user_id,
+                timeout=180.0,
+                max_tokens=_max_tokens,
+            )
+            cleaned = remove_think_tags(response)
+            if not cleaned or not cleaned.strip():
+                logger.warning("合并修订结果为空，保留原文")
+                return chapter_content, {"applied": False, "reason": "empty_response"}
+
+            final = sanitize_chapter_plain_text(cleaned.strip())
+            logger.info(
+                "合并修订完成: has_review=%s, self_critique=%s, flaws=%d, original_len=%d, revised_len=%d",
+                has_review_feedback, enable_self_critique, len(critical_flaws),
+                len(chapter_content), len(final),
+            )
+            return final, {
+                "applied": True,
+                "has_review_feedback": has_review_feedback,
+                "flaws_count": len(critical_flaws),
+                "has_suggestions": bool(refinement_suggestions),
+                "self_critique_included": enable_self_critique,
+            }
+        except Exception as exc:
+            logger.warning("合并修订失败，保留原文: %s", exc)
+            return chapter_content, {"applied": False, "reason": str(exc)}
+
     async def _run_self_critique(
         self,
         chapter_content: str,
@@ -219,16 +325,26 @@ class PipelineReviewMixin:
         return chapter_text, report
 
     async def _run_optimizer(
-        self, chapter_content: str, *, user_id: int, include_polish: bool = False, max_word_count: int = 0,
+        self, chapter_content: str, *, user_id: int, include_polish: bool = False, include_density: bool = False, max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         """使用综合优化 prompt 一次性优化多个维度（对话/环境/心理/节奏/爽点）。
 
         当 *include_polish* 为 True 时，同时执行文学性润色，减少一次 LLM 调用。
+        当 *include_density* 为 True 时，同时执行信息密度压缩，减少一次 LLM 调用。
         """
-        polish_section = ""
+        extra_dimensions = ""
+        next_dim = 6
         if include_polish:
-            polish_section = """
-6. **文学性润色**：优化遣词造句，增强画面感和沉浸感，强化感官描写，打磨对话个性"""
+            extra_dimensions += f"""
+{next_dim}. **文学性润色**：优化遣词造句，增强画面感和沉浸感，强化感官描写，打磨对话个性"""
+            next_dim += 1
+        if include_density:
+            extra_dimensions += f"""
+{next_dim}. **信息密度优化**：删除冗余描写、重复表达和水词，在不丢失关键信息的前提下提高每句话的信息含量，适当压缩篇幅"""
+
+        word_count_principle = "- 保持原文字数规模（±10%），不增删情节"
+        if include_density:
+            word_count_principle = "- 在不丢失关键情节的前提下适当压缩篇幅，目标字数不超过原文的95%"
 
         optimize_prompt = f"""你是一位精通网络小说写作的多维度优化专家。请对以下章节内容进行综合优化。
 
@@ -237,11 +353,11 @@ class PipelineReviewMixin:
 2. **环境描写**：补充视觉、听觉、触觉等感官细节，增强沉浸感
 3. **心理描写**：用生理反应替代抽象情绪词（"他很愤怒"→具体生理反应），深化内心冲突
 4. **节奏优化**：调整段落长短、松紧交替，确保铺垫→爆发→余韵的节奏感
-5. **爽点强化**：识别并强化爽点结构（30%铺垫/40%兑现/30%微反转），增加信息差和情绪张力{polish_section}
+5. **爽点强化**：识别并强化爽点结构（30%铺垫/40%兑现/30%微反转），增加信息差和情绪张力{extra_dimensions}
 
 **核心原则：**
 - 保持情节走向、人物关系、对话内容完全不变
-- 保持原文字数规模（±10%），不增删情节
+{word_count_principle}
 - 优化要自然融入，不能有明显修补痕迹
 
 [原章节内容]
@@ -274,7 +390,11 @@ class PipelineReviewMixin:
                     parsed = json.loads(repair_json(normalized))
                 except json.JSONDecodeError:
                     parsed = None
-            dimension_label = "comprehensive+polish" if include_polish else "comprehensive"
+            dimension_label = "comprehensive"
+            if include_polish:
+                dimension_label += "+polish"
+            if include_density:
+                dimension_label += "+density"
             if parsed:
                 return parsed.get("optimized_content", cleaned), {
                     "steps": [{

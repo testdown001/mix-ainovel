@@ -2,17 +2,18 @@
 import json
 import logging
 import traceback
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
 
 from ...core.dependencies import get_current_user
-from ...db.session import get_session
+from ...db.session import AsyncSessionLocal, get_session
 from ...models.entity_registry import EntityRegistry, EntityAlias
+from ...models.reference_novel import ReferenceNovel
 from ...schemas.novel import (
     Blueprint,
     BlueprintGenerationResponse,
@@ -27,12 +28,14 @@ from ...schemas.novel import (
     NovelSectionResponse,
     NovelSectionType,
 )
+from ...schemas.reference_novel import ReferenceNovelSelectRequest, ReferenceNovelSummary
 from ...schemas.user import UserInDB
 from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
 from ...services.web_search_service import WebSearchService
+from ...services.reference_novel_library_service import ReferenceNovelLibraryService
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -74,16 +77,119 @@ def _normalize_reference_novel_names(novel_names: Optional[List[str]]) -> List[s
     return cleaned
 
 
-def _inject_reference_context(system_prompt: str, reference_context: str) -> str:
+def _inject_reference_context(
+    system_prompt: str,
+    reference_context: str,
+    fusion_dna_text: str = "",
+) -> str:
+    """注入参考小说上下文。优先使用融合DNA，辅以精选参考素材。"""
+    parts: list[str] = [system_prompt]
+
+    if fusion_dna_text:
+        parts.append(
+            "以下为根据用户选定的多部参考小说融合提炼的「创作DNA」，"
+            "请将其作为本次创作的核心风格与结构指引，贯穿整个创作过程：\n"
+            f"{fusion_dna_text}"
+        )
+
     context = (reference_context or "").strip()
-    if not context:
+    if context:
+        header = (
+            "以下为参考小说的补充素材，可作为灵感参考，但不要机械复刻具体剧情："
+            if fusion_dna_text
+            else "以下为用户提供的参考小说检索结果，请将其作为创作灵感参考，但不要机械复刻具体剧情："
+        )
+        parts.append(f"{header}\n{context}")
+
+    return "\n\n".join(parts)
+
+
+def _inject_exclusions(system_prompt: str, exclusions: str) -> str:
+    text = (exclusions or "").strip()
+    if not text:
         return system_prompt
     return (
         f"{system_prompt}\n\n"
-        "以下为用户提供的参考小说检索结果，请将其作为创作灵感参考，"
-        "但不要机械复刻具体剧情：\n"
-        f"{context}\n"
+        "## 创作禁区（用户明确排除的方向）\n"
+        "以下是用户明确表示不希望出现在故事中的元素或方向，"
+        "你必须在整个概念对话中严格遵守这些限制，不要提议任何涉及以下内容的选项：\n"
+        f"{text}\n"
     )
+
+
+def _merge_reference_novels(*groups: List[ReferenceNovel]) -> List[ReferenceNovel]:
+    merged: List[ReferenceNovel] = []
+    seen_ids: set[int] = set()
+    for group in groups:
+        for novel in group:
+            if novel.id in seen_ids:
+                continue
+            seen_ids.add(novel.id)
+            merged.append(novel)
+    return merged
+
+
+async def _background_create_and_analyze_reference_novel(title: str, user_id: int) -> None:
+    normalized_title = (title or "").strip()
+    if not normalized_title:
+        return
+    async with AsyncSessionLocal() as session:
+        service = ReferenceNovelLibraryService(session)
+        try:
+            novel = await service.get_by_title(normalized_title)
+            if not novel:
+                novel = await service.create(user_id, normalized_title)
+            if novel.status in {"ready", "analyzing"}:
+                return
+            await service.analyze(novel.id, user_id)
+        except Exception as exc:  # pragma: no cover - 后台任务兜底
+            logger.warning(
+                "后台参考小说入库分析失败: user=%s title=%s error=%s",
+                user_id,
+                normalized_title,
+                exc,
+            )
+
+
+async def _background_generate_fusion_dna(project_id: str, reference_novel_ids: List[int], user_id: int) -> None:
+    """后台等待参考小说分析完成后生成融合DNA。"""
+    import asyncio
+    async with AsyncSessionLocal() as session:
+        service = ReferenceNovelLibraryService(session)
+        novel_service = NovelService(session)
+        try:
+            # 等待所有参考小说就绪（最多轮询 10 次，每次 15 秒）
+            ready_novels: List[ReferenceNovel] = []
+            for attempt in range(10):
+                ready_novels = []
+                all_done = True
+                for rid in reference_novel_ids:
+                    novel = await service.get_by_id(rid)
+                    if not novel:
+                        continue
+                    if novel.status == "ready":
+                        ready_novels.append(novel)
+                    elif novel.status in {"pending", "analyzing"}:
+                        all_done = False
+                if all_done or len(ready_novels) == len(reference_novel_ids):
+                    break
+                await asyncio.sleep(15)
+
+            if not ready_novels:
+                logger.info("后台融合DNA：无就绪参考小说，跳过 project=%s", project_id)
+                return
+
+            from ...models.novel import NovelProject
+            project = await session.get(NovelProject, project_id)
+            if not project:
+                return
+
+            fusion_dna = await service.generate_fusion_dna(ready_novels, user_id)
+            project.fusion_dna = fusion_dna
+            await session.commit()
+            logger.info("后台融合DNA生成完成: project=%s novels=%d", project_id, len(ready_novels))
+        except Exception as exc:
+            logger.warning("后台融合DNA生成失败: project=%s error=%s", project_id, exc)
 
 
 @router.post("", response_model=NovelProjectSchema, status_code=status.HTTP_201_CREATED)
@@ -176,6 +282,7 @@ async def delete_novels(
 async def converse_with_concept(
     project_id: str,
     request: ConverseRequest,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> ConverseResponse:
@@ -203,19 +310,60 @@ async def converse_with_concept(
     system_prompt = _ensure_prompt(await prompt_service.get_prompt("concept"), "concept")
     reference_context = (request.reference_context or "").strip()
     normalized_reference_novels = _normalize_reference_novel_names(request.reference_novels)
-    if not history_records and not reference_context and normalized_reference_novels:
+    reference_service = ReferenceNovelLibraryService(session)
+    project_reference_novels = await _load_project_reference_novels(project, reference_service)
+    ready_reference_novels: List[ReferenceNovel] = []
+    missing_reference_titles: List[str] = []
+    for novel_title in normalized_reference_novels:
+        in_library = await reference_service.get_by_title(novel_title)
+        if in_library and in_library.status == "ready":
+            ready_reference_novels.append(in_library)
+            continue
+        missing_reference_titles.append(novel_title)
+        background_tasks.add_task(
+            _background_create_and_analyze_reference_novel,
+            novel_title,
+            current_user.id,
+        )
+
+    selected_library_novels = _merge_reference_novels(project_reference_novels, ready_reference_novels)
+    if not reference_context and selected_library_novels:
+        library_parts = [
+            reference_service.format_for_concept_prompt(selected_library_novels),
+        ]
+        style_samples = reference_service.format_style_samples_for_prompt(selected_library_novels)
+        if style_samples:
+            library_parts.append(style_samples)
+        memory_card_text = reference_service.format_memory_card_for_prompt(selected_library_novels)
+        if memory_card_text:
+            library_parts.append(memory_card_text)
+        library_context = "\n\n".join(part for part in library_parts if part).strip()
+        if library_context:
+            reference_context = library_context
+            logger.info(
+                "项目 %s 概念对话使用参考小说库内容: user=%s novels=%s",
+                project_id,
+                current_user.id,
+                [novel.title for novel in selected_library_novels],
+            )
+    if not history_records and missing_reference_titles:
         web_search_service = WebSearchService(session)
         try:
-            reference_context = await web_search_service.search_reference_novels(
-                normalized_reference_novels,
+            searched_context = await web_search_service.search_reference_novels(
+                missing_reference_titles,
                 user_id=current_user.id,
                 project_id=project_id,
             )
+            if searched_context:
+                if reference_context:
+                    reference_context = f"{reference_context}\n\n{searched_context}".strip()
+                else:
+                    reference_context = searched_context
             logger.info(
                 "项目 %s 已注入参考小说搜索上下文: user=%s novels=%s",
                 project_id,
                 current_user.id,
-                normalized_reference_novels,
+                missing_reference_titles,
             )
         except HTTPException as exc:
             if exc.status_code == 503:
@@ -238,8 +386,14 @@ async def converse_with_concept(
                 current_user.id,
                 exc,
             )
-    if reference_context:
-        system_prompt = _inject_reference_context(system_prompt, reference_context)
+    fusion_dna_text = ""
+    if project.fusion_dna:
+        fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
+    if reference_context or fusion_dna_text:
+        system_prompt = _inject_reference_context(system_prompt, reference_context, fusion_dna_text)
+    exclusions = (request.exclusions or "").strip()
+    if exclusions:
+        system_prompt = _inject_exclusions(system_prompt, exclusions)
     system_prompt = f"{system_prompt}\n{JSON_RESPONSE_INSTRUCTION}"
 
     llm_response = await llm_service.get_llm_response(
@@ -282,6 +436,72 @@ async def converse_with_concept(
 
     parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
     return ConverseResponse(**parsed)
+
+
+@router.get("/{project_id}/reference-novels", response_model=List[ReferenceNovelSummary])
+async def list_project_reference_novels(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> List[ReferenceNovelSummary]:
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    reference_service = ReferenceNovelLibraryService(session)
+    bound: List[ReferenceNovelSummary] = []
+    for rid in project.reference_novel_ids or []:
+        novel = await reference_service.get_by_id(rid)
+        if novel:
+            bound.append(ReferenceNovelSummary.model_validate(novel))
+    return bound
+
+
+@router.post("/{project_id}/reference-novels/bind", status_code=status.HTTP_200_OK)
+async def bind_project_reference_novels(
+    project_id: str,
+    request: ReferenceNovelSelectRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    reference_service = ReferenceNovelLibraryService(session)
+    approved_ids: List[int] = []
+    ready_novels: List[ReferenceNovel] = []
+    for rid in request.reference_novel_ids:
+        if len(approved_ids) >= 3:
+            break
+        novel = await reference_service.get_by_id(rid)
+        if not novel:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"参考小说 {rid} 不存在")
+        approved_ids.append(rid)
+        if novel.status == "ready":
+            ready_novels.append(novel)
+    project.reference_novel_ids = approved_ids
+
+    # 如果有已就绪的参考小说，立即生成融合DNA；否则后台等待分析完成后再生成
+    if ready_novels and len(ready_novels) >= 1:
+        try:
+            fusion_dna = await reference_service.generate_fusion_dna(ready_novels, current_user.id)
+            project.fusion_dna = fusion_dna
+        except Exception as exc:
+            logger.warning("绑定时生成融合DNA失败，不影响绑定: %s", exc)
+    elif approved_ids:
+        background_tasks.add_task(
+            _background_generate_fusion_dna, project_id, approved_ids, current_user.id
+        )
+
+    await session.commit()
+    return {"status": "success", "bound_ids": approved_ids, "fusion_dna_ready": bool(project.fusion_dna)}
+
+
+async def _load_project_reference_novels(project, reference_service: ReferenceNovelLibraryService) -> List[ReferenceNovel]:
+    bound: List[ReferenceNovel] = []
+    for rid in project.reference_novel_ids or []:
+        novel = await reference_service.get_by_id(rid)
+        if novel and novel.status == "ready":
+            bound.append(novel)
+    return bound
 
 
 @router.post("/{project_id}/reference-search", response_model=ReferenceSearchResponse)
@@ -404,6 +624,18 @@ async def generate_blueprint(
         )
 
     system_prompt = _ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
+
+    # 注入融合DNA到蓝图生成 prompt，让蓝图结构直接受参考小说影响
+    if project.fusion_dna:
+        reference_service = ReferenceNovelLibraryService(session)
+        dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
+        if dna_text:
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "以下为本项目的「创作DNA融合指引」，基于用户选定的参考小说提炼而来。\n"
+                "请在设计蓝图结构、章节节奏和人物关系时参考这些指引，但保持原创性：\n\n"
+                f"{dna_text}"
+            )
     logger.info("项目 %s 蓝图生成：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
                 project_id, len(system_prompt), len(formatted_history))
 
@@ -1486,34 +1718,35 @@ async def generate_concepts(
     novel_service = NovelService(session)
     llm_service = LLMService(session)
 
-    project_data = await novel_service._serialize_project(project_id)
-    if not project_data:
-        raise HTTPException(status_code=404, detail="项目不存在")
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    project_data = await novel_service._serialize_project(project)
+    if not project_data.blueprint:
+        raise HTTPException(status_code=400, detail="项目尚未生成蓝图，请先完成蓝图生成")
 
     # 构建上下文
     context_parts = []
-    bp = project_data.get("blueprint", {})
-    if bp.get("title"):
-        context_parts.append(f"标题: {bp['title']}")
-    if bp.get("genre"):
-        context_parts.append(f"类型: {bp['genre']}")
-    if bp.get("full_synopsis"):
-        context_parts.append(f"梗概: {bp['full_synopsis']}")
-    ws = bp.get("world_setting", {})
+    bp = project_data.blueprint
+    if bp.title:
+        context_parts.append(f"标题: {bp.title}")
+    if bp.genre:
+        context_parts.append(f"类型: {bp.genre}")
+    if bp.full_synopsis:
+        context_parts.append(f"梗概: {bp.full_synopsis}")
+    ws = bp.world_setting or {}
     if ws:
         context_parts.append(f"世界设定: {json.dumps(ws, ensure_ascii=False)}")
-    chars = project_data.get("characters", [])
+    chars = bp.characters or []
     if chars:
         char_summary = "; ".join([f"{c.get('name','?')}({c.get('identity','')})" for c in chars])
         context_parts.append(f"角色: {char_summary}")
 
     context = "\n".join(context_parts)
-    prompt = CONCEPT_EXTRACTION_PROMPT.format(context=context)
+    prompt = CONCEPT_EXTRACTION_PROMPT.replace("{context}", context)
 
     try:
         llm_response = await llm_service.get_llm_response(
             system_prompt=prompt,
-            user_message="请提取所有概念。",
+            conversation_history=[{"role": "user", "content": "请提取所有概念。"}],
             user_id=current_user.id,
             timeout=300.0,
         )
@@ -1688,7 +1921,7 @@ async def generate_chapter_scenes(
     try:
         llm_response = await llm_service.get_llm_response(
             system_prompt=prompt,
-            user_message="请拆分场景。",
+            conversation_history=[{"role": "user", "content": "请拆分场景。"}],
             user_id=current_user.id,
             timeout=120.0,
         )

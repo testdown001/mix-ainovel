@@ -18,9 +18,10 @@ import json
 import logging
 import os
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -245,6 +246,22 @@ def _schedule_finalize_task(
     )
 
 
+async def _set_chapter_failed_status(
+    session: AsyncSession,
+    project_id: str,
+    chapter_number: int,
+) -> None:
+    stmt = select(Chapter).where(
+        Chapter.project_id == project_id,
+        Chapter.chapter_number == chapter_number,
+    )
+    result = await session.execute(stmt)
+    chapter = result.scalars().first()
+    if chapter:
+        chapter.status = ChapterGenerationStatus.FAILED.value
+        await session.commit()
+
+
 @router.post("/advanced/generate", response_model=AdvancedGenerateResponse)
 async def advanced_generate_chapter(
     request: AdvancedGenerateRequest,
@@ -293,15 +310,11 @@ async def advanced_generate_chapter(
         )
         if exc.status_code >= 500:
             try:
-                stmt = select(Chapter).where(
-                    Chapter.project_id == request.project_id,
-                    Chapter.chapter_number == request.chapter_number,
+                await _set_chapter_failed_status(
+                    session,
+                    request.project_id,
+                    request.chapter_number,
                 )
-                result = await session.execute(stmt)
-                chapter = result.scalars().first()
-                if chapter:
-                    chapter.status = ChapterGenerationStatus.FAILED.value
-                    await session.commit()
             except Exception:
                 logger.exception(
                     "高级生成失败后写回章节状态失败: project=%s chapter=%s user=%s",
@@ -319,15 +332,11 @@ async def advanced_generate_chapter(
             request.flow_config.preset,
         )
         try:
-            stmt = select(Chapter).where(
-                Chapter.project_id == request.project_id,
-                Chapter.chapter_number == request.chapter_number,
+            await _set_chapter_failed_status(
+                session,
+                request.project_id,
+                request.chapter_number,
             )
-            result = await session.execute(stmt)
-            chapter = result.scalars().first()
-            if chapter:
-                chapter.status = ChapterGenerationStatus.FAILED.value
-                await session.commit()
         except Exception:
             logger.exception(
                 "高级生成异常后写回章节状态失败: project=%s chapter=%s user=%s",
@@ -339,6 +348,159 @@ async def advanced_generate_chapter(
             status_code=500,
             detail=f"高级生成失败: {str(exc)[:200]}",
         ) from exc
+
+
+@router.post("/advanced/generate/stream")
+async def advanced_generate_chapter_stream(
+    request: AdvancedGenerateRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> StreamingResponse:
+    orchestrator = PipelineOrchestrator(session)
+    event_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
+
+    async def _push_event(event: str, data: Dict[str, Any]) -> None:
+        await event_queue.put({"event": event, "data": data})
+
+    async def _stream_handler(payload: Dict[str, Any]) -> None:
+        event_name = str(payload.get("event") or "stage")
+        event_data = dict(payload)
+        event_data.pop("event", None)
+        await _push_event(event_name, event_data)
+
+    async def _producer() -> None:
+        try:
+            await _push_event(
+                "started",
+                {
+                    "project_id": request.project_id,
+                    "chapter_number": request.chapter_number,
+                    "preset": request.flow_config.preset,
+                },
+            )
+
+            result = await orchestrator.generate_chapter(
+                project_id=request.project_id,
+                chapter_number=request.chapter_number,
+                writing_notes=request.writing_notes,
+                user_id=current_user.id,
+                flow_config=request.flow_config.model_dump(),
+                stream_handler=_stream_handler,
+            )
+
+            flow_config = request.flow_config
+            if flow_config.async_finalize and result.get("variants"):
+                best_index = result.get("best_version_index", 0)
+                variants = result["variants"]
+                if 0 <= best_index < len(variants):
+                    selected_version_id = variants[best_index]["version_id"]
+                    _schedule_finalize_task(
+                        request.project_id,
+                        request.chapter_number,
+                        selected_version_id,
+                        current_user.id,
+                        False,
+                    )
+
+            await _push_event("completed", result)
+        except HTTPException as exc:
+            logger.warning(
+                "高级流式生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
+                request.project_id,
+                request.chapter_number,
+                current_user.id,
+                request.flow_config.preset,
+                exc.status_code,
+                exc.detail,
+            )
+            if exc.status_code >= 500:
+                try:
+                    await _set_chapter_failed_status(
+                        session,
+                        request.project_id,
+                        request.chapter_number,
+                    )
+                except Exception:
+                    logger.exception(
+                        "高级流式生成失败后写回章节状态失败: project=%s chapter=%s user=%s",
+                        request.project_id,
+                        request.chapter_number,
+                        current_user.id,
+                    )
+            detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False)
+            await _push_event(
+                "error",
+                {
+                    "status_code": exc.status_code,
+                    "detail": detail[:500],
+                },
+            )
+        except Exception as exc:
+            logger.exception(
+                "高级流式生成异常: project=%s chapter=%s user=%s preset=%s",
+                request.project_id,
+                request.chapter_number,
+                current_user.id,
+                request.flow_config.preset,
+            )
+            try:
+                await _set_chapter_failed_status(
+                    session,
+                    request.project_id,
+                    request.chapter_number,
+                )
+            except Exception:
+                logger.exception(
+                    "高级流式生成异常后写回章节状态失败: project=%s chapter=%s user=%s",
+                    request.project_id,
+                    request.chapter_number,
+                    current_user.id,
+                )
+            await _push_event(
+                "error",
+                {
+                    "status_code": 500,
+                    "detail": f"高级生成失败: {str(exc)[:200]}",
+                },
+            )
+        finally:
+            await event_queue.put(None)
+
+    async def _event_generator():
+        producer_task = asyncio.create_task(_producer())
+        try:
+            while True:
+                try:
+                    item = await asyncio.wait_for(event_queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+                    continue
+
+                if item is None:
+                    break
+
+                event = str(item.get("event") or "message")
+                data = item.get("data") or {}
+                payload = json.dumps(data, ensure_ascii=False)
+                yield f"event: {event}\n"
+                yield f"data: {payload}\n\n"
+        finally:
+            if not producer_task.done():
+                producer_task.cancel()
+            try:
+                await producer_task
+            except asyncio.CancelledError:
+                pass
+
+    return StreamingResponse(
+        _event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/advanced/batch-generate", response_model=BatchGenerateResponse)
@@ -492,11 +654,19 @@ async def select_chapter_version(
     # 异步触发向量化入库
     try:
         llm_service = LLMService(session)
+        outline_result = await session.execute(
+            select(ChapterOutline).where(
+                ChapterOutline.project_id == project_id,
+                ChapterOutline.chapter_number == request.chapter_number,
+            )
+        )
+        outline = outline_result.scalars().first()
+        title = outline.title if outline and outline.title else f"第{request.chapter_number}章"
         ingest_service = ChapterIngestionService(llm_service=llm_service)
         await ingest_service.ingest_chapter(
             project_id=project_id,
             chapter_number=request.chapter_number,
-            title=chapter.title or f"第{request.chapter_number}章",
+            title=title,
             content=selected_version.content,
             summary=None
         )
@@ -823,7 +993,18 @@ async def generate_chapters_outline(
         try:
             data = json.loads(normalized)
         except json.JSONDecodeError:
-            data = json.loads(repair_json(normalized))
+            repaired = repair_json(normalized)
+            try:
+                data = json.loads(repaired)
+            except json.JSONDecodeError:
+                # 最后尝试: json_repair.loads 直接返回 Python 对象
+                try:
+                    from json_repair import loads as jr_loads
+                    data = jr_loads(normalized)
+                    if not isinstance(data, dict):
+                        raise ValueError(f"repair 结果不是 dict: {type(data)}")
+                except Exception:
+                    raise
         new_outlines = data.get("chapters", [])
         for item in new_outlines:
             await novel_service.update_or_create_outline(
@@ -834,7 +1015,7 @@ async def generate_chapters_outline(
             )
         await session.commit()
     except Exception as exc:
-        logger.exception("生成大纲解析失败: %s", exc)
+        logger.exception("生成大纲解析失败: %s\n原始响应前500字: %s", exc, (normalized or "")[:500])
         raise HTTPException(status_code=500, detail=f"大纲生成失败: {str(exc)}")
 
     return await _load_project_schema(novel_service, project_id, current_user.id)

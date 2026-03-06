@@ -60,7 +60,17 @@ const request = async (url: string, options: RequestInit = {}) => {
     throw new Error(`请求失败，状态码: ${response.status}`)
   }
 
-  return response.json()
+  if (response.status === 204 || response.status === 205) {
+    return undefined as any
+  }
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase()
+  if (contentType.includes('application/json')) {
+    return response.json()
+  }
+
+  const text = await response.text().catch(() => '')
+  return (text ? text : undefined) as any
 }
 
 // 类型定义
@@ -68,6 +78,7 @@ export interface NovelProject {
   id: string
   title: string
   initial_prompt: string
+  reference_novel_ids?: number[]
   blueprint?: Blueprint
   chapters: Chapter[]
   conversation_history: ConversationMessage[]
@@ -189,6 +200,62 @@ export interface ReferenceSearchResponse {
   searched_novels: string[]
 }
 
+export interface MemoryCard {
+  genre: string
+  core_selling_point: string
+  target_audience: string
+  cool_point_patterns: string[]
+  pacing_traits: string
+  world_type: string
+  main_conflict_pattern: string
+  narrative_pov: string
+  foreshadowing_techniques: string[]
+  suspense_techniques: string[]
+  dialogue_style: string
+  scene_transition_style: string
+  emotion_control_pattern: string
+  commercial_data: Record<string, string>
+  takeaways: string[]
+  risks: string[]
+}
+
+export interface ReferenceNovelSummary {
+  id: number
+  title: string
+  genre?: string
+  author?: string
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ReferenceNovelDetail extends ReferenceNovelSummary {
+  outline_content?: string
+  style_samples_content?: string
+  memory_card?: MemoryCard
+  source_url?: string
+  error_message?: string
+}
+
+export interface ReferenceNovelCreatePayload {
+  title: string
+}
+
+export interface ReferenceNovelUpdatePayload {
+  outline_content?: string
+  style_samples_content?: string
+  memory_card?: MemoryCard
+  genre?: string
+  author?: string
+  source_url?: string
+  status?: string
+  error_message?: string
+}
+
+export interface ReferenceNovelBindPayload {
+  reference_novel_ids: number[]
+}
+
 export interface BlueprintGenerationResponse {
   blueprint: Blueprint
   ai_message: string
@@ -208,7 +275,7 @@ export interface ChapterGenerationResponse {
 }
 
 export interface AdvancedGenerateFlowConfig {
-  preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'custom'
+  preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'fast' | 'custom'
   versions?: number
   enable_preview?: boolean
   enable_optimizer?: boolean
@@ -224,6 +291,10 @@ export interface AdvancedGenerateFlowConfig {
   enable_voice_samples?: boolean
   enable_narrative_variety?: boolean
   use_slim_prompt?: boolean
+  enable_fast_path?: boolean
+  disable_guardrail_rewrite?: boolean
+  skip_history_summary_backfill?: boolean
+  use_local_anti_hallucination?: boolean
 }
 
 export interface AdvancedGenerateRequest {
@@ -248,6 +319,27 @@ export interface AdvancedGenerateResponse {
   variants: AdvancedGenerateVariant[]
   review_summaries?: Record<string, any>
   debug_metadata?: Record<string, any> | null
+}
+
+export interface AdvancedGenerateStreamStagePayload {
+  stage?: string
+  message?: string
+  chapter_number?: number
+  [key: string]: any
+}
+
+export interface AdvancedGenerateStreamTextDeltaPayload {
+  delta?: string
+  stage?: string
+  chapter_number?: number
+  [key: string]: any
+}
+
+export interface AdvancedGenerateStreamCallbacks {
+  onEvent?: (event: string, payload: any) => void
+  onStage?: (payload: AdvancedGenerateStreamStagePayload) => void
+  onTextDelta?: (delta: string, payload: AdvancedGenerateStreamTextDeltaPayload) => void
+  onError?: (error: Error, payload?: any) => void
 }
 
 export interface BatchGenerateChapterResult {
@@ -285,6 +377,7 @@ export interface NovelSectionResponse {
 
 // API 函数
 const NOVELS_BASE = `${API_BASE_URL}${API_PREFIX}/novels`
+const REFERENCE_LIBRARY_BASE = `${API_BASE_URL}${API_PREFIX}/reference-novels`
 const WRITER_PREFIX = '/api/writer'
 const WRITER_BASE = `${API_BASE_URL}${WRITER_PREFIX}/novels`
 
@@ -327,6 +420,7 @@ export class NovelAPI {
     options: {
       referenceNovels?: string[]
       referenceContext?: string
+      exclusions?: string
     } = {}
   ): Promise<ConverseResponse> {
     const formattedUserInput = userInput || { id: null, value: null }
@@ -343,6 +437,9 @@ export class NovelAPI {
     }
     if (options.referenceContext && options.referenceContext.trim()) {
       payload.reference_context = options.referenceContext.trim()
+    }
+    if (options.exclusions && options.exclusions.trim()) {
+      payload.exclusions = options.exclusions.trim()
     }
     return request(`${NOVELS_BASE}/${projectId}/concept/converse`, {
       method: 'POST',
@@ -361,6 +458,52 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/reference-search`, {
       method: 'POST',
       body: JSON.stringify({ novel_names: normalized })
+    })
+  }
+
+  static async listReferenceNovelLibrary(search?: string): Promise<ReferenceNovelSummary[]> {
+    const query = search ? `?search=${encodeURIComponent(search)}` : ''
+    return request(`${REFERENCE_LIBRARY_BASE}${query}`)
+  }
+
+  static async createReferenceNovel(payload: ReferenceNovelCreatePayload): Promise<ReferenceNovelSummary> {
+    return request(REFERENCE_LIBRARY_BASE, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  static async getReferenceNovel(novelId: number): Promise<ReferenceNovelDetail> {
+    return request(`${REFERENCE_LIBRARY_BASE}/${novelId}`)
+  }
+
+  static async updateReferenceNovel(novelId: number, payload: ReferenceNovelUpdatePayload): Promise<ReferenceNovelDetail> {
+    return request(`${REFERENCE_LIBRARY_BASE}/${novelId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  static async deleteReferenceNovel(novelId: number): Promise<void> {
+    await request(`${REFERENCE_LIBRARY_BASE}/${novelId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  static async analyzeReferenceNovel(novelId: number): Promise<ReferenceNovelDetail> {
+    return request(`${REFERENCE_LIBRARY_BASE}/${novelId}/analyze`, {
+      method: 'POST'
+    })
+  }
+
+  static async listProjectReferenceNovels(projectId: string): Promise<ReferenceNovelSummary[]> {
+    return request(`${NOVELS_BASE}/${projectId}/reference-novels`)
+  }
+
+  static async bindProjectReferenceNovels(projectId: string, payload: ReferenceNovelBindPayload): Promise<{ status: string; bound_ids: number[] }> {
+    return request(`${NOVELS_BASE}/${projectId}/reference-novels/bind`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
     })
   }
 
@@ -389,12 +532,17 @@ export class NovelAPI {
     })
   }
 
-  static async generateChapter(projectId: string, chapterNumber: number, writingNotes?: string): Promise<NovelProject> {
+  static async generateChapter(
+    projectId: string,
+    chapterNumber: number,
+    writingNotes?: string,
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast'
+  ): Promise<NovelProject> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset: 'literary' }
+      flow_config: { preset }
     }
 
     await request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
@@ -405,10 +553,194 @@ export class NovelAPI {
     return this.getNovel(projectId)
   }
 
+  /**
+   * 生成章节并返回原始 AdvancedGenerateResponse（含 best_version_index），供连续生成使用
+   */
+  static async generateChapterRaw(
+    projectId: string,
+    chapterNumber: number,
+    writingNotes?: string,
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast'
+  ): Promise<AdvancedGenerateResponse> {
+    const payload: AdvancedGenerateRequest = {
+      project_id: projectId,
+      chapter_number: chapterNumber,
+      ...(writingNotes ? { writing_notes: writingNotes } : {}),
+      flow_config: { preset }
+    }
+
+    return request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  static async generateChapterStream(
+    projectId: string,
+    chapterNumber: number,
+    writingNotes?: string,
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
+    callbacks: AdvancedGenerateStreamCallbacks = {}
+  ): Promise<AdvancedGenerateResponse> {
+    const payload: AdvancedGenerateRequest = {
+      project_id: projectId,
+      chapter_number: chapterNumber,
+      ...(writingNotes ? { writing_notes: writingNotes } : {}),
+      flow_config: { preset }
+    }
+
+    const authStore = useAuthStore()
+    const headers = new Headers({
+      'Content-Type': 'application/json'
+    })
+    if (authStore.isAuthenticated && authStore.token) {
+      headers.set('Authorization', `Bearer ${authStore.token}`)
+    }
+
+    const response = await fetch(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    })
+
+    if (response.status === 401) {
+      authStore.logout()
+      router.push('/login')
+      throw new Error('会话已过期，请重新登录')
+    }
+
+    if (!response.ok) {
+      let detail = ''
+      const contentType = (response.headers.get('content-type') || '').toLowerCase()
+      if (contentType.includes('application/json')) {
+        const errorData = await response.json().catch(() => null as any)
+        if (typeof errorData?.detail === 'string' && errorData.detail.trim()) {
+          detail = errorData.detail.trim()
+        } else if (typeof errorData?.message === 'string' && errorData.message.trim()) {
+          detail = errorData.message.trim()
+        } else if (typeof errorData?.error?.message === 'string' && errorData.error.message.trim()) {
+          detail = errorData.error.message.trim()
+        } else if (errorData) {
+          detail = JSON.stringify(errorData)
+        }
+      } else {
+        detail = (await response.text().catch(() => '')).trim()
+      }
+      if (detail) {
+        const clipped = detail.length > 600 ? `${detail.slice(0, 600)}...` : detail
+        throw new Error(`请求失败(${response.status}): ${clipped}`)
+      }
+      throw new Error(`请求失败，状态码: ${response.status}`)
+    }
+
+    if (!response.body) {
+      throw new Error('流式响应为空')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let completedPayload: AdvancedGenerateResponse | null = null
+
+    const handleEventBlock = (rawBlock: string) => {
+      const block = rawBlock.trim()
+      if (!block || block.startsWith(':')) {
+        return
+      }
+
+      let eventName = 'message'
+      const dataLines: string[] = []
+      for (const line of block.split('\n')) {
+        if (!line) continue
+        if (line.startsWith(':')) continue
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim() || 'message'
+          continue
+        }
+        if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trimStart())
+        }
+      }
+
+      const rawData = dataLines.join('\n')
+      let payloadData: any = {}
+      if (rawData) {
+        try {
+          payloadData = JSON.parse(rawData)
+        } catch {
+          payloadData = { message: rawData }
+        }
+      }
+
+      callbacks.onEvent?.(eventName, payloadData)
+
+      if (eventName === 'stage') {
+        callbacks.onStage?.(payloadData as AdvancedGenerateStreamStagePayload)
+        return
+      }
+
+      if (eventName === 'text_delta') {
+        const textDelta = typeof payloadData?.delta === 'string' ? payloadData.delta : ''
+        if (textDelta) {
+          callbacks.onTextDelta?.(textDelta, payloadData as AdvancedGenerateStreamTextDeltaPayload)
+        }
+        return
+      }
+
+      if (eventName === 'completed') {
+        completedPayload = payloadData as AdvancedGenerateResponse
+        return
+      }
+
+      if (eventName === 'error') {
+        const detail = typeof payloadData?.detail === 'string' ? payloadData.detail : '生成失败'
+        const error = new Error(detail)
+        callbacks.onError?.(error, payloadData)
+        throw error
+      }
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) {
+          break
+        }
+        buffer += decoder.decode(value, { stream: true })
+        buffer = buffer.replace(/\r\n/g, '\n')
+
+        let separatorIndex = buffer.indexOf('\n\n')
+        while (separatorIndex !== -1) {
+          const block = buffer.slice(0, separatorIndex)
+          buffer = buffer.slice(separatorIndex + 2)
+          handleEventBlock(block)
+          separatorIndex = buffer.indexOf('\n\n')
+        }
+      }
+
+      const tail = decoder.decode()
+      if (tail) {
+        buffer += tail
+      }
+      buffer = buffer.replace(/\r\n/g, '\n')
+      if (buffer.trim()) {
+        handleEventBlock(buffer)
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined)
+    }
+
+    if (!completedPayload) {
+      throw new Error('生成流已结束，但未收到 completed 事件')
+    }
+    return completedPayload
+  }
+
   static async batchGenerateChapters(
     projectId: string,
     chapterNumbers: number[],
-    writingNotes?: string
+    writingNotes?: string,
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast'
   ): Promise<BatchGenerateResponse> {
     return request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/batch-generate`, {
       method: 'POST',
@@ -416,7 +748,7 @@ export class NovelAPI {
         project_id: projectId,
         chapter_numbers: chapterNumbers,
         ...(writingNotes ? { writing_notes: writingNotes } : {}),
-        flow_config: { preset: 'literary' }
+        flow_config: { preset }
       })
     })
   }

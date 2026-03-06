@@ -15,7 +15,7 @@ import httpx
 
 from ..core.config import settings
 from .bm25_index_service import BM25IndexService
-from .vector_store_service import RetrievedChunk, VectorStoreService
+from .vector_store_service import RetrievedChunk, RetrievedSummary, VectorStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,13 @@ class HybridRetrievalService:
     def __init__(
         self,
         vector_store: VectorStoreService,
-        bm25_service: BM25IndexService,
+        bm25_service: Optional[BM25IndexService] = None,
+        llm_service: Optional[Any] = None,
     ) -> None:
         self._vector_store = vector_store
-        self._bm25_service = bm25_service
+        self._bm25_service = bm25_service or BM25IndexService()
+        # 兼容旧调用方传参，当前实现不直接依赖 llm_service
+        self._llm_service = llm_service
 
     async def hybrid_search(
         self,
@@ -42,13 +45,15 @@ class HybridRetrievalService:
         top_k: int = 10,
         bm25_weight: Optional[float] = None,
         enable_rerank: Optional[bool] = None,
-    ) -> List[Dict[str, Any]]:
+        user_id: Optional[int] = None,
+    ) -> Dict[str, List[Any]]:
         """
         执行混合检索：向量 + BM25 → RRF 融合 → 可选 Rerank。
 
         Returns:
-            排序后的结果列表，每项包含 chunk_id, content, score, source 等信息。
+            包含 chunks 与 summaries 的字典结果。
         """
+        _ = user_id  # 兼容参数，预留给后续策略扩展
         bm25_w = bm25_weight if bm25_weight is not None else getattr(settings, "rag_bm25_weight", 0.4)
         vector_w = 1.0 - bm25_w
 
@@ -85,7 +90,21 @@ class HybridRetrievalService:
         # 5. 回溯搜索：加载 parent summary
         fused = await self._backtrack_summaries(project_id, query_embedding, fused)
 
-        return fused
+        chunks = [self._to_retrieved_chunk(item) for item in fused if item.get("content")]
+        try:
+            summaries: List[RetrievedSummary] = await self._vector_store.query_summaries(
+                project_id=project_id,
+                embedding=query_embedding,
+                top_k=min(top_k, getattr(settings, "vector_top_k_summaries", 3)),
+            )
+        except Exception as exc:
+            logger.warning("混合检索摘要回溯失败，返回空摘要列表: %s", exc)
+            summaries = []
+
+        return {
+            "chunks": chunks,
+            "summaries": summaries,
+        }
 
     def _rrf_fuse(
         self,
@@ -144,6 +163,25 @@ class HybridRetrievalService:
     def _rrf_score(self, rank: int) -> float:
         """计算 RRF 分数。"""
         return 1.0 / (self.RRF_K + rank)
+
+    def _to_retrieved_chunk(self, item: Dict[str, Any]) -> RetrievedChunk:
+        """将融合结果转换为统一的检索片段结构。"""
+        base_metadata = item.get("metadata")
+        metadata = dict(base_metadata) if isinstance(base_metadata, dict) else {}
+        if item.get("sources"):
+            metadata.setdefault("retrieval_sources", item.get("sources"))
+        if item.get("parent_summary"):
+            metadata.setdefault("parent_summary", item.get("parent_summary"))
+        if item.get("chunk_id"):
+            metadata.setdefault("chunk_id", item.get("chunk_id"))
+
+        return RetrievedChunk(
+            content=item.get("content", ""),
+            chapter_number=int(item.get("chapter_number") or 0),
+            chapter_title=item.get("chapter_title"),
+            score=float(item.get("score", 0.0)),
+            metadata=metadata,
+        )
 
     async def _rerank(
         self,

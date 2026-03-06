@@ -1,7 +1,11 @@
 # AIMETA P=写作质量更新回归测试|R=采样评审_护栏本地修补_推荐版本序列化|NR=不含生产代码|E=pytest|X=internal|A=测试函数|D=pytest|S=none|RD=./README.ai
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+from app.api.routers import novels, writer
+from app.db.init_db import is_schema_mismatch_error
 from app.services.ai_review_service import AIReviewService
 from app.services.chapter_guardrails import GuardrailResult, Violation, ChapterGuardrails
 from app.services.novel_service import NovelService
@@ -120,3 +124,124 @@ def test_chapter_schema_includes_recommended_version_from_ai_review():
     assert schema.recommended_version_index == 1
     assert schema.word_count == 1234
 
+
+def test_schema_mismatch_error_detects_missing_columns():
+    err = RuntimeError("(1054, \"Unknown column 'chapter_blueprints.strand_type' in 'field list'\")")
+    assert is_schema_mismatch_error(err) is True
+
+
+def test_select_chapter_version_uses_outline_title_for_ingest(monkeypatch):
+    class _ScalarResult:
+        def __init__(self, value):
+            self._value = value
+
+        def scalars(self):
+            return self
+
+        def first(self):
+            return self._value
+
+    selected_version = SimpleNamespace(content="章节正文")
+    chapter = SimpleNamespace(real_summary="已有摘要")
+    novel_service = SimpleNamespace(
+        ensure_project_owner=AsyncMock(return_value=SimpleNamespace()),
+        get_or_create_chapter=AsyncMock(return_value=chapter),
+        select_chapter_version=AsyncMock(return_value=selected_version),
+    )
+    ingest_chapter = AsyncMock()
+    fake_session = SimpleNamespace(
+        execute=AsyncMock(return_value=_ScalarResult(SimpleNamespace(title="第一章"))),
+        rollback=AsyncMock(),
+    )
+    load_schema = AsyncMock(return_value="schema")
+
+    monkeypatch.setattr(writer, "NovelService", lambda session: novel_service)
+    monkeypatch.setattr(writer, "LLMService", lambda session: SimpleNamespace())
+    monkeypatch.setattr(
+        writer,
+        "ChapterIngestionService",
+        lambda llm_service: SimpleNamespace(ingest_chapter=ingest_chapter),
+    )
+    monkeypatch.setattr(writer, "_load_project_schema", load_schema)
+
+    result = asyncio.run(
+        writer.select_chapter_version(
+            "project-1",
+            SimpleNamespace(chapter_number=1, version_index=0),
+            fake_session,
+            SimpleNamespace(id=7),
+        )
+    )
+
+    assert result == "schema"
+    assert ingest_chapter.await_args.kwargs["title"] == "第一章"
+
+
+def test_generate_concepts_serializes_project_object(monkeypatch):
+    project = SimpleNamespace(id="project-1")
+    project_schema = SimpleNamespace(
+        blueprint=SimpleNamespace(
+            title="蓝图标题",
+            genre="玄幻",
+            full_synopsis="故事梗概",
+            world_setting={"era": "架空"},
+            characters=[{"name": "林凡", "identity": "主角"}],
+        )
+    )
+    novel_service = SimpleNamespace(
+        ensure_project_owner=AsyncMock(return_value=project),
+        _serialize_project=AsyncMock(return_value=project_schema),
+    )
+    llm_service = SimpleNamespace(get_llm_response=AsyncMock(return_value='{"concepts": []}'))
+    fake_session = SimpleNamespace(commit=AsyncMock())
+
+    monkeypatch.setattr(novels, "NovelService", lambda session: novel_service)
+    monkeypatch.setattr(novels, "LLMService", lambda session: llm_service)
+
+    result = asyncio.run(
+        novels.generate_concepts(
+            "project-1",
+            fake_session,
+            SimpleNamespace(id=7),
+        )
+    )
+
+    assert result["status"] == "success"
+    novel_service.ensure_project_owner.assert_awaited_once_with("project-1", 7)
+    novel_service._serialize_project.assert_awaited_once_with(project)
+    llm_kwargs = llm_service.get_llm_response.await_args.kwargs
+    assert "蓝图标题" in llm_kwargs["system_prompt"]
+    assert "林凡(主角)" in llm_kwargs["system_prompt"]
+    assert llm_kwargs["conversation_history"] == [{"role": "user", "content": "请提取所有概念。"}]
+    assert "user_message" not in llm_kwargs
+
+
+def test_generate_chapter_scenes_uses_conversation_history(monkeypatch):
+    outline = SimpleNamespace(title="第一章", summary="章节摘要", metadata_={})
+
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return outline
+
+    llm_service = SimpleNamespace(get_llm_response=AsyncMock(return_value='{"scenes": []}'))
+    fake_session = SimpleNamespace(
+        execute=AsyncMock(return_value=_ExecResult()),
+        commit=AsyncMock(),
+    )
+
+    monkeypatch.setattr(novels, "LLMService", lambda session: llm_service)
+
+    result = asyncio.run(
+        novels.generate_chapter_scenes(
+            "project-1",
+            1,
+            fake_session,
+            SimpleNamespace(id=7),
+        )
+    )
+
+    assert result["status"] == "success"
+    assert result["scenes"] == []
+    llm_kwargs = llm_service.get_llm_response.await_args.kwargs
+    assert llm_kwargs["conversation_history"] == [{"role": "user", "content": "请拆分场景。"}]
+    assert "user_message" not in llm_kwargs

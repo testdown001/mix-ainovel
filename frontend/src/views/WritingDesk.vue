@@ -45,6 +45,8 @@
           :evaluating-chapter="evaluatingChapter"
           :is-generating-outline="isGeneratingOutline"
           :is-rebuilding-rag="isRebuildingRag"
+          :batch-generating="batchGenerating"
+          :batch-progress="batchProgress"
           @close-sidebar="closeSidebar"
           @select-chapter="selectChapter"
           @preview-prediction="handlePreviewPrediction"
@@ -53,6 +55,8 @@
           @delete-chapter="deleteChapter"
           @generate-outline="generateOutline"
           @rebuild-rag="rebuildRag"
+          @batch-generate="openBatchGenerateModal"
+          @cancel-batch="cancelBatchGenerate"
         />
 
         <div class="flex-1 min-w-0">
@@ -67,6 +71,8 @@
           :selected-version-index="selectedVersionIndex"
           :available-versions="availableVersions"
           :is-selecting-version="isSelectingVersion"
+          :streaming-draft-text="selectedChapterNumber === streamingChapterNumber ? streamingDraftText : ''"
+          :streaming-stage="selectedChapterNumber === streamingChapterNumber ? streamingStage : null"
           @regenerate-chapter="regenerateChapter"
           @evaluate-chapter="evaluateChapter"
           @hide-version-selector="hideVersionSelector"
@@ -107,6 +113,13 @@
       @close="showGenerateOutlineModal = false"
       @generate="handleGenerateOutline"
     />
+    <WDBatchGenerateModal
+      :show="showBatchGenerateModal"
+      :start-chapter="batchStartChapter"
+      :max-count="batchMaxCount"
+      @close="showBatchGenerateModal = false"
+      @start="batchGenerateChapters"
+    />
     <WDCodexPanel
       :visible="codexPanelOpen"
       :blueprint="project?.blueprint"
@@ -122,9 +135,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { NovelAPI } from '@/api/novel'
-import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion } from '@/api/novel'
+import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, AdvancedGenerateResponse } from '@/api/novel'
 import { globalAlert } from '@/composables/useAlert'
-import Tooltip from '@/components/Tooltip.vue'
 import WDHeader from '@/components/writing-desk/WDHeader.vue'
 import WDSidebar from '@/components/writing-desk/WDSidebar.vue'
 import WDWorkspace from '@/components/writing-desk/WDWorkspace.vue'
@@ -132,6 +144,7 @@ import WDVersionDetailModal from '@/components/writing-desk/WDVersionDetailModal
 import WDEvaluationDetailModal from '@/components/writing-desk/WDEvaluationDetailModal.vue'
 import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue'
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
+import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal.vue'
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 
 interface Props {
@@ -158,6 +171,17 @@ const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 const codexPanelOpen = ref(false)
 const openPredictionTick = ref(0)
+const streamingChapterNumber = ref<number | null>(null)
+const streamingDraftText = ref('')
+const streamingStage = ref<string | null>(null)
+const activeGenerationToken = ref(0)
+
+// 连续生成相关状态
+const showBatchGenerateModal = ref(false)
+const batchGenerating = ref(false)
+const batchProgress = ref<{ current: number; total: number } | null>(null)
+const batchCancelled = ref(false)
+const componentMounted = ref(true)
 
 // 计算属性
 const project = computed(() => novelStore.currentProject)
@@ -265,7 +289,7 @@ const canGenerateChapter = (chapterNumber: number) => {
   if (!project.value?.blueprint?.chapter_outline) return false
 
   // 检查前面所有章节是否都已成功生成
-  const outlines = project.value.blueprint.chapter_outline.sort((a, b) => a.chapter_number - b.chapter_number)
+  const outlines = [...project.value.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
   
   for (const outline of outlines) {
     if (outline.chapter_number >= chapterNumber) break
@@ -433,8 +457,13 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
   }
 
   try {
+    const generationToken = activeGenerationToken.value + 1
+    activeGenerationToken.value = generationToken
     generatingChapter.value = chapterNumber
     selectedChapterNumber.value = chapterNumber
+    streamingChapterNumber.value = chapterNumber
+    streamingDraftText.value = ''
+    streamingStage.value = '准备生成...'
 
     // 在本地更新章节状态为generating
     if (project.value?.chapters) {
@@ -456,7 +485,37 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
       }
     }
 
-    await novelStore.generateChapter(chapterNumber, writingNotes)
+    if (!project.value?.id) {
+      throw new Error('没有当前项目')
+    }
+
+    await NovelAPI.generateChapterStream(
+      project.value.id,
+      chapterNumber,
+      writingNotes,
+      'fast',
+      {
+        onStage: (payload) => {
+          if (activeGenerationToken.value !== generationToken) {
+            return
+          }
+          if (typeof payload?.message === 'string' && payload.message.trim()) {
+            streamingStage.value = payload.message.trim()
+          } else if (typeof payload?.stage === 'string' && payload.stage.trim()) {
+            streamingStage.value = payload.stage.trim()
+          }
+        },
+        onTextDelta: (delta) => {
+          if (activeGenerationToken.value !== generationToken) {
+            return
+          }
+          if (!delta) {
+            return
+          }
+          streamingDraftText.value += delta
+        },
+      }
+    )
     
     // store 中的 project 已经被更新，所以我们不需要手动修改本地状态
     // chapterGenerationResult 也不再需要，因为 availableVersions 会从更新后的 project.chapters 中获取数据
@@ -477,6 +536,9 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     globalAlert.showError(`生成章节失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
   } finally {
     generatingChapter.value = null
+    streamingStage.value = null
+    streamingDraftText.value = ''
+    streamingChapterNumber.value = null
     // 无论成功或失败，都重新加载项目以确保 UI 与后端同步
     // 防止轮询竞态条件：在生成期间的最后一次轮询可能返回过期数据并覆盖新状态
     try {
@@ -656,6 +718,175 @@ const rebuildRag = async () => {
   }
 }
 
+// ---- 连续生成相关 ----
+
+/** 计算下一个未完成章节号 */
+const batchStartChapter = computed(() => {
+  if (!project.value?.blueprint?.chapter_outline) return 1
+  const outlines = [...project.value.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
+  for (const outline of outlines) {
+    const chapter = project.value.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+    if (!chapter || chapter.generation_status !== 'successful') {
+      return outline.chapter_number
+    }
+  }
+  // 所有章节都已完成，返回最后章节号 + 1
+  return outlines.length > 0 ? outlines[outlines.length - 1].chapter_number + 1 : 1
+})
+
+/** 计算从起始章节开始最多可生成多少章（有大纲的） */
+const batchMaxCount = computed(() => {
+  if (!project.value?.blueprint?.chapter_outline) return 0
+  const outlines = [...project.value.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
+  let count = 0
+  for (const outline of outlines) {
+    if (outline.chapter_number >= batchStartChapter.value) {
+      const chapter = project.value.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+      if (!chapter || chapter.generation_status !== 'successful') {
+        count++
+      }
+    }
+  }
+  return count
+})
+
+const openBatchGenerateModal = () => {
+  showBatchGenerateModal.value = true
+}
+
+const cancelBatchGenerate = () => {
+  batchCancelled.value = true
+}
+
+const batchGenerateChapters = async (count: number, writingNotes?: string) => {
+  if (!project.value) return
+
+  const projectId = project.value.id
+  const outlines = [...(project.value.blueprint?.chapter_outline || [])].sort((a, b) => a.chapter_number - b.chapter_number)
+
+  // 收集目标章节列表：从起始章节开始，取未完成且有大纲的章节
+  const targetChapters: number[] = []
+  for (const outline of outlines) {
+    if (targetChapters.length >= count) break
+    if (outline.chapter_number < batchStartChapter.value) continue
+    const chapter = project.value.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+    if (!chapter || chapter.generation_status !== 'successful') {
+      targetChapters.push(outline.chapter_number)
+    }
+  }
+
+  if (targetChapters.length === 0) {
+    globalAlert.showError('没有可生成的章节', '连续生成')
+    return
+  }
+
+  batchGenerating.value = true
+  batchCancelled.value = false
+  batchProgress.value = { current: 0, total: targetChapters.length }
+
+  let completedCount = 0
+  let failedCount = 0
+
+  try {
+    for (const chapterNumber of targetChapters) {
+      // 检查是否取消或组件已卸载
+      if (batchCancelled.value || !componentMounted.value) break
+
+      batchProgress.value = { current: completedCount + 1, total: targetChapters.length }
+
+      // 更新 UI 状态
+      generatingChapter.value = chapterNumber
+      selectedChapterNumber.value = chapterNumber
+
+      // 本地更新章节状态为 generating
+      if (project.value?.chapters) {
+        const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+        if (chapter) {
+          chapter.generation_status = 'generating'
+        } else {
+          const outline = project.value.blueprint?.chapter_outline?.find(o => o.chapter_number === chapterNumber)
+          project.value.chapters.push({
+            chapter_number: chapterNumber,
+            title: outline?.title || '加载中...',
+            summary: outline?.summary || '',
+            content: '',
+            versions: [],
+            evaluation: null,
+            generation_status: 'generating'
+          } as Chapter)
+        }
+      }
+
+      try {
+        // 调用生成 API，获取含 best_version_index 的原始响应
+        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(projectId, chapterNumber, writingNotes)
+
+        // 再次检查是否取消或组件已卸载（生成过程中可能点了取消或离开页面）
+        if (batchCancelled.value || !componentMounted.value) {
+          // 已生成但取消了，仍然选版以免浪费
+          try {
+            await NovelAPI.selectChapterVersion(projectId, chapterNumber, result.best_version_index)
+            completedCount++
+          } catch (selectErr) {
+            console.warn(`取消时选版失败（第 ${chapterNumber} 章）:`, selectErr)
+          }
+          if (componentMounted.value) {
+            try { await novelStore.loadProject(projectId, true) } catch { /* 静默 */ }
+          }
+          break
+        }
+
+        // 自动选版
+        await NovelAPI.selectChapterVersion(projectId, chapterNumber, result.best_version_index)
+
+        // 刷新项目状态
+        await novelStore.loadProject(projectId, true)
+        completedCount++
+      } catch (error) {
+        console.error(`连续生成：第 ${chapterNumber} 章失败:`, error)
+        failedCount++
+
+        // 更新本地失败状态
+        if (componentMounted.value && project.value?.chapters) {
+          const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+          if (chapter) {
+            chapter.generation_status = 'failed'
+          }
+        }
+
+        // 失败后停止连续生成
+        break
+      } finally {
+        generatingChapter.value = null
+      }
+    }
+  } finally {
+    batchGenerating.value = false
+    batchProgress.value = null
+    generatingChapter.value = null
+
+    // 最终刷新一次项目状态（仅组件仍挂载时）
+    if (componentMounted.value) {
+      try {
+        await novelStore.loadProject(projectId, true)
+      } catch {
+        // 静默失败
+      }
+
+      // 显示结果提示
+      if (batchCancelled.value) {
+        globalAlert.showSuccess(`已取消连续生成，共完成 ${completedCount} 章`, '连续生成已取消')
+      } else if (failedCount > 0) {
+        globalAlert.showError(`连续生成中断：完成 ${completedCount} 章，失败 1 章`, '连续生成异常')
+      } else {
+        globalAlert.showSuccess(`连续生成完成，共 ${completedCount} 章`, '连续生成完成')
+      }
+    }
+
+    batchCancelled.value = false
+  }
+}
+
 onMounted(() => {
   document.body.classList.add('m3-novel')
   loadProject()
@@ -663,6 +894,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.body.classList.remove('m3-novel')
+  componentMounted.value = false
+  if (batchGenerating.value) {
+    batchCancelled.value = true
+  }
 })
 </script>
 

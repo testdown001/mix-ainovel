@@ -11,6 +11,8 @@ import random
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
+from ..models import ReferenceNovel
+
 
 @dataclass
 class ProseReference:
@@ -50,14 +52,14 @@ PROSE_LIBRARY: List[ProseReference] = [
         category="dialogue",
         label="对话·潜台词与停顿",
         text=(
-            ""你最近还好？"她端着茶杯，没喝。\n"
-            ""挺好的。"他说。\n"
+            '"你最近还好？"她端着茶杯，没喝。\n'
+            '"挺好的。"他说。\n'
             "两个人都没再开口。茶凉了，她才把杯子放下，手指在桌面上敲了两下。\n"
-            ""我听说你把老宅卖了。"\n"
-            ""嗯。"\n"
-            ""卖了多少？"\n"
-            ""够用。"\n"
-            "她看了他一眼，笑了一下，那种笑不到眼睛里的笑。"够用就好。""
+            '"我听说你把老宅卖了。"\n'
+            '"嗯。"\n'
+            '"卖了多少？"\n'
+            '"够用。"\n'
+            '她看了他一眼，笑了一下，那种笑不到眼睛里的笑。"够用就好。"'
         ),
         note="对话极简，潜台词全在动作和停顿里，'笑不到眼睛里'一句话刻画关系",
     ),
@@ -65,12 +67,12 @@ PROSE_LIBRARY: List[ProseReference] = [
         category="dialogue",
         label="对话·打断与抢话",
         text=(
-            ""事情是这样的，当时我——"\n"
-            ""我知道当时什么情况。"老周把茶杯往桌上一顿，"你直接说，钱在哪。"\n"
-            ""那不是钱的问题——"\n"
-            ""那是什么问题？"老周站起来了。\n"
+            '"事情是这样的，当时我——"\n'
+            '"我知道当时什么情况。"老周把茶杯往桌上一顿，"你直接说，钱在哪。"\n'
+            '"那不是钱的问题——"\n'
+            '"那是什么问题？"老周站起来了。\n'
             "他张了张嘴，又闭上了。屋里安静了几秒。窗外有个小孩在哭，哭得断断续续的。\n"
-            ""行，"他说，"你坐下，我慢慢说。""
+            '"行，"他说，"你坐下，我慢慢说。"'
         ),
         note="打断制造紧张感，环境声侵入（小孩哭）打破僵局，'行'字转折自然",
     ),
@@ -81,7 +83,7 @@ PROSE_LIBRARY: List[ProseReference] = [
         text=(
             "长老一脸慈祥地看着他，像看自家出息的孙子。\n"
             "如果忽略他手里那份三十二页的任务书的话。\n"
-            "三十二页。他数了。每一页都写着"自愿"二字开头。一个有三十二页的"自愿"任务，"
+            '三十二页。他数了。每一页都写着"自愿"二字开头。一个有三十二页的"自愿"任务，'
             "自愿程度约等于把刀架在脖子上问你乐不乐意。"
         ),
         note="叙述者语气带态度，'三十二页'的重复制造喜感，吐槽点精准",
@@ -118,7 +120,7 @@ PROSE_LIBRARY: List[ProseReference] = [
             "但他的手还攥着剑。\n"
             "只要手没松，就还没输。\n"
             "他把剑往地上一插，借力站了起来。血顺着剑身往下淌，在地面上汇成一小滩。\n"
-            ""继续。"他说。嗓子哑得像砂纸。"
+            '"继续。"他说。嗓子哑得像砂纸。'
         ),
         note="情绪直给不藏着，'只要手没松，就还没输'就是燃的本质——简单、直接、热血",
     ),
@@ -166,6 +168,7 @@ class ReferenceProseService:
     def select_references(
         outline_summary: str,
         chapter_mission: Optional[dict] = None,
+        project_reference_novels: Optional[List[ReferenceNovel]] = None,
         max_refs: int = 2,
     ) -> List[ProseReference]:
         combined_text = outline_summary or ""
@@ -187,6 +190,24 @@ class ReferenceProseService:
             top_cats = sorted(scores, key=scores.get, reverse=True)[:max_refs]
 
         selected: List[ProseReference] = []
+        if project_reference_novels:
+            for novel in project_reference_novels:
+                text = novel.style_samples_content or ""
+                if text:
+                    selected.append(
+                        ProseReference(
+                            category="reference_library",
+                            label=novel.title,
+                            text=text,
+                            note="来自参考小说库的风格样本",
+                        )
+                    )
+                    if len(selected) >= max_refs:
+                        return selected[:max_refs]
+
+        if selected:
+            return selected[:max_refs]
+
         for cat in top_cats:
             candidates = [r for r in PROSE_LIBRARY if r.category == cat]
             if candidates:

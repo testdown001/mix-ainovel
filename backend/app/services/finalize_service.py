@@ -220,12 +220,14 @@ class FinalizeService:
             
             # 5. 更新向量库
             if not skip_vector_update and self.vector_store_service:
-                await self._update_vector_store(
+                vector_updated = await self._update_vector_store(
                     project_id=project_id,
                     chapter_number=chapter_number,
-                    chapter_text=chapter_text
+                    chapter_text=chapter_text,
+                    user_id=user_id,
                 )
-                result["updates"]["vector_store"] = "updated"
+                if vector_updated:
+                    result["updates"]["vector_store"] = "updated"
             
             # 6. 创建章节快照
             chapter_summary = await self._generate_chapter_summary(
@@ -427,21 +429,32 @@ class FinalizeService:
         self,
         project_id: str,
         chapter_number: int,
-        chapter_text: str
-    ):
+        chapter_text: str,
+        user_id: int,
+    ) -> bool:
         """更新向量库"""
         if not self.vector_store_service:
-            return
+            return False
         
         try:
-            # 将章节文本分块并存入向量库
-            await self.vector_store_service.add_chapter_to_store(
+            from .chapter_ingest_service import ChapterIngestionService
+
+            ingestion_service = ChapterIngestionService(
+                llm_service=self.llm_service,
+                vector_store=self.vector_store_service,
+            )
+            await ingestion_service.ingest_chapter(
                 project_id=project_id,
                 chapter_number=chapter_number,
-                content=chapter_text
+                title=f"第{chapter_number}章",
+                content=chapter_text,
+                summary=None,
+                user_id=user_id,
             )
+            return True
         except Exception as e:
             logger.error(f"更新向量库失败: {e}")
+            return False
     
     async def _generate_chapter_summary(
         self,

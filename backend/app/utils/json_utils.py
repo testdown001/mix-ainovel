@@ -1,6 +1,14 @@
 # AIMETA P=JSON工具_JSON解析和修复|R=安全解析_格式修复|NR=不含业务逻辑|E=parse_json_safely|X=internal|A=工具函数|D=json|S=none|RD=./README.ai
 import json
+import logging
 import re
+
+try:
+    import json_repair as _json_repair_lib
+except ImportError:
+    _json_repair_lib = None
+
+logger = logging.getLogger(__name__)
 
 
 def remove_think_tags(raw_text: str) -> str:
@@ -132,7 +140,10 @@ def sanitize_json_like_text(raw_text: str) -> str:
 
 
 def repair_json(text: str) -> str:
-    """尝试修复常见的 JSON 格式错误，如缺少逗号、尾部逗号、未闭合括号等。"""
+    """尝试修复常见的 JSON 格式错误，如缺少逗号、尾部逗号、未闭合括号等。
+
+    优先使用 json_repair 库（更健壮），回退到内置的正则修复。
+    """
     if not text:
         return text
 
@@ -143,10 +154,20 @@ def repair_json(text: str) -> str:
     except json.JSONDecodeError:
         pass
 
+    # ── 策略1：使用 json_repair 库（最佳方案）──
+    if _json_repair_lib is not None:
+        try:
+            repaired = _json_repair_lib.repair_json(text, return_objects=False)
+            # 验证修复结果可正常解析
+            json.loads(repaired)
+            return repaired
+        except Exception as exc:
+            logger.debug("json_repair 库修复失败，回退到内置修复: %s", exc)
+
+    # ── 策略2：清洗字符串内未转义的特殊字符 ──
     # 1. 移除行尾注释 (// ...)
     text = re.sub(r'(?<!:)//[^\n"]*$', '', text, flags=re.MULTILINE)
 
-    # 1.5. 尝试清洗字符串内未转义的特殊字符
     try:
         sanitized = sanitize_json_like_text(text)
         json.loads(sanitized)
@@ -154,7 +175,7 @@ def repair_json(text: str) -> str:
     except (json.JSONDecodeError, Exception):
         pass
 
-    # 2. 修复缺少逗号的情况（跨行和同行）
+    # ── 策略3：正则修复缺少逗号的情况（跨行和同行）──
     # 跨行: "val1"\n"key2" → "val1",\n"key2"
     text = re.sub(r'(")\s*\n(\s*")', r'\1,\n\2', text)
     text = re.sub(r'(})\s*\n(\s*\{)', r'\1,\n\2', text)
@@ -165,7 +186,7 @@ def repair_json(text: str) -> str:
     text = re.sub(r'(\bfalse)\s*\n(\s*")', r'\1,\n\2', text)
     text = re.sub(r'(\bnull)\s*\n(\s*")', r'\1,\n\2', text)
     text = re.sub(r'(\d)\s*\n(\s*")', r'\1,\n\2', text)
-    # 同行: "val1" "key2" → "val1", "key2" (不跨行的缺逗号)
+    # 同行: "val1" "key2" → "val1", "key2"
     text = re.sub(r'(")\s+(")', r'\1, \2', text)
     text = re.sub(r'(})\s+(\{)', r'\1, \2', text)
     text = re.sub(r'(})\s+(")', r'\1, \2', text)
@@ -173,10 +194,10 @@ def repair_json(text: str) -> str:
     text = re.sub(r'(])\s+(\[)', r'\1, \2', text)
     text = re.sub(r'(\d)\s+(")', r'\1, \2', text)
 
-    # 3. 移除尾部逗号 (trailing comma before } or ])
+    # 移除尾部逗号 (trailing comma before } or ])
     text = re.sub(r',\s*([}\]])', r'\1', text)
 
-    # 4. 尝试闭合未闭合的括号
+    # 尝试闭合未闭合的括号
     try:
         json.loads(text)
         return text
@@ -187,7 +208,6 @@ def repair_json(text: str) -> str:
     open_brackets = text.count('[') - text.count(']')
     if open_braces > 0 or open_brackets > 0:
         text = text.rstrip()
-        # 移除末尾可能的不完整逗号
         text = text.rstrip(',')
         text += ']' * max(0, open_brackets) + '}' * max(0, open_braces)
 

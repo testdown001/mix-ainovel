@@ -20,3 +20,4 @@ qdrant-client==1.12.1
 ollama==0.6.0
 langchain-text-splitters==0.3.11
 greenlet==3.2.4
+json-repair>=0.30.0

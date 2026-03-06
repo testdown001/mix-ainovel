@@ -21,6 +21,7 @@ from .user import User
 from .user_daily_request import UserDailyRequest
 from .user_writing_preference import UserWritingPreference
 from .system_config import SystemConfig
+from .reference_novel import ReferenceNovel
 
 # 新增：项目记忆模型
 from .project_memory import ProjectMemory, ChapterSnapshot
@@ -78,6 +79,7 @@ __all__ = [
     "UserDailyRequest",
     "UserWritingPreference",
     "SystemConfig",
+    "ReferenceNovel",
     # 项目记忆模型
     "ProjectMemory",
     "ChapterSnapshot",

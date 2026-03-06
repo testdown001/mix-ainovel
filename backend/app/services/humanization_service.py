@@ -35,6 +35,38 @@ AI_LEXICAL_PATTERNS: List[str] = [
 # 层2: 转折词列表
 TRANSITION_WORDS: List[str] = ["然而", "但是", "不过", "却"]
 
+# 规则级替换表（无 LLM）：AI 高频词 → 更自然的替代，或空串表示可删
+LEXICAL_REPLACEMENTS: Dict[str, str] = {
+    "显而易见": "显然",
+    "综上所述": "",
+    "值得注意的是": "",
+    "不仅如此": "而且",
+    "与此同时": "同时",
+    "换句话说": "",
+    "毫无疑问": "当然",
+    "不言而喻": "",
+    "事实上": "其实",
+    "从某种意义上说": "可以说",
+    "换言之": "",
+    "由此可见": "",
+    "正因如此": "所以",
+    "总而言之": "总之",
+    "需要指出的是": "",
+    "不难发现": "",
+    "众所周知": "",
+    "某种程度上": "",
+    "在这一刻": "",
+    "仿佛在诉说": "",
+    "似乎在暗示": "",
+    "不禁": "",
+    "缓缓地": "缓缓",
+    "默默地": "默默",
+    "因此": "所以",
+    "总的来说": "",
+    "一切都": "",
+    "这就是": "这便",
+}
+
 # 层2: 对称句式正则
 SYMMETRIC_PATTERNS: List[re.Pattern] = [
     re.compile(r"一边.{2,15}一边.{2,15}"),
@@ -167,6 +199,31 @@ class HumanizationService:
 
         report.score = max(0, min(100, 100 - report.lexical_deduction - report.structural_deduction - report.statistical_deduction))
         return report
+
+    def apply_rule_fixes(self, text: str, report: Optional[HumanizationReport] = None) -> str:
+        """纯规则替换，零 LLM 成本。根据 report 中的 lexical 问题做词汇替换；若未传入 report 则先 scan。"""
+        if report is None:
+            report = self.scan(text)
+        result = text
+        # 只处理 lexical 层的 ai_vocabulary 问题
+        for issue in report.issues:
+            if issue.layer != "lexical" or issue.category != "ai_vocabulary":
+                continue
+            # 从描述中提取词：AI 高频词「X」出现 N 次
+            m = re.search(r"「([^」]+)」", issue.description)
+            if not m:
+                continue
+            word = m.group(1)
+            replacement = LEXICAL_REPLACEMENTS.get(word)
+            if replacement is None:
+                continue
+            # 替换所有出现（整词，避免误伤）
+            result = result.replace(word, replacement)
+        # 清理替换产生的多余标点（含段落首的残留逗号）
+        result = re.sub(r"[，]{2,}", "，", result)
+        result = re.sub(r"[。]{2,}", "。", result)
+        result = re.sub(r"(^|\n)[，、]\s*", r"\1", result)
+        return result.strip() if result.strip() else text
 
     async def humanize(
         self,

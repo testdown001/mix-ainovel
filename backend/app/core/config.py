@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     mysql_user: str = Field(default="root", env="MYSQL_USER", description="MySQL 用户名")
     mysql_password: str = Field(default="", env="MYSQL_PASSWORD", description="MySQL 密码")
     mysql_database: str = Field(default="arboris", env="MYSQL_DATABASE", description="MySQL 数据库名称")
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        env="REDIS_URL",
+        description="Redis 连接串（支持 redis://:password@host:port/db 格式）",
+    )
 
     # -------------------- Qdrant 向量数据库配置 (供 Mem0 使用) --------------------
     qdrant_host: str = Field(default="localhost", env="QDRANT_HOST", description="Qdrant 主机地址")

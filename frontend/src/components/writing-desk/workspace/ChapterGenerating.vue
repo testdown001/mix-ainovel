@@ -10,9 +10,20 @@
         <p class="m3-pulse">{{ statusText.line1 }}</p>
         <p class="m3-pulse" style="animation-delay: 0.5s">{{ statusText.line2 }}</p>
         <p class="m3-pulse" style="animation-delay: 1s">🎨 描绘生动场景...</p>
+        <p v-if="stageHint" class="md-body-small !text-left px-1" style="color: var(--md-primary);">
+          {{ stageHint }}
+        </p>
       </div>
       <div class="md-progress-linear md-progress-linear-indeterminate mb-5">
         <div class="md-progress-linear-bar"></div>
+      </div>
+      <div
+        v-if="previewText"
+        class="md-card md-card-outlined p-3 text-left mb-5"
+        style="border-radius: var(--md-radius-md); max-height: 220px; overflow-y: auto;"
+      >
+        <p class="md-label-medium mb-2" style="color: var(--md-primary);">实时草稿预览</p>
+        <pre class="m3-stream-preview md-body-small">{{ previewText }}</pre>
       </div>
       <div class="md-card md-card-filled p-4 text-left" style="border-radius: var(--md-radius-lg);">
         <p class="md-body-small md-on-surface-variant">
@@ -30,6 +41,8 @@ import type { Chapter } from '@/api/novel'
 interface Props {
   chapterNumber: number | null
   status: Chapter['generation_status'] | null
+  streamingDraftText?: string
+  streamingStage?: string | null
 }
 
 const props = defineProps<Props>()
@@ -62,6 +75,21 @@ const statusText = computed(() => {
       }
   }
 })
+
+const stageHint = computed(() => {
+  if (!props.streamingStage) return ''
+  return props.streamingStage.trim()
+})
+
+const previewText = computed(() => {
+  const raw = props.streamingDraftText || ''
+  if (!raw.trim()) return ''
+  const maxLen = 2200
+  if (raw.length <= maxLen) {
+    return raw
+  }
+  return `...${raw.slice(-maxLen)}`
+})
 </script>
 
 <style scoped>
@@ -77,5 +105,13 @@ const statusText = computed(() => {
   50% {
     opacity: 1;
   }
+}
+
+.m3-stream-preview {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  line-height: 1.6;
 }
 </style>

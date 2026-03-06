@@ -18,9 +18,36 @@ from .session import AsyncSessionLocal, engine
 
 logger = logging.getLogger(__name__)
 
+_SCHEMA_MISMATCH_MARKERS = (
+    "Unknown column 'chapter_outlines.metadata'",
+    "Unknown column 'writer_personas.physiological_reactions'",
+    "Unknown column 'writer_personas.benchmark_texts'",
+    "Unknown column 'novel_blueprints.golden_finger'",
+    "Unknown column 'blueprint_characters.power_system_id'",
+    "Unknown column 'blueprint_characters.current_power_level_id'",
+    "Unknown column 'novel_projects.reference_novel_ids'",
+    "Unknown column 'novel_projects.fusion_dna'",
+    "Unknown column 'chapter_blueprints.strand_type'",
+    "Unknown column 'chapter_blueprints.strand_weight'",
+)
+
 
 def _sha256_text(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+
+
+def is_schema_mismatch_error(exc: BaseException) -> bool:
+    message = str(getattr(exc, "orig", exc) or exc)
+    return any(marker in message for marker in _SCHEMA_MISMATCH_MARKERS)
+
+
+async def repair_schema_if_needed(exc: BaseException) -> bool:
+    if not is_schema_mismatch_error(exc):
+        return False
+
+    logger.warning("检测到旧版数据库缺列，尝试自动补齐: %s", exc)
+    await _ensure_schema_updates()
+    return True
 
 
 async def init_db() -> None:
@@ -149,6 +176,22 @@ async def _ensure_schema_updates() -> None:
                 {
                     "power_system_id": "power_system_id BIGINT NULL",
                     "current_power_level_id": "current_power_level_id BIGINT NULL",
+                },
+            )
+            _ensure_columns(
+                "novel_projects",
+                {
+                    "reference_novel_ids": "reference_novel_ids JSON",
+                    "fusion_dna": "fusion_dna JSON",
+                },
+            )
+
+            # chapter_blueprints 表新增 Strand Weave 线团字段
+            _ensure_columns(
+                "chapter_blueprints",
+                {
+                    "strand_type": "strand_type VARCHAR(32) NULL",
+                    "strand_weight": "strand_weight FLOAT NULL",
                 },
             )
         await conn.run_sync(_upgrade)

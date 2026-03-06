@@ -31,3 +31,8 @@ class User(Base):
     novel_projects: Mapped[list["NovelProject"]] = relationship("NovelProject", back_populates="owner")
     llm_config: Mapped[Optional["LLMConfig"]] = relationship("LLMConfig", back_populates="user", uselist=False)
     writing_preference: Mapped[Optional["UserWritingPreference"]] = relationship("UserWritingPreference", back_populates="user", uselist=False)
+    reference_novels: Mapped[list["ReferenceNovel"]] = relationship(
+        "ReferenceNovel",
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )

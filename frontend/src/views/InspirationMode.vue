@@ -12,7 +12,47 @@
           v-model="referenceNovels"
           :search-status="referenceSearchStatus"
           :status-message="referenceSearchMessage"
+          @library-selection-change="handleLibrarySelectionChange"
         />
+        <div v-if="librarySelectionsWithNames.length" class="reference-selection-hint">
+          已从库中选择参考小说：
+          <strong>{{ librarySelectionsWithNames.join(' / ') }}</strong>
+        </div>
+        <div v-if="boundReferenceNovels.length" class="reference-bound-panel">
+          <p>当前项目已绑定的参考小说：</p>
+          <div class="reference-bound-list">
+            <span v-for="novel in boundReferenceNovels" :key="novel.id" class="reference-chip">
+              <span class="reference-chip-title">{{ novel.title }}</span>
+              <span class="reference-chip-status">{{ novel.status }}</span>
+            </span>
+          </div>
+        </div>
+        <!-- 创作禁区（可折叠） -->
+        <div class="mt-4 mb-6 max-w-xl mx-auto text-left">
+          <button
+            @click="showExclusions = !showExclusions"
+            class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <svg
+              class="w-4 h-4 transition-transform duration-200"
+              :class="{ 'rotate-90': showExclusions }"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+            </svg>
+            创作禁区（可选）
+          </button>
+          <div v-if="showExclusions" class="mt-2">
+            <textarea
+              v-model="exclusions"
+              placeholder="例如：不要后宫、不要重生穿越、禁止无脑打脸升级..."
+              rows="3"
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 resize-none bg-white/80 placeholder-gray-400"
+            />
+            <p class="mt-1 text-xs text-gray-400">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
+          </div>
+        </div>
         <button
           @click="startConversation"
           :disabled="novelStore.isLoading || isPreparingConversation"
@@ -120,10 +160,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
-import type { UIControl, Blueprint } from '@/api/novel'
+import { NovelAPI, type ReferenceNovelSummary, type UIControl, type Blueprint } from '@/api/novel'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConversationInput from '@/components/ConversationInput.vue'
 import BlueprintConfirmation from '@/components/BlueprintConfirmation.vue'
@@ -135,6 +175,12 @@ import { globalAlert } from '@/composables/useAlert'
 interface ChatMessage {
   content: string
   type: 'user' | 'ai'
+}
+
+interface LibrarySelection {
+  index: number
+  id: number | null
+  title: string
 }
 
 const router = useRouter()
@@ -157,15 +203,79 @@ const referenceNovels = ref<string[]>([''])
 const referenceContext = ref('')
 const referenceSearchStatus = ref<'idle' | 'searching' | 'success' | 'error' | 'skipped'>('idle')
 const referenceSearchMessage = ref('')
+const exclusions = ref('')
+const showExclusions = ref(false)
 const normalizedReferenceNovels = computed(() =>
   referenceNovels.value
     .map((name) => (name || '').trim())
     .filter(Boolean)
     .slice(0, 3)
 )
+const librarySelections = ref<LibrarySelection[]>([])
+const librarySelectionsWithNames = computed(() =>
+  librarySelections.value
+    .filter((selection) => selection.title && selection.id !== null)
+    .map((selection) => selection.title.trim())
+)
+const selectedReferenceNovelIds = computed(() =>
+  librarySelections.value
+    .map((selection) => selection.id)
+    .filter((id): id is number => id !== null)
+)
+const boundReferenceNovels = computed(() => novelStore.projectReferenceNovels || [])
 
 const goBack = () => {
   router.push('/')
+}
+
+const handleLibrarySelectionChange = (selections: LibrarySelection[]) => {
+  librarySelections.value = selections
+}
+
+const applyBoundReferencesToInputs = (list: ReferenceNovelSummary[]) => {
+  if (!list.length) return
+  const sanitized = list.slice(0, 3)
+  const hasUserInput = referenceNovels.value.some((name) => name && name.trim())
+  if (!hasUserInput) {
+    referenceNovels.value = sanitized.map((novel) => novel.title)
+    librarySelections.value = sanitized.map((novel, index) => ({
+      index,
+      id: novel.id,
+      title: novel.title
+    }))
+  }
+}
+
+watch(
+  () => novelStore.currentProject?.id,
+  async (projectId) => {
+    if (!projectId) {
+      librarySelections.value = []
+      return
+    }
+    try {
+      const list = await novelStore.loadProjectReferenceNovels(projectId)
+      applyBoundReferencesToInputs(list)
+    } catch (err) {
+      console.error('加载项目参考小说失败:', err)
+    }
+  },
+  { immediate: true }
+)
+
+const bindReferencesIfNeeded = async () => {
+  const projectId = novelStore.currentProject?.id
+  if (!projectId) return
+  const ids = selectedReferenceNovelIds.value
+  if (!ids.length) return
+  try {
+    await novelStore.bindProjectReferenceNovels(projectId, ids)
+  } catch (err) {
+    globalAlert.showError(
+      `绑定参考小说失败: ${err instanceof Error ? err.message : '请稍后重试'}`,
+      '参考小说'
+    )
+  }
 }
 
 // 清空所有状态，开始新的灵感对话
@@ -187,6 +297,8 @@ const resetInspirationMode = (options: { keepReferenceNovels?: boolean } = {}) =
   if (!options.keepReferenceNovels) {
     referenceNovels.value = ['']
   }
+  exclusions.value = ''
+  showExclusions.value = false
 
   // 清空 store 中的当前项目和对话状态
   novelStore.setCurrentProject(null)
@@ -314,6 +426,7 @@ const handleUserInput = async (
   options: {
     referenceNovels?: string[]
     referenceContext?: string
+    exclusions?: string
   } = {}
 ) => {
   try {
@@ -326,7 +439,12 @@ const handleUserInput = async (
       await scrollToBottom()
     }
 
-    const response = await novelStore.sendConversation(userInput, options)
+    const mergedOptions = {
+      ...options,
+      ...(referenceContext.value.trim() ? { referenceContext: referenceContext.value.trim() } : {}),
+      ...(exclusions.value.trim() ? { exclusions: exclusions.value.trim() } : {})
+    }
+    const response = await novelStore.sendConversation(userInput, mergedOptions)
 
     // 首次加载完成后，关闭加载动画
     if (isInitialLoading.value) {
@@ -368,19 +486,20 @@ const handleUserInput = async (
 const handleGenerateBlueprint = async () => {
   try {
     const response = await novelStore.generateBlueprint()
-    handleBlueprintGenerated(response)
+    await handleBlueprintGenerated(response)
   } catch (error) {
     console.error('生成蓝图失败:', error)
     globalAlert.showError(`生成蓝图失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
   }
 }
 
-const handleBlueprintGenerated = (response: any) => {
+const handleBlueprintGenerated = async (response: any) => {
   console.log('收到蓝图生成完成事件:', response)
   completedBlueprint.value = response.blueprint
   blueprintMessage.value = response.ai_message
   showBlueprintConfirmation.value = false
   showBlueprint.value = true
+  await bindReferencesIfNeeded()
 }
 
 const handleRegenerateBlueprint = () => {
@@ -422,3 +541,60 @@ onMounted(() => {
   }
 })
 </script>
+
+<style scoped>
+.reference-selection-hint {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.reference-selection-hint strong {
+  color: #0f172a;
+}
+
+.reference-bound-panel {
+  margin-top: 0.75rem;
+  background: #f8fafc;
+  border: 1px dashed #cbd5f5;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+}
+
+.reference-bound-panel p {
+  margin: 0 0 0.25rem;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
+.reference-bound-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.reference-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  font-size: 0.8rem;
+  color: #0f172a;
+}
+
+.reference-chip-title {
+  font-weight: 600;
+}
+
+.reference-chip-status {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  text-transform: capitalize;
+}
+</style>

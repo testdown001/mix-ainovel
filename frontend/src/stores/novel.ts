@@ -9,6 +9,7 @@ import type {
   Blueprint,
   DeleteNovelsResponse,
   ChapterOutline,
+  ReferenceNovelSummary,
   ReferenceSearchResponse
 } from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
@@ -21,6 +22,10 @@ export const useNovelStore = defineStore('novel', () => {
   const isLoading = ref(false)
   const error = ref<string | null>(null)
   const pendingChapterEdits = new Map<string, string>()
+  const projectReferenceNovels = ref<ReferenceNovelSummary[]>([])
+  const referenceNovelsLoading = ref(false)
+  const bindingReferenceNovels = ref(false)
+  const referenceNovelsError = ref<string | null>(null)
 
   // Getters
   const projectsCount = computed(() => projects.value.length)
@@ -101,6 +106,7 @@ export const useNovelStore = defineStore('novel', () => {
     options: {
       referenceNovels?: string[]
       referenceContext?: string
+      exclusions?: string
     } = {}
   ): Promise<ConverseResponse> {
     isLoading.value = true
@@ -139,6 +145,53 @@ export const useNovelStore = defineStore('novel', () => {
     } finally {
       isLoading.value = false
     }
+  }
+
+  async function loadProjectReferenceNovels(projectId: string) {
+    referenceNovelsError.value = null
+    if (!projectId) {
+      projectReferenceNovels.value = []
+      return []
+    }
+    referenceNovelsLoading.value = true
+    try {
+      const list = await NovelAPI.listProjectReferenceNovels(projectId)
+      projectReferenceNovels.value = list
+      return list
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '加载参考小说失败'
+      referenceNovelsError.value = message
+      throw err
+    } finally {
+      referenceNovelsLoading.value = false
+    }
+  }
+
+  async function bindProjectReferenceNovels(projectId: string, referenceNovelIds: number[]) {
+    if (!projectId) {
+      throw new Error('缺少项目 ID')
+    }
+    bindingReferenceNovels.value = true
+    referenceNovelsError.value = null
+    try {
+      const payload = { reference_novel_ids: referenceNovelIds.slice(0, 3) }
+      const response = await NovelAPI.bindProjectReferenceNovels(projectId, payload)
+      await loadProjectReferenceNovels(projectId)
+      if (currentProject.value) {
+        currentProject.value.reference_novel_ids = response.bound_ids
+      }
+      return response.bound_ids
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '绑定参考小说失败'
+      referenceNovelsError.value = message
+      throw err
+    } finally {
+      bindingReferenceNovels.value = false
+    }
+  }
+
+  function clearProjectReferenceNovels() {
+    projectReferenceNovels.value = []
   }
 
   async function generateBlueprint(): Promise<BlueprintGenerationResponse> {
@@ -381,6 +434,10 @@ export const useNovelStore = defineStore('novel', () => {
     currentConversationState,
     isLoading,
     error,
+    projectReferenceNovels,
+    referenceNovelsLoading,
+    bindingReferenceNovels,
+    referenceNovelsError,
     // Getters
     projectsCount,
     hasCurrentProject,
@@ -401,6 +458,9 @@ export const useNovelStore = defineStore('novel', () => {
     deleteChapter,
     generateChapterOutline,
     editChapterContent,
+    loadProjectReferenceNovels,
+    bindProjectReferenceNovels,
+    clearProjectReferenceNovels,
     clearError,
     setCurrentProject
   }

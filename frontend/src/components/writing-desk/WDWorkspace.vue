@@ -253,6 +253,8 @@ interface Props {
   selectedVersionIndex: number
   availableVersions: ChapterVersion[]
   isSelectingVersion?: boolean
+  streamingDraftText?: string
+  streamingStage?: string | null
 }
 
 const props = defineProps<Props>()
@@ -563,7 +565,9 @@ const currentComponentProps = computed(() => {
   if (status === 'generating' || status === 'evaluating' || status === 'selecting') {
     return {
       chapterNumber: props.selectedChapterNumber,
-      status: status
+      status: status,
+      streamingDraftText: props.streamingDraftText || '',
+      streamingStage: props.streamingStage || null
     }
   }
 
