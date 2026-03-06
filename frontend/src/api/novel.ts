@@ -865,6 +865,10 @@ export class NovelAPI {
     })
   }
 
+  static async getPredictionProgress(projectId: string): Promise<{ running: boolean; total: number; completed: number; failed: number }> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/prediction-progress`)
+  }
+
   static async editChapterContent(
     projectId: string,
     chapterNumber: number,

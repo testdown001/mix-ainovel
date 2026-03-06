@@ -8,10 +8,28 @@ import os
 from dataclasses import asdict, dataclass
 from typing import AsyncGenerator, Dict, List, Optional
 
+import ssl
+
 import httpx
 from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
+
+
+def _get_ssl_verify() -> bool | ssl.SSLContext:
+    """读取环境变量控制 SSL 验证。
+
+    LLM_SSL_VERIFY=false  → 跳过证书验证（自签名代理等场景）
+    LLM_SSL_VERIFY=<path> → 使用指定 CA 证书文件
+    默认 → True（标准验证）
+    """
+    val = os.environ.get("LLM_SSL_VERIFY", "").strip()
+    if val.lower() in ("false", "0", "no", "off"):
+        return False
+    if val and os.path.isfile(val):
+        ctx = ssl.create_default_context(cafile=val)
+        return ctx
+    return True
 
 _BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -87,6 +105,7 @@ def _make_logging_hooks() -> Dict:
 def _build_http_client() -> httpx.AsyncClient:
     """构建共享的 httpx 客户端配置。"""
     return httpx.AsyncClient(
+        verify=_get_ssl_verify(),
         event_hooks=_make_logging_hooks(),
         headers={
             "User-Agent": _BROWSER_UA,
@@ -282,6 +301,7 @@ class AnthropicLLMClient:
         raw_base = base_url or os.environ.get("OPENAI_API_BASE") or "https://api.anthropic.com/v1"
         self._base_url = raw_base.rstrip("/")
         self._client = httpx.AsyncClient(
+            verify=_get_ssl_verify(),
             event_hooks=_make_logging_hooks(),
             headers={
                 "User-Agent": _BROWSER_UA,
@@ -545,6 +565,7 @@ class AnyRouterLLMClient:
         raw_base = base_url or os.environ.get("OPENAI_API_BASE") or "https://api.anthropic.com/v1"
         self._base_url = raw_base.rstrip("/")
         self._client = httpx.AsyncClient(
+            verify=_get_ssl_verify(),
             event_hooks=_make_logging_hooks(),
             headers={
                 **_CLAUDE_CODE_HEADERS,
@@ -874,6 +895,7 @@ class GeminiLLMClient:
         raw_base = base_url or "https://generativelanguage.googleapis.com"
         self._base_url = raw_base.rstrip("/")
         self._client = httpx.AsyncClient(
+            verify=_get_ssl_verify(),
             event_hooks=_make_logging_hooks(),
             headers={
                 "Content-Type": "application/json",
@@ -1085,6 +1107,7 @@ class OpenAIResponsesLLMClient:
         raw_base = base_url or os.environ.get("OPENAI_API_BASE") or "https://api.openai.com/v1"
         self._base_url = raw_base.rstrip("/")
         self._client = httpx.AsyncClient(
+            verify=_get_ssl_verify(),
             event_hooks=_make_logging_hooks(),
             headers={
                 "Content-Type": "application/json",

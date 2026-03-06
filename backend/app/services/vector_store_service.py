@@ -389,23 +389,52 @@ class VectorStoreService:
         except Exception as exc:
             logger.error("写入 rag_summaries 失败: %s", exc)
 
+    @staticmethod
+    async def get_ingest_state_from_db(session: Any, project_id: str) -> Dict[int, str]:
+        """从 MySQL chapters 表读取已入库章节的 hash 状态。"""
+        from sqlalchemy import select as sa_select
+        from ..models.novel import Chapter
+        stmt = sa_select(Chapter.chapter_number, Chapter.rag_ingest_hash).where(
+            Chapter.project_id == project_id,
+            Chapter.rag_ingest_hash.isnot(None),
+        )
+        result = await session.execute(stmt)
+        return {row[0]: row[1] for row in result.all()}
+
+    @staticmethod
+    async def update_ingest_hash_in_db(session: Any, project_id: str, chapter_number: int, content_hash: str) -> None:
+        """更新单章的 rag_ingest_hash。"""
+        from sqlalchemy import update as sa_update
+        from ..models.novel import Chapter
+        await session.execute(
+            sa_update(Chapter)
+            .where(Chapter.project_id == project_id, Chapter.chapter_number == chapter_number)
+            .values(rag_ingest_hash=content_hash)
+        )
+
+    @staticmethod
+    async def clear_ingest_hash_in_db(session: Any, project_id: str, chapter_numbers: Sequence[int]) -> None:
+        """清除指定章节的 rag_ingest_hash。"""
+        if not chapter_numbers:
+            return
+        from sqlalchemy import update as sa_update
+        from ..models.novel import Chapter
+        await session.execute(
+            sa_update(Chapter)
+            .where(Chapter.project_id == project_id, Chapter.chapter_number.in_(chapter_numbers))
+            .values(rag_ingest_hash=None)
+        )
+
     async def get_ingest_state(self, project_id: str) -> Dict[int, str]:
-        """读取项目的章节索引摘要（章节号 -> 内容哈希）。
-        我们将状态记录存放在 summaries 里的一个特殊 document, 或者我们可以直接使用 Qdrant payload 查询。
-        为简单起见，我们在 vector DB 里直接找每个 chapter 对应的 state payload，此处简化为返回空。
-        注：实际业务中建议将此状态移到 MySQL 维护，这里返回空表示每次都可重新 ingest。
-        """
-        # (TODO): In a production setting, storing `content_hash` in MySQL is better.
-        # But for drop-in replacement, we'll return {} to force re-indexing if chapters change.
-        # Alternatively, we could fetch distinct chapter_number payloads from chunks.
+        """兼容旧接口，无 session 时返回空。"""
         return {}
 
     async def upsert_ingest_state(self, project_id: str, chapter_number: int, content_hash: str) -> None:
-        """更新单章的索引状态。（存根）"""
+        """兼容旧接口存根。新代码应使用 update_ingest_hash_in_db。"""
         pass
 
     async def delete_ingest_state(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
-        """按章节删除索引状态。（存根）"""
+        """兼容旧接口存根。"""
         pass
 
     async def delete_by_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:

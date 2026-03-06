@@ -195,18 +195,12 @@ class FinalizeService:
             if new_summary:
                 project_memory.global_summary = new_summary
                 result["updates"]["global_summary"] = "updated"
-            
-            # 3. 更新角色状态
-            old_state = await self._get_character_state_text(project_id)
-            new_state = await self._update_character_state(
-                chapter_text=chapter_text,
-                old_state=old_state,
-                user_id=user_id
-            )
-            if new_state:
-                await self._save_character_state(project_id, chapter_number, new_state)
-                result["updates"]["character_state"] = "updated"
-            
+
+            # 3. 角色状态由 MemoryLayerService 统一处理（enable_memory 模式下自动触发）
+            #    此处不再重复提取，避免双重 LLM 调用
+            new_state = None
+            result["updates"]["character_state"] = "delegated_to_memory_layer"
+
             # 4. 更新剧情线追踪
             new_plot_arcs = await self._update_plot_arcs(
                 chapter_text=chapter_text,
@@ -432,29 +426,13 @@ class FinalizeService:
         chapter_text: str,
         user_id: int,
     ) -> bool:
-        """更新向量库"""
-        if not self.vector_store_service:
-            return False
-        
-        try:
-            from .chapter_ingest_service import ChapterIngestionService
-
-            ingestion_service = ChapterIngestionService(
-                llm_service=self.llm_service,
-                vector_store=self.vector_store_service,
-            )
-            await ingestion_service.ingest_chapter(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                title=f"第{chapter_number}章",
-                content=chapter_text,
-                summary=None,
-                user_id=user_id,
-            )
-            return True
-        except Exception as e:
-            logger.error(f"更新向量库失败: {e}")
-            return False
+        """向量入库已迁移到 ChapterPostProcessor，此方法保留仅做兼容占位。"""
+        logger.debug(
+            "FinalizeService._update_vector_store 已弃用, "
+            "向量入库应由 ChapterPostProcessor 统一处理 (project=%s ch=%d)",
+            project_id, chapter_number,
+        )
+        return False
     
     async def _generate_chapter_summary(
         self,

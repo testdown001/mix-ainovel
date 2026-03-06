@@ -172,6 +172,7 @@ class Chapter(Base):
     real_summary: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="not_generated")
     word_count: Mapped[int] = mapped_column(Integer, default=0)
+    rag_ingest_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)
     selected_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
     )

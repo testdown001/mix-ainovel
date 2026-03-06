@@ -688,15 +688,36 @@ const handleBatchPredict = async () => {
   try {
     const result = await NovelAPI.batchGeneratePredictions(project.id)
     if (result.queued === 0) {
+      sectionRef.value?.setPredictGenerating?.(false)
       alert(result.message)
-    } else {
-      alert(`已提交 ${result.queued} 章推演任务，后台生成中…刷新页面即可查看结果`)
+      return
     }
+    sectionRef.value?.setPredictProgress?.({ total: result.queued, completed: 0, failed: 0 })
+    pollPredictionProgress(project.id)
   } catch (error) {
     console.error('批量推演失败:', error)
     alert(error instanceof Error ? error.message : '批量推演失败')
-  } finally {
     sectionRef.value?.setPredictGenerating?.(false)
+  }
+}
+
+let predictionPollTimer: ReturnType<typeof setTimeout> | null = null
+
+const pollPredictionProgress = async (projectId: string) => {
+  if (predictionPollTimer) clearTimeout(predictionPollTimer)
+  try {
+    const progress = await NovelAPI.getPredictionProgress(projectId)
+    sectionRef.value?.setPredictProgress?.(progress)
+    if (progress.running) {
+      predictionPollTimer = setTimeout(() => pollPredictionProgress(projectId), 3000)
+    } else {
+      sectionRef.value?.setPredictGenerating?.(false)
+      if (progress.completed > 0 || progress.failed > 0) {
+        reloadSection(activeSection.value, true)
+      }
+    }
+  } catch {
+    predictionPollTimer = setTimeout(() => pollPredictionProgress(projectId), 5000)
   }
 }
 

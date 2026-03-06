@@ -205,9 +205,9 @@ class LLMConfigService:
     async def _get_models_via_http(self, api_key: str, base_url: Optional[str]) -> List[str]:
         """使用 httpx 直接请求模型列表（备选方案）"""
         import httpx
+        from ..utils.llm_tool import _get_ssl_verify
 
         try:
-            # 构建完整的 URL
             if base_url:
                 url = base_url.rstrip('/') + '/models'
             else:
@@ -220,7 +220,7 @@ class LLMConfigService:
 
             logger.info("使用 HTTP 直接请求模型列表: url=%s", url)
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=_get_ssl_verify()) as client:
                 response = await client.get(url, headers=headers)
 
                 logger.info("HTTP 响应状态码: %d", response.status_code)
@@ -264,6 +264,7 @@ class LLMConfigService:
     async def _get_anthropic_models(self, api_key: str, base_url: Optional[str]) -> List[str]:
         """获取 Anthropic 的模型列表，优先通过 API 动态获取，失败时返回 fallback。"""
         import httpx
+        from ..utils.llm_tool import _get_ssl_verify
 
         url = (base_url.rstrip("/") if base_url else "https://api.anthropic.com") + "/v1/models"
         headers = {
@@ -271,7 +272,7 @@ class LLMConfigService:
             "anthropic-version": "2023-06-01",
         }
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, verify=_get_ssl_verify()) as client:
                 response = await client.get(url, headers=headers)
                 if response.status_code == 200:
                     data = response.json()
@@ -300,7 +301,8 @@ class LLMConfigService:
 
             logger.info("请求 Google 模型列表: url=%s", url.replace(api_key, "***"))
 
-            async with httpx.AsyncClient() as client:
+            from ..utils.llm_tool import _get_ssl_verify
+            async with httpx.AsyncClient(verify=_get_ssl_verify()) as client:
                 response = await client.get(url, timeout=30.0)
 
                 logger.info("HTTP 响应状态码: %d", response.status_code)
@@ -310,10 +312,8 @@ class LLMConfigService:
                 model_ids = []
                 for model in data.get("models", []):
                     model_name = model.get("name", "")
-                    # 移除 "models/" 前缀
                     if model_name.startswith("models/"):
                         model_name = model_name[7:]
-                    # 只返回生成模型（非 embedding 模型）
                     if "generateContent" in model.get("supportedGenerationMethods", []):
                         model_ids.append(model_name)
 
@@ -380,7 +380,8 @@ class LLMConfigService:
 
             logger.info("请求 Cohere 模型列表: url=%s", url)
 
-            async with httpx.AsyncClient() as client:
+            from ..utils.llm_tool import _get_ssl_verify
+            async with httpx.AsyncClient(verify=_get_ssl_verify()) as client:
                 response = await client.get(url, headers=headers, timeout=30.0)
 
                 logger.info("HTTP 响应状态码: %d", response.status_code)

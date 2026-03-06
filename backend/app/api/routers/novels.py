@@ -1,4 +1,5 @@
 # AIMETA P=小说API_项目和章节管理|R=小说CRUD_章节管理|NR=不含内容生成|E=route:GET_POST_/api/novels/*|X=http|A=小说CRUD_章节|D=fastapi,sqlalchemy|S=db|RD=./README.ai
+import asyncio
 import json
 import logging
 import traceback
@@ -129,67 +130,90 @@ def _merge_reference_novels(*groups: List[ReferenceNovel]) -> List[ReferenceNove
     return merged
 
 
+# 参考小说分析/融合DNA 并发锁：防止同一标题或项目重复并发处理
+_ref_novel_locks: dict[str, asyncio.Lock] = {}
+_ref_novel_locks_guard = asyncio.Lock()
+_fusion_dna_locks: dict[str, asyncio.Lock] = {}
+_fusion_dna_locks_guard = asyncio.Lock()
+
+
+async def _get_ref_novel_lock(key: str) -> asyncio.Lock:
+    async with _ref_novel_locks_guard:
+        if key not in _ref_novel_locks:
+            _ref_novel_locks[key] = asyncio.Lock()
+        return _ref_novel_locks[key]
+
+
+async def _get_fusion_dna_lock(project_id: str) -> asyncio.Lock:
+    async with _fusion_dna_locks_guard:
+        if project_id not in _fusion_dna_locks:
+            _fusion_dna_locks[project_id] = asyncio.Lock()
+        return _fusion_dna_locks[project_id]
+
+
 async def _background_create_and_analyze_reference_novel(title: str, user_id: int) -> None:
     normalized_title = (title or "").strip()
     if not normalized_title:
         return
-    async with AsyncSessionLocal() as session:
-        service = ReferenceNovelLibraryService(session)
-        try:
-            novel = await service.get_by_title(normalized_title)
-            if not novel:
-                novel = await service.create(user_id, normalized_title)
-            if novel.status in {"ready", "analyzing"}:
-                return
-            await service.analyze(novel.id, user_id)
-        except Exception as exc:  # pragma: no cover - 后台任务兜底
-            logger.warning(
-                "后台参考小说入库分析失败: user=%s title=%s error=%s",
-                user_id,
-                normalized_title,
-                exc,
-            )
+    lock = await _get_ref_novel_lock(f"title:{normalized_title}")
+    async with lock:
+        async with AsyncSessionLocal() as session:
+            service = ReferenceNovelLibraryService(session)
+            try:
+                novel = await service.get_by_title(normalized_title)
+                if not novel:
+                    novel = await service.create(user_id, normalized_title)
+                if novel.status in {"ready", "analyzing"}:
+                    return
+                await service.analyze(novel.id, user_id)
+            except Exception as exc:  # pragma: no cover
+                logger.warning(
+                    "后台参考小说入库分析失败: user=%s title=%s error=%s",
+                    user_id,
+                    normalized_title,
+                    exc,
+                )
 
 
 async def _background_generate_fusion_dna(project_id: str, reference_novel_ids: List[int], user_id: int) -> None:
-    """后台等待参考小说分析完成后生成融合DNA。"""
-    import asyncio
-    async with AsyncSessionLocal() as session:
-        service = ReferenceNovelLibraryService(session)
-        novel_service = NovelService(session)
-        try:
-            # 等待所有参考小说就绪（最多轮询 10 次，每次 15 秒）
-            ready_novels: List[ReferenceNovel] = []
-            for attempt in range(10):
-                ready_novels = []
-                all_done = True
-                for rid in reference_novel_ids:
-                    novel = await service.get_by_id(rid)
-                    if not novel:
-                        continue
-                    if novel.status == "ready":
-                        ready_novels.append(novel)
-                    elif novel.status in {"pending", "analyzing"}:
-                        all_done = False
-                if all_done or len(ready_novels) == len(reference_novel_ids):
-                    break
-                await asyncio.sleep(15)
+    """后台等待参考小说分析完成后生成融合DNA，per-project 串行。"""
+    lock = await _get_fusion_dna_lock(project_id)
+    async with lock:
+        async with AsyncSessionLocal() as session:
+            service = ReferenceNovelLibraryService(session)
+            novel_service = NovelService(session)
+            try:
+                ready_novels: List[ReferenceNovel] = []
+                for attempt in range(10):
+                    ready_novels = []
+                    all_done = True
+                    for rid in reference_novel_ids:
+                        novel = await service.get_by_id(rid)
+                        if not novel:
+                            continue
+                        if novel.status == "ready":
+                            ready_novels.append(novel)
+                        elif novel.status in {"pending", "analyzing"}:
+                            all_done = False
+                    if all_done or len(ready_novels) == len(reference_novel_ids):
+                        break
+                    await asyncio.sleep(15)
 
-            if not ready_novels:
-                logger.info("后台融合DNA：无就绪参考小说，跳过 project=%s", project_id)
-                return
+                if not ready_novels:
+                    logger.info("后台融合DNA：无就绪参考小说，跳过 project=%s", project_id)
+                    return
 
-            from ...models.novel import NovelProject
-            project = await session.get(NovelProject, project_id)
-            if not project:
-                return
+                from ...models.novel import NovelProject
+                project = await session.get(NovelProject, project_id)
+                if not project:
+                    return
 
-            fusion_dna = await service.generate_fusion_dna(ready_novels, user_id)
-            project.fusion_dna = fusion_dna
-            await session.commit()
-            logger.info("后台融合DNA生成完成: project=%s novels=%d", project_id, len(ready_novels))
-        except Exception as exc:
-            logger.warning("后台融合DNA生成失败: project=%s error=%s", project_id, exc)
+                fusion_dna = await service.generate_fusion_dna(ready_novels, user_id)
+                project.fusion_dna = fusion_dna
+                await session.commit()
+                logger.info("后台融合DNA生成完成: project=%s novels=%d", project_id, len(ready_novels))
+            except Exception as exc:
+                logger.warning("后台融合DNA生成失败: project=%s error=%s", project_id, exc)
 
 
 @router.post("", response_model=NovelProjectSchema, status_code=status.HTTP_201_CREATED)

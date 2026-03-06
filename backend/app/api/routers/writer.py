@@ -13,7 +13,6 @@ Writer API Router - 人类化起点长篇写作系统
 3. 后置护栏检查：自动检测并修复违规内容
 """
 import asyncio
-import hashlib
 import json
 import logging
 import os
@@ -54,6 +53,7 @@ from ...schemas.novel import (
 from ...schemas.user import UserInDB
 from ...services.chapter_context_service import ChapterContextService
 from ...services.chapter_ingest_service import ChapterIngestionService
+from ...services.chapter_post_processor import ChapterPostProcessor, compute_ingest_hash
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
@@ -79,6 +79,7 @@ from ...services.writer_shared import (
     rewrite_with_guardrails,
 )
 from ...services.pipeline_orchestrator import PipelineOrchestrator
+from ...services.vector_store_service import VectorStoreService
 
 router = APIRouter(prefix="/api/writer", tags=["Writer"])
 logger = logging.getLogger(__name__)
@@ -88,96 +89,43 @@ async def _load_project_schema(service: NovelService, project_id: str, user_id: 
     return await service.get_project_schema(project_id, user_id)
 
 
-async def _ensure_chapter_summary(
+async def _background_chapter_post_process(
     project_id: str,
     chapter_number: int,
     content: str,
     user_id: int,
+    *,
+    force_summary: bool = False,
+    mode: str = "select",
 ) -> None:
-    """后台确保章节 real_summary 已生成。使用独立 session，不阻塞调用方。"""
+    """统一的后台章节后处理入口，所有路径（选版/编辑）都走此函数。
+
+    通过 ChapterPostProcessor 保证同一章节串行执行，避免竞争。
+    """
     async with AsyncSessionLocal() as session:
         try:
             llm_service = LLMService(session)
-
-            stmt = select(Chapter).where(
-                Chapter.project_id == project_id,
-                Chapter.chapter_number == chapter_number,
-            )
-            result = await session.execute(stmt)
-            chapter = result.scalars().first()
-            if not chapter or chapter.real_summary:
-                return
-
-            summary = await llm_service.get_summary(
-                content,
-                temperature=0.15,
-                user_id=user_id,
-            )
-            summary_text = remove_think_tags(summary)
-            if summary_text:
-                chapter.real_summary = summary_text
-                await session.commit()
-                logger.info("章节 %d real_summary 自动生成成功", chapter_number)
+            processor = ChapterPostProcessor(session, llm_service)
+            if mode == "edit":
+                await processor.process_after_edit(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    content=content,
+                    user_id=user_id,
+                )
+            else:
+                await processor.process_after_select(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    content=content,
+                    user_id=user_id,
+                    force_summary=force_summary,
+                )
         except Exception as exc:
-            logger.warning("章节 %d real_summary 自动生成失败: %s", chapter_number, exc)
-
-async def _refresh_edit_summary_and_ingest(
-    project_id: str,
-    chapter_number: int,
-    content: str,
-    user_id: Optional[int],
-) -> None:
-    async with AsyncSessionLocal() as session:
-        llm_service = LLMService(session)
-
-        stmt = (
-            select(Chapter)
-            .options(selectinload(Chapter.selected_version))
-            .where(
-                Chapter.project_id == project_id,
-                Chapter.chapter_number == chapter_number,
+            logger.exception(
+                "后台章节后处理异常: project=%s chapter=%d mode=%s: %s",
+                project_id, chapter_number, mode, exc,
             )
-        )
-        result = await session.execute(stmt)
-        chapter = result.scalars().first()
-        if not chapter:
-            return
-
-        summary_text = None
-        try:
-            summary = await llm_service.get_summary(
-                content,
-                temperature=0.15,
-                user_id=user_id,
-            )
-            summary_text = remove_think_tags(summary)
-        except Exception as exc:
-            logger.warning("编辑章节后自动生成摘要失败: %s", exc)
-
-        if summary_text and chapter.selected_version and chapter.selected_version.content == content:
-            chapter.real_summary = summary_text
-            await session.commit()
-
-        try:
-            outline_stmt = select(ChapterOutline).where(
-                ChapterOutline.project_id == project_id,
-                ChapterOutline.chapter_number == chapter_number,
-            )
-            outline_result = await session.execute(outline_stmt)
-            outline = outline_result.scalars().first()
-            title = outline.title if outline and outline.title else f"第{chapter_number}章"
-            ingest_service = ChapterIngestionService(llm_service=llm_service)
-            await ingest_service.ingest_chapter(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                title=title,
-                content=content,
-                summary=None,
-                user_id=user_id or 0,
-            )
-            logger.info("章节 %s 向量化入库成功", chapter_number)
-        except Exception as exc:
-            logger.error("章节 %s 向量化入库失败: %s", chapter_number, exc)
 
 
 async def _finalize_chapter_async(
@@ -185,8 +133,9 @@ async def _finalize_chapter_async(
     chapter_number: int,
     selected_version_id: int,
     user_id: int,
-    skip_vector_update: bool = False,
+    skip_vector_update: bool = True,
 ) -> None:
+    """异步定稿：记忆/快照由 FinalizeService 处理，向量入库由 ChapterPostProcessor 统一处理。"""
     async with AsyncSessionLocal() as session:
         llm_service = LLMService(session)
 
@@ -215,16 +164,24 @@ async def _finalize_chapter_async(
         chapter.word_count = len(selected_version.content or "")
         await session.commit()
 
-        vector_store = create_vector_store_or_none()
-
+        # FinalizeService: 记忆/快照/剧情线（向量入库始终跳过）
         sync_session = getattr(session, "sync_session", session)
-        finalize_service = FinalizeService(sync_session, llm_service, vector_store)
+        finalize_service = FinalizeService(sync_session, llm_service, None)
         await finalize_service.finalize_chapter(
             project_id=project_id,
             chapter_number=chapter_number,
             chapter_text=selected_version.content,
             user_id=user_id,
-            skip_vector_update=skip_vector_update,
+            skip_vector_update=True,
+        )
+
+        # 向量入库 + 摘要 + hash 走 ChapterPostProcessor
+        processor = ChapterPostProcessor(session, llm_service)
+        await processor.process_after_select(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            content=selected_version.content,
+            user_id=user_id,
         )
 
 
@@ -587,35 +544,28 @@ async def finalize_chapter(
     chapter.word_count = len(selected_version.content or "")
     await session.commit()
 
-    # 定稿时同步生成 real_summary（避免下一章生成时在 _collect_history_context 补生）
-    if not chapter.real_summary:
-        try:
-            llm_service = LLMService(session)
-            summary = await llm_service.get_summary(
-                selected_version.content,
-                temperature=0.15,
-                user_id=current_user.id,
-            )
-            summary_text = remove_think_tags(summary)
-            if summary_text:
-                chapter.real_summary = summary_text
-                await session.commit()
-                logger.info("定稿时自动生成章节 %d real_summary 成功", chapter_number)
-        except Exception as exc:
-            logger.warning("定稿时自动生成章节 %d real_summary 失败: %s", chapter_number, exc)
+    llm_service = LLMService(session)
 
-    vector_store = None
-    if not request.skip_vector_update:
-        vector_store = create_vector_store_or_none()
-
+    # FinalizeService 负责记忆/快照/剧情线，向量入库始终走 ChapterPostProcessor
     sync_session = getattr(session, "sync_session", session)
-    finalize_service = FinalizeService(sync_session, LLMService(session), vector_store)
+    finalize_service = FinalizeService(sync_session, llm_service, None)
     finalize_result = await finalize_service.finalize_chapter(
         project_id=request.project_id,
         chapter_number=chapter_number,
         chapter_text=selected_version.content,
         user_id=current_user.id,
-        skip_vector_update=request.skip_vector_update or False,
+        skip_vector_update=True,
+    )
+
+    # 向量入库 + 摘要 + hash 统一由 ChapterPostProcessor 异步处理
+    asyncio.create_task(
+        _background_chapter_post_process(
+            project_id=request.project_id,
+            chapter_number=chapter_number,
+            content=selected_version.content,
+            user_id=current_user.id,
+            mode="select",
+        )
     )
 
     return FinalizeChapterResponse(
@@ -641,50 +591,23 @@ async def select_chapter_version(
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
     chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
 
-    # 使用 novel_service.select_chapter_version 确保排序一致
-    # 该函数会按 created_at 排序并校验索引
     selected_version = await novel_service.select_chapter_version(chapter, request.version_index)
-    
-    # 校验内容是否为空
+
     if not selected_version.content or len(selected_version.content.strip()) == 0:
-        # 回滚状态，不标记为 successful
         await session.rollback()
         raise HTTPException(status_code=400, detail="选中的版本内容为空，无法确认为最终版")
 
-    # 异步触发向量化入库
-    try:
-        llm_service = LLMService(session)
-        outline_result = await session.execute(
-            select(ChapterOutline).where(
-                ChapterOutline.project_id == project_id,
-                ChapterOutline.chapter_number == request.chapter_number,
-            )
-        )
-        outline = outline_result.scalars().first()
-        title = outline.title if outline and outline.title else f"第{request.chapter_number}章"
-        ingest_service = ChapterIngestionService(llm_service=llm_service)
-        await ingest_service.ingest_chapter(
+    content_snapshot = selected_version.content
+
+    asyncio.create_task(
+        _background_chapter_post_process(
             project_id=project_id,
             chapter_number=request.chapter_number,
-            title=title,
-            content=selected_version.content,
-            summary=None
+            content=content_snapshot,
+            user_id=current_user.id,
+            mode="select",
         )
-        logger.info(f"章节 {request.chapter_number} 向量化入库成功")
-    except Exception as e:
-        logger.error(f"章节 {request.chapter_number} 向量化入库失败: {e}")
-        # 向量化失败不应阻止版本选择，仅记录错误
-
-    # 后台生成 real_summary（不阻塞 API 响应）
-    if not chapter.real_summary:
-        asyncio.create_task(
-            _ensure_chapter_summary(
-                project_id=project_id,
-                chapter_number=request.chapter_number,
-                content=selected_version.content,
-                user_id=current_user.id,
-            )
-        )
+    )
 
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
@@ -1375,11 +1298,12 @@ async def edit_chapter_content(
     await session.commit()
 
     background_tasks.add_task(
-        _refresh_edit_summary_and_ingest,
+        _background_chapter_post_process,
         project_id,
         request.chapter_number,
         request.content,
         current_user.id,
+        mode="edit",
     )
 
     return await _load_project_schema(novel_service, project_id, current_user.id)
@@ -1421,11 +1345,12 @@ async def edit_chapter_content_fast(
     await session.commit()
 
     background_tasks.add_task(
-        _refresh_edit_summary_and_ingest,
+        _background_chapter_post_process,
         project_id,
         request.chapter_number,
         request.content,
         current_user.id,
+        mode="edit",
     )
 
     stmt = (
@@ -1480,31 +1405,31 @@ async def edit_chapter_content_fast(
     )
 
 
-async def _run_prediction_for_outline(
-    session: AsyncSession,
-    project: NovelProject,
-    outline: ChapterOutline,
-    user_id: int,
-) -> dict:
-    """为单个章节大纲生成剧情推演（可复用的核心逻辑）。"""
-    novel_service = NovelService(session)
-    llm_service = LLMService(session)
-    chapter_number = outline.chapter_number
+# ---------------------------------------------------------------------------
+# 批量推演：进度追踪 + 并发锁
+# ---------------------------------------------------------------------------
+_prediction_progress: dict[str, dict] = {}
+_prediction_locks: dict[str, asyncio.Lock] = {}
+_prediction_locks_guard = asyncio.Lock()
 
-    project_schema = await novel_service._serialize_project(project)
-    bp = project_schema.blueprint
+
+async def _get_prediction_lock(project_id: str) -> asyncio.Lock:
+    async with _prediction_locks_guard:
+        if project_id not in _prediction_locks:
+            _prediction_locks[project_id] = asyncio.Lock()
+        return _prediction_locks[project_id]
+
+
+def _build_prediction_shared_context(
+    project: NovelProject,
+    blueprint_schema,
+) -> dict:
+    """预计算批量推演中不变的上下文片段，避免每章重复构建。"""
+    bp = blueprint_schema
     blueprint_brief = (
         f"标题: {bp.title}\n类型: {bp.genre}\n风格: {bp.style}\n"
         f"一句话概要: {bp.one_sentence_summary}\n完整概要: {bp.full_synopsis}"
     ) if bp else ""
-
-    completed = []
-    for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
-        if ch.chapter_number >= chapter_number and ch.real_summary:
-            break
-        if ch.real_summary:
-            completed.append(f"第{ch.chapter_number}章: {ch.real_summary}")
-    completed_text = "\n".join(completed) if completed else "无"
 
     outlines_text = "\n".join(
         f"第{o.chapter_number}章 - {o.title}: {o.summary}"
@@ -1515,26 +1440,52 @@ async def _run_prediction_for_outline(
     if bp and bp.foreshadowings:
         lines = []
         for f in bp.foreshadowings:
-            lines.append(f"- {f.name}(埋设第{f.planted_chapter}章"
-                         f"{', 目标第' + str(f.target_chapter) + '章' if f.target_chapter else ''}): {f.description}")
+            lines.append(
+                f"- {f.name}(埋设第{f.planted_chapter}章"
+                f"{', 目标第' + str(f.target_chapter) + '章' if f.target_chapter else ''}): {f.description}"
+            )
         foreshadowings_text = "\n".join(lines)
 
-    prompt = f"""你是一位专业的小说剧情分析师。请根据以下信息，为第{chapter_number}章生成剧情推演。
+    completed_summaries = []
+    for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
+        if ch.real_summary:
+            completed_summaries.append((ch.chapter_number, f"第{ch.chapter_number}章: {ch.real_summary}"))
+
+    return {
+        "blueprint_brief": blueprint_brief,
+        "outlines_text": outlines_text,
+        "foreshadowings_text": foreshadowings_text,
+        "completed_summaries": completed_summaries,
+    }
+
+
+def _build_prediction_prompt(
+    chapter_number: int,
+    outline_title: str,
+    outline_summary: str,
+    shared_ctx: dict,
+) -> str:
+    """用预计算的共享上下文拼装单章推演 prompt。"""
+    summaries = [text for num, text in shared_ctx["completed_summaries"] if num < chapter_number]
+    completed_text = "\n".join(summaries) if summaries else "无"
+    foreshadowings = shared_ctx["foreshadowings_text"] or "无"
+
+    return f"""你是一位专业的小说剧情分析师。请根据以下信息，为第{chapter_number}章生成剧情推演。
 
 ## 小说蓝图
-{blueprint_brief}
+{shared_ctx["blueprint_brief"]}
 
 ## 章节大纲
-{outlines_text}
+{shared_ctx["outlines_text"]}
 
 ## 已完成章节摘要
 {completed_text}
 
 ## 伏笔设定
-{foreshadowings_text or '无'}
+{foreshadowings}
 
 ## 当前章节
-第{chapter_number}章 - {outline.title}: {outline.summary}
+第{chapter_number}章 - {outline_title}: {outline_summary}
 
 请输出严格的 JSON（不要 markdown 包裹），包含以下 6 个字段：
 - key_points: 本章核心剧情要点（3-5条字符串数组）
@@ -1548,17 +1499,46 @@ async def _run_prediction_for_outline(
   - emotion: 情绪标记，取值 "压抑" | "积累" | "爆发" | "舒缓" | "悬念"
   beats 应按照场景推进顺序排列，体现"铺垫→积累→爆发"的爽点节奏设计。"""
 
-    raw = await llm_service.generate(prompt, temperature=0.4, response_format="json_object")
 
+def _parse_prediction_json(raw: str) -> dict:
+    """解析推演 LLM 返回的 JSON，自动容错。"""
     cleaned = remove_think_tags(raw)
     cleaned = unwrap_markdown_json(cleaned)
     try:
-        prediction = json.loads(cleaned)
+        return json.loads(cleaned)
     except json.JSONDecodeError:
         try:
-            prediction = json.loads(repair_json(cleaned))
+            return json.loads(repair_json(cleaned))
         except Exception:
             raise HTTPException(status_code=500, detail="推演结果解析失败")
+
+
+async def _run_prediction_for_outline(
+    session: AsyncSession,
+    project: NovelProject,
+    outline: ChapterOutline,
+    user_id: int,
+    *,
+    shared_ctx: Optional[dict] = None,
+) -> dict:
+    """为单个章节大纲生成剧情推演。
+
+    shared_ctx: 预计算的共享上下文（批量模式下传入以避免重复计算）。
+    """
+    llm_service = LLMService(session)
+    chapter_number = outline.chapter_number
+
+    if shared_ctx is None:
+        novel_service = NovelService(session)
+        project_schema = await novel_service._serialize_project(project)
+        shared_ctx = _build_prediction_shared_context(project, project_schema.blueprint)
+
+    prompt = _build_prediction_prompt(
+        chapter_number, outline.title, outline.summary or "", shared_ctx,
+    )
+
+    raw = await llm_service.generate(prompt, temperature=0.4, response_format="json_object")
+    prediction = _parse_prediction_json(raw)
 
     meta = outline.metadata_ or {}
     meta["prediction"] = prediction
@@ -1592,16 +1572,33 @@ async def batch_generate_predictions(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
-    """异步批量推演所有未推演的章节大纲。立即返回待推演数量，后台逐章执行。"""
+    """异步批量推演所有未推演的章节大纲。
+
+    优化点：
+    - 预计算共享上下文（蓝图/大纲/伏笔），每章只拼装 per-chapter 部分
+    - 3 路并发执行 LLM 调用（asyncio.Semaphore）
+    - per-project 锁防止重复提交
+    - 实时进度追踪（可通过 GET /prediction-progress 查询）
+    """
     novel_service = NovelService(session)
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
 
-    # 找出所有没有 prediction 的大纲
+    lock = await _get_prediction_lock(project_id)
+    if lock.locked():
+        progress = _prediction_progress.get(project_id, {})
+        return {
+            "queued": 0,
+            "chapter_numbers": [],
+            "message": f"推演任务进行中（{progress.get('completed', 0)}/{progress.get('total', '?')}），请稍后刷新查看",
+        }
+
     missing: list[int] = []
+    outline_map: dict[int, tuple[str, str]] = {}
     for outline in project.outlines:
         meta = outline.metadata_ or {}
         if not meta.get("prediction"):
             missing.append(outline.chapter_number)
+            outline_map[outline.chapter_number] = (outline.title, outline.summary or "")
 
     if not missing:
         return {"queued": 0, "chapter_numbers": [], "message": "所有章节已完成推演"}
@@ -1609,28 +1606,84 @@ async def batch_generate_predictions(
     missing.sort()
     user_id = current_user.id
 
+    project_schema = await novel_service._serialize_project(project)
+    shared_ctx = _build_prediction_shared_context(project, project_schema.blueprint)
+
     async def _background_batch_predict():
-        completed = 0
-        for ch_num in missing:
-            try:
-                async with AsyncSessionLocal() as bg_session:
-                    bg_novel_service = NovelService(bg_session)
-                    bg_project = await bg_novel_service.ensure_project_owner(project_id, user_id)
-                    bg_outline = await bg_novel_service.get_outline(project_id, ch_num)
-                    if not bg_outline:
-                        continue
-                    # 跳过已有推演的（可能在后台运行期间被手动推演了）
-                    if (bg_outline.metadata_ or {}).get("prediction"):
-                        continue
-                    await _run_prediction_for_outline(bg_session, bg_project, bg_outline, user_id)
-                    completed += 1
-                    logger.info("批量推演: 第%s章完成 (%d/%d)", ch_num, completed, len(missing))
-            except Exception:
-                logger.exception("批量推演: 第%s章失败", ch_num)
+        async with lock:
+            total = len(missing)
+            _prediction_progress[project_id] = {
+                "total": total, "completed": 0, "failed": 0, "running": True,
+            }
+            sem = asyncio.Semaphore(3)
+
+            async def _predict_one(ch_num: int) -> None:
+                async with sem:
+                    try:
+                        async with AsyncSessionLocal() as bg_session:
+                            bg_outline_result = await bg_session.execute(
+                                select(ChapterOutline).where(
+                                    ChapterOutline.project_id == project_id,
+                                    ChapterOutline.chapter_number == ch_num,
+                                )
+                            )
+                            bg_outline = bg_outline_result.scalars().first()
+                            if not bg_outline:
+                                return
+                            if (bg_outline.metadata_ or {}).get("prediction"):
+                                return
+
+                            llm_service = LLMService(bg_session)
+                            prompt = _build_prediction_prompt(
+                                ch_num,
+                                bg_outline.title,
+                                bg_outline.summary or "",
+                                shared_ctx,
+                            )
+                            raw = await llm_service.generate(
+                                prompt, temperature=0.4, response_format="json_object",
+                            )
+                            prediction = _parse_prediction_json(raw)
+                            meta = bg_outline.metadata_ or {}
+                            meta["prediction"] = prediction
+                            bg_outline.metadata_ = meta
+                            await bg_session.commit()
+
+                            _prediction_progress[project_id]["completed"] += 1
+                            done = _prediction_progress[project_id]["completed"]
+                            logger.info("批量推演: 第%s章完成 (%d/%d)", ch_num, done, total)
+                    except Exception:
+                        _prediction_progress[project_id]["failed"] += 1
+                        logger.exception("批量推演: 第%s章失败", ch_num)
+
+            tasks = [asyncio.create_task(_predict_one(ch)) for ch in missing]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+            progress = _prediction_progress.get(project_id, {})
+            logger.info(
+                "批量推演完成: project=%s 成功=%d 失败=%d",
+                project_id, progress.get("completed", 0), progress.get("failed", 0),
+            )
+            _prediction_progress.pop(project_id, None)
 
     background_tasks.add_task(_background_batch_predict)
 
     return {"queued": len(missing), "chapter_numbers": missing, "message": f"已提交 {len(missing)} 章推演任务"}
+
+
+@router.get("/novels/{project_id}/chapters/prediction-progress")
+async def get_prediction_progress(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """查询批量推演实时进度。"""
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    progress = _prediction_progress.get(project_id)
+    if not progress:
+        return {"running": False, "total": 0, "completed": 0, "failed": 0}
+    return progress
 
 
 @router.post("/novels/{project_id}/rag/rebuild")
@@ -1657,6 +1710,7 @@ async def rebuild_rag(
         raise HTTPException(status_code=400, detail="向量库未启用")
 
     ingest_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
+    processor = ChapterPostProcessor(session, llm_service)
 
     chapters_result = await session.execute(
         select(Chapter)
@@ -1676,17 +1730,7 @@ async def rebuild_rag(
         for chapter_number, title in outlines_result.all()
     }
 
-    def _build_ingest_hash(content: str, title: str, summary: Optional[str]) -> str:
-        payload = "\n".join(
-            [
-                title.strip(),
-                (summary or "").strip(),
-                content.strip(),
-            ]
-        )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-    existing_state = await vector_store.get_ingest_state(project_id)
+    existing_state = await VectorStoreService.get_ingest_state_from_db(session, project_id)
     indexable_chapters: list[tuple[Chapter, str, str, Optional[str], str]] = []
     for chapter in chapters:
         content = (chapter.selected_version.content if chapter.selected_version else "") or ""
@@ -1694,7 +1738,7 @@ async def rebuild_rag(
             continue
         title = outline_title_map.get(chapter.chapter_number) or f"第{chapter.chapter_number}章"
         summary = chapter.real_summary
-        content_hash = _build_ingest_hash(content, title, summary)
+        content_hash = compute_ingest_hash(title, summary, content)
         indexable_chapters.append((chapter, content, title, summary, content_hash))
 
     current_chapter_numbers = {chapter.chapter_number for chapter, _, _, _, _ in indexable_chapters}
@@ -1703,6 +1747,7 @@ async def rebuild_rag(
     removed = 0
     if stale_numbers:
         await ingest_service.delete_chapters(project_id, stale_numbers)
+        await VectorStoreService.clear_ingest_hash_in_db(session, project_id, stale_numbers)
         removed = len(stale_numbers)
 
     indexed = 0
@@ -1714,7 +1759,7 @@ async def rebuild_rag(
         if not force_full and existing_state.get(chapter.chapter_number) == content_hash:
             skipped += 1
             continue
-        await ingest_service.ingest_chapter(
+        await processor.ingest_chapter(
             project_id=project_id,
             chapter_number=chapter.chapter_number,
             title=title,
@@ -1723,8 +1768,9 @@ async def rebuild_rag(
             user_id=current_user.id,
             sync_bm25=not skip_bm25,
         )
-        await vector_store.upsert_ingest_state(project_id, chapter.chapter_number, content_hash)
         indexed += 1
+
+    await session.commit()
 
     return {
         "indexed_chapters": indexed,

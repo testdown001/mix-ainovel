@@ -1,6 +1,7 @@
 # AIMETA P=参考小说 API 路由_全新 CRUD|R=路由实现|NR=路由合并|E=reference_novels_router|X=http|A=APIRouter|D=fastapi|S=http|RD=./README.ai
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import List, Optional
 
@@ -23,30 +24,44 @@ from ...models import ReferenceNovel
 router = APIRouter(prefix="/api/reference-novels", tags=["reference-novels"])
 logger = logging.getLogger(__name__)
 
+_analyze_locks: dict[int, asyncio.Lock] = {}
+_analyze_locks_guard = asyncio.Lock()
+
+
+async def _get_analyze_lock(novel_id: int) -> asyncio.Lock:
+    async with _analyze_locks_guard:
+        if novel_id not in _analyze_locks:
+            _analyze_locks[novel_id] = asyncio.Lock()
+        return _analyze_locks[novel_id]
+
 
 async def _background_analyze_reference_novel(novel_id: int, user_id: int) -> None:
-    async with AsyncSessionLocal() as session:
-        service = ReferenceNovelLibraryService(session)
-        try:
-            novel = await service.get_by_id(novel_id)
-            if not novel:
-                return
-            if novel.status == "ready":
-                return
-            await service.analyze(novel_id, user_id)
-        except Exception as exc:  # pragma: no cover - 后台任务兜底
-            logger.exception("后台分析参考小说失败: novel_id=%s user_id=%s error=%s", novel_id, user_id, exc)
-            # 确保状态回退到 failed，即使 analyze() 内部的异常处理也失败了
+    lock = await _get_analyze_lock(novel_id)
+    if lock.locked():
+        logger.info("参考小说 %d 已有分析任务运行中，跳过", novel_id)
+        return
+    async with lock:
+        async with AsyncSessionLocal() as session:
+            service = ReferenceNovelLibraryService(session)
             try:
-                async with AsyncSessionLocal() as fallback_session:
-                    await fallback_session.execute(
-                        update(ReferenceNovel)
-                        .where(ReferenceNovel.id == novel_id)
-                        .values(status="failed", error_message=str(exc)[:500])
-                    )
-                    await fallback_session.commit()
-            except Exception:
-                logger.exception("回退参考小说状态也失败: novel_id=%s", novel_id)
+                novel = await service.get_by_id(novel_id)
+                if not novel:
+                    return
+                if novel.status == "ready":
+                    return
+                await service.analyze(novel_id, user_id)
+            except Exception as exc:  # pragma: no cover
+                logger.exception("后台分析参考小说失败: novel_id=%s user_id=%s error=%s", novel_id, user_id, exc)
+                try:
+                    async with AsyncSessionLocal() as fallback_session:
+                        await fallback_session.execute(
+                            update(ReferenceNovel)
+                            .where(ReferenceNovel.id == novel_id)
+                            .values(status="failed", error_message=str(exc)[:500])
+                        )
+                        await fallback_session.commit()
+                except Exception:
+                    logger.exception("回退参考小说状态也失败: novel_id=%s", novel_id)
 
 
 @router.get("", response_model=List[ReferenceNovelSummary])
