@@ -270,6 +270,11 @@ class LLMService:
             )
         )
 
+    @staticmethod
+    def _is_gemini_model(model_name: Optional[str]) -> bool:
+        """判断模型名称是否为 Gemini 系列。"""
+        return bool(model_name and model_name.lower().startswith("gemini"))
+
     def _resolve_api_format(self, api_format_setting: Optional[str], base_url: Optional[str], model_name: Optional[str]) -> str:
         """根据配置决定使用哪种 API 格式。
 
@@ -283,10 +288,11 @@ class LLMService:
         fmt = (api_format_setting or "auto").strip().lower()
         if fmt in ("openai", "anthropic", "anyrouter", "gemini", "openai-responses"):
             return fmt
-        # auto: Claude 模型走 anthropic 格式，其他走 openai 格式
+        # auto: 按模型名称自动推断
         if self._is_claude_model(model_name):
             return "anthropic"
-        # gpt-5 系列优先走 responses；若网关不支持，后续会自动回退到 chat/completions
+        if self._is_gemini_model(model_name):
+            return "gemini"
         if self._prefer_openai_responses_model(model_name):
             return "openai-responses"
         return "openai"
@@ -332,8 +338,7 @@ class LLMService:
         chat_messages = [ChatMessage(role=msg["role"], content=msg["content"]) for msg in messages]
 
         model_name = config.get("model") or ""
-        # 用户级 api_format 优先于系统级
-        api_format_setting = config.get("api_format") or await self._get_config_value("llm.api_format")
+        api_format_setting = config.get("api_format")
         api_format = self._resolve_api_format(api_format_setting, config.get("base_url"), model_name)
 
         # Claude thinking 模型不兼容 temperature/top_p/response_format
@@ -764,6 +769,7 @@ class LLMService:
         api_key = await self._get_config_value("llm.api_key")
         base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
         model = await self._get_config_value("llm.model")
+        api_format = await self._get_config_value("llm.api_format")
 
         if not api_key:
             logger.error("未配置默认 LLM API Key，且用户 %s 未设置自定义 API Key", user_id)
@@ -772,7 +778,7 @@ class LLMService:
                 detail="未配置默认 LLM API Key，请联系管理员配置系统默认 API Key 或在个人设置中配置自定义 API Key"
             )
 
-        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
+        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
 
     async def _resolve_optimize_llm_config(self) -> Dict[str, Optional[str]]:
         """解析润色优化专用 LLM 配置，未设置的字段回退到默认 llm.* 配置。"""

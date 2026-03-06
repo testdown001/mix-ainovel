@@ -66,7 +66,8 @@ async def list_models(
     try:
         models = await service.get_available_models(
             api_key=payload.llm_provider_api_key,
-            base_url=payload.llm_provider_url
+            base_url=payload.llm_provider_url,
+            api_format=payload.llm_provider_api_format,
         )
         logger.info("用户 %s 获取模型列表，返回 %d 个模型", current_user.id, len(models))
         return models

@@ -13,10 +13,10 @@ export interface LLMConfig {
 }
 
 export interface LLMConfigCreate {
-  llm_provider_url?: string
-  llm_provider_api_key?: string
-  llm_provider_model?: string
-  llm_provider_api_format?: string
+  llm_provider_url?: string | null
+  llm_provider_api_key?: string | null
+  llm_provider_model?: string | null
+  llm_provider_api_format?: string | null
 }
 
 export const getLLMConfig = async (): Promise<LLMConfig | null> => {
@@ -45,6 +45,7 @@ export const deleteLLMConfig = async (): Promise<void> => {
 export interface ModelListRequest {
   llm_provider_url?: string
   llm_provider_api_key: string
+  llm_provider_api_format?: string | null
 }
 
 export const getAvailableModels = async (request: ModelListRequest): Promise<string[]> => {

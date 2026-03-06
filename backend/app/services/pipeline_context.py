@@ -59,9 +59,6 @@ class PipelineContextMixin:
             # "concurrent operations are not permitted" 错误
             extraction_prompt = await self.prompt_service.get_prompt("extraction")
             llm_config = await self.llm_service._resolve_llm_config(user_id)
-            # 确保 api_format 已填充，否则 _stream_and_collect 会再查 DB
-            if not llm_config.get("api_format"):
-                llm_config["api_format"] = await self.llm_service._get_config_value("llm.api_format")
             summary_tasks = [
                 self.llm_service.get_summary(
                     ch.selected_version.content,

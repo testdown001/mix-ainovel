@@ -25,3 +25,4 @@ class LLMConfigRead(LLMConfigBase):
 class ModelListRequest(BaseModel):
     llm_provider_url: Optional[str] = Field(default=None, description="LLM 服务地址")
     llm_provider_api_key: str = Field(..., description="LLM API Key")
+    llm_provider_api_format: Optional[str] = Field(default=None, description="API 请求格式，优先于 URL 自动识别")

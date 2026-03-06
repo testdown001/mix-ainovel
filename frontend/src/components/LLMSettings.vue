@@ -125,7 +125,7 @@
           v-model="config.llm_provider_api_format"
           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
         >
-          <option value="">auto（自动识别）</option>
+          <option :value="null">auto（自动识别）</option>
           <option value="openai">OpenAI（兼容格式）</option>
           <option value="anthropic">Anthropic（原生 API）</option>
           <option value="anyrouter">AnyRouter（Claude Code 兼容代理）</option>
@@ -150,7 +150,7 @@ const config = ref<LLMConfigCreate>({
   llm_provider_url: '',
   llm_provider_api_key: '',
   llm_provider_model: '',
-  llm_provider_api_format: '',
+  llm_provider_api_format: null,
 });
 
 const showApiKey = ref(false);
@@ -176,13 +176,20 @@ onMounted(async () => {
       llm_provider_url: existingConfig.llm_provider_url || '',
       llm_provider_api_key: existingConfig.llm_provider_api_key || '',
       llm_provider_model: existingConfig.llm_provider_model || '',
-      llm_provider_api_format: existingConfig.llm_provider_api_format || '',
+      llm_provider_api_format: existingConfig.llm_provider_api_format || null,
     };
   }
 });
 
 const handleSave = async () => {
-  await createOrUpdateLLMConfig(config.value);
+  const payload: LLMConfigCreate = {
+    ...config.value,
+    llm_provider_url: config.value.llm_provider_url || null,
+    llm_provider_api_key: config.value.llm_provider_api_key || null,
+    llm_provider_model: config.value.llm_provider_model || null,
+    llm_provider_api_format: config.value.llm_provider_api_format || null,
+  };
+  await createOrUpdateLLMConfig(payload);
   alert('设置已保存！');
 };
 
@@ -193,7 +200,7 @@ const handleDelete = async () => {
       llm_provider_url: '',
       llm_provider_api_key: '',
       llm_provider_model: '',
-      llm_provider_api_format: '',
+      llm_provider_api_format: null,
     };
     alert('配置已删除！');
   }
@@ -227,6 +234,7 @@ const loadModels = async () => {
     const models = await getAvailableModels({
       llm_provider_api_key: config.value.llm_provider_api_key,
       llm_provider_url: config.value.llm_provider_url || undefined,
+      llm_provider_api_format: config.value.llm_provider_api_format,
     });
     availableModels.value = models;
     if (models.length > 0) {

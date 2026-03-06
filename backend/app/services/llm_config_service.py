@@ -60,7 +60,11 @@ class LLMConfigService:
         return normalized.rstrip("/")
 
     def _identify_provider(self, base_url: Optional[str]) -> str:
-        """根据 base_url 识别 LLM 提供商"""
+        """根据 base_url 识别 LLM 提供商。
+
+        返回值与 llm_service._resolve_api_format 的格式名称对齐：
+        openai / anthropic / gemini / azure / cohere / openai-like
+        """
         if not base_url:
             return "openai"
 
@@ -68,29 +72,17 @@ class LLMConfigService:
         parsed = urlparse(url_lower)
         host = parsed.netloc or parsed.path
 
-        # 识别常见提供商
         if "openai.com" in host or "api.openai.com" in host:
             return "openai"
         elif "anthropic.com" in host or "api.anthropic.com" in host:
             return "anthropic"
         elif "generativelanguage.googleapis.com" in host or "google" in host:
-            return "google"
+            return "gemini"
         elif "azure" in host:
             return "azure"
         elif "cohere" in host:
             return "cohere"
-        elif "together" in host or "together.ai" in host:
-            return "together"
-        elif "deepseek" in host:
-            return "deepseek"
-        elif "moonshot" in host:
-            return "moonshot"
-        elif "zhipu" in host or "bigmodel.cn" in host:
-            return "zhipu"
-        elif "baidu" in host or "qianfan" in host:
-            return "baidu"
         else:
-            # 默认使用 OpenAI-like API
             return "openai-like"
 
     def _build_url(self, base_url: Optional[str], default_url: str, path_suffix: str) -> str:
@@ -131,37 +123,43 @@ class LLMConfigService:
         return True
 
     async def get_available_models(
-        self, api_key: str, base_url: Optional[str] = None
+        self,
+        api_key: str,
+        base_url: Optional[str] = None,
+        api_format: Optional[str] = None,
     ) -> List[str]:
-        """使用指定的凭证获取可用的模型列表"""
+        """使用指定的凭证获取可用的模型列表。
+
+        api_format 优先；为 None / "auto" 时回退到 URL 自动识别。
+        """
         if not api_key:
             logger.warning("获取模型列表失败：未提供 API Key")
             return []
 
         base_url = self._normalize_base_url(base_url)
 
-        # 识别提供商
-        provider = self._identify_provider(base_url)
-        logger.info("识别到 LLM 提供商: %s (base_url: %s)", provider, base_url)
+        fmt = (api_format or "").strip().lower()
+        if fmt and fmt != "auto":
+            provider = fmt
+        else:
+            provider = self._identify_provider(base_url)
+        logger.info("识别到 LLM 提供商: %s (base_url: %s, api_format: %s)", provider, base_url, api_format)
 
         try:
-            # 根据不同提供商获取模型列表
-            if provider == "anthropic":
+            if provider == "anthropic" or provider == "anyrouter":
                 return await self._get_anthropic_models(api_key, base_url)
-            elif provider == "google":
+            elif provider == "gemini":
                 return await self._get_google_models(api_key, base_url)
             elif provider == "azure":
                 return await self._get_azure_models(api_key, base_url)
             elif provider == "cohere":
                 return await self._get_cohere_models(api_key, base_url)
             else:
-                # OpenAI 和 OpenAI-like (包括 together, deepseek, moonshot, zhipu 等)
                 return await self._get_openai_like_models(api_key, base_url)
         except Exception as e:
             error_msg = str(e)
             logger.error("获取模型列表失败: provider=%s, error=%s", provider, error_msg, exc_info=True)
 
-            # 提供更友好的错误信息
             if "Connection error" in error_msg or "disconnected" in error_msg.lower():
                 logger.warning("连接错误，可能是 API URL 配置错误或网络问题")
             elif "401" in error_msg or "Unauthorized" in error_msg:
@@ -253,17 +251,39 @@ class LLMConfigService:
             logger.error("HTTP 请求失败: %s", str(e), exc_info=True)
             return []
 
+    _ANTHROPIC_FALLBACK_MODELS: List[str] = [
+        "claude-sonnet-4-20250514",
+        "claude-opus-4-20250514",
+        "claude-haiku-4-20250414",
+        "claude-3-7-sonnet-20250219",
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+    ]
+
     async def _get_anthropic_models(self, api_key: str, base_url: Optional[str]) -> List[str]:
-        """获取 Anthropic 的模型列表"""
-        # Anthropic 目前不提供模型列表 API，返回常用模型
-        logger.info("返回 Anthropic 预定义模型列表")
-        return [
-            "claude-3-5-sonnet-20241022",
-            "claude-3-5-haiku-20241022",
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240307",
-        ]
+        """获取 Anthropic 的模型列表，优先通过 API 动态获取，失败时返回 fallback。"""
+        import httpx
+
+        url = (base_url.rstrip("/") if base_url else "https://api.anthropic.com") + "/v1/models"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 200:
+                    data = response.json()
+                    model_ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
+                    if model_ids:
+                        logger.info("通过 API 成功获取 %d 个 Anthropic 模型", len(model_ids))
+                        return sorted(model_ids)
+                logger.warning("Anthropic /v1/models 返回 %d，回退到预定义列表", response.status_code)
+        except Exception as e:
+            logger.warning("Anthropic 模型列表 API 调用失败: %s，回退到预定义列表", e)
+
+        return list(self._ANTHROPIC_FALLBACK_MODELS)
 
     async def _get_google_models(self, api_key: str, base_url: Optional[str]) -> List[str]:
         """获取 Google Gemini 的模型列表"""
