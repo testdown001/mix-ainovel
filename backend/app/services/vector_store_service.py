@@ -176,16 +176,64 @@ class VectorStoreService:
         items = []
         for hit in search_result:
             payload = hit.payload or {}
+            meta = dict(payload.get("metadata") or {})
+            meta.setdefault("chunk_id", str(hit.id))
             items.append(
                 RetrievedChunk(
                     content=payload.get("content", ""),
                     chapter_number=payload.get("chapter_number", 0),
                     chapter_title=payload.get("chapter_title"),
-                    score=hit.score, # Qdrant returns cosine similarity by default
-                    metadata=payload.get("metadata", {}),
+                    score=hit.score,
+                    metadata=meta,
                 )
             )
         return items
+
+    async def retrieve_chunks_by_ids(
+        self,
+        *,
+        chunk_ids: Sequence[str],
+    ) -> Dict[str, RetrievedChunk]:
+        """按 Qdrant point ID 批量获取 chunk 内容，返回 {chunk_id: RetrievedChunk}。"""
+        if not self._client or not chunk_ids:
+            return {}
+
+        await self.ensure_schema()
+
+        import uuid as _uuid
+        qdrant_ids: List[str] = []
+        id_map: Dict[str, str] = {}
+        for cid in chunk_ids:
+            try:
+                _uuid.UUID(cid)
+                qid = cid
+            except ValueError:
+                qid = str(_uuid.uuid5(_uuid.NAMESPACE_OID, cid))
+            qdrant_ids.append(qid)
+            id_map[qid] = cid
+
+        try:
+            points = await self._client.retrieve(
+                collection_name=self.COLLECTION_CHUNKS,
+                ids=qdrant_ids,
+                with_payload=True,
+            )
+        except Exception as exc:
+            logger.warning("按 ID 批量获取 chunk 失败: %s", exc)
+            return {}
+
+        result: Dict[str, RetrievedChunk] = {}
+        for pt in points:
+            payload = pt.payload or {}
+            original_id = id_map.get(str(pt.id), str(pt.id))
+            result[original_id] = RetrievedChunk(
+                content=payload.get("content", ""),
+                chapter_number=payload.get("chapter_number", 0),
+                chapter_title=payload.get("chapter_title"),
+                score=0.0,
+                metadata={**(payload.get("metadata") or {}), "chunk_id": str(pt.id)},
+            )
+        return result
 
     async def query_summaries(
         self,

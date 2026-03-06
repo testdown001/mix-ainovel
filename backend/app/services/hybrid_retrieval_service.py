@@ -1,17 +1,17 @@
-# AIMETA P=混合检索融合服务_Vector+BM25+RRF|R=混合检索_RRF融合_可选Rerank|NR=不含索引构建|E=HybridRetrievalService|X=internal|A=混合检索|D=vector_store_bm25_index|S=net|RD=./README.ai
+# AIMETA P=混合检索融合服务_Vector+BM25+RRF|R=混合检索_RRF融合|NR=不含索引构建_不含Rerank|E=HybridRetrievalService|X=internal|A=混合检索|D=vector_store_bm25_index|S=net|RD=./README.ai
 """
 混合检索融合服务 (HybridRetrievalService)
 
 实现：
 1. Vector + BM25 双路检索
 2. RRF (Reciprocal Rank Fusion) 融合排名
-3. 可选 Rerank API 调用（Jina AI 等）
+3. BM25-only 结果自动补充内容（从 Qdrant 回查）
 4. 回溯搜索：scene chunk → 加载 parent summary
+
+Rerank 由上层调用方统一控制，本服务不自行调用 Reranker。
 """
 import logging
 from typing import Any, Dict, List, Optional, Sequence
-
-import httpx
 
 from ..core.config import settings
 from .bm25_index_service import BM25IndexService
@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 class HybridRetrievalService:
-    """混合检索融合服务：向量 + BM25 → RRF → 可选 Rerank。"""
+    """混合检索融合服务：向量 + BM25 → RRF。"""
 
-    RRF_K = 60  # RRF 常量
+    RRF_K = 60
 
     def __init__(
         self,
@@ -33,7 +33,6 @@ class HybridRetrievalService:
     ) -> None:
         self._vector_store = vector_store
         self._bm25_service = bm25_service or BM25IndexService()
-        # 兼容旧调用方传参，当前实现不直接依赖 llm_service
         self._llm_service = llm_service
 
     async def hybrid_search(
@@ -44,16 +43,15 @@ class HybridRetrievalService:
         query_embedding: Sequence[float],
         top_k: int = 10,
         bm25_weight: Optional[float] = None,
-        enable_rerank: Optional[bool] = None,
         user_id: Optional[int] = None,
+        # 保留签名兼容，但忽略；rerank 由上层统一控制
+        enable_rerank: Optional[bool] = None,
     ) -> Dict[str, List[Any]]:
-        """
-        执行混合检索：向量 + BM25 → RRF 融合 → 可选 Rerank。
+        """执行混合检索：向量 + BM25 → RRF 融合。
 
-        Returns:
-            包含 chunks 与 summaries 的字典结果。
+        不自行 rerank；上层应在拿到结果后按需调用 rerank_utils。
         """
-        _ = user_id  # 兼容参数，预留给后续策略扩展
+        _ = user_id
         bm25_w = bm25_weight if bm25_weight is not None else getattr(settings, "rag_bm25_weight", 0.4)
         vector_w = 1.0 - bm25_w
 
@@ -71,7 +69,7 @@ class HybridRetrievalService:
             top_k=top_k * 2,
         )
 
-        # 3. RRF 融合
+        # 3. RRF 融合（保留 BM25-only 条目，标记待补充）
         fused = self._rrf_fuse(
             vector_results=vector_results,
             bm25_results=bm25_results,
@@ -79,18 +77,18 @@ class HybridRetrievalService:
             bm25_weight=bm25_w,
         )
 
-        # 取 top_k
+        # 4. 为 BM25-only 结果补充内容
+        fused = await self._fill_bm25_only_content(fused)
+
+        # 5. 过滤无内容条目，按分数排序截断
+        fused = [r for r in fused if r.get("content")]
+        fused.sort(key=lambda x: x["score"], reverse=True)
         fused = fused[:top_k]
 
-        # 4. 可选 Rerank
-        should_rerank = enable_rerank if enable_rerank is not None else getattr(settings, "rag_reranker_enabled", False)
-        if should_rerank and fused:
-            fused = await self._rerank(query_text, fused)
-
-        # 5. 回溯搜索：加载 parent summary
+        # 6. 回溯搜索：加载 parent summary
         fused = await self._backtrack_summaries(project_id, query_embedding, fused)
 
-        chunks = [self._to_retrieved_chunk(item) for item in fused if item.get("content")]
+        chunks = [self._to_retrieved_chunk(item) for item in fused]
         try:
             summaries: List[RetrievedSummary] = await self._vector_store.query_summaries(
                 project_id=project_id,
@@ -106,6 +104,10 @@ class HybridRetrievalService:
             "summaries": summaries,
         }
 
+    # ------------------------------------------------------------------
+    # RRF 融合
+    # ------------------------------------------------------------------
+
     def _rrf_fuse(
         self,
         vector_results: List[RetrievedChunk],
@@ -113,13 +115,15 @@ class HybridRetrievalService:
         vector_weight: float,
         bm25_weight: float,
     ) -> List[Dict[str, Any]]:
-        """Reciprocal Rank Fusion 融合排名。"""
+        """Reciprocal Rank Fusion 融合排名，BM25-only 结果也保留。"""
         scores: Dict[str, Dict[str, Any]] = {}
 
-        # 向量结果排名（已按 distance ASC 排序）
+        # 按 chunk_id 建立向量结果索引，加速 BM25 合并
+        vector_by_chunk_id: Dict[str, str] = {}
         for rank, chunk in enumerate(vector_results):
             key = f"v_{chunk.chapter_number}_{hash(chunk.content[:100])}"
             rrf_score = vector_weight * self._rrf_score(rank)
+            chunk_id = (chunk.metadata or {}).get("chunk_id", "")
             scores[key] = {
                 "content": chunk.content,
                 "chapter_number": chunk.chapter_number,
@@ -129,21 +133,17 @@ class HybridRetrievalService:
                 "sources": ["vector"],
                 "vector_rank": rank,
             }
+            if chunk_id:
+                vector_by_chunk_id[chunk_id] = key
 
-        # BM25 结果排名（已按 score DESC 排序）
         for rank, item in enumerate(bm25_results):
             chunk_id = item.get("chunk_id", "")
-            # 尝试找到已有的向量结果进行合并
-            merged = False
-            for key, existing in scores.items():
-                if chunk_id and existing.get("metadata", {}).get("chunk_id") == chunk_id:
-                    existing["score"] += bm25_weight * self._rrf_score(rank)
-                    existing["sources"].append("bm25")
-                    existing["bm25_rank"] = rank
-                    merged = True
-                    break
-
-            if not merged:
+            fuse_key = vector_by_chunk_id.get(chunk_id)
+            if fuse_key and fuse_key in scores:
+                scores[fuse_key]["score"] += bm25_weight * self._rrf_score(rank)
+                scores[fuse_key]["sources"].append("bm25")
+                scores[fuse_key]["bm25_rank"] = rank
+            else:
                 key = f"b_{chunk_id}_{rank}"
                 scores[key] = {
                     "chunk_id": chunk_id,
@@ -153,19 +153,51 @@ class HybridRetrievalService:
                     "sources": ["bm25"],
                     "bm25_rank": rank,
                     "bm25_score": item.get("bm25_score", 0),
+                    "_needs_content": True,
                 }
 
-        # 按融合分数排序
-        sorted_results = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
-        # 过滤掉没有内容的纯 BM25 结果（需要从向量库补充内容）
-        return [r for r in sorted_results if r.get("content")]
+        return sorted(scores.values(), key=lambda x: x["score"], reverse=True)
 
     def _rrf_score(self, rank: int) -> float:
-        """计算 RRF 分数。"""
         return 1.0 / (self.RRF_K + rank)
 
+    # ------------------------------------------------------------------
+    # BM25-only 内容回填
+    # ------------------------------------------------------------------
+
+    async def _fill_bm25_only_content(
+        self, fused: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """从 Qdrant 补充 BM25-only 结果的 content。"""
+        missing_ids = [
+            r["chunk_id"] for r in fused
+            if r.get("_needs_content") and r.get("chunk_id")
+        ]
+        if not missing_ids:
+            return fused
+
+        chunk_map = await self._vector_store.retrieve_chunks_by_ids(chunk_ids=missing_ids)
+        filled = 0
+        for r in fused:
+            if r.get("_needs_content") and r.get("chunk_id"):
+                found = chunk_map.get(r["chunk_id"])
+                if found:
+                    r["content"] = found.content
+                    r["chapter_number"] = found.chapter_number
+                    r["chapter_title"] = found.chapter_title
+                    r["metadata"] = found.metadata
+                    filled += 1
+                r.pop("_needs_content", None)
+
+        if filled:
+            logger.info("BM25-only 内容回填: %d/%d 条", filled, len(missing_ids))
+        return fused
+
+    # ------------------------------------------------------------------
+    # 辅助方法
+    # ------------------------------------------------------------------
+
     def _to_retrieved_chunk(self, item: Dict[str, Any]) -> RetrievedChunk:
-        """将融合结果转换为统一的检索片段结构。"""
         base_metadata = item.get("metadata")
         metadata = dict(base_metadata) if isinstance(base_metadata, dict) else {}
         if item.get("sources"):
@@ -183,56 +215,6 @@ class HybridRetrievalService:
             metadata=metadata,
         )
 
-    async def _rerank(
-        self,
-        query: str,
-        results: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """调用外部 Reranker API 重排序。"""
-        api_url = getattr(settings, "rag_reranker_api_url", None)
-        api_key = getattr(settings, "rag_reranker_api_key", None)
-        model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
-
-        if not api_url or not api_key:
-            return results
-
-        documents = [r.get("content", "")[:500] for r in results]
-
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    str(api_url),
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "query": query,
-                        "documents": documents,
-                        "top_n": len(documents),
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-
-            reranked_results = data.get("results", [])
-            reranked = []
-            for item in sorted(reranked_results, key=lambda x: x.get("relevance_score", 0), reverse=True):
-                idx = item.get("index", 0)
-                if idx < len(results):
-                    entry = results[idx].copy()
-                    entry["rerank_score"] = item.get("relevance_score", 0)
-                    entry["score"] = item.get("relevance_score", entry["score"])
-                    reranked.append(entry)
-
-            logger.info("Rerank 完成: %d → %d 结果", len(results), len(reranked))
-            return reranked if reranked else results
-
-        except Exception as exc:
-            logger.warning("Rerank API 调用失败，保持原排序: %s", exc)
-            return results
-
     async def _backtrack_summaries(
         self,
         project_id: str,
@@ -247,7 +229,6 @@ class HybridRetrievalService:
         if not chapter_numbers:
             return results
 
-        # 从 rag_summaries 获取相关章节的摘要
         summaries = await self._vector_store.query_summaries(
             project_id=project_id,
             embedding=query_embedding,

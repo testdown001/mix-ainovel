@@ -61,6 +61,9 @@
               <p class="reference-panel-subtitle">绑定后可在灵感模式与章节生成中复用风格/记忆卡</p>
             </div>
             <div class="reference-panel-actions">
+              <button class="reference-panel-link reference-panel-link--primary" type="button" @click="openReferenceLibrary">
+                添加
+              </button>
               <button class="reference-panel-link" type="button" @click="refreshReferenceNovels">
                 刷新
               </button>
@@ -185,8 +188,8 @@
                     <span v-else>{{ chapter.chapter_number }}</span>
                   </div>
                   <div class="flex-1 min-w-0">
-                    <Tooltip :text="chapter.title">
-                      <h4 class="md-body-large font-semibold mb-1 line-clamp-1">{{ chapter.title }}</h4>
+                    <Tooltip :text="`第${chapter.chapter_number}章 ${chapter.title}`">
+                      <h4 class="md-body-large font-semibold mb-1 line-clamp-1">第{{ chapter.chapter_number }}章 {{ chapter.title }}</h4>
                     </Tooltip>
                     <Tooltip :text="chapter.summary">
                       <p class="md-body-small md-on-surface-variant line-clamp-2 leading-relaxed">{{ chapter.summary }}</p>
@@ -710,6 +713,11 @@ const canGenerateChapter = (chapterNumber: number) => {
   cursor: pointer;
   padding: 0.25rem 0.5rem;
   border-radius: 0.75rem;
+}
+
+.reference-panel-link--primary {
+  font-weight: 600;
+  background: #eff6ff;
 }
 
 .reference-panel-link:disabled {

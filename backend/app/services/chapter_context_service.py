@@ -80,10 +80,14 @@ class ChapterContextService:
             logger.warning("检索查询向量生成失败: project=%s chapter_query=%s", project_id, query)
             return ChapterRAGContext(query=query, chunks=[], summaries=[])
 
+        from ..utils.rerank_utils import is_rerank_enabled, rerank_documents
+        need_rerank = is_rerank_enabled()
+
         # 混合检索模式
         if retrieval_mode == "hybrid":
             try:
                 from .hybrid_retrieval_service import HybridRetrievalService
+                effective_top_k_hybrid = top_k_chunks or settings.vector_top_k_chunks
                 hybrid = HybridRetrievalService(
                     vector_store=self._vector_store,
                     llm_service=self._llm_service,
@@ -92,34 +96,79 @@ class ChapterContextService:
                     project_id=project_id,
                     query_text=query,
                     query_embedding=embedding,
-                    top_k=top_k_chunks or settings.vector_top_k_chunks,
+                    top_k=effective_top_k_hybrid * 2 if need_rerank else effective_top_k_hybrid,
                     user_id=user_id,
                 )
                 chunks = hybrid_results.get("chunks", [])
                 summaries = hybrid_results.get("summaries", [])
+
+                if need_rerank and chunks:
+                    docs = [c.content for c in chunks]
+                    orig = [c.score for c in chunks]
+                    scored = await rerank_documents(query, docs, original_scores=orig, top_n=len(docs))
+                    if scored:
+                        reranked = []
+                        for item in scored:
+                            idx = item["index"]
+                            if idx < len(chunks):
+                                chunks[idx] = RetrievedChunk(
+                                    content=chunks[idx].content,
+                                    chapter_number=chunks[idx].chapter_number,
+                                    chapter_title=chunks[idx].chapter_title,
+                                    score=item["combined_score"],
+                                    metadata=chunks[idx].metadata,
+                                )
+                                reranked.append(chunks[idx])
+                        chunks = reranked[:effective_top_k_hybrid]
+
                 logger.info(
-                    "混合检索完成: project=%s chunks=%d summaries=%d",
-                    project_id, len(chunks), len(summaries),
+                    "混合检索完成: project=%s chunks=%d summaries=%d reranked=%s",
+                    project_id, len(chunks), len(summaries), need_rerank,
                 )
                 return ChapterRAGContext(query=query, chunks=chunks, summaries=summaries)
             except Exception as exc:
                 logger.warning("混合检索失败，回退到纯向量检索: %s", exc)
 
+        effective_top_k = top_k_chunks or settings.vector_top_k_chunks
+
         chunks = await self._vector_store.query_chunks(
             project_id=project_id,
             embedding=embedding,
-            top_k=top_k_chunks,
+            top_k=effective_top_k * 2 if need_rerank else effective_top_k,
         )
+
+        if need_rerank and chunks:
+            documents = [c.content for c in chunks]
+            original_scores = [c.score for c in chunks]
+            scored = await rerank_documents(
+                query, documents, original_scores=original_scores, top_n=len(documents),
+            )
+            if scored:
+                reranked = []
+                for item in scored:
+                    idx = item["index"]
+                    if idx < len(chunks):
+                        chunks[idx] = RetrievedChunk(
+                            content=chunks[idx].content,
+                            chapter_number=chunks[idx].chapter_number,
+                            chapter_title=chunks[idx].chapter_title,
+                            score=item["combined_score"],
+                            metadata=chunks[idx].metadata,
+                        )
+                        reranked.append(chunks[idx])
+                chunks = reranked[:effective_top_k]
+
         summaries = await self._vector_store.query_summaries(
             project_id=project_id,
             embedding=embedding,
             top_k=top_k_summaries,
         )
         logger.info(
-            "章节上下文检索完成: project=%s chunks=%d summaries=%d query_preview=%s",
+            "章节上下文检索完成: project=%s chunks=%d summaries=%d reranked=%s query_preview=%s",
             project_id,
             len(chunks),
             len(summaries),
+            need_rerank,
             query[:80],
         )
         return ChapterRAGContext(query=query, chunks=chunks, summaries=summaries)

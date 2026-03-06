@@ -576,14 +576,13 @@ class KnowledgeRetrievalService:
         user_id: int,
         retrieval_mode: str = "vector",
     ) -> List[RetrievedKnowledge]:
-        """从向量库检索"""
+        """从向量库检索，并在启用 Reranker 时统一做一次精排。"""
         if not self.vector_store_service or not queries:
             return []
 
-        retrieved = []
+        retrieved: List[RetrievedKnowledge] = []
         for query in queries:
             try:
-                # 混合检索模式
                 if retrieval_mode == "hybrid":
                     embedding = await self.llm_service.get_embedding(query, user_id=user_id)
                     if not embedding:
@@ -644,59 +643,39 @@ class KnowledgeRetrievalService:
                         chapter_number=r.get("chapter_number")
                     ))
             except Exception as e:
-                logger.error(f"向量检索失败: {e}")
-        
+                logger.error("向量检索失败: %s", e)
+
         # 去重
-        seen = set()
-        unique = []
+        seen: set = set()
+        unique: List[RetrievedKnowledge] = []
         for r in retrieved:
             if r.content not in seen:
                 seen.add(r.content)
                 unique.append(r)
 
-        # P1: 统一 Rerank（不依赖 hybrid 模式）
-        if unique and getattr(settings, "rag_reranker_enabled", False):
-            unique = await self._rerank_results(queries[0] if queries else "", unique)
+        # 统一 Rerank：合并所有 queries 作为 rerank 查询上下文
+        from ..utils.rerank_utils import is_rerank_enabled, rerank_documents
+        if unique and is_rerank_enabled():
+            combined_query = " | ".join(queries[:5])
+            documents = [r.content for r in unique]
+            original_scores = [r.relevance_score for r in unique]
+            scored = await rerank_documents(
+                combined_query,
+                documents,
+                original_scores=original_scores,
+                top_n=len(documents),
+            )
+            if scored:
+                reranked = []
+                for item in scored:
+                    idx = item["index"]
+                    if idx < len(unique):
+                        unique[idx].relevance_score = item["combined_score"]
+                        reranked.append(unique[idx])
+                if reranked:
+                    unique = reranked
 
         return unique
-
-    async def _rerank_results(
-        self,
-        query: str,
-        results: List[RetrievedKnowledge],
-    ) -> List[RetrievedKnowledge]:
-        """调用外部 Reranker API 对检索结果精排。"""
-        api_url = getattr(settings, "rag_reranker_api_url", None)
-        api_key = getattr(settings, "rag_reranker_api_key", None)
-        model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
-
-        if not api_url or not api_key:
-            return results
-
-        import httpx
-        documents = [r.content[:500] for r in results]
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    str(api_url),
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": model, "query": query, "documents": documents, "top_n": len(documents)},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-
-            reranked = []
-            for item in sorted(data.get("results", []), key=lambda x: x.get("relevance_score", 0), reverse=True):
-                idx = item.get("index", 0)
-                if idx < len(results):
-                    results[idx].relevance_score = item.get("relevance_score", results[idx].relevance_score)
-                    reranked.append(results[idx])
-
-            logger.info("Rerank 完成: %d → %d 结果", len(results), len(reranked))
-            return reranked if reranked else results
-        except Exception as exc:
-            logger.warning("Rerank API 调用失败，保持原排序: %s", exc)
-            return results
     
     async def _filter_knowledge(
         self,
