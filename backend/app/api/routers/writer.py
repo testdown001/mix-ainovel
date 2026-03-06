@@ -164,25 +164,35 @@ async def _finalize_chapter_async(
         chapter.word_count = len(selected_version.content or "")
         await session.commit()
 
-        # FinalizeService: 记忆/快照/剧情线（向量入库始终跳过）
-        sync_session = getattr(session, "sync_session", session)
-        finalize_service = FinalizeService(sync_session, llm_service, None)
-        await finalize_service.finalize_chapter(
-            project_id=project_id,
-            chapter_number=chapter_number,
-            chapter_text=selected_version.content,
-            user_id=user_id,
-            skip_vector_update=True,
-        )
+        _chapter_text = selected_version.content
 
-        # 向量入库 + 摘要 + hash 走 ChapterPostProcessor
-        processor = ChapterPostProcessor(session, llm_service)
-        await processor.process_after_select(
-            project_id=project_id,
-            chapter_number=chapter_number,
-            content=selected_version.content,
-            user_id=user_id,
-        )
+        # 并行执行：FinalizeService（记忆/快照/剧情线）与 ChapterPostProcessor（摘要/向量入库）
+        # 两者写入不同 DB 表且无数据依赖，使用独立 session 避免并发冲突
+        async def _do_finalize():
+            async with AsyncSessionLocal() as fin_session:
+                fin_llm = LLMService(fin_session)
+                sync_session = getattr(fin_session, "sync_session", fin_session)
+                finalize_service = FinalizeService(sync_session, fin_llm, None)
+                await finalize_service.finalize_chapter(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    chapter_text=_chapter_text,
+                    user_id=user_id,
+                    skip_vector_update=True,
+                )
+
+        async def _do_post_process():
+            async with AsyncSessionLocal() as pp_session:
+                pp_llm = LLMService(pp_session)
+                processor = ChapterPostProcessor(pp_session, pp_llm)
+                await processor.process_after_select(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    content=_chapter_text,
+                    user_id=user_id,
+                )
+
+        await asyncio.gather(_do_finalize(), _do_post_process())
 
 
 def _schedule_finalize_task(

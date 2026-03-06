@@ -11,6 +11,7 @@
 
 这是"生成后闭环"的核心服务，确保长程一致性。
 """
+import asyncio
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -186,28 +187,34 @@ class FinalizeService:
             # 1. 获取或创建项目记忆
             project_memory = await self._get_or_create_project_memory(project_id)
             
-            # 2. 更新全局摘要
-            new_summary = await self._update_global_summary(
-                chapter_text=chapter_text,
-                old_summary=project_memory.global_summary or "",
-                user_id=user_id
+            # 2-4. 并行执行三个无依赖的 LLM 调用：全局摘要 + 剧情线 + 章节摘要
+            new_summary, new_plot_arcs, chapter_summary = await asyncio.gather(
+                self._update_global_summary(
+                    chapter_text=chapter_text,
+                    old_summary=project_memory.global_summary or "",
+                    user_id=user_id,
+                ),
+                self._update_plot_arcs(
+                    chapter_text=chapter_text,
+                    chapter_number=chapter_number,
+                    old_plot_arcs=project_memory.plot_arcs or {},
+                    user_id=user_id,
+                ),
+                self._generate_chapter_summary(
+                    chapter_text=chapter_text,
+                    chapter_number=chapter_number,
+                    user_id=user_id,
+                ),
             )
+
             if new_summary:
                 project_memory.global_summary = new_summary
                 result["updates"]["global_summary"] = "updated"
 
-            # 3. 角色状态由 MemoryLayerService 统一处理（enable_memory 模式下自动触发）
-            #    此处不再重复提取，避免双重 LLM 调用
+            # 角色状态由 MemoryLayerService 统一处理（enable_memory 模式下自动触发）
             new_state = None
             result["updates"]["character_state"] = "delegated_to_memory_layer"
 
-            # 4. 更新剧情线追踪
-            new_plot_arcs = await self._update_plot_arcs(
-                chapter_text=chapter_text,
-                chapter_number=chapter_number,
-                old_plot_arcs=project_memory.plot_arcs or {},
-                user_id=user_id
-            )
             if new_plot_arcs:
                 project_memory.plot_arcs = new_plot_arcs
                 result["updates"]["plot_arcs"] = "updated"
@@ -224,11 +231,6 @@ class FinalizeService:
                     result["updates"]["vector_store"] = "updated"
             
             # 6. 创建章节快照
-            chapter_summary = await self._generate_chapter_summary(
-                chapter_text=chapter_text,
-                chapter_number=chapter_number,
-                user_id=user_id
-            )
             await self._create_chapter_snapshot(
                 project_id=project_id,
                 chapter_number=chapter_number,
