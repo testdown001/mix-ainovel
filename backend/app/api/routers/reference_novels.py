@@ -83,7 +83,12 @@ async def create_reference_novel(
     current_user: UserInDB = Depends(get_current_user),
 ) -> ReferenceNovelSummary:
     service = ReferenceNovelLibraryService(session)
-    novel = await service.create(current_user.id, payload.title)
+    novel = await service.create(
+        user_id=current_user.id,
+        title=payload.title,
+        author=payload.author,
+        genre=payload.genre
+    )
     if novel.status != "ready":
         background_tasks.add_task(_background_analyze_reference_novel, novel.id, current_user.id)
     return ReferenceNovelSummary.model_validate(novel)

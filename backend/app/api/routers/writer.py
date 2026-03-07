@@ -29,6 +29,7 @@ from ...core.config import settings
 from ...core.dependencies import get_current_user
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
+from ...models.writing_archive import WritingArchive
 from ...schemas.novel import (
     Chapter as ChapterSchema,
     ChapterGenerationStatus,
@@ -237,15 +238,25 @@ async def advanced_generate_chapter(
     current_user: UserInDB = Depends(get_current_user),
 ) -> AdvancedGenerateResponse:
     """
-    高级写作入口：通过 PipelineOrchestrator 统一编排生成流程。
+    高级写作入口：通过 HybridExecutor 支持传统流水线或 Agent 多代理系统。
+    设置 flow_config.use_agent=true 启用 Agent 系统。
     """
-    orchestrator = PipelineOrchestrator(session)
+    from ...agents.hybrid_executor import HybridExecutor
+
+    executor = HybridExecutor(session, user_id=current_user.id)
+
+    # 检查是否启用 Agent 系统
+    use_agent = request.flow_config.use_agent or False
+
+    if use_agent:
+        executor.enable_agent_system()
+
     try:
-        result = await orchestrator.generate_chapter(
+        result = await executor.generate_chapter(
+            use_agent=use_agent,
             project_id=request.project_id,
             chapter_number=request.chapter_number,
             writing_notes=request.writing_notes,
-            user_id=current_user.id,
             flow_config=request.flow_config.model_dump(),
         )
 
@@ -323,7 +334,13 @@ async def advanced_generate_chapter_stream(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> StreamingResponse:
-    orchestrator = PipelineOrchestrator(session)
+    from ...agents.hybrid_executor import HybridExecutor
+
+    executor = HybridExecutor(session, user_id=current_user.id)
+    use_agent = request.flow_config.use_agent or False
+    if use_agent:
+        executor.enable_agent_system()
+
     event_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
 
     async def _push_event(event: str, data: Dict[str, Any]) -> None:
@@ -346,11 +363,11 @@ async def advanced_generate_chapter_stream(
                 },
             )
 
-            result = await orchestrator.generate_chapter(
+            result = await executor.generate_chapter(
+                use_agent=use_agent,
                 project_id=request.project_id,
                 chapter_number=request.chapter_number,
                 writing_notes=request.writing_notes,
-                user_id=current_user.id,
                 flow_config=request.flow_config.model_dump(),
                 stream_handler=_stream_handler,
             )
@@ -1789,3 +1806,194 @@ async def rebuild_rag(
         "mode": "full" if force_full else "incremental",
         "bm25_indexed": not skip_bm25,
     }
+
+
+# ========== 任务档案相关 API ==========
+
+@router.get("/novels/{project_id}/archives", response_model=List[dict])
+async def get_project_archives(
+    project_id: str,
+    limit: int = 50,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取项目的所有写作任务档案列表"""
+    from ...services.writing_archive_service import WritingArchiveService
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject.id).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    owner_result = await session.execute(owner_stmt)
+    if owner_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    archive_service = WritingArchiveService(session)
+    archives = await archive_service.get_archives_by_project(project_id, limit, offset)
+
+    return [
+        {
+            "id": a.id,
+            "project_id": a.project_id,
+            "chapter_number": a.chapter_number,
+            "user_command": a.user_command,
+            "writing_notes": a.writing_notes,
+            "started_at": a.started_at.isoformat() if a.started_at else None,
+            "completed_at": a.completed_at.isoformat() if a.completed_at else None,
+            "duration_seconds": a.duration_seconds,
+            "version_count": a.version_count,
+            "gatekeeper_score": a.gatekeeper_score,
+            "user_rating": a.user_rating,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in archives
+    ]
+
+
+@router.get("/novels/{project_id}/archives/{archive_id}")
+async def get_archive_detail(
+    project_id: str,
+    archive_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取单个档案的详细信息"""
+    from ...services.writing_archive_service import WritingArchiveService
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject.id).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    owner_result = await session.execute(owner_stmt)
+    if owner_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    archive_service = WritingArchiveService(session)
+    archive = await archive_service.get_archive(archive_id)
+
+    if not archive or archive.project_id != project_id:
+        raise HTTPException(status_code=404, detail="档案不存在")
+
+    # 获取最终版本内容
+    final_version_content = None
+    if archive.final_version_id:
+        version_result = await session.execute(
+            select(ChapterVersion).where(ChapterVersion.id == archive.final_version_id)
+        )
+        version = version_result.scalars().first()
+        if version:
+            final_version_content = version.content
+
+    return {
+        "id": archive.id,
+        "project_id": archive.project_id,
+        "chapter_number": archive.chapter_number,
+        "user_command": archive.user_command,
+        "writing_notes": archive.writing_notes,
+        "started_at": archive.started_at.isoformat() if archive.started_at else None,
+        "completed_at": archive.completed_at.isoformat() if archive.completed_at else None,
+        "duration_seconds": archive.duration_seconds,
+        "stages": archive.stages,
+        "logs": archive.logs,
+        "final_version_id": archive.final_version_id,
+        "final_version_content": final_version_content,
+        "version_count": archive.version_count,
+        "gatekeeper_score": archive.gatekeeper_score,
+        "user_rating": archive.user_rating,
+        "created_at": archive.created_at.isoformat() if archive.created_at else None,
+    }
+
+
+@router.get("/novels/{project_id}/archives/chapter/{chapter_number}/latest")
+async def get_latest_archive_by_chapter(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取指定章节的最新档案"""
+    from ...services.writing_archive_service import WritingArchiveService
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject.id).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    owner_result = await session.execute(owner_stmt)
+    if owner_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    archive_service = WritingArchiveService(session)
+    archive = await archive_service.get_latest_archive(project_id, chapter_number)
+
+    if not archive:
+        raise HTTPException(status_code=404, detail="该章节暂无档案记录")
+
+    return {
+        "id": archive.id,
+        "project_id": archive.project_id,
+        "chapter_number": archive.chapter_number,
+        "started_at": archive.started_at.isoformat() if archive.started_at else None,
+        "completed_at": archive.completed_at.isoformat() if archive.completed_at else None,
+        "duration_seconds": archive.duration_seconds,
+        "version_count": archive.version_count,
+        "gatekeeper_score": archive.gatekeeper_score,
+    }
+
+
+@router.get("/novels/{project_id}/archives/stats/summary")
+async def get_project_archive_stats(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取项目写作统计信息"""
+    from ...services.writing_archive_service import WritingArchiveService
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject.id).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    owner_result = await session.execute(owner_stmt)
+    if owner_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    archive_service = WritingArchiveService(session)
+    stats = await archive_service.get_project_stats(project_id)
+
+    return stats
+
+
+@router.post("/novels/{project_id}/archives/{archive_id}/rate")
+async def rate_archive(
+    project_id: str,
+    archive_id: int,
+    rating: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """为档案评分（用户满意度）"""
+    from ...services.writing_archive_service import WritingArchiveService
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject.id).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    owner_result = await session.execute(owner_stmt)
+    if owner_result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    if rating < 1 or rating > 5:
+        raise HTTPException(status_code=400, detail="评分范围为 1-5")
+
+    archive_service = WritingArchiveService(session)
+    archive = await archive_service.update_user_rating(archive_id, rating)
+
+    await session.commit()
+
+    return {"id": archive.id, "user_rating": archive.user_rating}

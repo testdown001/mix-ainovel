@@ -61,14 +61,26 @@ class ReferenceNovelLibraryService:
         result = await self.session.execute(stmt)
         return result.scalars().one_or_none()
 
-    async def create(self, user_id: int, title: str) -> ReferenceNovel:
+    async def create(self, user_id: int, title: str, author: Optional[str] = None, genre: Optional[str] = None) -> ReferenceNovel:
         normalized_title = title.strip()
         if not normalized_title:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="参考小说标题不能为空")
         existing = await self.get_by_title(normalized_title)
         if existing:
+            # 如果已存在，更新作者和题材信息
+            if (author or genre) and (existing.author != author or existing.genre != genre):
+                existing.author = author or existing.author
+                existing.genre = genre or existing.genre
+                await self.session.commit()
+                await self.session.refresh(existing)
             return existing
-        novel = ReferenceNovel(title=normalized_title, user_id=user_id, status=self._STATUS_PENDING)
+        novel = ReferenceNovel(
+            title=normalized_title,
+            user_id=user_id,
+            status=self._STATUS_PENDING,
+            author=author,
+            genre=genre
+        )
         self.session.add(novel)
         try:
             await self.session.commit()

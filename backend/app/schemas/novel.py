@@ -211,6 +211,7 @@ class FlowConfig(BaseModel):
     skip_history_summary_backfill: Optional[bool] = Field(default=None, description="是否跳过历史章节摘要补写")
     use_local_anti_hallucination: Optional[bool] = Field(default=None, description="是否使用本地实体规则反幻觉检查")
     batch_parallel_workers: Optional[int] = Field(default=None, ge=1, le=8, description="批量生成并行工作数")
+    use_agent: Optional[bool] = Field(default=None, description="是否启用 Agent 多代理系统生成")
 
 
 class AdvancedGenerateRequest(BaseModel):

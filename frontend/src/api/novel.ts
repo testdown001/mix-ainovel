@@ -239,6 +239,8 @@ export interface ReferenceNovelDetail extends ReferenceNovelSummary {
 
 export interface ReferenceNovelCreatePayload {
   title: string
+  author?: string
+  genre?: string
 }
 
 export interface ReferenceNovelUpdatePayload {
@@ -1033,6 +1035,72 @@ export class OptimizerAPI {
         chapter_number: chapterNumber,
         optimized_content: optimizedContent
       })
+    })
+  }
+}
+
+// ========== 任务档案 API ==========
+
+export interface WritingArchive {
+  id: number
+  project_id: string
+  chapter_number: number
+  user_command: string | null
+  writing_notes: string | null
+  started_at: string | null
+  completed_at: string | null
+  duration_seconds: number | null
+  version_count: number | null
+  gatekeeper_score: number | null
+  user_rating: number | null
+  created_at: string | null
+}
+
+export interface WritingArchiveDetail extends WritingArchive {
+  stages: Record<string, any> | null
+  logs: Array<{
+    timestamp: string
+    level: string
+    message: string
+  }> | null
+  final_version_id: number | null
+  final_version_content: string | null
+}
+
+export interface ArchiveStats {
+  total_tasks: number
+  completed_tasks: number
+  avg_gatekeeper_score: number | null
+  avg_duration_seconds: number | null
+  total_versions_generated: number
+}
+
+export const archiveApi = {
+  // 获取项目所有档案列表
+  async getProjectArchives(projectId: string, limit = 50, offset = 0): Promise<WritingArchive[]> {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/archives?limit=${limit}&offset=${offset}`)
+  },
+
+  // 获取单个档案详情
+  async getArchiveDetail(projectId: string, archiveId: number): Promise<WritingArchiveDetail> {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/archives/${archiveId}`)
+  },
+
+  // 获取章节最新档案
+  async getLatestArchive(projectId: string, chapterNumber: number): Promise<WritingArchive> {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/archives/chapter/${chapterNumber}/latest`)
+  },
+
+  // 获取项目写作统计
+  async getProjectStats(projectId: string): Promise<ArchiveStats> {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/archives/stats/summary`)
+  },
+
+  // 为档案评分
+  async rateArchive(projectId: string, archiveId: number, rating: number): Promise<{ id: number; user_rating: number }> {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/archives/${archiveId}/rate`, {
+      method: 'POST',
+      body: JSON.stringify(rating)
     })
   }
 }

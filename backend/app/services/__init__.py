@@ -20,6 +20,9 @@ from .enrichment_service import EnrichmentService, EnrichmentResult
 from .blueprint_service import BlueprintService
 from .vector_store_service_ext import VectorStoreServiceExt
 
+# 任务档案服务
+from .writing_archive_service import WritingArchiveService
+
 __all__ = [
     # 基础服务
     "LLMService",
@@ -40,4 +43,6 @@ __all__ = [
     "EnrichmentService",
     "EnrichmentResult",
     "BlueprintService",
+    # 任务档案服务
+    "WritingArchiveService",
 ]

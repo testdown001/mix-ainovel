@@ -28,50 +28,50 @@ from .skill import router as skill_router
 
 api_router = APIRouter()
 
-# 认证
-api_router.include_router(auth_router, prefix="/auth", tags=["Auth"])
+# 认证 - auth.py 已经定义了 prefix="/api/auth"
+api_router.include_router(auth_router, tags=["Auth"])
 
-# 项目与小说
-api_router.include_router(projects_router, prefix="/projects", tags=["Projects"])
-api_router.include_router(novels_router, prefix="/novels", tags=["Novels"])
+# 项目与小说 - novels.py 和 projects.py 已经定义了 prefix
+api_router.include_router(projects_router, tags=["Projects"])
+api_router.include_router(novels_router, tags=["Novels"])
 
-# 写作
-api_router.include_router(writer_router, prefix="/writer", tags=["Writer"])
-api_router.include_router(optimizer_router, prefix="/optimizer", tags=["Optimizer"])
+# 写作 - writer.py 和 optimizer.py 已经定义了 prefix
+api_router.include_router(writer_router, tags=["Writer"])
+api_router.include_router(optimizer_router, tags=["Optimizer"])
 
-# 参考小说库
-api_router.include_router(reference_novels_router, prefix="/reference-novels", tags=["ReferenceNovels"])
+# 参考小说库 - reference_novels.py 已经定义了 prefix
+api_router.include_router(reference_novels_router, tags=["ReferenceNovels"])
 
-# LLM 配置
-api_router.include_router(llm_config_router, prefix="/llm-config", tags=["LLMConfig"])
+# LLM 配置 - llm_config.py 已经定义了 prefix
+api_router.include_router(llm_config_router, tags=["LLMConfig"])
 
-# 伏笔系统
-api_router.include_router(foreshadowing_router, prefix="/foreshadowing", tags=["Foreshadowing"])
+# 伏笔系统 - foreshadowing.py 已经定义了 prefix
+api_router.include_router(foreshadowing_router, tags=["Foreshadowing"])
 
-# 战力系统
+# 战力系统 - power_system.py 没有定义 prefix，保持原样或检查是否需要添加
 api_router.include_router(power_system_router, prefix="/power-system", tags=["PowerSystem"])
 
-# 管理员
-api_router.include_router(admin_router, prefix="/admin", tags=["Admin"])
+# 管理员 - admin.py 已经定义了 prefix
+api_router.include_router(admin_router, tags=["Admin"])
 
-# 更新日志
-api_router.include_router(updates_router, prefix="/updates", tags=["Updates"])
+# 更新日志 - updates.py 已经定义了 prefix
+api_router.include_router(updates_router, tags=["Updates"])
 
-# 数据分析
-api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
-api_router.include_router(analytics_enhanced_router, prefix="/analytics-enhanced", tags=["AnalyticsEnhanced"])
+# 数据分析 - analytics.py 和 analytics_enhanced.py 已经定义了 prefix
+api_router.include_router(analytics_router, tags=["Analytics"])
+api_router.include_router(analytics_enhanced_router, tags=["AnalyticsEnhanced"])
 
-# 写作偏好
-api_router.include_router(writing_preferences_router, prefix="/writing-preferences", tags=["WritingPreferences"])
+# 写作偏好 - writing_preferences.py 已经定义了 prefix
+api_router.include_router(writing_preferences_router, tags=["WritingPreferences"])
 
-# 章节审核
-api_router.include_router(review_router, prefix="/review", tags=["Review"])
+# 章节审核 - review.py 已经定义了 prefix
+api_router.include_router(review_router, tags=["Review"])
 
-# 写作模板
-api_router.include_router(writing_template_router, prefix="/writing-templates", tags=["WritingTemplates"])
+# 写作模板 - writing_template.py 已经定义了 prefix
+api_router.include_router(writing_template_router, tags=["WritingTemplates"])
 
-# 写作进度
-api_router.include_router(writer_progress_router, prefix="/writer-progress", tags=["WriterProgress"])
+# 写作进度 - writer_progress.py 已经定义了 prefix
+api_router.include_router(writer_progress_router, tags=["WriterProgress"])
 
-# 技能系统
-api_router.include_router(skill_router, prefix="/skills", tags=["Skills"])
+# 技能系统 - skill.py 已经定义了 prefix
+api_router.include_router(skill_router, tags=["Skills"])

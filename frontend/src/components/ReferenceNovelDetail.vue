@@ -5,7 +5,23 @@
     </div>
     <div v-if="novel" class="detail-card">
       <div class="detail-header">
-        <h3>{{ novel.title }}</h3>
+        <div class="detail-header-info">
+          <h3>{{ novel.title }}</h3>
+          <div class="detail-header-meta">
+            <n-input
+              v-model:value="author"
+              placeholder="作者"
+              size="small"
+              class="meta-input"
+            />
+            <n-input
+              v-model:value="genre"
+              placeholder="题材"
+              size="small"
+              class="meta-input"
+            />
+          </div>
+        </div>
         <n-tag :type="statusType">{{ statusLabel }}</n-tag>
       </div>
 
@@ -43,7 +59,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
-import { NButton, NTag } from 'naive-ui'
+import { NButton, NTag, NInput } from 'naive-ui'
 import { NovelAPI, type MemoryCard, type ReferenceNovelDetail, type ReferenceNovelUpdatePayload } from '@/api/novel'
 
 const props = defineProps<{ novelId?: number }>()
@@ -55,6 +71,8 @@ const novel = ref<ReferenceNovelDetail | null>(null)
 const outline = ref('')
 const styleSamples = ref('')
 const memoryCardJson = ref('')
+const author = ref('')
+const genre = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const retrying = ref(false)
@@ -144,6 +162,8 @@ const loadDetail = async (id: number, silent = false) => {
     outline.value = data.outline_content || ''
     styleSamples.value = data.style_samples_content || ''
     memoryCardJson.value = JSON.stringify(compactMemoryCard(data.memory_card), null, 2)
+    author.value = data.author || ''
+    genre.value = data.genre || ''
 
     if (data.status === 'analyzing') {
       if (!pollTimer) startPolling()
@@ -189,6 +209,8 @@ watch(
       outline.value = ''
       styleSamples.value = ''
       memoryCardJson.value = ''
+      author.value = ''
+      genre.value = ''
       message.value = ''
     }
   },
@@ -211,7 +233,9 @@ const save = async () => {
   const payload: ReferenceNovelUpdatePayload = {
     outline_content: outline.value,
     style_samples_content: styleSamples.value,
-    memory_card: parsedMemory
+    memory_card: parsedMemory,
+    author: author.value || undefined,
+    genre: genre.value || undefined
   }
 
   try {
@@ -241,12 +265,26 @@ const save = async () => {
 .detail-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.detail-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1;
 }
 .detail-header h3 {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+}
+.detail-header-meta {
+  display: flex;
+  gap: 0.5rem;
+}
+.meta-input {
+  width: 120px;
 }
 .analyzing-hint {
   font-size: 0.82rem;

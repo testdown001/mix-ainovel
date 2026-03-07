@@ -32,6 +32,7 @@ from ..services.reference_novel_library_service import ReferenceNovelLibraryServ
 from ..services.prompt_service import PromptService
 from ..services.writer_context_builder import default_context_builder
 from ..services.writer_progress_service import progress_service
+from ..services.writing_archive_service import WritingArchiveService
 from ..services.writer_shared import (
     build_blueprint_constraints_for_mission,
     generate_chapter_mission as _shared_generate_chapter_mission,
@@ -154,6 +155,21 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             chapter_number=chapter_number,
             chapter_title=outline_title if 'outline_title' in dir() else f"第{chapter_number}章"
         )
+
+        # 创建写作任务档案（圣旨下达）
+        archive_service = WritingArchiveService(self.session)
+        try:
+            archive = await archive_service.create_archive(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                user_command=None,  # 可以从 flow_config 中提取
+                writing_notes=writing_notes,
+            )
+            archive_id = archive.id
+            await archive_service.add_log(archive_id, "info", f"开始生成第{chapter_number}章")
+        except Exception as archive_err:
+            logger.warning(f"创建写作档案失败: {archive_err}")
+            archive_id = None
 
         await _emit_stage("starting", "开始生成章节")
 
@@ -1470,6 +1486,29 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             message=f"生成{version_count}个版本"
         )
         await progress_service.complete(project_id, chapter_number, success=True)
+
+        # 完成写作任务档案（奏章批复）
+        if archive_id:
+            try:
+                # 获取最佳版本的审核评分（如果有）
+                gatekeeper_score = None
+                if review_summaries and len(review_summaries) > best_version_index:
+                    best_review = review_summaries[best_version_index]
+                    gatekeeper_score = best_review.get("overall_score")
+
+                final_version_id = None
+                if variants and best_version_index < len(variants):
+                    final_version_id = variants[best_version_index].get("version_id")
+
+                await archive_service.complete_archive(
+                    archive_id,
+                    final_version_id=final_version_id,
+                    version_count=version_count,
+                    gatekeeper_score=gatekeeper_score,
+                )
+                await archive_service.add_log(archive_id, "info", f"章节生成完成，共{version_count}个版本")
+            except Exception as archive_err:
+                logger.warning(f"完成写作档案失败: {archive_err}")
 
         return {
             "project_id": project_id,

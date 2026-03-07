@@ -40,6 +40,8 @@ class ReferenceNovelBase(BaseModel):
 
 class ReferenceNovelCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
+    author: Optional[str] = Field(default=None, max_length=100)
+    genre: Optional[str] = Field(default=None, max_length=50)
 
 
 class ReferenceNovelUpdate(BaseModel):

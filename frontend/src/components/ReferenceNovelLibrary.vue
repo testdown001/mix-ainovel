@@ -50,6 +50,20 @@
             @keyup.enter="handleCreate"
             @keyup.escape="cancelAdd"
           />
+          <n-input
+            v-model:value="newAuthor"
+            placeholder="作者（可选）"
+            size="small"
+            @keyup.enter="handleCreate"
+            @keyup.escape="cancelAdd"
+          />
+          <n-input
+            v-model:value="newGenre"
+            placeholder="题材（可选）"
+            size="small"
+            @keyup.enter="handleCreate"
+            @keyup.escape="cancelAdd"
+          />
           <div class="add-form-actions">
             <n-button size="small" type="primary" @click="handleCreate" :loading="creating" :disabled="!newTitle.trim()">
               确认添加
@@ -64,7 +78,7 @@
             <div class="card-heading">
               <div class="card-info">
                 <h4>{{ novel.title }}</h4>
-                <p class="card-meta">{{ novel.author || '未知作者' }}</p>
+                <p class="card-meta">{{ novel.author || '未知作者' }} <span v-if="novel.genre"> · {{ novel.genre }}</span></p>
               </div>
               <n-tag :type="statusTag(novel.status)" size="small">{{ statusLabel(novel.status) }}</n-tag>
             </div>
@@ -144,6 +158,8 @@ const visible = ref(false)
 const novels = ref<ReferenceNovelSummary[]>([])
 const searchTerm = ref('')
 const newTitle = ref('')
+const newAuthor = ref('')
+const newGenre = ref('')
 const selectedNovelId = ref<number | null>(null)
 const loading = ref(false)
 const creating = ref(false)
@@ -165,6 +181,8 @@ watch(visible, (value) => {
   } else {
     showAddForm.value = false
     newTitle.value = ''
+    newAuthor.value = ''
+    newGenre.value = ''
   }
 })
 
@@ -204,11 +222,17 @@ const loadNovelsDeferred = () => {
 
 const handleCreate = async () => {
   if (!newTitle.value.trim()) return
-  const payload: ReferenceNovelCreatePayload = { title: newTitle.value.trim() }
+  const payload: ReferenceNovelCreatePayload = {
+    title: newTitle.value.trim(),
+    author: newAuthor.value.trim() || undefined,
+    genre: newGenre.value.trim() || undefined
+  }
   creating.value = true
   try {
     const created = await NovelAPI.createReferenceNovel(payload)
     newTitle.value = ''
+    newAuthor.value = ''
+    newGenre.value = ''
     showAddForm.value = false
     await loadNovels()
     selectedNovelId.value = created.id
@@ -220,6 +244,8 @@ const handleCreate = async () => {
 const cancelAdd = () => {
   showAddForm.value = false
   newTitle.value = ''
+  newAuthor.value = ''
+  newGenre.value = ''
 }
 
 const handleDelete = async (novelId: number) => {

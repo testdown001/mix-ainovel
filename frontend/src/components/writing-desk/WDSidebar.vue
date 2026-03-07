@@ -90,7 +90,7 @@
               >
                 <div>
                   <p class="text-sm font-medium">{{ novel.title }}</p>
-                  <p class="text-xs text-gray-500">{{ novel.genre || '未设定题材' }}</p>
+                  <p class="text-xs text-gray-500">{{ novel.author || '未知作者' }} <span v-if="novel.genre"> · {{ novel.genre }}</span><span v-if="!novel.genre"> · 未设定题材</span></p>
                 </div>
                 <span class="reference-panel-tag" :data-status="novel.status">{{ novel.status }}</span>
               </div>
