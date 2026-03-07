@@ -3,13 +3,25 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_FILE="$DEPLOY_DIR/.env"
+
+if [ ! -f "$ENV_FILE" ] && [ -f "$PROJECT_ROOT/.env" ]; then
+    ENV_FILE="$PROJECT_ROOT/.env"
+fi
+
 echo "========================================="
 echo "数据库迁移执行脚本"
 echo "========================================="
 
 # 加载环境变量
-if [ -f .env ]; then
-    source .env
+if [ -f "$ENV_FILE" ]; then
+    source <(tr -d '\r' < "$ENV_FILE")
+else
+    echo "错误：未找到环境变量文件，请提供 $DEPLOY_DIR/.env 或 $PROJECT_ROOT/.env"
+    exit 1
 fi
 
 # 数据库连接信息
@@ -41,7 +53,7 @@ echo "✓ MySQL 连接成功"
 echo ""
 
 # 创建备份
-BACKUP_DIR="./backups"
+BACKUP_DIR="$PROJECT_ROOT/backups"
 mkdir -p "$BACKUP_DIR"
 BACKUP_FILE="$BACKUP_DIR/backup_$(date +%Y%m%d_%H%M%S).sql"
 
@@ -51,7 +63,7 @@ echo "✓ 备份已保存到: $BACKUP_FILE"
 echo ""
 
 # 执行迁移脚本
-MIGRATION_DIR="./backend/db/migrations"
+MIGRATION_DIR="$PROJECT_ROOT/backend/db/migrations"
 
 echo "执行迁移脚本..."
 
@@ -79,6 +91,15 @@ mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
     ALTER TABLE chapter_outlines 
     ADD COLUMN IF NOT EXISTS metadata JSON NULL;
 " 2>/dev/null || echo "  ⚠ 字段可能已存在"
+
+# 4. 门下省审核机制 - chapter_reviews 表
+if [ -f "$MIGRATION_DIR/add_chapter_reviews.sql" ]; then
+    echo "  执行: add_chapter_reviews.sql"
+    mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" < "$MIGRATION_DIR/add_chapter_reviews.sql"
+    echo "  ✓ 完成"
+else
+    echo "  ⚠ 未找到: add_chapter_reviews.sql"
+fi
 
 echo ""
 echo "========================================="

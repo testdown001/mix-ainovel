@@ -100,6 +100,41 @@ function stopPolling() {
 
 onUnmounted(() => stopPolling())
 
+const compactJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    const compacted = value
+      .map((item) => compactJsonValue(item))
+      .filter((item) => item !== undefined)
+    return compacted.length > 0 ? compacted : undefined
+  }
+
+  if (value && typeof value === 'object') {
+    const compactedEntries = Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key, compactJsonValue(item)] as const)
+      .filter(([, item]) => item !== undefined)
+    return compactedEntries.length > 0 ? Object.fromEntries(compactedEntries) : undefined
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed ? trimmed : undefined
+  }
+
+  if (value === null || value === undefined) {
+    return undefined
+  }
+
+  return value
+}
+
+const compactMemoryCard = (value: MemoryCard | Record<string, unknown> | null | undefined) => {
+  const compacted = compactJsonValue(value)
+  if (compacted && typeof compacted === 'object' && !Array.isArray(compacted)) {
+    return compacted as Record<string, unknown>
+  }
+  return {}
+}
+
 const loadDetail = async (id: number, silent = false) => {
   if (!silent) loading.value = true
   message.value = ''
@@ -108,7 +143,7 @@ const loadDetail = async (id: number, silent = false) => {
     novel.value = data
     outline.value = data.outline_content || ''
     styleSamples.value = data.style_samples_content || ''
-    memoryCardJson.value = JSON.stringify(data.memory_card || {}, null, 2)
+    memoryCardJson.value = JSON.stringify(compactMemoryCard(data.memory_card), null, 2)
 
     if (data.status === 'analyzing') {
       if (!pollTimer) startPolling()
@@ -166,7 +201,7 @@ const save = async () => {
   message.value = ''
   let parsedMemory: MemoryCard
   try {
-    parsedMemory = JSON.parse(memoryCardJson.value || '{}') as MemoryCard
+    parsedMemory = compactMemoryCard(JSON.parse(memoryCardJson.value || '{}')) as MemoryCard
   } catch (err) {
     message.value = '记忆卡必须是合法 JSON'
     saving.value = false

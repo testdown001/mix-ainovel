@@ -47,6 +47,42 @@ class PromptService:
             _CACHE[name] = prompt_read
         return prompt_read.content
 
+    @staticmethod
+    def render_prompt(template: str, /, **context: object) -> str:
+        rendered: list[str] = []
+        index = 0
+        length = len(template)
+
+        while index < length:
+            char = template[index]
+            if char == "{":
+                if index + 1 < length and template[index + 1] == "{":
+                    rendered.append("{")
+                    index += 2
+                    continue
+                end = template.find("}", index + 1)
+                if end != -1:
+                    field_name = template[index + 1 : end]
+                    if field_name.isidentifier() and field_name in context:
+                        rendered.append(str(context[field_name]))
+                        index = end + 1
+                        continue
+                rendered.append("{")
+                index += 1
+                continue
+            if char == "}":
+                if index + 1 < length and template[index + 1] == "}":
+                    rendered.append("}")
+                    index += 2
+                    continue
+                rendered.append("}")
+                index += 1
+                continue
+            rendered.append(char)
+            index += 1
+
+        return "".join(rendered)
+
     async def list_prompts(self) -> list[PromptRead]:
         prompts = await self.repo.list_all()
         return [PromptRead.model_validate(item) for item in prompts]

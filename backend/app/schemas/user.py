@@ -1,5 +1,5 @@
 # AIMETA P=用户模式_用户和认证请求响应|R=用户结构_令牌结构|NR=不含业务逻辑|E=UserSchema_TokenSchema|X=internal|A=Pydantic模式|D=pydantic|S=none|RD=./README.ai
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional
 
 
@@ -41,13 +41,12 @@ class UserUpdateAdmin(UserUpdate):
 class User(UserBase):
     """对外暴露的用户信息。"""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: int = Field(..., description="用户主键")
     is_admin: bool = Field(default=False, description="是否为管理员")
     is_active: bool = Field(default=True, description="是否激活")
     must_change_password: bool = Field(default=False, description="是否需要强制修改密码")
-
-    class Config:
-        from_attributes = True
 
 
 class UserInDB(User):

@@ -16,7 +16,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.constants import CHAPTER_MAX_WORDS, CHAPTER_MIN_WORDS
+from ..core.constants import CHAPTER_MAX_WORDS, CHAPTER_MIN_WORDS, StageStatus, WritingStage
 from ..db.init_db import repair_schema_if_needed
 from ..db.session import AsyncSessionLocal
 from ..models.chapter_blueprint import ChapterBlueprint
@@ -31,6 +31,7 @@ from ..services.preview_generation_service import PreviewGenerationService
 from ..services.reference_novel_library_service import ReferenceNovelLibraryService
 from ..services.prompt_service import PromptService
 from ..services.writer_context_builder import default_context_builder
+from ..services.writer_progress_service import progress_service
 from ..services.writer_shared import (
     build_blueprint_constraints_for_mission,
     generate_chapter_mission as _shared_generate_chapter_mission,
@@ -147,7 +148,32 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 },
             )
 
+        # 创建进度追踪
+        await progress_service.create_progress(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            chapter_title=outline_title if 'outline_title' in dir() else f"第{chapter_number}章"
+        )
+
         await _emit_stage("starting", "开始生成章节")
+
+        # 更新阶段：初始化完成
+        await progress_service.update_stage(
+            project_id, chapter_number,
+            WritingStage.INIT,
+            StageStatus.COMPLETED,
+            progress=100,
+            message="初始化完成"
+        )
+
+        # 更新阶段：需求解析开始
+        await progress_service.update_stage(
+            project_id, chapter_number,
+            WritingStage.PARSE_REQUIREMENT,
+            StageStatus.RUNNING,
+            progress=10,
+            message="正在解析写作需求"
+        )
 
         stage_started = time.perf_counter()
         config = await self._resolve_config(flow_config)
@@ -899,6 +925,16 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             variants = [{"index": 0, "version_id": versions_models[0].id, "content": version["content"], "metadata": version.get("metadata")}]
             stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
 
+            # 更新进度：章节生成完成
+            await progress_service.update_stage(
+                project_id, chapter_number,
+                WritingStage.MAIN_WRITING,
+                StageStatus.COMPLETED,
+                progress=100,
+                message="章节生成完成"
+            )
+            await progress_service.complete(project_id, chapter_number, success=True)
+
             return {
                 "project_id": project_id,
                 "chapter_number": chapter_number,
@@ -1424,6 +1460,17 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             variants.append(variant)
 
         stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
+
+        # 更新进度：章节生成完成
+        await progress_service.update_stage(
+            project_id, chapter_number,
+            WritingStage.MAIN_WRITING,
+            StageStatus.COMPLETED,
+            progress=100,
+            message=f"生成{version_count}个版本"
+        )
+        await progress_service.complete(project_id, chapter_number, success=True)
+
         return {
             "project_id": project_id,
             "chapter_number": chapter_number,

@@ -92,3 +92,24 @@ export const requestJson = async <T = any>(url: string, options: ApiRequestOptio
 
   return (await response.text()) as T
 }
+
+const createHttpWrapper = () => ({
+  async get<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, { ...options, method: 'GET' })
+    return { data }
+  },
+  async post<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, { ...options, method: 'POST' })
+    return { data }
+  },
+  async put<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, { ...options, method: 'PUT' })
+    return { data }
+  },
+  async delete<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, { ...options, method: 'DELETE' })
+    return { data }
+  },
+})
+
+export const http = createHttpWrapper()

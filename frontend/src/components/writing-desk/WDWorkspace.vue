@@ -55,6 +55,17 @@
           </div>
 
           <div class="flex items-center gap-2">
+            <!-- 写作模板按钮 -->
+            <button
+              @click="showTemplateSelector = true"
+              class="md-btn md-btn-tonal md-ripple flex items-center gap-2 whitespace-nowrap"
+              title="使用写作模板"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd"></path>
+              </svg>
+              写作模板
+            </button>
             <button
               @click="$emit('toggleCodex')"
               class="md-btn md-btn-tonal md-ripple flex items-center gap-2 whitespace-nowrap"
@@ -218,6 +229,17 @@
         </div>
       </div>
     </div>
+
+    <!-- 写作模板选择器模态框 -->
+    <Teleport to="body">
+      <div v-if="showTemplateSelector" class="modal-overlay" @click.self="showTemplateSelector = false">
+        <div class="modal-content">
+          <TemplateSelector
+            @apply="handleTemplateApply"
+          />
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -226,6 +248,7 @@ import { computed, nextTick, ref, watch, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import { NovelAPI } from '@/api/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction } from '@/api/novel'
+import TemplateSelector from './TemplateSelector.vue'
 
 const beatColorMap: Record<string, string> = {
   setup: '#6B7280', provoke: '#F59E0B', twist: '#8B5CF6', payoff: '#EF4444', hook: '#3B82F6'
@@ -283,6 +306,7 @@ const confirmRegenerateChapter = async () => {
 
 // 剧情推演
 const showPrediction = ref(false)
+const showTemplateSelector = ref(false)
 const generatingPrediction = ref(false)
 const predictionPanelBlockedStatuses: Chapter['generation_status'][] = [
   'waiting_for_confirm',
@@ -340,6 +364,13 @@ const handleGeneratePrediction = async () => {
   } finally {
     generatingPrediction.value = false
   }
+}
+
+// 处理模板应用
+const handleTemplateApply = (prompt: string) => {
+  showTemplateSelector.value = false
+  console.log('应用模板 prompt:', prompt)
+  globalAlert.showMessage('模板已应用，请点击生成按钮开始写作')
 }
 
 const openPredictionPanel = async () => {
@@ -567,7 +598,8 @@ const currentComponentProps = computed(() => {
       chapterNumber: props.selectedChapterNumber,
       status: status,
       streamingDraftText: props.streamingDraftText || '',
-      streamingStage: props.streamingStage || null
+      streamingStage: props.streamingStage || null,
+      projectId: props.project?.id
     }
   }
 
@@ -636,6 +668,31 @@ const currentComponentProps = computed(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  margin: auto;
+  flex-shrink: 0;
 }
 
 .m3-prediction-panel ::-webkit-scrollbar {

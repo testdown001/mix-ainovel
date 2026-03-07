@@ -201,22 +201,22 @@ export interface ReferenceSearchResponse {
 }
 
 export interface MemoryCard {
-  genre: string
-  core_selling_point: string
-  target_audience: string
-  cool_point_patterns: string[]
-  pacing_traits: string
-  world_type: string
-  main_conflict_pattern: string
-  narrative_pov: string
-  foreshadowing_techniques: string[]
-  suspense_techniques: string[]
-  dialogue_style: string
-  scene_transition_style: string
-  emotion_control_pattern: string
-  commercial_data: Record<string, string>
-  takeaways: string[]
-  risks: string[]
+  genre?: string
+  core_selling_point?: string
+  target_audience?: string
+  cool_point_patterns?: string[]
+  pacing_traits?: string
+  world_type?: string
+  main_conflict_pattern?: string
+  narrative_pov?: string
+  foreshadowing_techniques?: string[]
+  suspense_techniques?: string[]
+  dialogue_style?: string
+  scene_transition_style?: string
+  emotion_control_pattern?: string
+  commercial_data?: Record<string, string>
+  takeaways?: string[]
+  risks?: string[]
 }
 
 export interface ReferenceNovelSummary {

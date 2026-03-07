@@ -24,7 +24,7 @@ class ReferenceNovel(Base):
 
     outline_content: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
     style_samples_content: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
-    memory_card: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    memory_card: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     genre: Mapped[Optional[str]] = mapped_column(String(128))
     author: Mapped[Optional[str]] = mapped_column(String(128))
@@ -36,4 +36,3 @@ class ReferenceNovel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     owner: Mapped["User"] = relationship("User", back_populates="reference_novels")
-

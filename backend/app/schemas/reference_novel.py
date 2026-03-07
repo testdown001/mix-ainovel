@@ -4,10 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MemoryCard(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     genre: str = Field(default="", description="题材定位")
     core_selling_point: str = Field(default="", description="核心卖点")
     target_audience: str = Field(default="", description="目标人群")
@@ -24,9 +26,6 @@ class MemoryCard(BaseModel):
     commercial_data: Dict[str, str] = Field(default_factory=dict)
     takeaways: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
-
-    class Config:
-        extra = "ignore"
 
 
 class ReferenceNovelBase(BaseModel):
@@ -55,6 +54,8 @@ class ReferenceNovelUpdate(BaseModel):
 
 
 class ReferenceNovelSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     title: str
     genre: Optional[str] = None
@@ -62,9 +63,6 @@ class ReferenceNovelSummary(BaseModel):
     status: str
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class ReferenceNovelDetail(ReferenceNovelSummary):

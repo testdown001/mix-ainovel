@@ -16,6 +16,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+DEPLOY_DIR="/root/AI-novel/deploy"
+ENV_FILE="$DEPLOY_DIR/.env"
 
 # 1. 检查系统
 echo ""
@@ -89,13 +91,15 @@ fi
 echo ""
 echo -e "${BLUE}4. 配置环境变量...${NC}"
 
-if [ ! -f ".env" ]; then
-    echo "创建 .env 文件..."
+if [ ! -f "$ENV_FILE" ]; then
+    echo "创建 deploy/.env 文件..."
     
     # 生成随机密钥
     SECRET_KEY=$(openssl rand -hex 32)
     
-    cat > .env << ENVEOF
+    mkdir -p "$DEPLOY_DIR"
+
+    cat > "$ENV_FILE" << ENVEOF
 # 应用配置
 SECRET_KEY=${SECRET_KEY}
 ENVIRONMENT=production
@@ -153,11 +157,11 @@ SMTP_PASSWORD=
 EMAIL_FROM=AI-Novel
 ENVEOF
 
-    echo -e "${GREEN}✓ .env 文件已创建${NC}"
-    echo -e "${YELLOW}⚠ 请编辑 .env 文件，配置你的 OPENAI_API_KEY${NC}"
-    echo -e "${YELLOW}   执行: nano /root/AI-novel/.env${NC}"
+    echo -e "${GREEN}✓ deploy/.env 文件已创建${NC}"
+    echo -e "${YELLOW}⚠ 请编辑 deploy/.env 文件，配置你的 OPENAI_API_KEY${NC}"
+    echo -e "${YELLOW}   执行: nano /root/AI-novel/deploy/.env${NC}"
 else
-    echo -e "${GREEN}✓ .env 文件已存在${NC}"
+    echo -e "${GREEN}✓ deploy/.env 文件已存在${NC}"
 fi
 
 # 5. 部署 Docker 容器
@@ -238,7 +242,7 @@ echo ""
 echo -e "${YELLOW}重要提示：${NC}"
 echo "1. 请立即修改管理员密码"
 echo "2. 配置 OPENAI_API_KEY（如果还没有）："
-echo "   nano /root/AI-novel/.env"
+echo "   nano /root/AI-novel/deploy/.env"
 echo "   然后重启服务: cd /root/AI-novel/deploy && docker compose restart"
 echo ""
 echo "常用命令："

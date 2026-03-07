@@ -2,7 +2,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChoiceOption(BaseModel):
@@ -115,6 +115,8 @@ class BlueprintForeshadowing(BaseModel):
 
 
 class Blueprint(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     title: str
     target_audience: str = ""
     genre: str = ""
@@ -128,12 +130,11 @@ class Blueprint(BaseModel):
     relationships: List[Relationship] = []
     chapter_outline: List[ChapterOutline] = []
     foreshadowings: List[BlueprintForeshadowing] = []
-    
-    class Config:
-        from_attributes = True
 
 
 class NovelProject(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     user_id: int
     title: str
@@ -143,8 +144,7 @@ class NovelProject(BaseModel):
     blueprint: Optional[Blueprint] = None
     chapters: List[Chapter] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class NovelProjectSummary(BaseModel):

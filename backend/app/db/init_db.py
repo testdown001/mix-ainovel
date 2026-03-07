@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ..core.config import settings
 from ..core.security import hash_password
-from ..models import Prompt, SystemConfig, User
+from ..models import Prompt, SystemConfig, User, WritingTemplate
 from .base import Base
 from .system_config_defaults import SYSTEM_CONFIG_DEFAULTS
 from .session import AsyncSessionLocal, engine

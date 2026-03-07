@@ -18,6 +18,7 @@ NC='\033[0m' # No Color
 SERVER_IP="45.15.185.52"
 SERVER_USER="root"
 PROJECT_DIR="/root/AI-novel"
+ENV_FILE="$PROJECT_DIR/deploy/.env"
 
 echo ""
 echo "目标服务器："
@@ -92,12 +93,12 @@ echo -e "${GREEN}✓ 代码已更新到最新版本${NC}"
 # 3. 检查 .env 文件
 echo ""
 echo "3. 检查环境配置..."
-if [ ! -f ".env" ]; then
-    echo -e "${RED}✗ 未找到 .env 文件${NC}"
-    echo "请先创建 .env 文件并配置环境变量"
+if [ ! -f "$ENV_FILE" ]; then
+    echo -e "${RED}✗ 未找到环境变量文件: $ENV_FILE${NC}"
+    echo "请先创建 deploy/.env 并配置环境变量"
     exit 1
 fi
-echo -e "${GREEN}✓ .env 文件存在${NC}"
+echo -e "${GREEN}✓ deploy/.env 文件存在${NC}"
 
 # 4. 检查 Docker
 echo ""

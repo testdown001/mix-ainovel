@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
@@ -12,6 +13,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ReferenceNovel, User
+from ..schemas.reference_novel import MemoryCard
+from ..utils.json_utils import (
+    remove_think_tags,
+    repair_json,
+    sanitize_json_like_text,
+    unwrap_markdown_json,
+)
 from .llm_service import LLMService
 from .prompt_service import PromptService
 from .web_search_service import WebSearchService
@@ -80,6 +88,9 @@ class ReferenceNovelLibraryService:
         if novel.user_id != user.id and not user.is_admin:
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="无权修改该参考小说")
 
+        if "memory_card" in payload:
+            payload["memory_card"] = self._normalize_memory_card_payload(payload["memory_card"])
+
         for key, value in payload.items():
             if hasattr(novel, key):
                 setattr(novel, key, value)
@@ -111,11 +122,33 @@ class ReferenceNovelLibraryService:
         try:
             search_result = await self.search_service._search_single_novel(novel_name=novel.title)
             search_context = search_result.get("result", "")
+            outline_prompt = await self.prompt_service.get_prompt("reference_outline_extraction")
+            style_prompt = await self.prompt_service.get_prompt("reference_style_extraction")
+            memory_card_prompt = await self.prompt_service.get_prompt("reference_memory_card_extraction")
+            search_llm_config = await self.llm_service._resolve_search_llm_config()
 
             outline, style, memory_card = await asyncio.gather(
-                self._extract_outline(novel.title, search_context, user_id),
-                self._extract_style(novel.title, search_context, user_id),
-                self._extract_memory_card(novel.title, search_context, user_id),
+                self._extract_outline(
+                    novel.title,
+                    search_context,
+                    user_id,
+                    prompt_template=outline_prompt,
+                    llm_config=search_llm_config,
+                ),
+                self._extract_style(
+                    novel.title,
+                    search_context,
+                    user_id,
+                    prompt_template=style_prompt,
+                    llm_config=search_llm_config,
+                ),
+                self._extract_memory_card(
+                    novel.title,
+                    search_context,
+                    user_id,
+                    prompt_template=memory_card_prompt,
+                    llm_config=search_llm_config,
+                ),
             )
 
             novel.outline_content = outline
@@ -134,47 +167,128 @@ class ReferenceNovelLibraryService:
             logger.exception("分析参考小说失败: %s", exc)
             raise
 
-    async def _extract_outline(self, novel_title: str, search_results: str, user_id: int) -> str:
-        prompt = await self.prompt_service.get_prompt("reference_outline_extraction")
+    async def _extract_outline(
+        self,
+        novel_title: str,
+        search_results: str,
+        user_id: int,
+        *,
+        prompt_template: Optional[str] = None,
+        llm_config: Optional[Dict[str, Optional[str]]] = None,
+    ) -> str:
+        prompt = prompt_template or await self.prompt_service.get_prompt("reference_outline_extraction")
         if not prompt:
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="缺失大纲提取提示词")
-        filled = prompt.format(novel_title=novel_title, search_results=search_results)
-        return await self.llm_service.get_search_llm_response(
+        filled = self.prompt_service.render_prompt(
+            prompt,
+            novel_title=novel_title,
+            search_results=search_results,
+        )
+        generated = await self.llm_service.get_search_llm_response(
             system_prompt="你是专业的小说分析助手，擅长从搜索结果中提取和整理小说大纲与人物档案。",
             conversation_history=[{"role": "user", "content": filled}],
             temperature=0.3,
             max_tokens=1600,
+            config_override=llm_config,
         )
+        return remove_think_tags(generated)
 
-    async def _extract_style(self, novel_title: str, search_results: str, user_id: int) -> str:
-        prompt = await self.prompt_service.get_prompt("reference_style_extraction")
+    async def _extract_style(
+        self,
+        novel_title: str,
+        search_results: str,
+        user_id: int,
+        *,
+        prompt_template: Optional[str] = None,
+        llm_config: Optional[Dict[str, Optional[str]]] = None,
+    ) -> str:
+        prompt = prompt_template or await self.prompt_service.get_prompt("reference_style_extraction")
         if not prompt:
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="缺失风格提取提示词")
-        filled = prompt.format(novel_title=novel_title, search_results=search_results)
-        return await self.llm_service.get_search_llm_response(
+        filled = self.prompt_service.render_prompt(
+            prompt,
+            novel_title=novel_title,
+            search_results=search_results,
+        )
+        generated = await self.llm_service.get_search_llm_response(
             system_prompt="你是专业的小说风格分析师，擅长从搜索结果中提取和模仿小说的写作风格。",
             conversation_history=[{"role": "user", "content": filled}],
             temperature=0.3,
             max_tokens=1200,
+            config_override=llm_config,
         )
+        return remove_think_tags(generated)
 
-    async def _extract_memory_card(self, novel_title: str, search_results: str, user_id: int) -> dict:
-        prompt = await self.prompt_service.get_prompt("reference_memory_card_extraction")
+    async def _extract_memory_card(
+        self,
+        novel_title: str,
+        search_results: str,
+        user_id: int,
+        *,
+        prompt_template: Optional[str] = None,
+        llm_config: Optional[Dict[str, Optional[str]]] = None,
+    ) -> Optional[dict]:
+        prompt = prompt_template or await self.prompt_service.get_prompt("reference_memory_card_extraction")
         if not prompt:
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="缺失记忆卡提取提示词")
-        filled = prompt.format(novel_title=novel_title, search_results=search_results)
+        filled = self.prompt_service.render_prompt(
+            prompt,
+            novel_title=novel_title,
+            search_results=search_results,
+        )
         generated = await self.llm_service.get_search_llm_response(
             system_prompt="你是专业的小说分析助手，擅长从搜索结果中提取小说的核心创作记忆卡。请以合法 JSON 格式回复。",
             conversation_history=[{"role": "user", "content": filled}],
             temperature=0.3,
             max_tokens=1200,
+            config_override=llm_config,
         )
-        payload = generated.strip()
+        payload = remove_think_tags(generated).strip()
+        if not payload:
+            return None
+
+        normalized = unwrap_markdown_json(payload)
+        sanitized = sanitize_json_like_text(normalized)
+        repaired = repair_json(sanitized)
         try:
-            return json.loads(payload)
+            parsed = json.loads(repaired)
         except json.JSONDecodeError:
             logger.warning("记忆卡 JSON 解析失败，尝试修复: %s", payload[:200])
-            return {}
+            return None
+
+        memory_card = self._normalize_memory_card_payload(parsed)
+        if memory_card is None:
+            logger.warning("记忆卡 JSON 缺少有效字段，已忽略: %s", payload[:200])
+        return memory_card
+
+    @staticmethod
+    def _normalize_memory_card_key(key: str) -> str:
+        normalized = key.strip().replace("-", "_").replace(" ", "_")
+        normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", normalized)
+        normalized = re.sub(r"_+", "_", normalized)
+        return normalized.lower().strip("_")
+
+    @classmethod
+    def _normalize_memory_card_payload(cls, payload: Any) -> Optional[dict]:
+        if not isinstance(payload, dict):
+            return None
+
+        candidates: List[dict] = [payload]
+        for wrapper_key in ("memory_card", "memoryCard", "card", "data", "result"):
+            wrapped = payload.get(wrapper_key)
+            if isinstance(wrapped, dict):
+                candidates.append(wrapped)
+
+        for candidate in candidates:
+            normalized_candidate = {
+                cls._normalize_memory_card_key(str(key)): value
+                for key, value in candidate.items()
+            }
+            normalized = MemoryCard.model_validate(normalized_candidate).model_dump(exclude_defaults=True)
+            if normalized:
+                return normalized
+
+        return None
 
     async def generate_fusion_dna(self, novels: List[ReferenceNovel], user_id: int) -> Dict[str, Any]:
         """从多本参考小说中提炼融合创作DNA。"""
@@ -213,7 +327,8 @@ class ReferenceNovelLibraryService:
             materials_parts.append("\n".join(parts))
 
         reference_materials = "\n\n---\n\n".join(materials_parts)
-        filled = prompt_template.format(
+        filled = self.prompt_service.render_prompt(
+            prompt_template,
             novel_count=len(novels),
             reference_materials=reference_materials,
         )
@@ -225,7 +340,7 @@ class ReferenceNovelLibraryService:
                 max_tokens=2000,
                 response_format="json_object",
             )
-            payload = generated.strip()
+            payload = remove_think_tags(generated).strip()
             return json.loads(payload)
         except (json.JSONDecodeError, Exception) as exc:
             logger.warning("融合DNA生成/解析失败: %s, 回退到简单融合", exc)

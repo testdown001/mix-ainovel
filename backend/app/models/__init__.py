@@ -59,6 +59,12 @@ from .entity_registry import EntityRegistry, EntityAlias
 # 新增：力量体系模型
 from .power_system import PowerSystem, PowerLevel
 
+# 新增：写作模板模型
+from .writing_template import WritingTemplate
+
+# 新增：章节审核模型（门下省机制）
+from .chapter_review import ChapterReview
+
 __all__ = [
     # 基础模型
     "AdminSetting",
@@ -107,4 +113,8 @@ __all__ = [
     # 力量体系模型
     "PowerSystem",
     "PowerLevel",
+    # 写作模板模型
+    "WritingTemplate",
+    # 章节审核模型（门下省机制）
+    "ChapterReview",
 ]

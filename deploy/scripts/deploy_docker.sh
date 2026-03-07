@@ -13,20 +13,26 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# 检查是否在项目根目录
-if [ ! -f "deploy/docker-compose.yml" ]; then
-    echo -e "${RED}错误：请在项目根目录执行此脚本${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_FILE="$DEPLOY_DIR/.env"
+ENV_EXAMPLE_FILE="$DEPLOY_DIR/.env.example"
+
+# 检查部署目录
+if [ ! -f "$DEPLOY_DIR/docker-compose.yml" ]; then
+    echo -e "${RED}错误：未找到部署配置文件 $DEPLOY_DIR/docker-compose.yml${NC}"
     exit 1
 fi
 
 # 检查 .env 文件
-if [ ! -f ".env" ]; then
-    echo -e "${YELLOW}警告：未找到 .env 文件${NC}"
+if [ ! -f "$ENV_FILE" ]; then
+    echo -e "${YELLOW}警告：未找到环境配置文件 $ENV_FILE${NC}"
     echo "是否使用示例配置创建 .env 文件？(y/n)"
     read -r response
     if [ "$response" = "y" ]; then
-        if [ -f ".env.example" ]; then
-            cp .env.example .env
+        if [ -f "$ENV_EXAMPLE_FILE" ]; then
+            cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
             echo -e "${GREEN}✓ 已创建 .env 文件，请编辑后重新运行脚本${NC}"
             exit 0
         else
@@ -40,7 +46,7 @@ if [ ! -f ".env" ]; then
 fi
 
 # 加载环境变量
-source .env
+source <(tr -d '\r' < "$ENV_FILE")
 
 # 检查必需的环境变量
 REQUIRED_VARS=(
@@ -100,7 +106,7 @@ if [ "$DB_PROVIDER" = "mysql" ]; then
     read -r response
     if [ "$response" = "y" ]; then
         echo "执行数据库迁移..."
-        bash deploy/scripts/run_migrations.sh
+        bash "$SCRIPT_DIR/run_migrations.sh"
         echo -e "${GREEN}✓ 数据库迁移完成${NC}"
     fi
 fi
@@ -108,14 +114,14 @@ fi
 # 停止旧容器
 echo ""
 echo "停止旧容器..."
-cd deploy
+cd "$DEPLOY_DIR"
 docker-compose $COMPOSE_PROFILES down || true
-cd ..
+cd "$PROJECT_ROOT"
 
 # 构建镜像
 echo ""
 echo "构建 Docker 镜像..."
-cd deploy
+cd "$DEPLOY_DIR"
 docker-compose $COMPOSE_PROFILES build --no-cache
 
 # 启动容器

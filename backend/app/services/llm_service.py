@@ -873,9 +873,10 @@ class LLMService:
         temperature: float = 0.4,
         timeout: float = 120.0,
         max_tokens: Optional[int] = None,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
     ) -> str:
         """使用搜索专用模型生成响应，不走用户级配置，不扣用户配额。"""
-        config = await self._resolve_search_llm_config()
+        config = config_override or await self._resolve_search_llm_config()
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
         return await self._stream_and_collect(
             messages,

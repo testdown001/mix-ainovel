@@ -1,0 +1,46 @@
+# Skill Definition Schema
+# This file defines the structure for Skills in Arboris-Novel
+
+# Example skill definition
+id: prose_polish
+name: 文笔润色
+description: 提升文章文笔质量，使描写更生动
+version: 1.0.0
+author: arboris
+icon: ✍️
+category: polish
+
+# Trigger conditions
+trigger:
+  type: manual  # auto | manual | conditional
+  conditions:
+    - chapter_type: [高潮, 过渡, 情感]
+    - word_count: [2000, 10000]
+
+# Capabilities (multiple prompts that can be applied)
+capabilities:
+  - name: 精彩句式优化
+    prompt_template: |
+      请优化以下段落，使其更加精彩：
+      {{ content }}
+
+      要求：
+      - 保持原意
+      - 增加画面感
+      - 使用修辞手法
+
+  - name: 对话润色
+    prompt_template: |
+      请润色以下对话，使其更贴合角色：
+      {{ dialogue }}
+
+      角色设定：{{ character_profile }}
+
+# Configuration parameters
+config:
+  intensity:
+    - subtle
+    - moderate
+    - strong
+  default: moderate
+  preserve_original: boolean

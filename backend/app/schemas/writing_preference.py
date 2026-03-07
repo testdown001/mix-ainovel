@@ -17,8 +17,7 @@ class WritingPreferenceCreate(WritingPreferenceBase):
 class WritingPreferenceRead(WritingPreferenceBase):
     user_id: int
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class PresetInfo(BaseModel):
