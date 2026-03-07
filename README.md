@@ -1,22 +1,5 @@
 # Arboris-Novel | 网文作者的 AI 写作助手
 
-![GitHub stars](https://img.shields.io/github/stars/t59688/arboris-novel?style=social)
-![GitHub forks](https://img.shields.io/github/forks/t59688/arboris-novel?style=social)
-![GitHub issues](https://img.shields.io/github/issues/t59688/arboris-novel)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![Vue3](https://img.shields.io/badge/Vue-3-green)
-![FastAPI](https://img.shields.io/badge/FastAPI-orange)
-
-**在线体验：** [https://arboris.aozhiai.com](https://arboris.aozhiai.com)
-
-**交流群：**
-<p align="center">
-  <img width="200" alt="交流群二维码" src="https://github.com/user-attachments/assets/6d4fe420-f8ae-4fe4-883d-235eb576c83b" />
-</p>
-
----
-
 ## 简介
 
 Arboris 是一个面向中文网文作者的 AI 辅助写作平台。它不是替代作者创作，而是作为"编辑团队"帮助作者：
@@ -234,39 +217,5 @@ A: 启用"角色一致性检查"功能，由吏部 Agent 严格把关。
 
 **Q: 想用自己部署的模型？**  
 A: 配置 `OPENAI_API_BASE_URL` 指向你的 Ollama 或其他兼容 API。
-
----
-
-## 界面预览
-
-<p align="center">
-  <img width="1200" alt="写作桌面" src="https://github.com/user-attachments/assets/c831d746-8c1a-4ce8-aa1c-9b852da15c11" />
-</p>
-<p align="center">写作桌面</p>
-
-<p align="center">
-  <img width="1200" alt="作品管理" src="https://github.com/user-attachments/assets/a52d0214-bc1b-4792-8a2b-267b09e47379" />
-</p>
-<p align="center">作品管理</p>
-
----
-
-## 参与贡献
-
-欢迎 Star、Fork、提交 Issue 和 PR！
-
----
-
-## License
-
-MIT License - 详见 [LICENSE](LICENSE) 文件。
-
----
-
-## 相关项目
-
-- [novel-kit](https://github.com/t59688/novel-kit) - 另一个写作辅助工具
-
----
 
 *祝你写作顺利，故事精彩！*
