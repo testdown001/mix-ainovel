@@ -30,10 +30,13 @@ class MenxiaAgent(BaseAgent):
 
     async def _handle_review_request(self, context: AgentContext) -> AgentResult:
         """处理审核请求"""
+        await self.emit_stage("agent:menxia:start", "开始质量审核")
+
         chapter = context.metadata.get("chapter", {})
         content = chapter.get("content", "")
 
         if not content:
+            await self.emit_stage("agent:menxia:done", "审核跳过：无内容")
             return AgentResult(
                 status="failed",
                 error="No content to review"
@@ -52,12 +55,14 @@ class MenxiaAgent(BaseAgent):
             passed = review_result.get("passed", False)
 
             if passed:
+                await self.emit_stage("agent:menxia:done", "审核通过")
                 await self._broadcast_completion(context, review_result)
                 return AgentResult(
                     status="completed",
                     output={"review": review_result}
                 )
             else:
+                await self.emit_stage("agent:menxia:done", "审核未通过")
                 return AgentResult(
                     status="failed",
                     output={"review": review_result},

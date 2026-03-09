@@ -10,6 +10,7 @@ from fastapi import HTTPException, status
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalServerError, PermissionDeniedError, AuthenticationError, NotFoundError, BadRequestError
 
 from ..core.config import settings
+from ..db.session import AsyncSessionLocal
 from ..repositories.llm_config_repository import LLMConfigRepository
 from ..repositories.system_config_repository import SystemConfigRepository
 from ..repositories.user_repository import UserRepository
@@ -40,6 +41,7 @@ class LLMService:
         self.admin_setting_service = AdminSettingService(session)
         self.usage_service = UsageService(session)
         self._embedding_dimensions: Dict[str, int] = {}
+        self._db_access_lock = asyncio.Lock()
 
     @classmethod
     def _get_or_create_client(cls, api_format: str, api_key: str, base_url: Optional[str]) -> Any:
@@ -378,6 +380,14 @@ class LLMService:
             if response_format is not None:
                 logger.info("跳过 response_format=%s（Claude thinking 模型不兼容），model=%s", response_format, model_name)
                 effective_response_format = None
+
+        # Gemini 系列模型不支持 response_format，前置跳过避免首次 400 错误
+        if "gemini" in model_name.lower() and effective_response_format is not None:
+            logger.info(
+                "跳过 response_format=%s（Gemini 模型不兼容），model=%s",
+                effective_response_format, model_name,
+            )
+            effective_response_format = None
 
         # Gemini 系列模型输出上限较高，自动提升 max_tokens 下限
         _GEMINI_MIN_MAX_TOKENS = 65536
@@ -740,7 +750,7 @@ class LLMService:
                 detail=f"AI 未返回有效内容（结束原因: {finish_reason or '未知'}），请稍后重试或联系管理员"
             )
 
-        await self.usage_service.increment("api_request_count")
+        await self._increment_usage_metric("api_request_count")
         logger.info(
             "LLM response success: base_url=%s model=%s user_id=%s chars=%d",
             config.get("base_url"),
@@ -751,97 +761,123 @@ class LLMService:
         # P2: 使用缓存客户端，不再逐次关闭
         return full_response
 
+    async def _increment_usage_metric(self, key: str) -> None:
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                await UsageService(session).increment(key)
+
+    async def _get_config_value_for_session(self, session, key: str) -> Optional[str]:
+        record = await SystemConfigRepository(session).get_by_key(key)
+        if record:
+            return record.value
+        env_key = key.upper().replace(".", "_")
+        return os.getenv(env_key)
+
     async def _resolve_llm_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
-        if user_id:
-            config = await self.llm_repo.get_by_user(user_id)
-            if config and config.llm_provider_api_key:
-                return {
-                    "api_key": config.llm_provider_api_key,
-                    "base_url": self._normalize_base_url(config.llm_provider_url),
-                    "model": config.llm_provider_model,
-                    "api_format": config.llm_provider_api_format,
-                }
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                llm_repo = LLMConfigRepository(session)
+                user_repo = UserRepository(session)
+                admin_setting_service = AdminSettingService(session)
 
-        # 检查每日使用次数限制
-        if user_id:
-            await self._enforce_daily_limit(user_id)
+                if user_id:
+                    config = await llm_repo.get_by_user(user_id)
+                    if config and config.llm_provider_api_key:
+                        return {
+                            "api_key": config.llm_provider_api_key,
+                            "base_url": self._normalize_base_url(config.llm_provider_url),
+                            "model": config.llm_provider_model,
+                            "api_format": config.llm_provider_api_format,
+                        }
 
-        api_key = await self._get_config_value("llm.api_key")
-        base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
-        model = await self._get_config_value("llm.model")
-        api_format = await self._get_config_value("llm.api_format")
+                if user_id:
+                    limit_str = await admin_setting_service.get("daily_request_limit", "100")
+                    limit = int(limit_str or 10)
+                    used = await user_repo.get_daily_request(user_id)
+                    if used >= limit:
+                        raise HTTPException(
+                            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="今日请求次数已达上限，请明日再试或设置自定义 API Key。",
+                        )
+                    await user_repo.increment_daily_request(user_id)
+                    await session.commit()
 
-        if not api_key:
-            logger.error("未配置默认 LLM API Key，且用户 %s 未设置自定义 API Key", user_id)
-            raise HTTPException(
-                status_code=500,
-                detail="未配置默认 LLM API Key，请联系管理员配置系统默认 API Key 或在个人设置中配置自定义 API Key"
-            )
+                api_key = await self._get_config_value_for_session(session, "llm.api_key")
+                base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
+                model = await self._get_config_value_for_session(session, "llm.model")
+                api_format = await self._get_config_value_for_session(session, "llm.api_format")
 
-        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                if not api_key:
+                    logger.error("未配置默认 LLM API Key，且用户 %s 未设置自定义 API Key", user_id)
+                    raise HTTPException(
+                        status_code=500,
+                        detail="未配置默认 LLM API Key，请联系管理员配置系统默认 API Key 或在个人设置中配置自定义 API Key"
+                    )
+
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
 
     async def _resolve_optimize_llm_config(self) -> Dict[str, Optional[str]]:
         """解析润色优化专用 LLM 配置，未设置的字段回退到默认 llm.* 配置。"""
-        opt_api_key = await self._get_config_value("llm_optimize.api_key")
-        opt_base_url = self._normalize_base_url(await self._get_config_value("llm_optimize.base_url"))
-        opt_model = await self._get_config_value("llm_optimize.model")
-        opt_api_format = await self._get_config_value("llm_optimize.api_format")
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                opt_api_key = await self._get_config_value_for_session(session, "llm_optimize.api_key")
+                opt_base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm_optimize.base_url"))
+                opt_model = await self._get_config_value_for_session(session, "llm_optimize.model")
+                opt_api_format = await self._get_config_value_for_session(session, "llm_optimize.api_format")
 
-        # 任一字段有值即视为启用了独立配置，未设字段回退 llm.*
-        has_any = any(v for v in (opt_api_key, opt_base_url, opt_model, opt_api_format))
-        if not has_any:
-            # 全部留空，完全回退到默认配置（不走用户级配置）
-            api_key = await self._get_config_value("llm.api_key")
-            base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
-            model = await self._get_config_value("llm.model")
-            if not api_key:
-                raise HTTPException(
-                    status_code=500,
-                    detail="未配置润色优化模型，且默认 LLM API Key 也未设置",
-                )
-            return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
+                has_any = any(v for v in (opt_api_key, opt_base_url, opt_model, opt_api_format))
+                if not has_any:
+                    api_key = await self._get_config_value_for_session(session, "llm.api_key")
+                    base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
+                    model = await self._get_config_value_for_session(session, "llm.model")
+                    if not api_key:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="未配置润色优化模型，且默认 LLM API Key 也未设置",
+                        )
+                    return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
 
-        # 逐字段回退
-        api_key = opt_api_key or await self._get_config_value("llm.api_key")
-        base_url = opt_base_url or self._normalize_base_url(await self._get_config_value("llm.base_url"))
-        model = opt_model or await self._get_config_value("llm.model")
-        api_format = opt_api_format  # 留空时由 _resolve_api_format 自动判断
+                api_key = opt_api_key or await self._get_config_value_for_session(session, "llm.api_key")
+                base_url = opt_base_url or self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
+                model = opt_model or await self._get_config_value_for_session(session, "llm.model")
+                api_format = opt_api_format
 
-        if not api_key:
-            raise HTTPException(
-                status_code=500,
-                detail="润色优化模型与默认 LLM 均未配置 API Key",
-            )
+                if not api_key:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="润色优化模型与默认 LLM 均未配置 API Key",
+                    )
 
-        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
 
     async def _resolve_search_llm_config(self) -> Dict[str, Optional[str]]:
         """解析参考小说搜索专用 LLM 配置；未启用 llm_search.* 时返回未配置错误。"""
-        search_api_key = await self._get_config_value("llm_search.api_key")
-        search_base_url = self._normalize_base_url(await self._get_config_value("llm_search.base_url"))
-        search_model = await self._get_config_value("llm_search.model")
-        search_api_format = await self._get_config_value("llm_search.api_format")
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                search_api_key = await self._get_config_value_for_session(session, "llm_search.api_key")
+                search_base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm_search.base_url"))
+                search_model = await self._get_config_value_for_session(session, "llm_search.model")
+                search_api_format = await self._get_config_value_for_session(session, "llm_search.api_format")
 
-        # 搜索配置默认按“显式启用”处理：完全留空表示关闭搜索能力
-        has_any = any(v for v in (search_api_key, search_base_url, search_model, search_api_format))
-        if not has_any:
-            raise HTTPException(
-                status_code=503,
-                detail="未配置参考小说搜索模型（llm_search.*），已跳过网络搜索",
-            )
+                has_any = any(v for v in (search_api_key, search_base_url, search_model, search_api_format))
+                if not has_any:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="未配置参考小说搜索模型（llm_search.*），已跳过网络搜索",
+                    )
 
-        api_key = search_api_key or await self._get_config_value("llm.api_key")
-        base_url = search_base_url or self._normalize_base_url(await self._get_config_value("llm.base_url"))
-        model = search_model or await self._get_config_value("llm.model")
-        api_format = search_api_format
+                api_key = search_api_key or await self._get_config_value_for_session(session, "llm.api_key")
+                base_url = search_base_url or self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
+                model = search_model or await self._get_config_value_for_session(session, "llm.model")
+                api_format = search_api_format
 
-        if not api_key:
-            raise HTTPException(
-                status_code=500,
-                detail="搜索模型与默认 LLM 均未配置 API Key",
-            )
+                if not api_key:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="搜索模型与默认 LLM 均未配置 API Key",
+                    )
 
-        return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
 
     async def get_optimize_llm_response(
         self,
@@ -1002,21 +1038,22 @@ class LLMService:
         return int(vector_size_str) if vector_size_str else None
 
     async def _enforce_daily_limit(self, user_id: int) -> None:
-        limit_str = await self.admin_setting_service.get("daily_request_limit", "100")
-        limit = int(limit_str or 10)
-        used = await self.user_repo.get_daily_request(user_id)
-        if used >= limit:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="今日请求次数已达上限，请明日再试或设置自定义 API Key。",
-            )
-        await self.user_repo.increment_daily_request(user_id)
-        await self.session.commit()
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                admin_setting_service = AdminSettingService(session)
+                user_repo = UserRepository(session)
+                limit_str = await admin_setting_service.get("daily_request_limit", "100")
+                limit = int(limit_str or 10)
+                used = await user_repo.get_daily_request(user_id)
+                if used >= limit:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="今日请求次数已达上限，请明日再试或设置自定义 API Key。",
+                    )
+                await user_repo.increment_daily_request(user_id)
+                await session.commit()
 
     async def _get_config_value(self, key: str) -> Optional[str]:
-        record = await self.system_config_repo.get_by_key(key)
-        if record:
-            return record.value
-        # 兼容环境变量，首次迁移时无需立即写入数据库
-        env_key = key.upper().replace(".", "_")
-        return os.getenv(env_key)
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                return await self._get_config_value_for_session(session, key)

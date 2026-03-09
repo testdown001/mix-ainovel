@@ -456,3 +456,113 @@ class ForeshadowingService:
                 reminders.append(reminder)
         
         return reminders
+
+    async def extract_foreshadowings_from_chapter(
+        self,
+        *,
+        project_id: str,
+        chapter_id: int,
+        chapter_number: int,
+        chapter_content: str,
+        llm_service,
+        prompt_service,
+        user_id: int = 0,
+    ) -> Dict[str, Any]:
+        """从章节正文中自动提取伏笔操作（plant/develop/resolve）。
+
+        使用LLM分析章节内容，自动：
+        - plant类型：创建新伏笔（is_manual=False）
+        - develop类型：记录统计
+        - resolve类型：标记已回收
+        """
+        import json
+        from ..utils.json_utils import remove_think_tags, unwrap_markdown_json, repair_json
+
+        extraction_prompt = await prompt_service.get_prompt("foreshadowing_extraction")
+        if not extraction_prompt:
+            logger.warning("未配置 foreshadowing_extraction 提示词，跳过伏笔提取")
+            return {"planted": 0, "developed": 0, "resolved": 0}
+
+        # 获取未回收伏笔列表供LLM参考
+        unresolved = await self.get_unresolved_foreshadowings(project_id, chapter_number)
+        unresolved_text = ""
+        if unresolved:
+            items = []
+            for f in unresolved[:10]:
+                items.append(f"ID={f.id} | {f.content} | 关键词：{','.join(f.keywords or [])}")
+            unresolved_text = "\n".join(items)
+
+        user_input = f"""[章节正文]
+{chapter_content[:6000]}
+
+[未回收伏笔列表]
+{unresolved_text or "暂无已记录的伏笔"}
+"""
+        try:
+            response = await llm_service.get_llm_response(
+                system_prompt=extraction_prompt,
+                conversation_history=[{"role": "user", "content": user_input}],
+                temperature=0.2,
+                user_id=user_id,
+                timeout=60.0,
+            )
+            cleaned = remove_think_tags(response)
+            if not cleaned:
+                cleaned = response
+            normalized = unwrap_markdown_json(cleaned)
+            if not normalized:
+                logger.warning("伏笔提取JSON为空")
+                return {"planted": 0, "developed": 0, "resolved": 0}
+            try:
+                result = json.loads(normalized)
+            except json.JSONDecodeError:
+                repaired = repair_json(normalized)
+                result = json.loads(repaired)
+
+            actions = result.get("foreshadowing_actions", [])
+            stats = {"planted": 0, "developed": 0, "resolved": 0}
+
+            for action_item in actions:
+                action_type = action_item.get("action", "")
+
+                if action_type == "plant":
+                    try:
+                        await self.create_foreshadowing(
+                            project_id=project_id,
+                            chapter_id=chapter_id,
+                            chapter_number=chapter_number,
+                            content=action_item.get("content", ""),
+                            foreshadowing_type=action_item.get("foreshadowing_type", "hint"),
+                            keywords=action_item.get("keywords", []),
+                            is_manual=False,
+                            ai_confidence=0.7,
+                        )
+                        stats["planted"] += 1
+                    except Exception as e:
+                        logger.warning("自动创建伏笔失败: %s", e)
+
+                elif action_type == "resolve":
+                    matched_id = action_item.get("matched_existing_id")
+                    if matched_id:
+                        try:
+                            await self.resolve_foreshadowing(
+                                foreshadowing_id=int(matched_id),
+                                resolved_chapter_id=chapter_id,
+                                resolved_chapter_number=chapter_number,
+                            )
+                            stats["resolved"] += 1
+                        except Exception as e:
+                            logger.warning("自动回收伏笔失败: %s", e)
+
+                elif action_type == "develop":
+                    stats["developed"] += 1
+
+            logger.info(
+                "伏笔提取完成: planted=%d, developed=%d, resolved=%d",
+                stats["planted"], stats["developed"], stats["resolved"],
+            )
+            return stats
+
+        except Exception as e:
+            logger.warning("伏笔提取失败: %s", e)
+            return {"planted": 0, "developed": 0, "resolved": 0}

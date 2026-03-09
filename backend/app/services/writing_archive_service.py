@@ -1,6 +1,7 @@
 # AIMETA P=写作任务档案服务_管理档案生命周期|R=档案创建_查询_统计|NR=不含API路由|E=WritingArchiveService|X=internal|A=Service|D=sqlalchemy|S=db
 """写作任务档案服务 - 管理每个写作任务的完整过程记录（完整版奏折系统）"""
 import logging
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -15,12 +16,13 @@ logger = logging.getLogger(__name__)
 def generate_imperial_edict_id(project_id: str, chapter_number: int) -> str:
     """生成奏折唯一标识
 
-    格式: ed_{日期}_{项目ID前6位}_{章节号}
-    例如: ed_20240315_a1b2c3_5
+    格式: ed_{日期}_{项目ID前6位}_{章节号}_{随机后缀}
+    例如: ed_20240315_a1b2c3_5_f7e2
     """
     date_str = datetime.utcnow().strftime("%Y%m%d")
     project_prefix = project_id[:6] if len(project_id) >= 6 else project_id
-    return f"ed_{date_str}_{project_prefix}_{chapter_number}"
+    short_uuid = uuid.uuid4().hex[:4]
+    return f"ed_{date_str}_{project_prefix}_{chapter_number}_{short_uuid}"
 
 
 class WritingArchiveService:

@@ -2,10 +2,14 @@
 """
 统一 Rerank 工具模块
 
-提供单一入口调用外部 Reranker API（Jina AI 等），
+提供单一入口调用外部 Reranker API，
 并将 reranker 分数与原始分数加权组合，避免直接覆盖。
+
+API 地址和密钥复用系统配置中的 embedding 配置（embedding.base_url / embedding.api_key），
+不再使用独立的 reranker 环境变量。
 """
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -17,13 +21,51 @@ logger = logging.getLogger(__name__)
 RERANK_SCORE_WEIGHT = 0.6
 
 
+async def _get_embedding_config(key: str) -> Optional[str]:
+    """从 system_configs 表读取 embedding 配置，回退到环境变量。"""
+    try:
+        from ..db.session import AsyncSessionLocal
+        from ..models.system_config import SystemConfig
+        from sqlalchemy import select
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(SystemConfig.value).where(SystemConfig.key == key)
+            )
+            value = result.scalar_one_or_none()
+            if value:
+                return value
+    except Exception as e:
+        logger.debug("从数据库读取配置 %s 失败，回退环境变量: %s", key, e)
+
+    env_key = key.upper().replace(".", "_")
+    return os.getenv(env_key)
+
+
 def is_rerank_enabled() -> bool:
-    """检查 reranker 是否已配置且启用。"""
-    return bool(
-        getattr(settings, "rag_reranker_enabled", False)
-        and getattr(settings, "rag_reranker_api_url", None)
-        and getattr(settings, "rag_reranker_api_key", None)
-    )
+    """检查 reranker 是否已启用（同步检查环境变量标志）。"""
+    return bool(getattr(settings, "rag_reranker_enabled", False))
+
+
+async def _resolve_rerank_config() -> tuple:
+    """解析 rerank 的 API 地址、密钥和模型。
+
+    优先从 system_configs 表读取 embedding 配置，
+    在 embedding.base_url 基础上拼接 /rerank 作为 rerank 端点。
+    """
+    base_url = await _get_embedding_config("embedding.base_url")
+    api_key = await _get_embedding_config("embedding.api_key")
+    model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
+
+    if not base_url or not api_key:
+        return None, None, model
+
+    # 在 embedding base_url 基础上拼接 /rerank
+    rerank_url = str(base_url).rstrip("/")
+    if not rerank_url.endswith("/rerank"):
+        rerank_url += "/rerank"
+
+    return rerank_url, api_key, model
 
 
 async def rerank_documents(
@@ -40,11 +82,12 @@ async def rerank_documents(
         ``[{"index": int, "relevance_score": float, "combined_score": float}, ...]``
         失败时返回 ``None``（调用方应保持原排序）。
     """
-    api_url = getattr(settings, "rag_reranker_api_url", None)
-    api_key = getattr(settings, "rag_reranker_api_key", None)
-    model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
+    if not documents:
+        return None
 
-    if not api_url or not api_key or not documents:
+    api_url, api_key, model = await _resolve_rerank_config()
+    if not api_url or not api_key:
+        logger.debug("Rerank 配置不完整（embedding.base_url 或 embedding.api_key 未设置），跳过重排")
         return None
 
     truncated = [d[:800] for d in documents]
@@ -53,7 +96,7 @@ async def rerank_documents(
         from .llm_tool import _get_ssl_verify
         async with httpx.AsyncClient(timeout=30.0, verify=_get_ssl_verify()) as client:
             response = await client.post(
-                str(api_url),
+                api_url,
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
@@ -98,7 +141,7 @@ async def rerank_documents(
             })
 
         scored.sort(key=lambda x: x["combined_score"], reverse=True)
-        logger.info("Rerank 完成: %d 个文档已重排", len(scored))
+        logger.info("Rerank 完成: %d 个文档已重排 (url=%s)", len(scored), api_url)
         return scored
 
     except Exception as exc:

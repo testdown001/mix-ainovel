@@ -28,6 +28,8 @@ class ShangshuAgent(BaseAgent):
         self._version_events: Dict[str, asyncio.Event] = {}
 
     async def process(self, context: AgentContext) -> AgentResult:
+        await self.emit_stage("agent:shangshu:start", "开始调度兵部生成章节")
+
         mission = context.mission
         writing_prompt = context.metadata.get("writing_prompt")
         context_data = context.metadata.get("context_data", {})
@@ -43,6 +45,8 @@ class ShangshuAgent(BaseAgent):
             version_count,
         )
 
+        await self.emit_stage("agent:shangshu:waiting", "等待兵部生成版本...")
+
         chapter_versions = await self._wait_for_versions(context.task_id, timeout=300)
 
         if not chapter_versions:
@@ -52,6 +56,7 @@ class ShangshuAgent(BaseAgent):
             )
 
         if context.config.get("enable_consistency_check"):
+            await self.emit_stage("agent:shangshu:consistency", "调度吏部进行一致性检查")
             await self._dispatch_libu(
                 context.task_id,
                 context.project_id,
@@ -60,6 +65,8 @@ class ShangshuAgent(BaseAgent):
             )
 
         result = await self._aggregate_results(chapter_versions)
+
+        await self.emit_stage("agent:shangshu:done", f"收到 {len(chapter_versions)} 个版本，转交门下省审核")
 
         await self._dispatch_menxia(
             context.task_id,

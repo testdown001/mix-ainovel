@@ -23,7 +23,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from ...core.config import settings
 from ...core.dependencies import get_current_user
@@ -67,6 +67,12 @@ from ...services.platinum_writing_context import (
     build_foreshadowing_urgency_brief,
     build_hook_continuity_brief,
     build_platinum_rhythm_brief,
+)
+from ...utils.chapter_diagnostics import (
+    analyze_chapter_text,
+    extract_retrieval_metrics,
+    extract_review_issues,
+    extract_review_scores,
 )
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
 from ...repositories.system_config_repository import SystemConfigRepository
@@ -288,6 +294,7 @@ async def advanced_generate_chapter(
         )
         if exc.status_code >= 500:
             try:
+                await session.rollback()
                 await _set_chapter_failed_status(
                     session,
                     request.project_id,
@@ -310,6 +317,7 @@ async def advanced_generate_chapter(
             request.flow_config.preset,
         )
         try:
+            await session.rollback()
             await _set_chapter_failed_status(
                 session,
                 request.project_id,
@@ -331,15 +339,9 @@ async def advanced_generate_chapter(
 @router.post("/advanced/generate/stream")
 async def advanced_generate_chapter_stream(
     request: AdvancedGenerateRequest,
-    session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> StreamingResponse:
-    from ...agents.hybrid_executor import HybridExecutor
-
-    executor = HybridExecutor(session, user_id=current_user.id)
     use_agent = request.flow_config.use_agent or False
-    if use_agent:
-        executor.enable_agent_system()
 
     event_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
 
@@ -353,52 +355,90 @@ async def advanced_generate_chapter_stream(
         await _push_event(event_name, event_data)
 
     async def _producer() -> None:
-        try:
-            await _push_event(
-                "started",
-                {
-                    "project_id": request.project_id,
-                    "chapter_number": request.chapter_number,
-                    "preset": request.flow_config.preset,
-                },
-            )
+        from ...agents.hybrid_executor import HybridExecutor
 
-            result = await executor.generate_chapter(
-                use_agent=use_agent,
-                project_id=request.project_id,
-                chapter_number=request.chapter_number,
-                writing_notes=request.writing_notes,
-                flow_config=request.flow_config.model_dump(),
-                stream_handler=_stream_handler,
-            )
+        async with AsyncSessionLocal() as session:
+            executor = HybridExecutor(session, user_id=current_user.id)
+            if use_agent:
+                executor.enable_agent_system()
 
-            flow_config = request.flow_config
-            if flow_config.async_finalize and result.get("variants"):
-                best_index = result.get("best_version_index", 0)
-                variants = result["variants"]
-                if 0 <= best_index < len(variants):
-                    selected_version_id = variants[best_index]["version_id"]
-                    _schedule_finalize_task(
-                        request.project_id,
-                        request.chapter_number,
-                        selected_version_id,
-                        current_user.id,
-                        False,
-                    )
+            try:
+                await _push_event(
+                    "started",
+                    {
+                        "project_id": request.project_id,
+                        "chapter_number": request.chapter_number,
+                        "preset": request.flow_config.preset,
+                    },
+                )
 
-            await _push_event("completed", result)
-        except HTTPException as exc:
-            logger.warning(
-                "高级流式生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
-                request.project_id,
-                request.chapter_number,
-                current_user.id,
-                request.flow_config.preset,
-                exc.status_code,
-                exc.detail,
-            )
-            if exc.status_code >= 500:
+                result = await executor.generate_chapter(
+                    use_agent=use_agent,
+                    project_id=request.project_id,
+                    chapter_number=request.chapter_number,
+                    writing_notes=request.writing_notes,
+                    flow_config=request.flow_config.model_dump(),
+                    stream_handler=_stream_handler,
+                )
+
+                flow_config = request.flow_config
+                if flow_config.async_finalize and result.get("variants"):
+                    best_index = result.get("best_version_index", 0)
+                    variants = result["variants"]
+                    if 0 <= best_index < len(variants):
+                        selected_version_id = variants[best_index]["version_id"]
+                        _schedule_finalize_task(
+                            request.project_id,
+                            request.chapter_number,
+                            selected_version_id,
+                            current_user.id,
+                            False,
+                        )
+
+                await _push_event("completed", result)
+            except HTTPException as exc:
+                logger.warning(
+                    "高级流式生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
+                    request.project_id,
+                    request.chapter_number,
+                    current_user.id,
+                    request.flow_config.preset,
+                    exc.status_code,
+                    exc.detail,
+                )
+                if exc.status_code >= 500:
+                    try:
+                        await session.rollback()
+                        await _set_chapter_failed_status(
+                            session,
+                            request.project_id,
+                            request.chapter_number,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "高级流式生成失败后写回章节状态失败: project=%s chapter=%s user=%s",
+                            request.project_id,
+                            request.chapter_number,
+                            current_user.id,
+                        )
+                detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False)
+                await _push_event(
+                    "error",
+                    {
+                        "status_code": exc.status_code,
+                        "detail": detail[:500],
+                    },
+                )
+            except Exception as exc:
+                logger.exception(
+                    "高级流式生成异常: project=%s chapter=%s user=%s preset=%s",
+                    request.project_id,
+                    request.chapter_number,
+                    current_user.id,
+                    request.flow_config.preset,
+                )
                 try:
+                    await session.rollback()
                     await _set_chapter_failed_status(
                         session,
                         request.project_id,
@@ -406,49 +446,20 @@ async def advanced_generate_chapter_stream(
                     )
                 except Exception:
                     logger.exception(
-                        "高级流式生成失败后写回章节状态失败: project=%s chapter=%s user=%s",
+                        "高级流式生成异常后写回章节状态失败: project=%s chapter=%s user=%s",
                         request.project_id,
                         request.chapter_number,
                         current_user.id,
                     )
-            detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False)
-            await _push_event(
-                "error",
-                {
-                    "status_code": exc.status_code,
-                    "detail": detail[:500],
-                },
-            )
-        except Exception as exc:
-            logger.exception(
-                "高级流式生成异常: project=%s chapter=%s user=%s preset=%s",
-                request.project_id,
-                request.chapter_number,
-                current_user.id,
-                request.flow_config.preset,
-            )
-            try:
-                await _set_chapter_failed_status(
-                    session,
-                    request.project_id,
-                    request.chapter_number,
+                await _push_event(
+                    "error",
+                    {
+                        "status_code": 500,
+                        "detail": f"高级生成失败: {str(exc)[:200]}",
+                    },
                 )
-            except Exception:
-                logger.exception(
-                    "高级流式生成异常后写回章节状态失败: project=%s chapter=%s user=%s",
-                    request.project_id,
-                    request.chapter_number,
-                    current_user.id,
-                )
-            await _push_event(
-                "error",
-                {
-                    "status_code": 500,
-                    "detail": f"高级生成失败: {str(exc)[:200]}",
-                },
-            )
-        finally:
-            await event_queue.put(None)
+            finally:
+                await event_queue.put(None)
 
     async def _event_generator():
         producer_task = asyncio.create_task(_producer())
@@ -1997,3 +2008,453 @@ async def rate_archive(
     await session.commit()
 
     return {"id": archive.id, "user_rating": archive.user_rating}
+
+
+@router.get("/novels/{project_id}/chapters/{chapter_number}/diagnose")
+async def diagnose_chapter(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """诊断指定章节的生成质量和性能，返回真实数据。"""
+    from ...models.writing_archive import WritingArchive
+    from ...models.chapter_blueprint import ChapterBlueprint
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject.id).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    if (await session.execute(owner_stmt)).scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    # ---- 查询 WritingArchive（最新一条已完成的记录）----
+    _archive_cols = load_only(
+        WritingArchive.id, WritingArchive.chapter_number, WritingArchive.chapter_title,
+        WritingArchive.duration_ms, WritingArchive.workflow, WritingArchive.quality_metrics,
+        WritingArchive.created_at,
+    )
+    archive_stmt = (
+        select(WritingArchive)
+        .options(_archive_cols)
+        .where(
+            WritingArchive.project_id == project_id,
+            WritingArchive.chapter_number == chapter_number,
+        )
+        .order_by(WritingArchive.created_at.desc())
+        .limit(1)
+    )
+    archive = (await session.execute(archive_stmt)).scalars().first()
+
+    # ---- 查询 Chapter + Versions + Evaluations ----
+    chapter_stmt = (
+        select(Chapter)
+        .options(selectinload(Chapter.versions).selectinload(ChapterVersion.evaluations))
+        .where(Chapter.project_id == project_id, Chapter.chapter_number == chapter_number)
+    )
+    chapter = (await session.execute(chapter_stmt)).scalars().first()
+    selected_version = None
+    if chapter and chapter.versions:
+        if chapter.selected_version_id is not None:
+            selected_version = next(
+                (ver for ver in chapter.versions if ver.id == chapter.selected_version_id),
+                None,
+            )
+        if selected_version is None:
+            selected_version = chapter.versions[-1]
+
+    # ---- 查询蓝图 ----
+    bp_stmt = select(ChapterBlueprint).where(
+        ChapterBlueprint.project_id == project_id,
+        ChapterBlueprint.chapter_number == chapter_number,
+    )
+    blueprint = (await session.execute(bp_stmt)).scalars().first()
+
+    if not chapter and not archive:
+        raise HTTPException(status_code=404, detail="该章节暂无生成记录，请先生成章节")
+
+    # ---- 组装性能指标 ----
+    total_time_ms = 0
+    stage_timings: Dict[str, int] = {}
+    llm_calls = 0
+    total_tokens = 0
+    rag_hit_rate = 0.0
+    strategy_warnings: List[str] = []
+    telemetry_available = False
+
+    if archive:
+        total_time_ms = archive.duration_ms or 0
+        workflow = archive.workflow or []
+        for stage in workflow:
+            if isinstance(stage, dict):
+                stage_timings[stage.get("stage", "unknown")] = stage.get("duration_ms", 0)
+
+    # 从 version metadata 提取 debug_metadata（生成时存入）
+    version_count = 0
+    if chapter and chapter.versions:
+        version_count = len(chapter.versions)
+        for ver in chapter.versions:
+            meta = ver.metadata_ or {}
+            debug = meta.get("debug_metadata", {})
+            if debug:
+                telemetry_available = True
+                if not stage_timings and debug.get("stage_timings_ms"):
+                    stage_timings = debug["stage_timings_ms"]
+                    total_time_ms = total_time_ms or stage_timings.get("total_pipeline", 0)
+                retrieval_metrics = extract_retrieval_metrics(debug.get("retrieval_stats", {}))
+                if retrieval_metrics["chunks"] or retrieval_metrics["summaries"]:
+                    rag_hit_rate = max(rag_hit_rate, float(retrieval_metrics["hit_rate"]))
+                if debug.get("strategy_warnings"):
+                    strategy_warnings = debug["strategy_warnings"]
+                if debug.get("llm_calls") is not None:
+                    llm_calls = max(llm_calls, int(debug.get("llm_calls", 0)))
+                if debug.get("total_tokens") is not None:
+                    total_tokens = max(total_tokens, int(debug.get("total_tokens", 0)))
+                llm_calls = max(llm_calls, debug.get("version_count", 0) + 2)  # 版本数 + mission + review
+
+    # ---- 组装质量指标 ----
+    issues: List[Dict[str, str]] = []
+    evaluation_scores: List[float] = []
+    text_metrics: Dict[str, Any] = {}
+    text_analysis_suggestions: List[str] = []
+    issue_keys: set[tuple[str, str, str]] = set()
+
+    def _append_issue(issue: Dict[str, str]) -> None:
+        key = (issue["type"], issue["severity"], issue["description"])
+        if key in issue_keys:
+            return
+        issue_keys.add(key)
+        issues.append(issue)
+
+    if chapter and chapter.versions:
+        for ver in chapter.versions:
+            for ev in (ver.evaluations or []):
+                if ev.score is not None:
+                    evaluation_scores.append(ev.score)
+            review_summaries = (ver.metadata_ or {}).get("review_summaries") or {}
+            evaluation_scores.extend(score for _, score in extract_review_scores(review_summaries))
+            for issue in extract_review_issues(review_summaries):
+                _append_issue(issue)
+
+    if archive and archive.quality_metrics:
+        gs = archive.quality_metrics.get("gatekeeper_score")
+        if gs is not None:
+            evaluation_scores.append(float(gs))
+
+    if selected_version and selected_version.content:
+        text_analysis = analyze_chapter_text(selected_version.content)
+        text_metrics = text_analysis.get("metrics", {})
+        text_analysis_suggestions = text_analysis.get("suggestions", [])
+        for issue in text_analysis.get("issues", []):
+            _append_issue(issue)
+
+    # 质量问题检测
+    avg_score = sum(evaluation_scores) / len(evaluation_scores) if evaluation_scores else 0
+
+    if rag_hit_rate > 0 and rag_hit_rate < 0.7:
+        _append_issue({
+            "type": "RAG命中率",
+            "severity": "warning",
+            "description": f"RAG 检索命中率偏低 ({rag_hit_rate * 100:.0f}%)，建议优化检索关键词或完善章节纲要",
+        })
+    if total_time_ms > 120000:
+        _append_issue({
+            "type": "生成时间",
+            "severity": "warning",
+            "description": f"单章生成耗时 {total_time_ms / 1000:.0f} 秒，建议尝试极速模式或减少版本数",
+        })
+    elif total_time_ms > 60000:
+        _append_issue({
+            "type": "生成时间",
+            "severity": "info",
+            "description": f"单章生成耗时 {total_time_ms / 1000:.0f} 秒，可尝试极速模式加速",
+        })
+    if avg_score > 0 and avg_score < 60:
+        _append_issue({
+            "type": "评审评分",
+            "severity": "error",
+            "description": f"章节评审均分 {avg_score:.0f} 分，建议调整写作指令或切换生成模式",
+        })
+    elif avg_score > 0 and avg_score < 75:
+        _append_issue({
+            "type": "评审评分",
+            "severity": "warning",
+            "description": f"章节评审均分 {avg_score:.0f} 分，有提升空间",
+        })
+    if strategy_warnings:
+        for w in strategy_warnings:
+            _append_issue({"type": "策略冲突", "severity": "warning", "description": w})
+    if version_count > 0 and not evaluation_scores:
+        _append_issue({
+            "type": "评审数据",
+            "severity": "info",
+            "description": "当前未找到可用的评审/审核分数，本次诊断将更多依赖正文结构与配置数据",
+        })
+    if version_count > 0 and not telemetry_available and not stage_timings and total_time_ms <= 0:
+        _append_issue({
+            "type": "诊断埋点",
+            "severity": "info",
+            "description": "当前章节缺少生成调试元数据，性能指标可能不完整，但仍会继续做正文质量分析",
+        })
+    if version_count <= 1:
+        _append_issue({
+            "type": "版本数",
+            "severity": "info",
+            "description": "仅生成了 1 个版本，增加版本数可提高选择空间",
+        })
+
+    # ---- 生成建议 ----
+    suggestions: List[str] = []
+    suggestion_set: set[str] = set()
+
+    def _append_suggestion(text: str) -> None:
+        if not text or text in suggestion_set:
+            return
+        suggestion_set.add(text)
+        suggestions.append(text)
+
+    if not blueprint or not blueprint.brief_summary:
+        _append_suggestion("建议在生成前完善章节蓝图纲要，提升 RAG 检索准确性和 Mission 质量")
+    if rag_hit_rate > 0 and rag_hit_rate < 0.7:
+        _append_suggestion("可尝试切换到混合检索模式 (hybrid)，结合 BM25 提升关键词匹配能力")
+    if total_time_ms > 60000:
+        _append_suggestion("可尝试使用「极速模式」减少生成耗时，或关闭不必要的增强功能")
+    if avg_score >= 75:
+        _append_suggestion("当前质量表现良好，可尝试「文学模式」进一步提升文笔")
+    if version_count > 0 and not evaluation_scores:
+        _append_suggestion("如需更准确的质量诊断，可先等待后台评审完成，或主动触发一次章节评审")
+    for suggestion in text_analysis_suggestions:
+        _append_suggestion(suggestion)
+    if not suggestions:
+        _append_suggestion("当前各项指标正常，保持现有配置即可")
+
+    # ---- 计算总分 ----
+    score = 70  # 基础分
+    if avg_score > 0:
+        score = int(avg_score * 0.6 + 70 * 0.4)  # 评审分占 60%
+    if total_time_ms > 0 and total_time_ms < 30000:
+        score = min(100, score + 5)
+    elif total_time_ms > 120000:
+        score = max(0, score - 10)
+    if rag_hit_rate >= 0.8:
+        score = min(100, score + 5)
+    elif rag_hit_rate > 0 and rag_hit_rate < 0.5:
+        score = max(0, score - 10)
+    error_issues = [i for i in issues if i["severity"] == "error"]
+    if error_issues:
+        score = max(0, score - 15)
+
+    return {
+        "overall_score": score,
+        "performance": {
+            "total_time_ms": total_time_ms,
+            "llm_calls": llm_calls,
+            "total_tokens": total_tokens,
+            "rag_hit_rate": rag_hit_rate,
+            "stages": stage_timings,
+        },
+        "quality": {
+            "issues": issues,
+            "evaluation_scores": evaluation_scores,
+            "version_count": version_count,
+            "content_metrics": text_metrics,
+        },
+        "suggestions": suggestions,
+    }
+
+
+@router.get("/novels/{project_id}/diagnose")
+async def diagnose_project(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """诊断整本书的生成质量和性能，汇总所有章节数据。"""
+    from ...models.chapter_blueprint import ChapterBlueprint
+
+    # 验证项目所有权
+    owner_stmt = select(NovelProject).where(
+        NovelProject.id == project_id,
+        NovelProject.user_id == current_user.id,
+    )
+    project = (await session.execute(owner_stmt)).scalars().first()
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+
+    # ---- 查询所有 WritingArchive（只加载诊断所需字段，避免表结构不同步问题）----
+    _archive_cols = load_only(
+        WritingArchive.id, WritingArchive.chapter_number, WritingArchive.chapter_title,
+        WritingArchive.duration_ms, WritingArchive.workflow, WritingArchive.quality_metrics,
+        WritingArchive.created_at,
+    )
+    archives_stmt = (
+        select(WritingArchive)
+        .options(_archive_cols)
+        .where(WritingArchive.project_id == project_id)
+        .order_by(WritingArchive.chapter_number)
+    )
+    archives = list((await session.execute(archives_stmt)).scalars().all())
+
+    # ---- 查询所有章节 + 版本 + 评审 ----
+    chapters_stmt = (
+        select(Chapter)
+        .options(selectinload(Chapter.versions).selectinload(ChapterVersion.evaluations))
+        .where(Chapter.project_id == project_id)
+        .order_by(Chapter.chapter_number)
+    )
+    chapters = list((await session.execute(chapters_stmt)).scalars().all())
+
+    if not chapters and not archives:
+        raise HTTPException(status_code=404, detail="该项目暂无生成记录")
+
+    # ---- 按章节汇总 ----
+    archive_map: Dict[int, WritingArchive] = {}
+    for a in archives:
+        if a.chapter_number not in archive_map or (a.created_at and (
+            not archive_map[a.chapter_number].created_at
+            or a.created_at > archive_map[a.chapter_number].created_at
+        )):
+            archive_map[a.chapter_number] = a
+
+    chapter_map: Dict[int, Any] = {ch.chapter_number: ch for ch in chapters}
+    all_chapter_nums = sorted(set(list(archive_map.keys()) + list(chapter_map.keys())))
+
+    chapter_summaries: List[Dict[str, Any]] = []
+    total_time_ms_list: List[int] = []
+    all_scores: List[float] = []
+    all_rag_rates: List[float] = []
+    total_versions = 0
+    issues: List[Dict[str, str]] = []
+
+    for cn in all_chapter_nums:
+        arc = archive_map.get(cn)
+        ch = chapter_map.get(cn)
+
+        ch_time = arc.duration_ms or 0 if arc else 0
+        ch_versions = len(ch.versions) if ch and ch.versions else 0
+        total_versions += ch_versions
+
+        # 评分
+        ch_scores: List[float] = []
+        if ch and ch.versions:
+            for ver in ch.versions:
+                for ev in (ver.evaluations or []):
+                    if ev.score is not None:
+                        ch_scores.append(ev.score)
+                review_summaries = (ver.metadata_ or {}).get("review_summaries") or {}
+                ch_scores.extend(score for _, score in extract_review_scores(review_summaries))
+        if arc and arc.quality_metrics:
+            gs = arc.quality_metrics.get("gatekeeper_score")
+            if gs is not None:
+                ch_scores.append(float(gs))
+
+        ch_avg_score = sum(ch_scores) / len(ch_scores) if ch_scores else 0
+        all_scores.extend(ch_scores)
+
+        # RAG 命中率（从 debug_metadata）
+        ch_rag_rate = 0.0
+        if ch and ch.versions:
+            for ver in ch.versions:
+                meta = ver.metadata_ or {}
+                debug = meta.get("debug_metadata", {})
+                retrieval_metrics = extract_retrieval_metrics(debug.get("retrieval_stats", {}))
+                if retrieval_metrics["chunks"] or retrieval_metrics["summaries"]:
+                    ch_rag_rate = max(ch_rag_rate, float(retrieval_metrics["hit_rate"]))
+
+        if ch_rag_rate > 0:
+            all_rag_rates.append(ch_rag_rate)
+        if ch_time > 0:
+            total_time_ms_list.append(ch_time)
+
+        ch_title = ""
+        if arc and arc.chapter_title:
+            ch_title = arc.chapter_title
+
+        chapter_summaries.append({
+            "chapter_number": cn,
+            "title": ch_title,
+            "time_ms": ch_time,
+            "avg_score": round(ch_avg_score, 1),
+            "rag_hit_rate": round(ch_rag_rate, 2),
+            "version_count": ch_versions,
+        })
+
+    # ---- 全局聚合指标 ----
+    avg_time = int(sum(total_time_ms_list) / len(total_time_ms_list)) if total_time_ms_list else 0
+    total_time = sum(total_time_ms_list)
+    avg_score = sum(all_scores) / len(all_scores) if all_scores else 0
+    avg_rag = sum(all_rag_rates) / len(all_rag_rates) if all_rag_rates else 0
+
+    # ---- 全局质量问题 ----
+    if avg_rag > 0 and avg_rag < 0.7:
+        issues.append({
+            "type": "RAG命中率",
+            "severity": "warning",
+            "description": f"全书平均 RAG 命中率 {avg_rag * 100:.0f}%，建议优化章节纲要或切换混合检索模式",
+        })
+    low_score_chapters = [s for s in chapter_summaries if 0 < s["avg_score"] < 60]
+    if low_score_chapters:
+        nums = ", ".join(str(s["chapter_number"]) for s in low_score_chapters[:5])
+        issues.append({
+            "type": "低分章节",
+            "severity": "error",
+            "description": f"第 {nums} 章评审评分较低（<60分），建议重新生成或调整写作指令",
+        })
+    slow_chapters = [s for s in chapter_summaries if s["time_ms"] > 120000]
+    if slow_chapters:
+        nums = ", ".join(str(s["chapter_number"]) for s in slow_chapters[:5])
+        issues.append({
+            "type": "耗时过长",
+            "severity": "warning",
+            "description": f"第 {nums} 章生成超过 2 分钟，可尝试极速模式",
+        })
+    generated_count = len([s for s in chapter_summaries if s["version_count"] > 0])
+    total_chapter_count = len(all_chapter_nums)
+    if generated_count < total_chapter_count:
+        issues.append({
+            "type": "生成进度",
+            "severity": "info",
+            "description": f"已生成 {generated_count}/{total_chapter_count} 章，尚有 {total_chapter_count - generated_count} 章待生成",
+        })
+
+    # ---- 建议 ----
+    suggestions: List[str] = []
+    if avg_rag > 0 and avg_rag < 0.7:
+        suggestions.append("建议完善章节蓝图纲要以提升 RAG 检索命中率")
+    if low_score_chapters:
+        suggestions.append("低分章节可尝试切换文学模式或调整写作指令后重新生成")
+    if avg_time > 90000:
+        suggestions.append("平均生成耗时较长，可考虑使用极速模式或减少版本数量")
+    if not suggestions:
+        suggestions.append("当前各项指标正常，保持现有配置即可")
+
+    # ---- 总分 ----
+    score = 70
+    if avg_score > 0:
+        score = int(avg_score * 0.5 + 70 * 0.5)
+    if avg_rag >= 0.8:
+        score = min(100, score + 5)
+    elif avg_rag > 0 and avg_rag < 0.5:
+        score = max(0, score - 10)
+    if low_score_chapters:
+        score = max(0, score - len(low_score_chapters) * 3)
+
+    return {
+        "mode": "project",
+        "overall_score": max(0, min(100, score)),
+        "performance": {
+            "total_time_ms": total_time,
+            "avg_time_ms": avg_time,
+            "total_chapters": len(all_chapter_nums),
+            "generated_chapters": generated_count,
+            "total_versions": total_versions,
+            "rag_hit_rate": round(avg_rag, 3),
+        },
+        "quality": {
+            "issues": issues,
+            "avg_score": round(avg_score, 1),
+        },
+        "chapter_details": chapter_summaries,
+        "suggestions": suggestions,
+    }

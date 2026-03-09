@@ -136,6 +136,13 @@
 
       <div class="params-actions">
         <button class="btn-cancel" @click="selectedTemplate = null">取消</button>
+        <button
+          class="btn-infer"
+          @click="handleInferParams"
+          :disabled="inferring || !props.projectId || !props.chapterNumber"
+        >
+          {{ inferring ? '推演中...' : 'AI 推演' }}
+        </button>
         <button class="btn-apply" @click="handleApply" :disabled="!canApply">
           应用模板
         </button>
@@ -147,7 +154,17 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { listTemplates, getTemplateCategories, type WritingTemplate, type TemplateCategory } from '@/api/writingTemplate'
+import { listTemplates, getTemplateCategories, inferTemplateParams, type WritingTemplate, type TemplateCategory } from '@/api/writingTemplate'
+
+interface Props {
+  projectId?: string
+  chapterNumber?: number
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  projectId: '',
+  chapterNumber: 0,
+})
 
 const emit = defineEmits<{
   (e: 'apply', prompt: string): void
@@ -234,6 +251,34 @@ async function handleApply() {
     selectedTemplate.value = null
   } catch (e) {
     console.error('应用模板失败:', e)
+  }
+}
+
+// AI 推演填入参数
+const inferring = ref(false)
+
+async function handleInferParams() {
+  if (!selectedTemplate.value || !props.projectId || !props.chapterNumber) return
+
+  inferring.value = true
+  try {
+    const inferred = await inferTemplateParams(
+      selectedTemplate.value.id,
+      props.projectId,
+      props.chapterNumber
+    )
+    for (const [key, value] of Object.entries(inferred)) {
+      const paramDef = selectedTemplate.value?.parameters.find(p => p.name === key)
+      const currentVal = paramValues.value[key]
+      // 只覆盖空值或默认值，尊重用户已手动填写的内容
+      if (!currentVal || currentVal === (paramDef?.default || '')) {
+        paramValues.value[key] = value
+      }
+    }
+  } catch (e: any) {
+    console.error('AI推演失败:', e)
+  } finally {
+    inferring.value = false
   }
 }
 </script>
@@ -520,5 +565,25 @@ async function handleApply() {
 
 .btn-apply:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.btn-infer {
+  flex: 1;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  background: var(--md-tertiary-container, #e8def8);
+  color: var(--md-on-tertiary-container, #4a148c);
+  border: none;
+}
+
+.btn-infer:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-infer:hover:not(:disabled) {
+  opacity: 0.85;
 }
 </style>

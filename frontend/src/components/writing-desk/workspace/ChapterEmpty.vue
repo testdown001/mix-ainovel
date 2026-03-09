@@ -111,7 +111,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { NovelAPI } from '@/api/novel'
 import type { ChapterOutline, ChapterPrediction } from '@/api/novel'
 
@@ -130,6 +130,7 @@ interface Props {
   canGenerate: boolean
   outline?: ChapterOutline | null
   projectId?: string
+  templatePrompt?: string
 }
 
 const props = defineProps<Props>()
@@ -137,6 +138,14 @@ defineEmits(['generateChapter'])
 
 const generating = ref(false)
 const writingNotes = ref('')
+
+watch(() => props.templatePrompt, (val) => {
+  if (val) {
+    writingNotes.value = writingNotes.value
+      ? writingNotes.value + '\n' + val
+      : val
+  }
+})
 
 const prediction = computed<ChapterPrediction | null>(
   () => props.outline?.metadata?.prediction ?? null

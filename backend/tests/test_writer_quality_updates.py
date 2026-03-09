@@ -245,3 +245,75 @@ def test_generate_chapter_scenes_uses_conversation_history(monkeypatch):
     llm_kwargs = llm_service.get_llm_response.await_args.kwargs
     assert llm_kwargs["conversation_history"] == [{"role": "user", "content": "请拆分场景。"}]
     assert "user_message" not in llm_kwargs
+
+
+def test_advanced_generate_stream_uses_internal_session_scope(monkeypatch):
+    import app.agents.hybrid_executor as hybrid_executor_module
+
+    session_lifecycle = []
+    fake_session = SimpleNamespace(rollback=AsyncMock())
+    captured = {}
+
+    class _SessionContext:
+        async def __aenter__(self):
+            session_lifecycle.append("enter")
+            return fake_session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            session_lifecycle.append("exit")
+
+    class _FlowConfig:
+        use_agent = False
+        preset = "balanced"
+        async_finalize = False
+
+        def model_dump(self):
+            return {
+                "use_agent": self.use_agent,
+                "preset": self.preset,
+                "async_finalize": self.async_finalize,
+            }
+
+    class _FakeHybridExecutor:
+        def __init__(self, session, user_id):
+            captured["session"] = session
+            captured["user_id"] = user_id
+
+        def enable_agent_system(self):
+            captured["agent_enabled"] = True
+
+        async def generate_chapter(self, **kwargs):
+            captured["kwargs"] = kwargs
+            await kwargs["stream_handler"]({"event": "stage", "message": "生成中"})
+            return {"variants": [], "best_version_index": 0}
+
+    async def _collect_stream(response):
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    monkeypatch.setattr(writer, "AsyncSessionLocal", lambda: _SessionContext())
+    monkeypatch.setattr(hybrid_executor_module, "HybridExecutor", _FakeHybridExecutor)
+
+    response = asyncio.run(
+        writer.advanced_generate_chapter_stream(
+            SimpleNamespace(
+                project_id="project-1",
+                chapter_number=3,
+                writing_notes="补充说明",
+                flow_config=_FlowConfig(),
+            ),
+            SimpleNamespace(id=7),
+        )
+    )
+    payload = asyncio.run(_collect_stream(response))
+
+    assert captured["session"] is fake_session
+    assert captured["user_id"] == 7
+    assert captured["kwargs"]["project_id"] == "project-1"
+    assert captured["kwargs"]["chapter_number"] == 3
+    assert session_lifecycle == ["enter", "exit"]
+    assert "event: started" in payload
+    assert "event: stage" in payload
+    assert "event: completed" in payload

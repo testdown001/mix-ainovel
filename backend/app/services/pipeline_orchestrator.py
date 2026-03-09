@@ -149,11 +149,11 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 },
             )
 
-        # 创建进度追踪
+        # 创建进度追踪（outline_title 在后续加载，此处先用 fallback）
         await progress_service.create_progress(
             project_id=project_id,
             chapter_number=chapter_number,
-            chapter_title=outline_title if 'outline_title' in dir() else f"第{chapter_number}章"
+            chapter_title=f"第{chapter_number}章"
         )
 
         # 创建写作任务档案（圣旨下达）
@@ -166,9 +166,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 writing_notes=writing_notes,
             )
             archive_id = archive.id
-            await archive_service.add_log(archive_id, "info", f"开始生成第{chapter_number}章")
         except Exception as archive_err:
             logger.warning(f"创建写作档案失败: {archive_err}")
+            await self.session.rollback()
             archive_id = None
 
         await _emit_stage("starting", "开始生成章节")
@@ -191,8 +191,11 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             message="正在解析写作需求"
         )
 
+        raw_flow_config = flow_config or {}
+        pre_collected_context = raw_flow_config.get("pre_collected_context") or {}
+
         stage_started = time.perf_counter()
-        config = await self._resolve_config(flow_config)
+        config = await self._resolve_config(raw_flow_config)
         _mark_stage("resolve_config", stage_started)
 
         stage_started = time.perf_counter()
@@ -213,19 +216,30 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         outlines_map = {item.chapter_number: item for item in project.outlines}
         stage_started = time.perf_counter()
-        history_context = await self._collect_history_context(
-            project_id=project_id,
-            chapter_number=chapter_number,
-            outlines_map=outlines_map,
-            chapters=project.chapters,
-            user_id=user_id,
-            allow_summary_backfill=not config.skip_history_summary_backfill,
-        )
+        history_context = pre_collected_context.get("history_context") or {}
+        if history_context:
+            logger.info(
+                "复用预收集历史上下文: project=%s chapter=%s",
+                project_id,
+                chapter_number,
+            )
+        else:
+            history_context = await self._collect_history_context(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                outlines_map=outlines_map,
+                chapters=project.chapters,
+                user_id=user_id,
+                allow_summary_backfill=not config.skip_history_summary_backfill,
+            )
         _mark_stage("collect_history_context", stage_started)
 
         stage_started = time.perf_counter()
         project_schema = await self.novel_service._serialize_project(project)
         blueprint_dict = normalize_blueprint_relationships(project_schema.blueprint.model_dump())
+        pre_blueprint = pre_collected_context.get("blueprint")
+        if isinstance(pre_blueprint, dict) and pre_blueprint:
+            blueprint_dict = pre_blueprint
 
         outline_title = outline.title or f"第{outline.chapter_number}章"
         outline_summary = outline.summary or "暂无摘要"
@@ -301,8 +315,15 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 return "\n\n".join(parts) if parts else None
         _memory_text_task = asyncio.create_task(_parallel_project_memory())
 
+        pre_rag_context = pre_collected_context.get("rag_context")
+        pre_rag_stats = pre_collected_context.get("rag_stats")
+
         _rag_task: Optional[asyncio.Task] = None
-        if config.enable_rag and config.rag_mode != "two_stage":
+        if (
+            config.enable_rag
+            and config.rag_mode != "two_stage"
+            and not pre_rag_context
+        ):
             # simple RAG 不依赖 Mission 输出，可并行（使用独立会话避免 session 竞态）
             async def _parallel_rag():
                 async with AsyncSessionLocal() as bg_session:
@@ -314,17 +335,26 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     vector_store = create_vector_store_or_none()
                     if vector_store is None:
                         return {"chunks": [], "summaries": []}
+                    # 构建多个聚焦查询（不再拼接为单一字符串）
                     if config.enable_fast_path and fast_rag_queries:
-                        query_parts = fast_rag_queries[:]
+                        query_list = [q for q in fast_rag_queries if q]
                     else:
-                        query_parts = [outline_title, outline_summary]
-                        if writing_notes:
-                            query_parts.append(writing_notes)
-                    rag_query = "\n".join(part for part in query_parts if part)
+                        query_list = [q for q in [outline_title, outline_summary] if q]
+                        if writing_notes and writing_notes != "无额外写作指令":
+                            query_list.append(writing_notes)
+                    # 提取角色名作为独立查询（使用 blueprint_dict，在并行任务前已定义）
+                    _char_names = [
+                        c.get("name", "")
+                        for c in (blueprint_dict.get("characters", []) if blueprint_dict else [])
+                        if c.get("name")
+                    ][:6]
+                    if _char_names:
+                        query_list.append(" ".join(_char_names))
+                    query_list = query_list[:4]  # 最多 4 个独立查询
                     context_service = ChapterContextService(llm_service=bg_llm, vector_store=vector_store)
-                    rag_result = await context_service.retrieve_for_generation(
+                    rag_result = await context_service.retrieve_multi_query(
                         project_id=project_id,
-                        query_text=rag_query or outline_title or outline_summary,
+                        queries=query_list or [outline_title or outline_summary],
                         user_id=user_id,
                         retrieval_mode=config.rag_retrieval_mode,
                     )
@@ -344,7 +374,25 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 )
         _foreshadowing_task = asyncio.create_task(_parallel_foreshadowing())
 
+        # 变更2: 角色状态上下文并行任务（纯DB查询，零LLM调用）
+        async def _parallel_state_context():
+            try:
+                async with AsyncSessionLocal() as bg_session:
+                    from .memory_layer_service import MemoryLayerService
+                    bg_llm = LLMService(bg_session)
+                    bg_prompt = PromptService(bg_session)
+                    mem_service = MemoryLayerService(bg_session, bg_llm, bg_prompt)
+                    return await mem_service.build_chapter_state_context(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                    )
+            except Exception as e:
+                logger.warning("角色状态上下文构建失败（不影响生成）: %s", e)
+                return None
+        _state_context_task = asyncio.create_task(_parallel_state_context())
+
         async def _parallel_user_style():
+            """返回 (rules_text, style_preset_name) 元组。"""
             try:
                 async with AsyncSessionLocal() as bg_session:
                     from sqlalchemy import select as sa_select
@@ -357,11 +405,11 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     if pref:
                         rules = build_user_style_prompt(pref)
                         logger.info("用户 %s 已加载写作风格偏好 (preset=%s)", user_id, pref.style_preset)
-                        return rules
-                    return None
+                        return rules, pref.style_preset
+                    return None, None
             except Exception as e:
                 logger.warning("加载用户写作风格偏好失败（不影响生成）: %s", e)
-                return None
+                return None, None
         _user_style_task = asyncio.create_task(_parallel_user_style())
 
         _fingerprint_task: Optional[asyncio.Task] = None
@@ -382,7 +430,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     logger.warning("风格指纹提取失败（不影响生成）: %s", e)
                     return None
             loop = asyncio.get_event_loop()
-            _fingerprint_task = asyncio.create_task(
+            _fingerprint_task = asyncio.ensure_future(
                 loop.run_in_executor(None, _sync_fingerprint)
             )
 
@@ -404,13 +452,25 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         stage_started = time.perf_counter()
 
         if config.enable_fast_path:
-            chapter_mission = self._build_fast_chapter_mission(
+            # 优先尝试轻量LLM导演脚本，失败时回退到纯规则拼装
+            chapter_mission = await self._build_lite_chapter_mission(
                 chapter_number=chapter_number,
                 outline_title=outline_title,
                 outline_summary=outline_summary,
                 writing_notes=writing_notes,
+                previous_summary=history_context["previous_summary"],
+                previous_tail=history_context["previous_tail"],
                 chapter_blueprint=chapter_blueprint,
+                user_id=user_id,
             )
+            if chapter_mission is None:
+                chapter_mission = self._build_fast_chapter_mission(
+                    chapter_number=chapter_number,
+                    outline_title=outline_title,
+                    outline_summary=outline_summary,
+                    writing_notes=writing_notes,
+                    chapter_blueprint=chapter_blueprint,
+                )
         else:
             # Mission 生成（内部会查 DB 加载 prompt，必须串行）
             chapter_mission = await _shared_generate_chapter_mission(
@@ -430,6 +490,21 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 pattern_constraint=pattern_constraint,
             )
         _mark_stage("generate_chapter_mission", stage_started)
+
+        # 推送 Mission 中间产物
+        await _emit_stream("middle_product", {
+            "type": "mission",
+            "data": chapter_mission if isinstance(chapter_mission, dict) else {},
+        })
+
+        # 变更6: 爽点节奏验证 — 在mission生成完成后检查并可能修改mission
+        coolpoint_rhythm_directive = await self._validate_coolpoint_rhythm(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            chapter_mission=chapter_mission,
+        )
+        if coolpoint_rhythm_directive:
+            logger.info("节奏纠偏触发: %s", coolpoint_rhythm_directive[:80])
 
         # P1 优化: Mission Brief LLM 调用提前启动（与后续 DB 操作并行）
         _mission_brief_task = None
@@ -461,7 +536,23 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         knowledge_context = None
         rag_stats = None
         if config.enable_rag:
-            if config.rag_mode == "two_stage":
+            if pre_rag_context and config.rag_mode != "two_stage":
+                rag_context = pre_rag_context
+                rag_stats = {
+                    **(pre_rag_stats or {}),
+                    "mode": "simple",
+                    "reused": True,
+                    "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
+                    "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
+                }
+                logger.info(
+                    "复用中书省预收集 RAG 上下文: project=%s chapter=%s chunks=%s summaries=%s",
+                    project_id,
+                    chapter_number,
+                    rag_stats["chunks"],
+                    rag_stats["summaries"],
+                )
+            elif config.rag_mode == "two_stage":
                 # two_stage 模式依赖 Mission 的 pov_character，只能在 Mission 之后执行
                 knowledge_context, rag_stats = await self._get_two_stage_rag_context(
                     project_id=project_id,
@@ -478,6 +569,17 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
                     "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
                 }
+
+        # 推送 RAG 中间产物
+        if rag_context or knowledge_context:
+            await _emit_stream("middle_product", {
+                "type": "rag",
+                "data": {
+                    "chunks": rag_context.get("chunks", []) if rag_context else [],
+                    "summaries": rag_context.get("summaries", []) if rag_context else [],
+                    "stats": rag_stats or {},
+                },
+            })
 
         writer_prompt = await _writer_prompt_task
         if not writer_prompt:
@@ -611,6 +713,14 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             strand_info=strand_info,
         )
         foreshadowing_urgency_brief = await _foreshadowing_task
+
+        # 推送伏笔中间产物
+        if foreshadowing_urgency_brief:
+            await _emit_stream("middle_product", {
+                "type": "foreshadowing",
+                "data": {"brief": foreshadowing_urgency_brief},
+            })
+
         hook_continuity_brief = build_hook_continuity_brief(
             previous_summary=history_context["previous_summary"],
             previous_tail=history_context["previous_tail"],
@@ -647,7 +757,24 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 prediction_text += "\n节拍编排：\n" + "\n".join(beats_lines)
 
         # ---- 用户写作风格偏好（已在并行区启动） ----
-        user_style_rules = await _user_style_task
+        user_style_rules, _user_style_preset = await _user_style_task
+
+        # ---- 角色状态上下文（已在并行区启动） ----
+        chapter_state_context = await _state_context_task
+
+        # ---- 写作策略协调：检测冲突、调整权重 ----
+        from ..core.writing_strategy import WritingStrategyResolver
+        writing_strategy = await WritingStrategyResolver.resolve(
+            preset=config.preset,
+            user_style_preset=_user_style_preset,
+            user_style_rules=user_style_rules,
+            genre=blueprint_dict.get("genre", "") if blueprint_dict else "",
+            has_reference_novels=bool(project_reference_novels),
+            has_template=(writing_notes != "无额外写作指令"),
+            session=self.session,
+        )
+        if writing_strategy.warnings:
+            logger.info("写作策略冲突: %s", "; ".join(writing_strategy.warnings))
 
         chapter_word_count_min, chapter_word_count_max, chapter_target_word_count = self._resolve_word_count_bounds()
         prompt_sections = self._build_prompt_sections(
@@ -677,6 +804,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             chapter_word_count_min=chapter_word_count_min,
             chapter_word_count_max=chapter_word_count_max,
             chapter_target_word_count=chapter_target_word_count,
+            chapter_state_context=chapter_state_context,
+            coolpoint_rhythm_directive=coolpoint_rhythm_directive,
+            writing_strategy=writing_strategy,
         )
 
         # ---- Literary 模式：范文注入 + 叙事多样性约束 ----
@@ -909,6 +1039,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 version["content"] = best_content
 
             # 持久化
+            await _emit_stage("persist_versions", "写入章节版本中")
             contents = [version["content"]]
             metadata_list = [version.get("metadata")]
             stage_started = time.perf_counter()
@@ -938,6 +1069,19 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 self._background_tasks.add(memory_task)
                 memory_task.add_done_callback(self._background_tasks.discard)
 
+            # 伏笔自动提取后台任务（与记忆更新并行）
+            _fs_task = asyncio.create_task(
+                self._run_foreshadowing_extraction_async(
+                    project_id=project_id,
+                    chapter_id=chapter.id,
+                    chapter_number=chapter_number,
+                    chapter_content=best_content,
+                    user_id=user_id,
+                )
+            )
+            self._background_tasks.add(_fs_task)
+            _fs_task.add_done_callback(self._background_tasks.discard)
+
             variants = [{"index": 0, "version_id": versions_models[0].id, "content": version["content"], "metadata": version.get("metadata")}]
             stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
 
@@ -950,6 +1094,21 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 message="章节生成完成"
             )
             await progress_service.complete(project_id, chapter_number, success=True)
+
+            # 完成写作任务档案（奏章批复）
+            if archive_id:
+                try:
+                    final_version_id = versions_models[0].id if versions_models else None
+                    await archive_service.complete_archive(
+                        archive_id,
+                        final_version_id=final_version_id,
+                        version_count=1,
+                        gatekeeper_score=None,
+                    )
+                except Exception as archive_err:
+                    logger.warning(f"Literary模式完成写作档案失败: {archive_err}")
+
+            await _emit_stage("completed", "章节生成完成")
 
             return {
                 "project_id": project_id,
@@ -964,6 +1123,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     "stages": self._build_stage_flags(config),
                     "retrieval_stats": rag_stats,
                     "stage_timings_ms": stage_timings_ms,
+                    "strategy_warnings": writing_strategy.warnings,
                 },
             }
 
@@ -1101,6 +1261,19 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 self._background_tasks.add(memory_task)
                 memory_task.add_done_callback(self._background_tasks.discard)
 
+            # 伏笔自动提取后台任务（与记忆更新并行）
+            _fs_task = asyncio.create_task(
+                self._run_foreshadowing_extraction_async(
+                    project_id=project_id,
+                    chapter_id=chapter.id,
+                    chapter_number=chapter_number,
+                    chapter_content=best_content,
+                    user_id=user_id,
+                )
+            )
+            self._background_tasks.add(_fs_task)
+            _fs_task.add_done_callback(self._background_tasks.discard)
+
             variants = [
                 {
                     "index": 0,
@@ -1110,6 +1283,20 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 }
             ]
             stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
+
+            # 完成写作任务档案（奏章批复）
+            if archive_id:
+                try:
+                    final_version_id = versions_models[0].id if versions_models else None
+                    await archive_service.complete_archive(
+                        archive_id,
+                        final_version_id=final_version_id,
+                        version_count=1,
+                        gatekeeper_score=None,
+                    )
+                except Exception as archive_err:
+                    logger.warning(f"Fast模式完成写作档案失败: {archive_err}")
+
             await _emit_stage("completed", "章节生成完成")
             return {
                 "project_id": project_id,
@@ -1124,6 +1311,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     "stages": self._build_stage_flags(config),
                     "retrieval_stats": rag_stats,
                     "stage_timings_ms": stage_timings_ms,
+                    "strategy_warnings": writing_strategy.warnings,
                 },
             }
 
@@ -1422,6 +1610,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         contents = [v.get("content", "") for v in versions]
         metadata = [v.get("metadata") for v in versions]
+        await _emit_stage("persist_versions", "写入章节版本中")
         stage_started = time.perf_counter()
         versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata)
         _mark_stage("persist_versions", stage_started)
@@ -1465,6 +1654,19 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             self._background_tasks.add(memory_task)
             memory_task.add_done_callback(self._background_tasks.discard)
 
+        # 伏笔自动提取后台任务（与记忆更新并行）
+        _fs_task = asyncio.create_task(
+            self._run_foreshadowing_extraction_async(
+                project_id=project_id,
+                chapter_id=chapter.id,
+                chapter_number=chapter_number,
+                chapter_content=best_content,
+                user_id=user_id,
+            )
+        )
+        self._background_tasks.add(_fs_task)
+        _fs_task.add_done_callback(self._background_tasks.discard)
+
         variants = []
         for idx, version_model in enumerate(versions_models):
             variant = {
@@ -1506,9 +1708,10 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                     version_count=version_count,
                     gatekeeper_score=gatekeeper_score,
                 )
-                await archive_service.add_log(archive_id, "info", f"章节生成完成，共{version_count}个版本")
             except Exception as archive_err:
                 logger.warning(f"完成写作档案失败: {archive_err}")
+
+        await _emit_stage("completed", "章节生成完成")
 
         return {
             "project_id": project_id,
@@ -1522,6 +1725,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 "stages": self._build_stage_flags(config),
                 "retrieval_stats": rag_stats,
                 "stage_timings_ms": stage_timings_ms,
+                "strategy_warnings": writing_strategy.warnings,
             },
         }
 
@@ -1834,6 +2038,45 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 chapter_number,
             )
 
+    async def _run_foreshadowing_extraction_async(
+        self,
+        *,
+        project_id: str,
+        chapter_id: int,
+        chapter_number: int,
+        chapter_content: str,
+        user_id: int,
+    ) -> None:
+        """后台异步执行伏笔提取，使用独立DB session。"""
+        try:
+            async with AsyncSessionLocal() as bg_session:
+                try:
+                    bg_llm = LLMService(bg_session)
+                    bg_prompt = PromptService(bg_session)
+                    from ..services.foreshadowing_service import ForeshadowingService
+                    fs = ForeshadowingService(bg_session)
+                    stats = await fs.extract_foreshadowings_from_chapter(
+                        project_id=project_id,
+                        chapter_id=chapter_id,
+                        chapter_number=chapter_number,
+                        chapter_content=chapter_content,
+                        llm_service=bg_llm,
+                        prompt_service=bg_prompt,
+                        user_id=user_id,
+                    )
+                    logger.info(
+                        "异步伏笔提取完成 project=%s chapter=%s stats=%s",
+                        project_id, chapter_number, stats,
+                    )
+                except Exception:
+                    await bg_session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步伏笔提取失败 project=%s chapter=%s",
+                project_id, chapter_number,
+            )
+
     async def _resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
         flow_config = flow_config or {}
         preset = flow_config.get("preset", "basic")
@@ -2105,74 +2348,76 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         return [item for item in queries if item][:4]
 
-    def _build_fast_chapter_mission(
+    async def _validate_coolpoint_rhythm(
         self,
-        *,
+        project_id: str,
         chapter_number: int,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        chapter_blueprint: Optional[ChapterBlueprint],
-    ) -> Dict[str, Any]:
-        constraints = (
-            dict(chapter_blueprint.mission_constraints or {})
-            if chapter_blueprint and isinstance(chapter_blueprint.mission_constraints, dict)
-            else {}
-        )
-        min_words, max_words, target_words = self._resolve_word_count_bounds()
-        budget_cfg = constraints.get("word_budget") or {}
-        word_budget = {
-            "min": int(budget_cfg.get("min") or min_words),
-            "target": int(budget_cfg.get("target") or target_words),
-            "max": int(budget_cfg.get("max") or max_words),
-            "total": int(budget_cfg.get("target") or target_words),
-        }
-        if word_budget["max"] < word_budget["min"]:
-            word_budget["max"] = word_budget["min"]
+        chapter_mission: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        """验证爽点节奏，返回纠偏指令（若需要）。
 
-        chapter_function = (
-            (chapter_blueprint.chapter_function if chapter_blueprint else None)
-            or "progression"
-        )
-        satisfaction_type = {
-            "climax": "高潮爆发",
-            "turning": "转折兑现",
-            "revelation": "信息揭示",
-            "resolution": "阶段收束",
-            "interlude": "无（蓄力中）",
-            "buildup": "无（蓄力中）",
-            "progression": "推进成长",
-        }.get(chapter_function, "推进成长")
+        规则：
+        - >=6章无爽点：强制返回爽点指令 + 修改mission的satisfaction_design
+        - >=3章无爽点：返回建议指令
+        """
+        if chapter_number <= 1:
+            return None
 
-        focus = (
-            (chapter_blueprint.chapter_focus if chapter_blueprint else None)
-            or (chapter_blueprint.brief_summary if chapter_blueprint else None)
-            or outline_summary
-            or outline_title
-        )
-        must_include = constraints.get("must_include") or []
-        must_not_include = constraints.get("must_not_include") or []
-        scene_list = constraints.get("scene_list") or []
-        allowed_new_characters = constraints.get("allowed_new_characters") or []
-        pov_character = constraints.get("pov_character")
+        try:
+            # 查询最近10章的蓝图
+            start_ch = max(1, chapter_number - 10)
+            result = await self.session.execute(
+                select(ChapterBlueprint).where(
+                    ChapterBlueprint.project_id == project_id,
+                    ChapterBlueprint.chapter_number >= start_ch,
+                    ChapterBlueprint.chapter_number < chapter_number,
+                ).order_by(ChapterBlueprint.chapter_number.desc())
+            )
+            blueprints = list(result.scalars().all())
 
-        notes_block = ""
-        if writing_notes and writing_notes != "无额外写作指令":
-            notes_block = f"；用户指令：{writing_notes}"
-        mission_summary = f"第{chapter_number}章核心任务：{focus}{notes_block}"
+            if not blueprints:
+                return None
 
-        return {
-            "chapter_type": chapter_function,
-            "macro_beat": chapter_function,
-            "macro_beat_description": mission_summary,
-            "satisfaction_design": {"type": satisfaction_type},
-            "word_budget": word_budget,
-            "scene_list": scene_list,
-            "allowed_new_characters": allowed_new_characters,
-            "must_include": must_include,
-            "must_not_include": must_not_include,
-            "pov": pov_character,
-        }
+            # 计算距上一个爽点章的章数
+            coolpoint_functions = {"climax", "turning", "revelation"}
+            chapters_since_coolpoint = 0
+
+            for bp in blueprints:
+                is_coolpoint = (
+                    (bp.cognitive_twist_level and bp.cognitive_twist_level >= 3)
+                    or (bp.chapter_function and bp.chapter_function in coolpoint_functions)
+                )
+                if is_coolpoint:
+                    break
+                chapters_since_coolpoint += 1
+
+            if chapters_since_coolpoint >= 6:
+                # 强制：修改mission的satisfaction_design
+                if chapter_mission and isinstance(chapter_mission, dict):
+                    sat = chapter_mission.get("satisfaction_design")
+                    if isinstance(sat, dict) and sat.get("type") in ("无", "无（蓄力中）", "推进成长"):
+                        sat["type"] = "逆袭爽"
+                        sat["buildup_from"] = f"已连续{chapters_since_coolpoint}章蓄力"
+                        sat["cost_attached"] = "强制爽点需附带代价"
+
+                return (
+                    f"【节奏强制纠偏】已连续{chapters_since_coolpoint}章没有爽点/高潮/转折，"
+                    "本章必须包含至少一个明确的爽点设计（逆袭、翻盘、揭秘、突破等），"
+                    "不得再写纯过渡/蓄力章。爽点须有蓄力-释放结构，且附带代价。"
+                )
+
+            elif chapters_since_coolpoint >= 3:
+                return (
+                    f"【节奏建议】已连续{chapters_since_coolpoint}章没有明显爽点，"
+                    "建议本章在推进主线的同时，安排至少一个小型爽感设计（认知爽、社交爽、成长爽等），"
+                    "避免读者疲劳流失。"
+                )
+
+            return None
+
+        except Exception as e:
+            logger.warning("爽点节奏验证失败: %s", e)
+            return None
 
     @staticmethod
     def _resolve_word_count_bounds() -> Tuple[int, int, int]:
@@ -2462,6 +2707,173 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
             return context
         return context[:max_len] + "\n（上下文已压缩）"
 
+    async def _build_lite_chapter_mission(
+        self,
+        *,
+        chapter_number: int,
+        outline_title: str,
+        outline_summary: str,
+        writing_notes: str,
+        previous_summary: str,
+        previous_tail: str,
+        chapter_blueprint: Optional[ChapterBlueprint],
+        user_id: int,
+    ) -> Optional[Dict[str, Any]]:
+        """轻量导演脚本：用精简prompt做一次LLM调用，为fast/basic模式生成有结构的mission。"""
+        plan_lite_prompt = await self.prompt_service.get_prompt("chapter_plan_lite")
+        if not plan_lite_prompt:
+            logger.warning("未配置 chapter_plan_lite 提示词，回退到规则拼装")
+            return None
+
+        constraints = (
+            dict(chapter_blueprint.mission_constraints or {})
+            if chapter_blueprint and isinstance(chapter_blueprint.mission_constraints, dict)
+            else {}
+        )
+        min_words, max_words, target_words = self._resolve_word_count_bounds()
+        budget_cfg = constraints.get("word_budget") or {}
+        word_target = int(budget_cfg.get("target") or target_words)
+
+        plan_input = f"""
+[上一章摘要]
+{previous_summary or "暂无（这是第一章）"}
+
+[上一章结尾]
+{previous_tail or "暂无（这是第一章）"}
+
+[当前章节大纲]
+标题：{outline_title}
+摘要：{outline_summary}
+
+[写作指令]
+{writing_notes or "无额外指令"}
+
+[章节字数限制]
+正文必须控制在 {min_words}-{max_words} 字之间。word_budget_total 推荐 {word_target}。
+"""
+        try:
+            response = await self.llm_service.get_llm_response(
+                system_prompt=plan_lite_prompt,
+                conversation_history=[{"role": "user", "content": plan_input}],
+                temperature=0.3,
+                user_id=user_id,
+                timeout=60.0,
+                response_format=None,
+                disable_thinking=not settings.writer_enable_thinking,
+            )
+            cleaned = remove_think_tags(response)
+            normalized = unwrap_markdown_json(cleaned or response)
+            parsed = json.loads(repair_json(normalized))
+            if not isinstance(parsed, dict):
+                logger.warning("轻量导演脚本返回非对象，回退到规则拼装")
+                return None
+
+            fallback = self._build_fast_chapter_mission(
+                chapter_number=chapter_number,
+                outline_title=outline_title,
+                outline_summary=outline_summary,
+                writing_notes=writing_notes,
+                chapter_blueprint=chapter_blueprint,
+            )
+            result = dict(fallback)
+            result.update({key: value for key, value in parsed.items() if value is not None})
+
+            raw_budget = result.get("word_budget")
+            merged_budget = dict(fallback.get("word_budget") or {})
+            if isinstance(raw_budget, dict):
+                merged_budget.update({key: value for key, value in raw_budget.items() if value is not None})
+            result["word_budget"] = merged_budget
+
+            if not isinstance(result.get("satisfaction_design"), dict):
+                sat_type = result.get("satisfaction_design") or fallback.get("satisfaction_design", {}).get("type") or "推进成长"
+                result["satisfaction_design"] = {"type": sat_type}
+
+            for key in ("scene_list", "allowed_new_characters", "must_include", "must_not_include"):
+                value = result.get(key)
+                if not isinstance(value, list):
+                    result[key] = list(value) if isinstance(value, tuple) else []
+
+            if not result.get("macro_beat_description"):
+                result["macro_beat_description"] = fallback["macro_beat_description"]
+            if not result.get("chapter_type"):
+                result["chapter_type"] = fallback["chapter_type"]
+            if not result.get("macro_beat"):
+                result["macro_beat"] = fallback["macro_beat"]
+
+            return result
+        except Exception as e:
+            logger.warning("轻量导演脚本生成失败，回退到规则拼装: %s", e)
+            return None
+
+    def _build_fast_chapter_mission(
+        self,
+        *,
+        chapter_number: int,
+        outline_title: str,
+        outline_summary: str,
+        writing_notes: str,
+        chapter_blueprint: Optional[ChapterBlueprint],
+    ) -> Dict[str, Any]:
+        constraints = (
+            dict(chapter_blueprint.mission_constraints or {})
+            if chapter_blueprint and isinstance(chapter_blueprint.mission_constraints, dict)
+            else {}
+        )
+        min_words, max_words, target_words = self._resolve_word_count_bounds()
+        budget_cfg = constraints.get("word_budget") or {}
+        word_budget = {
+            "min": int(budget_cfg.get("min") or min_words),
+            "target": int(budget_cfg.get("target") or target_words),
+            "max": int(budget_cfg.get("max") or max_words),
+            "total": int(budget_cfg.get("target") or target_words),
+        }
+        if word_budget["max"] < word_budget["min"]:
+            word_budget["max"] = word_budget["min"]
+
+        chapter_function = (
+            (chapter_blueprint.chapter_function if chapter_blueprint else None)
+            or "progression"
+        )
+        satisfaction_type = {
+            "climax": "高潮爆发",
+            "turning": "转折兑现",
+            "revelation": "信息揭示",
+            "resolution": "阶段收束",
+            "interlude": "无（蓄力中）",
+            "buildup": "无（蓄力中）",
+            "progression": "推进成长",
+        }.get(chapter_function, "推进成长")
+
+        focus = (
+            (chapter_blueprint.chapter_focus if chapter_blueprint else None)
+            or (chapter_blueprint.brief_summary if chapter_blueprint else None)
+            or outline_summary
+            or outline_title
+        )
+        must_include = constraints.get("must_include") or []
+        must_not_include = constraints.get("must_not_include") or []
+        scene_list = constraints.get("scene_list") or []
+        allowed_new_characters = constraints.get("allowed_new_characters") or []
+        pov_character = constraints.get("pov_character")
+
+        notes_block = ""
+        if writing_notes and writing_notes != "无额外写作指令":
+            notes_block = f"；用户指令：{writing_notes}"
+        mission_summary = f"第{chapter_number}章核心任务：{focus}{notes_block}"
+
+        return {
+            "chapter_type": chapter_function,
+            "macro_beat": chapter_function,
+            "macro_beat_description": mission_summary,
+            "satisfaction_design": {"type": satisfaction_type},
+            "word_budget": word_budget,
+            "scene_list": scene_list,
+            "allowed_new_characters": allowed_new_characters,
+            "must_include": must_include,
+            "must_not_include": must_not_include,
+            "pov": pov_character,
+        }
+
     async def _generate_voice_samples(
         self,
         *,
@@ -2494,13 +2906,15 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         )
 
         try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt="你是一个角色对话设计师。为每个角色写出有辨识度的对话样本。",
-                conversation_history=[{"role": "user", "content": prompt}],
-                temperature=0.8,
-                user_id=user_id,
-                timeout=30.0,
-            )
+            async with AsyncSessionLocal() as session:
+                llm_service = LLMService(session)
+                response = await llm_service.get_llm_response(
+                    system_prompt="你是一个角色对话设计师。为每个角色写出有辨识度的对话样本。",
+                    conversation_history=[{"role": "user", "content": prompt}],
+                    temperature=0.8,
+                    user_id=user_id,
+                    timeout=30.0,
+                )
             result = (remove_think_tags(response) or response).strip()
             return f"[角色声纹参考——遮住名字要能认出谁在说话]\n{result}" if result else ""
         except Exception as e:
@@ -2513,7 +2927,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         index: int,
         prompt_input: str,
         writer_prompt: str,
-        style_hint: Optional[str],
+        style_hint: Optional[Any],  # str 或 Dict[str, Any]
         project_id: str,
         chapter_number: int,
         outline_title: str,
@@ -2532,11 +2946,25 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
         disable_guardrail_rewrite: bool = False,
         stream_callback: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> Dict[str, Any]:
+        # 解析style_hint：兼容str和dict格式
+        if isinstance(style_hint, dict):
+            style_text = style_hint.get("text", "")
+            temp_offset = float(style_hint.get("temp_offset", 0.0))
+        elif isinstance(style_hint, str):
+            style_text = style_hint
+            temp_offset = 0.0
+        else:
+            style_text = ""
+            temp_offset = 0.0
+
+        base_temp = self._resolve_temperature(chapter_mission)
+        resolved_temp = max(0.1, min(1.5, base_temp + temp_offset))
+
         metadata: Dict[str, Any] = {
             "chapter_mission": chapter_mission,
             "style_hint": style_hint,
             "pipeline": {"preset": config.preset},
-            "resolved_temperature": self._resolve_temperature(chapter_mission),
+            "resolved_temperature": resolved_temp,
         }
 
         content = ""
@@ -2548,7 +2976,7 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
                 outline_summary=outline_summary,
                 writer_blueprint=writer_blueprint,
                 memory_context=memory_context,
-                style_hint=style_hint,
+                style_hint=style_text or style_hint,
                 enhanced_context=enhanced_context,
                 target_word_count=target_word_count,
                 user_id=user_id,
@@ -2557,10 +2985,9 @@ class PipelineOrchestrator(PipelineContextMixin, PipelinePromptMixin, PipelineRe
 
         if not content:
             final_prompt_input = prompt_input
-            if style_hint:
-                final_prompt_input += f"\n\n[版本风格提示]\n{style_hint}"
-
-            resolved_temp = self._resolve_temperature(chapter_mission)
+            # 策略指令前置到prompt（利用首因效应）
+            if style_text:
+                final_prompt_input = f"[版本风格策略]\n{style_text}\n\n{final_prompt_input}"
             # P2: 根据字数上限动态计算 max_tokens，限制物理输出长度
             # 中文约 1.5 tokens/字，取 1.5 作为安全系数
             dynamic_max_tokens = min(

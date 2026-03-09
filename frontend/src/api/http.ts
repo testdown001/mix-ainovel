@@ -47,6 +47,73 @@ const extractErrorDetail = async (response: Response): Promise<string> => {
   return (await response.text().catch(() => '')).trim()
 }
 
+const REQUEST_OPTION_KEYS = [
+  'body',
+  'headers',
+  'method',
+  'mode',
+  'credentials',
+  'cache',
+  'redirect',
+  'referrer',
+  'referrerPolicy',
+  'integrity',
+  'keepalive',
+  'signal',
+  'notFoundValue',
+  'errorFallbackValue',
+  'errorMessage'
+] as const
+
+const isApiRequestOptions = <T>(value: unknown): value is ApiRequestOptions<T> => {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  return REQUEST_OPTION_KEYS.some((key) => key in (value as Record<string, unknown>))
+}
+
+const serializeRequestBody = (payload: unknown): BodyInit | null | undefined => {
+  if (typeof payload === 'undefined') {
+    return undefined
+  }
+  if (payload === null) {
+    return null
+  }
+  if (
+    typeof payload === 'string' ||
+    payload instanceof FormData ||
+    payload instanceof URLSearchParams ||
+    payload instanceof Blob ||
+    payload instanceof ArrayBuffer ||
+    ArrayBuffer.isView(payload)
+  ) {
+    return payload as BodyInit
+  }
+
+  return JSON.stringify(payload)
+}
+
+const normalizeWriteOptions = <T>(
+  payloadOrOptions?: unknown,
+  maybeOptions?: ApiRequestOptions<T>
+): ApiRequestOptions<T> => {
+  if (typeof maybeOptions !== 'undefined') {
+    return {
+      ...maybeOptions,
+      body: serializeRequestBody(payloadOrOptions)
+    }
+  }
+
+  if (isApiRequestOptions<T>(payloadOrOptions)) {
+    return payloadOrOptions
+  }
+
+  return {
+    body: serializeRequestBody(payloadOrOptions)
+  }
+}
+
 export const requestJson = async <T = any>(url: string, options: ApiRequestOptions<T> = {}): Promise<T> => {
   const { notFoundValue, errorFallbackValue, errorMessage, ...fetchOptions } = options
   const response = await fetch(url, {
@@ -98,16 +165,37 @@ const createHttpWrapper = () => ({
     const data = await requestJson<T>(url, { ...options, method: 'GET' })
     return { data }
   },
-  async post<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
-    const data = await requestJson<T>(url, { ...options, method: 'POST' })
+  async post<T = any>(
+    url: string,
+    payloadOrOptions?: unknown,
+    maybeOptions?: ApiRequestOptions<T>
+  ): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, {
+      ...normalizeWriteOptions<T>(payloadOrOptions, maybeOptions),
+      method: 'POST'
+    })
     return { data }
   },
-  async put<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
-    const data = await requestJson<T>(url, { ...options, method: 'PUT' })
+  async put<T = any>(
+    url: string,
+    payloadOrOptions?: unknown,
+    maybeOptions?: ApiRequestOptions<T>
+  ): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, {
+      ...normalizeWriteOptions<T>(payloadOrOptions, maybeOptions),
+      method: 'PUT'
+    })
     return { data }
   },
-  async delete<T = any>(url: string, options?: ApiRequestOptions<T>): Promise<{ data: T }> {
-    const data = await requestJson<T>(url, { ...options, method: 'DELETE' })
+  async delete<T = any>(
+    url: string,
+    payloadOrOptions?: unknown,
+    maybeOptions?: ApiRequestOptions<T>
+  ): Promise<{ data: T }> {
+    const data = await requestJson<T>(url, {
+      ...normalizeWriteOptions<T>(payloadOrOptions, maybeOptions),
+      method: 'DELETE'
+    })
     return { data }
   },
 })

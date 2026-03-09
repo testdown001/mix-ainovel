@@ -23,6 +23,8 @@ class TaiziAgent(BaseAgent):
     AGENT_NAME = "taizi"
 
     async def process(self, context: AgentContext) -> AgentResult:
+        await self.emit_stage("agent:taizi:start", "开始解析用户写作指令")
+
         # 1. 解析用户指令
         parsed = await self._parse_command(context.user_input or "")
 
@@ -40,6 +42,8 @@ class TaiziAgent(BaseAgent):
 
         # 4. 提取写作偏好
         writing_preferences = await self._extract_writing_preferences(parsed)
+
+        await self.emit_stage("agent:taizi:done", f"指令解析完成，识别为【{chapter_type}】，转发给中书省")
 
         # 5. 转发给中书省
         await self.send_message(
@@ -59,7 +63,12 @@ class TaiziAgent(BaseAgent):
 
         return AgentResult(
             status="delegated",
-            output={"chapter_type": chapter_type},
+            output={
+                "chapter_type": chapter_type,
+                "parsed_command": parsed,
+                "emotion_target": emotion_target,
+                "writing_preferences": writing_preferences,
+            },
             next_agent="zhongshu"
         )
 

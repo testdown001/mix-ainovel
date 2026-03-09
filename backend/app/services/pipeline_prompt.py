@@ -190,10 +190,9 @@ class PipelinePromptMixin:
         user_id: int,
     ) -> Optional[str]:
         """将 ChapterMission JSON 转换为人类可读的创作任务书。"""
-        brief_prompt = await self.prompt_service.get_prompt("mission_brief")
-        if not brief_prompt:
-            logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
-            return None
+        from ..db.session import AsyncSessionLocal
+        from .llm_service import LLMService
+        from .prompt_service import PromptService
 
         brief_input = f"""[章节导演脚本]
 {json.dumps(chapter_mission, ensure_ascii=False, indent=2)}
@@ -216,13 +215,21 @@ class PipelinePromptMixin:
 {", ".join(forbidden_characters) if forbidden_characters else "无"}"""
 
         try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt=brief_prompt,
-                conversation_history=[{"role": "user", "content": brief_input}],
-                temperature=0.3,
-                user_id=user_id,
-                timeout=120.0,
-            )
+            async with AsyncSessionLocal() as session:
+                prompt_service = PromptService(session)
+                llm_service = LLMService(session)
+                brief_prompt = await prompt_service.get_prompt("mission_brief")
+                if not brief_prompt:
+                    logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
+                    return None
+
+                response = await llm_service.get_llm_response(
+                    system_prompt=brief_prompt,
+                    conversation_history=[{"role": "user", "content": brief_input}],
+                    temperature=0.3,
+                    user_id=user_id,
+                    timeout=120.0,
+                )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
                 logger.warning("创作任务书生成结果为空，回退原始 JSON")
@@ -262,6 +269,9 @@ class PipelinePromptMixin:
         chapter_word_count_min: Optional[int] = None,
         chapter_word_count_max: Optional[int] = None,
         chapter_target_word_count: Optional[int] = None,
+        chapter_state_context: Optional[str] = None,
+        coolpoint_rhythm_directive: Optional[str] = None,
+        writing_strategy: Optional[Any] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -290,6 +300,18 @@ class PipelinePromptMixin:
             )
         )
 
+        # 伏笔提醒提升到TIER1（首因效应，确保LLM优先注意）
+        if foreshadowing_urgency_brief:
+            sections.append(("[高优先级伏笔提醒](必须在本章处理的伏笔)", foreshadowing_urgency_brief))
+
+        # 角色状态注入TIER1（变更2预留）
+        if chapter_state_context:
+            sections.append(("[角色当前状态](数据库实时查询，零幻觉)", chapter_state_context))
+
+        # 节奏纠偏指令注入TIER1（变更6预留）
+        if coolpoint_rhythm_directive:
+            sections.append(("[节奏纠偏指令](系统级强制)", coolpoint_rhythm_directive))
+
         # --- TIER 2: 上下文参考（中间位置）---
         if story_skeleton:
             sections.append(("[故事骨架](三层压缩：近章详细/中距摘要/远距关键事件)", story_skeleton))
@@ -316,21 +338,37 @@ class PipelinePromptMixin:
             sections.append(("[检索到的剧情上下文](Markdown)", rag_chunks_text))
             sections.append(("[检索到的章节摘要](Markdown)", rag_summaries_text))
 
+        # 钩子连续性提升到TIER2尾部（紧跟上下文参考之后）
+        if hook_continuity_brief:
+            sections.append(("[追更钩子连续性](上一章未兑现的钩子)", hook_continuity_brief))
+
+        # --- 策略权重提取 ---
+        _s_style_w = writing_strategy.style_weight if writing_strategy else 1.0
+        _s_ref_w = writing_strategy.reference_weight if writing_strategy else 1.0
+        _s_genre_w = writing_strategy.genre_weight if writing_strategy else 1.0
+        _s_warnings = writing_strategy.warnings if writing_strategy else []
+
+        # --- 策略冲突提醒注入 TIER1（让 LLM 也感知到冲突）---
+        if _s_warnings:
+            sections.insert(1, ("[策略协调提醒]", "\n".join(f"- {w}" for w in _s_warnings)))
+
         # --- TIER 3: 补充约束（利用近因效应，放在最后面）---
-        if genre_prompt_injection:
+        if genre_prompt_injection and _s_genre_w > 0:
             sections.append(("[题材写作约束]", genre_prompt_injection))
-        if fingerprint_context:
+        if fingerprint_context and _s_ref_w > 0:
             sections.append(("[作者风格指纹]", fingerprint_context))
         if platinum_rhythm_brief:
             sections.append(("[白金节奏控制](Quest/Fire/Constellation)", platinum_rhythm_brief))
-        if foreshadowing_urgency_brief:
-            sections.append(("[高优先级伏笔提醒]", foreshadowing_urgency_brief))
-        if hook_continuity_brief:
-            sections.append(("[追更钩子连续性]", hook_continuity_brief))
         if emotion_expression_brief:
             sections.append(("[情绪表达去模板化约束](重点减少怒意句式重复)", emotion_expression_brief))
-        if user_style_rules:
-            sections.append(("[用户写作风格](用户级全局约束，必须严格遵守)", user_style_rules))
+        if user_style_rules and _s_style_w > 0:
+            if _s_style_w >= 0.8:
+                style_label = "[用户写作风格](用户级全局约束，必须严格遵守)"
+            elif _s_style_w >= 0.5:
+                style_label = "[用户写作风格](参考约束，适度遵守)"
+            else:
+                style_label = "[用户写作风格](参考建议，非强制)"
+            sections.append((style_label, user_style_rules))
         sections.append(("[写作硬性约束](必须严格遵守)", ALL_HARD_RULES))
         if platinum_writing_brief:
             sections.append(("[白金写作准则](硬约束)", platinum_writing_brief))

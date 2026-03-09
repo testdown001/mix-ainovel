@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.dependencies import get_current_user
 from ...db.session import get_session
+from ...schemas.user import UserInDB
 from ...services.writing_template_service import WritingTemplateService
 
 router = APIRouter(prefix="/api/writing-templates", tags=["WritingTemplate"])
@@ -36,6 +38,11 @@ class TemplateUpdate(BaseModel):
 
 class TemplateApplyRequest(BaseModel):
     params: dict
+
+
+class InferParamsRequest(BaseModel):
+    project_id: str
+    chapter_number: int
 
 
 class TemplateResponse(BaseModel):
@@ -157,3 +164,21 @@ async def apply_template(
     service = WritingTemplateService(session)
     prompt = await service.apply_template(template_id, request.params)
     return {"prompt": prompt}
+
+
+@router.post("/{template_id}/infer-params")
+async def infer_template_params(
+    template_id: int,
+    request: InferParamsRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> dict:
+    """AI 推演模板参数值"""
+    service = WritingTemplateService(session)
+    params = await service.infer_params(
+        template_id=template_id,
+        project_id=request.project_id,
+        chapter_number=request.chapter_number,
+        user_id=current_user.id,
+    )
+    return {"params": params}

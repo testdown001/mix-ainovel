@@ -297,6 +297,7 @@ export interface AdvancedGenerateFlowConfig {
   disable_guardrail_rewrite?: boolean
   skip_history_summary_backfill?: boolean
   use_local_anti_hallucination?: boolean
+  use_agent?: boolean
 }
 
 export interface AdvancedGenerateRequest {
@@ -538,13 +539,14 @@ export class NovelAPI {
     projectId: string,
     chapterNumber: number,
     writingNotes?: string,
-    preset: AdvancedGenerateFlowConfig['preset'] = 'fast'
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
+    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>
   ): Promise<NovelProject> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset }
+      flow_config: { preset, ...flowConfigOverrides }
     }
 
     await request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
@@ -562,13 +564,14 @@ export class NovelAPI {
     projectId: string,
     chapterNumber: number,
     writingNotes?: string,
-    preset: AdvancedGenerateFlowConfig['preset'] = 'fast'
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
+    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>
   ): Promise<AdvancedGenerateResponse> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset }
+      flow_config: { preset, ...flowConfigOverrides }
     }
 
     return request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
@@ -582,13 +585,14 @@ export class NovelAPI {
     chapterNumber: number,
     writingNotes?: string,
     preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
-    callbacks: AdvancedGenerateStreamCallbacks = {}
+    callbacks: AdvancedGenerateStreamCallbacks = {},
+    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>
   ): Promise<AdvancedGenerateResponse> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset }
+      flow_config: { preset, ...flowConfigOverrides }
     }
 
     const authStore = useAuthStore()
@@ -1103,4 +1107,17 @@ export const archiveApi = {
       body: JSON.stringify(rating)
     })
   }
+}
+
+// ---- 诊断 API ----
+export const diagnosticApi = {
+  // 诊断单章生成质量和性能
+  async diagnoseChapter(projectId: string, chapterNumber: number) {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/chapters/${chapterNumber}/diagnose`)
+  },
+
+  // 诊断整本书生成质量和性能
+  async diagnoseProject(projectId: string) {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/diagnose`)
+  },
 }

@@ -2,10 +2,11 @@
 """Agent 基类定义"""
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,6 +49,9 @@ class BaseAgent(ABC):
         self._current_archive_id: Optional[int] = None
         self._stage_start_time: float = 0
 
+        # 流式事件推送
+        self._stream_handler: Optional[Callable] = None
+
         self._capabilities: Dict[str, AgentCapability] = {}
         self._register_capabilities()
 
@@ -58,6 +62,22 @@ class BaseAgent(ABC):
     def set_archive_id(self, archive_id: int) -> None:
         """设置当前档案ID"""
         self._current_archive_id = archive_id
+
+    def set_stream_handler(self, handler: Optional[Callable]) -> None:
+        """设置流式事件推送回调"""
+        self._stream_handler = handler
+
+    async def emit_stage(self, stage: str, message: str) -> None:
+        """向前端推送阶段事件（SSE stage 格式）"""
+        if not self._stream_handler:
+            return
+        data = {"event": "stage", "stage": stage, "message": message}
+        try:
+            result = self._stream_handler(data)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.debug("emit_stage callback error (ignored): %s", e)
 
     def _start_stage(self) -> None:
         """开始记录阶段"""

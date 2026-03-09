@@ -2,9 +2,10 @@
 """Agent 系统入口"""
 from __future__ import annotations
 
+import inspect
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, Optional, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Type
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -119,6 +120,23 @@ class WritingAgentSystem:
         """获取 Agent 实例"""
         return self._agents.get(name)
 
+    async def _emit_stage(
+        self,
+        stream_handler: Optional[Callable],
+        stage: str,
+        message: str,
+    ) -> None:
+        """推送阶段事件到前端"""
+        if not stream_handler:
+            return
+        data = {"event": "stage", "stage": stage, "message": message}
+        try:
+            result = stream_handler(data)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.debug("_emit_stage callback error (ignored): %s", e)
+
     async def execute_chapter_generation(
         self,
         *,
@@ -127,14 +145,22 @@ class WritingAgentSystem:
         user_input: Optional[str] = None,
         writing_notes: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
+        stream_handler: Optional[Callable] = None,
+        user_id: int = 0,
     ) -> Dict[str, Any]:
-        """执行章节生成（主入口）"""
+        """执行章节生成（主入口）—— 顺序调度模式"""
 
         if not self._initialized:
             await self.initialize()
 
-        # 创建任务
+        # 为所有 Agent 设置流式事件推送
+        for agent in self._agents.values():
+            agent.set_stream_handler(stream_handler)
+
+        await self._emit_stage(stream_handler, "agent:system:start", "三省六部系统启动")
+
         task_id = str(uuid.uuid4())
+        effective_config = config or {}
 
         # 创建奏折档案
         archive = None
@@ -145,11 +171,10 @@ class WritingAgentSystem:
                     chapter_number=chapter_number,
                     user_command=user_input,
                     writing_notes=writing_notes,
-                    preset=config.get("preset") if config else None,
+                    preset=effective_config.get("preset"),
                 )
                 await self.archive_service.start_archive(archive.id)
 
-                # 为所有 Agent 设置档案 ID
                 for agent in self._agents.values():
                     agent.set_archive_id(archive.id)
 
@@ -157,58 +182,124 @@ class WritingAgentSystem:
             except Exception as e:
                 logger.warning(f"Failed to create archive: {e}")
 
-        # 注册任务结果回调
-        result_holder: Dict[str, Any] = {}
-
-        async def collect_result(message: Dict[str, Any]) -> None:
-            msg_type = message.get("message_type")
-            if msg_type == AgentMessageType.TASK_COMPLETED.value:
-                result_holder["result"] = message.get("payload")
-            elif msg_type == AgentMessageType.TASK_FAILED.value:
-                result_holder["error"] = message.get("payload")
-
-        await self.message_bus.subscribe("task_collector", collect_result)
-        await self.message_bus.subscribe_broadcast(collect_result)
-
-        # 启动太子省
-        taizi = self._agents.get("taizi")
-        if not taizi:
-            raise RuntimeError("TaiziAgent not initialized")
-
-        context = AgentContext(
-            task_id=task_id,
-            project_id=project_id,
-            chapter_number=chapter_number,
-            user_input=user_input,
-            mission={"writing_notes": writing_notes},
-            config=config or {},
-        )
+        await self._emit_stage(stream_handler, "agent:system:archive", "奏折档案已创建")
 
         try:
-            result = await taizi.process(context)
+            # ========== 阶段 1: 太子分拣 ==========
+            taizi = self._agents.get("taizi")
+            if not taizi:
+                raise RuntimeError("TaiziAgent not initialized")
 
-            # 等待最终结果
-            final_result = await self.message_bus.wait_for_message(
+            taizi_context = AgentContext(
                 task_id=task_id,
-                timeout=600
+                project_id=project_id,
+                chapter_number=chapter_number,
+                user_input=user_input,
+                mission={"writing_notes": writing_notes},
+                config=effective_config,
+            )
+            taizi_result = await taizi.process(taizi_context)
+            taizi_output = taizi_result.output or {}
+
+            # ========== 阶段 2: 中书规划 ==========
+            zhongshu = self._agents.get("zhongshu")
+            if not zhongshu:
+                raise RuntimeError("ZhongshuAgent not initialized")
+
+            zhongshu_context = AgentContext(
+                task_id=task_id,
+                project_id=project_id,
+                chapter_number=chapter_number,
+                user_input=user_input,
+                mission={"writing_notes": writing_notes},
+                config=effective_config,
+                metadata={
+                    "user_id": user_id,
+                    "parsed_command": taizi_output.get("parsed_command", {}),
+                    "chapter_type": taizi_output.get("chapter_type", "普通章"),
+                    "emotion_target": taizi_output.get("emotion_target", {}),
+                    "writing_preferences": taizi_output.get("writing_preferences", {}),
+                },
+            )
+            zhongshu_result = await zhongshu.process(zhongshu_context)
+            zhongshu_output = zhongshu_result.output or {}
+
+            # ========== 阶段 3: 尚书调度（由 system.py 代为协调） ==========
+            await self._emit_stage(stream_handler, "agent:shangshu:start", "开始调度兵部生成章节")
+
+            # ========== 阶段 4: 兵部生成 ==========
+            bingbu = self._agents.get("bingbu")
+            if not bingbu:
+                raise RuntimeError("BingbuAgent not initialized")
+
+            version_count = effective_config.get(
+                "version_count", effective_config.get("versions", 3)
+            )
+            bingbu_context = AgentContext(
+                task_id=task_id,
+                project_id=project_id,
+                chapter_number=chapter_number,
+                user_input=user_input,
+                config=effective_config,
+                metadata={
+                    "writing_prompt": zhongshu_output.get("writing_prompt", ""),
+                    "version_count": version_count,
+                    "user_id": user_id,
+                    "flow_config": {
+                        **effective_config,
+                        "skip_bridge_archive": True,
+                        "pre_collected_context": zhongshu_output.get("pre_collected_context"),
+                    },
+                    "writing_notes": writing_notes or "",
+                    "use_orchestrator": True,
+                },
+            )
+            bingbu_result = await bingbu.process(bingbu_context)
+            bingbu_output = bingbu_result.output or {}
+            versions = bingbu_output.get("versions", [])
+
+            await self._emit_stage(
+                stream_handler, "agent:shangshu:done",
+                f"收到 {len(versions)} 个版本，转交门下省审核",
             )
 
-            if final_result:
-                payload = final_result.get("payload", {})
-            elif "error" in result_holder:
-                payload = {}
+            # ========== 阶段 5: 门下审核 ==========
+            menxia = self._agents.get("menxia")
+            best_content = versions[0].get("content", "") if versions else ""
+
+            if menxia and best_content:
+                menxia_context = AgentContext(
+                    task_id=task_id,
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    config=effective_config,
+                    metadata={
+                        "message_type": AgentMessageType.REVIEW_REQUEST.value,
+                        "chapter": {"content": best_content, "versions": versions},
+                    },
+                )
+                menxia_result = await menxia.process(menxia_context)
+                review = (menxia_result.output or {}).get("review", {})
             else:
-                payload = result_holder.get("result", {"status": "completed"})
+                review = {}
+
+            # ========== 组装最终结果 ==========
+            payload: Dict[str, Any] = {
+                "versions": versions,
+                "version_count": len(versions),
+                "stages": bingbu_output.get("stages", {}),
+                "best_version_index": 0,
+                "review": review,
+            }
 
             # 更新档案
             if archive and self.archive_service:
                 try:
-                    versions = payload.get("versions", [])
                     if versions:
                         word_count = sum(len(v.get("content", "")) for v in versions)
                         await self.archive_service.update_final_output(
                             archive.id,
-                            selected_version=payload.get("best_version_index", 0) + 1,
+                            selected_version=1,
                             word_count=word_count,
                         )
                         await self.archive_service.update_versions(
@@ -217,17 +308,16 @@ class WritingAgentSystem:
                         )
                     await self.archive_service.complete_archive(archive.id)
 
-                    # 返回结果中添加奏折ID
                     payload["imperial_edict_id"] = archive.imperial_edict_id
                     payload["archive_id"] = archive.id
 
                 except Exception as e:
                     logger.warning(f"Failed to update archive: {e}")
 
+            await self._emit_stage(stream_handler, "agent:system:done", "三省六部系统执行完成")
             return payload
 
         except Exception as e:
-            # 标记档案失败
             if archive and self.archive_service:
                 try:
                     await self.archive_service.fail_archive(archive.id, str(e))

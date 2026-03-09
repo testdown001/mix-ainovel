@@ -372,6 +372,83 @@ class MemoryLayerService:
         )
         return list(result.scalars().all())
 
+    async def build_chapter_state_context(
+        self,
+        project_id: str,
+        chapter_number: int,
+        involved_characters: Optional[List[str]] = None,
+    ) -> Optional[str]:
+        """构建章节状态上下文（纯DB查询，零LLM调用，延迟<100ms）。
+
+        查询角色状态、近3章重大事件、待解决因果链，格式化为精简文本注入生成prompt。
+        """
+        parts: List[str] = []
+
+        # 1. 角色当前状态
+        try:
+            states = await self.get_all_character_states(project_id, chapter_number)
+            if involved_characters:
+                # 优先展示本章涉及角色，其余角色简略
+                involved_set = set(involved_characters)
+                primary = [s for s in states if s.character_name in involved_set]
+                secondary = [s for s in states if s.character_name not in involved_set]
+            else:
+                primary = states
+                secondary = []
+
+            if primary:
+                lines = []
+                for s in primary[:8]:
+                    info = f"{s.character_name}："
+                    details = []
+                    if s.location:
+                        details.append(f"位于{s.location}")
+                    if s.emotion:
+                        details.append(f"情绪{s.emotion}")
+                    if s.health_status and s.health_status != "正常":
+                        details.append(f"状态{s.health_status}")
+                    if s.power_level:
+                        details.append(f"实力{s.power_level}")
+                    if s.current_goals:
+                        goals = s.current_goals if isinstance(s.current_goals, str) else "、".join(s.current_goals[:2])
+                        details.append(f"目标：{goals}")
+                    info += "，".join(details) if details else "无特殊状态"
+                    lines.append(info)
+                if secondary:
+                    for s in secondary[:4]:
+                        lines.append(f"{s.character_name}：位于{s.location or '未知'}")
+                parts.append("【角色状态】\n" + "\n".join(lines))
+        except Exception as e:
+            logger.warning("构建角色状态上下文失败: %s", e)
+
+        # 2. 近3章重大事件
+        try:
+            start_ch = max(1, chapter_number - 3)
+            timeline = await self.get_timeline(project_id, start_chapter=start_ch, end_chapter=chapter_number - 1)
+            major_events = [e for e in timeline if e.event_type == "major" or (e.importance and e.importance >= 7)]
+            if major_events:
+                event_lines = []
+                for e in major_events[:5]:
+                    event_lines.append(f"第{e.chapter_number}章：{e.event_title}")
+                parts.append("【近期关键事件】\n" + "\n".join(event_lines))
+        except Exception as e:
+            logger.warning("构建时间线上下文失败: %s", e)
+
+        # 3. 待解决因果链（top-3）
+        try:
+            chains = await self.get_pending_causal_chains(project_id)
+            if chains:
+                chain_lines = []
+                for c in chains[:3]:
+                    chain_lines.append(f"第{c.cause_chapter}章{c.cause_description} → 待解决：{c.effect_description}")
+                parts.append("【待解决因果链】\n" + "\n".join(chain_lines))
+        except Exception as e:
+            logger.warning("构建因果链上下文失败: %s", e)
+
+        if not parts:
+            return None
+        return "\n\n".join(parts)
+
     async def add_causal_chain(
         self,
         project_id: str,

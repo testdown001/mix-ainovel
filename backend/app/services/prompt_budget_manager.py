@@ -60,17 +60,22 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "白金写作准则": SectionBudget(priority=1),
     "禁止角色": SectionBudget(priority=1),
     "用户写作风格": SectionBudget(priority=1),
+    "写作硬性约束": SectionBudget(priority=1),
+    "高优先级伏笔提醒": SectionBudget(priority=1),
+    "角色当前状态": SectionBudget(priority=1),
+    "节奏纠偏指令": SectionBudget(priority=1),
 
     # TIER 2: 上下文参考 — 可截断
     "故事骨架": SectionBudget(priority=2, max_tokens=1500),
     "上一章摘要": SectionBudget(priority=2, max_tokens=1000),
     "上一章结尾": SectionBudget(priority=2, max_tokens=800),
-    "世界蓝图": SectionBudget(priority=2, max_tokens=2000),
+    "世界蓝图": SectionBudget(priority=2, max_tokens=1200),
     "项目长期记忆": SectionBudget(priority=2, max_tokens=1500),
     "记忆层上下文": SectionBudget(priority=2, max_tokens=1500),
+    "追更钩子连续性": SectionBudget(priority=2, max_tokens=600),
 
     # TIER 2.5: RAG 检索 — 可压缩
-    "RAG精筛上下文": SectionBudget(priority=2, max_tokens=2000),
+    "RAG精筛上下文": SectionBudget(priority=2, max_tokens=1500),
     "检索到的剧情上下文": SectionBudget(priority=2, max_tokens=1500),
     "检索到的章节摘要": SectionBudget(priority=3, max_tokens=800),
 
@@ -78,8 +83,6 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "题材写作约束": SectionBudget(priority=3, max_tokens=500),
     "作者风格指纹": SectionBudget(priority=3, max_tokens=800),
     "白金节奏控制": SectionBudget(priority=3, max_tokens=500),
-    "高优先级伏笔提醒": SectionBudget(priority=3, max_tokens=500),
-    "追更钩子连续性": SectionBudget(priority=3, max_tokens=400),
     "情绪表达去模板化约束": SectionBudget(priority=3, max_tokens=400),
     "模式差异化约束": SectionBudget(priority=3, max_tokens=400),
     "风格参考": SectionBudget(priority=3, max_tokens=800),

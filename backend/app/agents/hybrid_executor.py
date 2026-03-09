@@ -64,6 +64,7 @@ class HybridExecutor:
                 chapter_number=chapter_number,
                 writing_notes=writing_notes,
                 flow_config=flow_config,
+                stream_handler=stream_handler,
             )
         else:
             return await self._use_legacy_pipeline(
@@ -80,20 +81,22 @@ class HybridExecutor:
         chapter_number: int,
         writing_notes: Optional[str],
         flow_config: Optional[Dict[str, Any]],
+        stream_handler: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """使用 Agent 系统生成"""
         config = flow_config or {}
-        version_count = config.get("versions", 3)
+        # 传递完整 flow_config，补充 version_count 便于下游读取
+        agent_config = dict(config)
+        agent_config.setdefault("version_count", config.get("versions", 3))
 
         result = await self.agent_system.execute_chapter_generation(
             project_id=project_id,
             chapter_number=chapter_number,
             user_input=writing_notes,
             writing_notes=writing_notes,
-            config={
-                "version_count": version_count,
-                "enable_consistency_check": config.get("enable_consistency", False),
-            },
+            config=agent_config,
+            stream_handler=stream_handler,
+            user_id=self.user_id or 0,
         )
 
         # 适配返回格式为 PipelineOrchestrator 格式

@@ -54,7 +54,7 @@
           </div>
         </div>
 
-        <div class="reference-panel">
+        <div class="reference-panel flex-shrink-0">
           <div class="reference-panel-header">
             <div>
               <p class="reference-panel-title">参考小说</p>
@@ -107,6 +107,16 @@
             <div class="flex items-center justify-between mb-4">
               <h3 class="md-title-medium font-semibold">章节大纲</h3>
               <div class="flex items-center gap-2">
+                <!-- 预设选择按钮 -->
+                <button
+                  @click.stop="$emit('openPresetSelector')"
+                  class="md-btn md-btn-text md-ripple !text-xs !py-1 !px-2"
+                  title="选择生成模式"
+                >
+                  <span class="mr-1">⚡</span>
+                  <span class="hidden sm:inline">{{ getPresetName(props.selectedPreset || 'fast') }}</span>
+                  <span class="sm:hidden">模式</span>
+                </button>
                 <button
                   v-if="hasIncompleteChapters"
                   @click.stop="scrollToFirstIncompleteChapter"
@@ -365,6 +375,33 @@
                 <span>{{ props.isRebuildingRag ? '刷新中...' : '刷新知识库' }}</span>
               </button>
             </div>
+            <!-- 工具按钮组 -->
+            <div class="mt-3 flex gap-2">
+              <button
+                @click="$emit('openMiddleProductViewer')"
+                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
+                title="查看生成中间产物"
+              >
+                <span>📊</span>
+                <span class="hidden sm:inline">中间产物</span>
+              </button>
+              <button
+                @click="$emit('openDiagnosticPanel')"
+                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
+                title="生成诊断报告"
+              >
+                <span>🔧</span>
+                <span class="hidden sm:inline">诊断</span>
+              </button>
+              <button
+                @click="$emit('openAgentVisualizer')"
+                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
+                title="查看 Agent 协作流程"
+              >
+                <span>🤖</span>
+                <span class="hidden sm:inline">Agent</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -411,6 +448,10 @@ interface Props {
   isRebuildingRag: boolean
   batchGenerating: boolean
   batchProgress: { current: number; total: number } | null
+  selectedPreset?: string
+  showMiddleProductViewer?: boolean
+  showDiagnosticPanel?: boolean
+  showAgentVisualizer?: boolean
 }
 
 const props = defineProps<Props>()
@@ -426,8 +467,26 @@ const emit = defineEmits([
   'generateOutline',
   'rebuildRag',
   'batchGenerate',
-  'cancelBatch'
+  'cancelBatch',
+  'openPresetSelector',
+  'openMiddleProductViewer',
+  'openDiagnosticPanel',
+  'openAgentVisualizer'
 ])
+
+// 预设名称映射
+const presetNameMap: Record<string, string> = {
+  'fast': '极速',
+  'quick': '快速',
+  'quality': '质量',
+  'style': '文笔',
+  '爽点': '爽点',
+  'platinum': '铂金'
+}
+
+function getPresetName(preset: string): string {
+  return presetNameMap[preset] || preset
+}
 
 const selectedForDeletion = ref<number[]>([])
 const listContainer = ref<HTMLElement | null>(null)

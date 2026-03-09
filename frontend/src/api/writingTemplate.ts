@@ -72,3 +72,16 @@ export async function applyTemplate(templateId: number, params: Record<string, a
   const res = await http.post(`/api/writing-templates/${templateId}/apply`, { params })
   return res.data
 }
+
+// AI 推演模板参数
+export async function inferTemplateParams(
+  templateId: number,
+  projectId: string,
+  chapterNumber: number
+): Promise<Record<string, any>> {
+  const res = await http.post(`/api/writing-templates/${templateId}/infer-params`, {
+    project_id: projectId,
+    chapter_number: chapterNumber,
+  })
+  return res.data.params
+}

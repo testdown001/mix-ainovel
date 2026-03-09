@@ -280,6 +280,11 @@ class Settings(BaseSettings):
         env="RAG_RERANKER_MODEL",
         description="Reranker 模型名称",
     )
+    rag_min_score: float = Field(
+        default=0.35,
+        env="RAG_MIN_SCORE",
+        description="RAG 检索最低相似度门槛，低于此分数的结果将被过滤",
+    )
 
     # -------------------- Strand Weave 节奏模型 --------------------
     pacing_model: str = Field(

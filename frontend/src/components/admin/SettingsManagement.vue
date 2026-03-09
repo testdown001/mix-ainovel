@@ -125,6 +125,31 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
+          <span class="card-title">三省六部 Agent 系统</span>
+        </div>
+      </template>
+      <n-spin :show="agentLoading">
+        <n-alert v-if="agentError" type="error" closable @close="agentError = null">
+          {{ agentError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          启用后，章节生成将使用三省六部多 Agent 协作系统（太子省 → 中书省 → 尚书省 → 兵部 → 门下省），替代传统单流水线生成。
+        </n-alert>
+        <n-form label-placement="left" class="agent-form">
+          <n-form-item label="启用 Agent 系统">
+            <n-switch
+              v-model:value="agentEnabled"
+              :loading="agentSaving"
+              @update:value="saveAgentSetting"
+            />
+          </n-form-item>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
           <span class="card-title">系统配置</span>
           <n-button type="primary" size="small" @click="openCreateModal">
             新增配置
@@ -198,6 +223,7 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NSwitch,
   type DataTableColumns
 } from 'naive-ui'
 
@@ -336,6 +362,45 @@ const savePolishConfig = async () => {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
   } finally {
     polishSaving.value = false
+  }
+}
+
+// ---- 三省六部 Agent 系统开关 ----
+const agentLoading = ref(false)
+const agentSaving = ref(false)
+const agentError = ref<string | null>(null)
+const agentEnabled = ref(false)
+
+const AGENT_CONFIG_KEY = 'enable_agent_system'
+
+const fetchAgentSetting = async () => {
+  agentLoading.value = true
+  agentError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const cfg = allConfigs.find(c => c.key === AGENT_CONFIG_KEY)
+    agentEnabled.value = cfg?.value === 'true'
+  } catch (err) {
+    agentError.value = err instanceof Error ? err.message : '加载 Agent 配置失败'
+  } finally {
+    agentLoading.value = false
+  }
+}
+
+const saveAgentSetting = async (val: boolean) => {
+  agentSaving.value = true
+  try {
+    await AdminAPI.upsertSystemConfig(AGENT_CONFIG_KEY, {
+      value: val ? 'true' : 'false',
+      description: '是否启用三省六部多 Agent 系统生成章节'
+    })
+    showAlert(val ? '已启用三省六部 Agent 系统' : '已关闭三省六部 Agent 系统', 'success')
+  } catch (err) {
+    // 保存失败时回滚开关状态
+    agentEnabled.value = !val
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    agentSaving.value = false
   }
 }
 
@@ -527,6 +592,7 @@ onMounted(() => {
   fetchDailyLimit()
   fetchPolishConfig()
   fetchSearchModelConfig()
+  fetchAgentSetting()
   fetchConfigs()
 })
 </script>
@@ -560,6 +626,10 @@ onMounted(() => {
 
 .search-form {
   max-width: 480px;
+}
+
+.agent-form {
+  max-width: 360px;
 }
 
 .config-modal {

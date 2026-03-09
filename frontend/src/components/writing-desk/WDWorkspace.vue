@@ -235,6 +235,8 @@
       <div v-if="showTemplateSelector" class="modal-overlay" @click.self="showTemplateSelector = false">
         <div class="modal-content">
           <TemplateSelector
+            :project-id="project?.id ?? ''"
+            :chapter-number="selectedChapterNumber ?? 0"
             @apply="handleTemplateApply"
           />
         </div>
@@ -307,6 +309,7 @@ const confirmRegenerateChapter = async () => {
 // 剧情推演
 const showPrediction = ref(false)
 const showTemplateSelector = ref(false)
+const templatePrompt = ref('')
 const generatingPrediction = ref(false)
 const predictionPanelBlockedStatuses: Chapter['generation_status'][] = [
   'waiting_for_confirm',
@@ -369,8 +372,8 @@ const handleGeneratePrediction = async () => {
 // 处理模板应用
 const handleTemplateApply = (prompt: string) => {
   showTemplateSelector.value = false
-  console.log('应用模板 prompt:', prompt)
-  globalAlert.showMessage('模板已应用，请点击生成按钮开始写作')
+  templatePrompt.value = prompt
+  globalAlert.showMessage('模板已应用，写作指令已更新')
 }
 
 const openPredictionPanel = async () => {
@@ -633,7 +636,8 @@ const currentComponentProps = computed(() => {
     generatingChapter: props.generatingChapter,
     canGenerate: canGenerateChapter(props.selectedChapterNumber),
     outline: selectedChapterOutline.value,
-    projectId: props.project?.id
+    projectId: props.project?.id,
+    templatePrompt: templatePrompt.value
   }
 })
 </script>

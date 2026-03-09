@@ -47,6 +47,7 @@
           :is-rebuilding-rag="isRebuildingRag"
           :batch-generating="batchGenerating"
           :batch-progress="batchProgress"
+          :selected-preset="selectedPreset"
           @close-sidebar="closeSidebar"
           @select-chapter="selectChapter"
           @preview-prediction="handlePreviewPrediction"
@@ -57,6 +58,10 @@
           @rebuild-rag="rebuildRag"
           @batch-generate="openBatchGenerateModal"
           @cancel-batch="cancelBatchGenerate"
+          @open-preset-selector="showPresetSelector = true"
+          @open-middle-product-viewer="showMiddleProductViewer = true"
+          @open-diagnostic-panel="showDiagnosticPanel = true"
+          @open-agent-visualizer="showAgentVisualizer = true"
         />
 
         <div class="flex-1 min-w-0">
@@ -127,15 +132,60 @@
       :outlines="project?.blueprint?.chapter_outline || []"
       @update:visible="codexPanelOpen = $event"
     />
+
+    <!-- 预设选择器 -->
+    <n-modal v-model:show="showPresetSelector" preset="card" title="选择生成模式" style="width: 600px; max-width: 90vw;">
+      <PresetSelector v-model="selectedPreset" />
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <n-button @click="showPresetSelector = false">取消</n-button>
+          <n-button type="primary" @click="confirmPreset">确认</n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <!-- 中间产物预览 -->
+    <n-modal v-model:show="showMiddleProductViewer" preset="card" title="生成中间产物" style="width: 700px; max-width: 90vw;">
+      <MiddleProductViewer
+        :mission-data="currentMissionData"
+        :rag-data="currentRagData"
+        :context-data="currentContextData"
+        :foreshadowing-data="currentForeshadowingData"
+      />
+    </n-modal>
+
+    <!-- 诊断面板 -->
+    <n-modal v-model:show="showDiagnosticPanel" preset="card" title="生成诊断报告" style="width: 600px; max-width: 90vw;">
+      <DiagnosticPanel
+        :project-id="project?.id"
+        :chapter-number="selectedChapterNumber || undefined"
+      />
+    </n-modal>
+
+    <!-- Agent 可视化 -->
+    <n-modal v-model:show="showAgentVisualizer" preset="card" title="Agent 协作流程" style="width: 800px; max-width: 90vw;">
+      <AgentFlowVisualizer
+        :agents="agentNodes"
+        :current-agent-id="currentAgentId"
+        :is-running="isAgentRunning"
+        :is-completed="isAgentCompleted"
+        :total-time="agentTotalTime"
+        :total-l-l-m-calls="agentLLMCalls"
+        @pause="handleAgentPause"
+        @stop="handleAgentStop"
+      />
+    </n-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { NModal, NButton } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { NovelAPI } from '@/api/novel'
-import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, AdvancedGenerateResponse } from '@/api/novel'
+import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, AdvancedGenerateResponse, AdvancedGenerateFlowConfig } from '@/api/novel'
+import { AdminAPI } from '@/api/admin'
 import { globalAlert } from '@/composables/useAlert'
 import WDHeader from '@/components/writing-desk/WDHeader.vue'
 import WDSidebar from '@/components/writing-desk/WDSidebar.vue'
@@ -146,6 +196,10 @@ import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
 import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal.vue'
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
+import PresetSelector from '@/components/shared/PresetSelector.vue'
+import MiddleProductViewer from '@/components/shared/MiddleProductViewer.vue'
+import DiagnosticPanel from '@/components/shared/DiagnosticPanel.vue'
+import AgentFlowVisualizer from '@/components/shared/AgentFlowVisualizer.vue'
 
 interface Props {
   id: string
@@ -170,6 +224,162 @@ const isGeneratingOutline = ref(false)
 const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 const codexPanelOpen = ref(false)
+const showPresetSelector = ref(false)
+const selectedPreset = ref(localStorage.getItem('arboris_preset') || 'fast')
+function confirmPreset() {
+  localStorage.setItem('arboris_preset', selectedPreset.value)
+  showPresetSelector.value = false
+}
+
+// 三省六部Agent系统开关
+const useAgent = ref(false)
+const fetchAgentSetting = async () => {
+  try {
+    const configs = await AdminAPI.listSystemConfigs()
+    const agentConfig = configs.find(c => c.key === 'enable_agent_system')
+    useAgent.value = agentConfig?.value === 'true'
+  } catch {
+    // 非管理员或接口不可用时静默降级
+    useAgent.value = false
+  }
+}
+const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | undefined>(() =>
+  useAgent.value ? { use_agent: true } : undefined
+)
+const showMiddleProductViewer = ref(false)
+const showDiagnosticPanel = ref(false)
+const showAgentVisualizer = ref(false)
+
+// 中间产物数据（模拟数据，实际应从API获取）
+const currentMissionData = ref(null)
+const currentRagData = ref(null)
+const currentContextData = ref(null)
+const currentForeshadowingData = ref(null)
+
+// Agent 可视化数据
+const currentAgentId = ref<string | null>(null)
+const isAgentRunning = ref(false)
+const isAgentCompleted = ref(false)
+const agentTotalTime = ref(0)
+const agentLLMCalls = ref(0)
+let _agentStartTime = 0
+interface AgentLog {
+  time: string
+  message: string
+  type: 'info' | 'warning' | 'error' | 'success'
+}
+
+const agentNodes = ref([
+  { id: 'taizi', name: '太子省', role: '需求分拣', icon: '👶', status: 'pending' as string, logs: [] as AgentLog[] },
+  { id: 'zhongshu', name: '中书省', role: '规划中枢', icon: '📜', status: 'pending' as string, logs: [] as AgentLog[] },
+  { id: 'shangshu', name: '尚书省', role: '调度协调', icon: '🏛️', status: 'pending' as string, logs: [] as AgentLog[] },
+  { id: 'bingbu', name: '兵部', role: '章节生成', icon: '⚔️', status: 'pending' as string, logs: [] as AgentLog[] },
+  { id: 'libu', name: '吏部', role: '角色管理', icon: '📋', status: 'pending' as string, logs: [] as AgentLog[] },
+  { id: 'hubu', name: '户部', role: '技能系统', icon: '🎯', status: 'pending' as string, logs: [] as AgentLog[] },
+  { id: 'menxia', name: '门下省', role: '质量审核', icon: '🔍', status: 'pending' as string, logs: [] as AgentLog[] },
+])
+
+// Stage → Agent 状态映射：将后端推送的 stage 事件映射到 Agent 节点状态变更
+function _setAgentStatus(id: string, status: string) {
+  const node = agentNodes.value.find(a => a.id === id)
+  if (node) node.status = status
+}
+
+function _addAgentLog(id: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
+  const node = agentNodes.value.find(a => a.id === id)
+  if (!node) return
+  if (!node.logs) node.logs = []
+  const now = new Date()
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+  node.logs.push({ time, message, type })
+}
+
+function updateAgentByStage(stage: string, message?: string) {
+  // 处理 agent:xxx:yyy 格式的事件（三省六部系统）
+  const agentMatch = stage.match(/^agent:(\w+):(\w+)$/)
+  if (agentMatch) {
+    const [, agentId, action] = agentMatch
+    const msg = message || stage
+
+    if (action === 'start') {
+      _setAgentStatus(agentId, 'running')
+      currentAgentId.value = agentId
+      _addAgentLog(agentId, msg, 'info')
+    } else if (action === 'done') {
+      _setAgentStatus(agentId, 'completed')
+      _addAgentLog(agentId, msg, 'success')
+    } else {
+      // 中间步骤日志（如 agent:zhongshu:context, agent:bingbu:pipeline 等）
+      _addAgentLog(agentId, msg, 'info')
+    }
+
+    // 系统级事件
+    if (agentId === 'system' && action === 'done') {
+      currentAgentId.value = null
+      isAgentRunning.value = false
+      isAgentCompleted.value = true
+      agentTotalTime.value = _agentStartTime ? Date.now() - _agentStartTime : 0
+    }
+    return
+  }
+
+  // 传统流水线 stage 映射（兼容非 Agent 模式）
+  switch (stage) {
+    case 'starting':
+      currentAgentId.value = 'taizi'
+      _setAgentStatus('taizi', 'running')
+      break
+    case 'build_generation_prompt':
+      _setAgentStatus('taizi', 'completed')
+      _setAgentStatus('zhongshu', 'running')
+      _setAgentStatus('libu', 'running')
+      currentAgentId.value = 'zhongshu'
+      break
+    case 'generate_versions':
+    case 'generate_fast_version':
+    case 'generate_scene_by_scene':
+      _setAgentStatus('zhongshu', 'completed')
+      _setAgentStatus('libu', 'completed')
+      _setAgentStatus('shangshu', 'completed')
+      _setAgentStatus('bingbu', 'running')
+      currentAgentId.value = 'bingbu'
+      break
+    case 'persist_versions':
+      _setAgentStatus('bingbu', 'completed')
+      _setAgentStatus('hubu', 'running')
+      currentAgentId.value = 'hubu'
+      break
+    case 'completed':
+      _setAgentStatus('hubu', 'completed')
+      _setAgentStatus('menxia', 'completed')
+      currentAgentId.value = null
+      isAgentRunning.value = false
+      isAgentCompleted.value = true
+      agentTotalTime.value = _agentStartTime ? Date.now() - _agentStartTime : 0
+      break
+  }
+}
+
+function resetAgentState() {
+  agentNodes.value.forEach(a => { a.status = 'pending'; a.logs = [] })
+  currentAgentId.value = null
+  isAgentRunning.value = true
+  isAgentCompleted.value = false
+  agentTotalTime.value = 0
+  agentLLMCalls.value = 0
+  _agentStartTime = Date.now()
+}
+
+// Agent 控制函数
+function handleAgentPause() {
+  isAgentRunning.value = false
+}
+
+function handleAgentStop() {
+  isAgentRunning.value = false
+  isAgentCompleted.value = false
+}
+
 const openPredictionTick = ref(0)
 const streamingChapterNumber = ref<number | null>(null)
 const streamingDraftText = ref('')
@@ -464,6 +674,16 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     streamingChapterNumber.value = chapterNumber
     streamingDraftText.value = ''
     streamingStage.value = '准备生成...'
+    currentMissionData.value = null
+    currentRagData.value = null
+    currentContextData.value = null
+    currentForeshadowingData.value = null
+    resetAgentState()
+
+    // Agent 模式下自动打开可视化弹窗
+    if (useAgent.value) {
+      showAgentVisualizer.value = true
+    }
 
     // 在本地更新章节状态为generating
     if (project.value?.chapters) {
@@ -493,7 +713,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
       project.value.id,
       chapterNumber,
       writingNotes,
-      'fast',
+      selectedPreset.value,
       {
         onStage: (payload) => {
           if (activeGenerationToken.value !== generationToken) {
@@ -503,6 +723,10 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
             streamingStage.value = payload.message.trim()
           } else if (typeof payload?.stage === 'string' && payload.stage.trim()) {
             streamingStage.value = payload.stage.trim()
+          }
+          // 将 stage 事件映射到 Agent 节点状态更新
+          if (payload?.stage) {
+            updateAgentByStage(payload.stage, payload?.message)
           }
         },
         onTextDelta: (delta) => {
@@ -514,7 +738,19 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
           }
           streamingDraftText.value += delta
         },
-      }
+        onEvent: (event, payload) => {
+          if (event === 'middle_product' && payload?.type) {
+            if (payload.type === 'mission') {
+              currentMissionData.value = payload.data || null
+            } else if (payload.type === 'rag') {
+              currentRagData.value = payload.data || null
+            } else if (payload.type === 'foreshadowing') {
+              currentForeshadowingData.value = payload.data || null
+            }
+          }
+        },
+      },
+      agentFlowConfigOverrides.value
     )
     
     // store 中的 project 已经被更新，所以我们不需要手动修改本地状态
@@ -524,6 +760,11 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     selectedVersionIndex.value = 0
   } catch (error) {
     console.error('生成章节失败:', error)
+
+    // 将当前运行中的 Agent 标记为失败
+    const runningNode = agentNodes.value.find(a => a.status === 'running')
+    if (runningNode) runningNode.status = 'failed'
+    isAgentRunning.value = false
 
     // 错误状态的本地更新仍然是必要的，以立即反映UI
     if (project.value?.chapters) {
@@ -819,7 +1060,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
 
       try {
         // 调用生成 API，获取含 best_version_index 的原始响应
-        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(projectId, chapterNumber, writingNotes)
+        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(projectId, chapterNumber, writingNotes, selectedPreset.value as any, agentFlowConfigOverrides.value)
 
         // 再次检查是否取消或组件已卸载（生成过程中可能点了取消或离开页面）
         if (batchCancelled.value || !componentMounted.value) {
@@ -890,6 +1131,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
 onMounted(() => {
   document.body.classList.add('m3-novel')
   loadProject()
+  fetchAgentSetting()
 })
 
 onUnmounted(() => {
