@@ -87,7 +87,7 @@ class PipelineReviewMixin:
 
 **修订原则：**
 1. 只修改评审指出的问题，不改变整体情节走向和结构
-2. 保持原有字数规模（±10%）
+2. 保持原有字数规模，总字数不得超过 {max_word_count} 字
 3. 修改要自然融入，不能有明显修补痕迹
 4. 保持原文的叙事风格和语气{mission_hint}
 
@@ -103,7 +103,7 @@ class PipelineReviewMixin:
 直接输出修改后的完整章节，不要输出其他内容。"""
 
         try:
-            _revision_max_tokens = int(max_word_count * 1.5) if max_word_count else None
+            _revision_max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长根据编辑反馈精修文章的网文作者。",
                 conversation_history=[{"role": "user", "content": revision_prompt}],
@@ -193,7 +193,7 @@ class PipelineReviewMixin:
 
 **修订原则：**
 1. 只修改存在问题的部分，不改变整体情节走向和结构
-2. 保持原有字数规模（±10%）
+2. 保持原有字数规模，总字数不得超过 {max_word_count} 字
 3. 修改要自然融入，不能有明显修补痕迹
 4. 保持原文的叙事风格和语气{mission_hint}
 {review_section}{critique_section}{character_context}{previous_summary_context}
@@ -204,7 +204,7 @@ class PipelineReviewMixin:
 直接输出修改后的完整章节，不要输出其他内容。"""
 
         try:
-            _max_tokens = int(max_word_count * 1.5) if max_word_count else None
+            _max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长根据多维度反馈精修网文章节的资深编辑。综合所有反馈一次性完成修订。",
                 conversation_history=[{"role": "user", "content": combined_prompt}],
@@ -245,7 +245,7 @@ class PipelineReviewMixin:
         max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         service = SelfCritiqueService(self.session, self.llm_service, self.prompt_service)
-        _critique_max_tokens = int(max_word_count * 1.5) if max_word_count else None
+        _critique_max_tokens = int(max_word_count * 1.2) if max_word_count else None
         critique = await service.critique_and_revise_loop(
             chapter_content=chapter_content,
             max_iterations=max_iterations,
@@ -370,7 +370,7 @@ class PipelineReviewMixin:
 }}}}"""
 
         try:
-            _optimizer_max_tokens = int(max_word_count * 1.5) if max_word_count else None
+            _optimizer_max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长多维度同步优化网文章节的资深编辑。只输出JSON，不要其他内容。",
                 conversation_history=[{"role": "user", "content": optimize_prompt}],
@@ -418,7 +418,7 @@ class PipelineReviewMixin:
 3. 强化感官描写：视觉、听觉、触觉等多感官细节
 4. 润色对话：使角色语言更有个性和感染力
 5. 打磨节奏：优化段落过渡和叙事节奏
-6. 保持原文字数规模（±5%），不增删情节
+6. 保持原文字数规模，总字数不得超过 {max_word_count} 字，不增删情节
 
 [原章节内容]
 {chapter_content}
@@ -426,7 +426,7 @@ class PipelineReviewMixin:
 直接输出润色后的完整章节，不要输出其他内容。"""
 
         try:
-            _polish_max_tokens = int(max_word_count * 1.5) if max_word_count else None
+            _polish_max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_optimize_llm_response(
                 system_prompt="你是一位擅长小说润色的文学编辑，你的任务是在保持原有情节不变的前提下，提升文字的文学性和画面感。",
                 conversation_history=[{"role": "user", "content": polish_prompt}],
@@ -519,7 +519,7 @@ class PipelineReviewMixin:
             return chapter_content, {"applied": False, "reason": "missing_prompt"}
 
         try:
-            _density_max_tokens = int(max_word_count * 1.5) if max_word_count else None
+            _density_max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_llm_response(
                 system_prompt="你是一位擅长高信息密度写作的网文编辑。任务是压缩和提纯文字。",
                 conversation_history=[{"role": "user", "content": f"{prompt}\n\n[原章节内容]\n{chapter_content}"}],

@@ -24,12 +24,21 @@ from .review import router as review_router
 from .writing_template import router as writing_template_router
 from .writer_progress import router as writer_progress_router
 from .skill import router as skill_router
+from .task_worker import router as task_worker_router
+from .tasks import router as tasks_router
+from .quota import router as quota_router
 
 
 api_router = APIRouter()
 
 # 认证 - auth.py 已经定义了 prefix="/api/auth"
 api_router.include_router(auth_router, tags=["Auth"])
+
+# 任务管理 - tasks.py 已经定义了 prefix="/api/tasks"
+api_router.include_router(tasks_router, tags=["Tasks"])
+
+# 配额管理 - quota.py 已经定义了 prefix="/api/quota"
+api_router.include_router(quota_router, tags=["Quota"])
 
 # 项目与小说 - novels.py 和 projects.py 已经定义了 prefix
 api_router.include_router(projects_router, tags=["Projects"])
@@ -75,3 +84,6 @@ api_router.include_router(writer_progress_router, tags=["WriterProgress"])
 
 # 技能系统 - skill.py 已经定义了 prefix
 api_router.include_router(skill_router, tags=["Skills"])
+
+# Go Task Dispatcher Worker 适配器 - 内部接口，由 Go Gateway 调用
+api_router.include_router(task_worker_router, tags=["Internal"])

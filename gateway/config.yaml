@@ -1,0 +1,63 @@
+server:
+  host: "0.0.0.0"
+  port: 3000
+  read_timeout: 10s
+  write_timeout: 120s  # LLM 流式需要长超时
+  prefork: false  # 开发环境关闭，生产环境开启
+
+backend:
+  fastapi_url: "http://localhost:8000"
+  timeout: 120s
+
+jwt:
+  secret: "your-secret-key-change-in-production"
+  issuer: "arboris-gateway"
+  audience: "arboris-api"
+
+redis:
+  addr: "localhost:6379"
+  password: ""
+  db: 0
+  pool_size: 50
+
+rate_limit:
+  # 普通用户
+  default_tpm: 100000  # 100K tokens per minute
+  default_concurrent: 3
+  default_rpm: 60  # requests per minute
+  default_rps: 10  # requests per second
+
+  # Premium 用户
+  premium_tpm: 300000  # 300K tokens per minute
+  premium_concurrent: 8
+  premium_rpm: 180
+  premium_rps: 30
+
+websocket:
+  max_connections: 10000
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  ping_interval: 30s
+  pong_timeout: 60s
+
+log:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json, console
+  output: "stdout"  # stdout, file
+  file_path: "logs/gateway.log"
+
+metrics:
+  enabled: true
+  path: "/metrics"
+
+task_dispatcher:
+  enabled: true
+  max_concurrency: 20       # 全局最大并发任务数
+  max_per_user: 3            # 每用户最大并发任务数
+  default_timeout: 10m       # 单章节生成超时
+  batch_timeout: 60m         # 批量生成超时
+  max_retries: 3             # 最大重试次数
+  retry_delay: 5s            # 初始重试延迟（指数退避）
+  poll_interval: 100ms       # 队列轮询间隔
+  worker_callback_url: "http://localhost:8000/api/internal/tasks"  # Python Worker
+  worker_grpc_addr: "localhost:50051"  # gRPC 地址（预留）

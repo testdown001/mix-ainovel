@@ -201,6 +201,38 @@ class WritingAgentSystem:
             taizi_result = await taizi.process(taizi_context)
             taizi_output = taizi_result.output or {}
 
+            selected_skills = effective_config.get("selected_skills") or []
+            skill_context = None
+            skill_policies = []
+            effective_writing_notes = writing_notes or ""
+            if selected_skills:
+                hubu = self._agents.get("hubu")
+                if hubu:
+                    hubu_context = AgentContext(
+                        task_id=task_id,
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        user_input=user_input,
+                        config=effective_config,
+                        metadata={
+                            "action": "build_skill_context",
+                            "selected_skills": selected_skills,
+                        },
+                    )
+                    hubu_result = await hubu.process(hubu_context)
+                    if hubu_result.status == "completed":
+                        skill_context = (hubu_result.output or {}).get("skill_context")
+                        skill_policies = list((skill_context or {}).get("skill_policies") or [])
+                        skill_prompt = (skill_context or {}).get("prompt_injection", "")
+                        if skill_prompt:
+                            effective_writing_notes = (
+                                f"{effective_writing_notes}\n\n{skill_prompt}".strip()
+                                if effective_writing_notes
+                                else skill_prompt
+                            )
+                    else:
+                        logger.warning("HubuAgent 构建技能上下文失败: %s", hubu_result.error)
+
             # ========== 阶段 2: 中书规划 ==========
             zhongshu = self._agents.get("zhongshu")
             if not zhongshu:
@@ -219,6 +251,7 @@ class WritingAgentSystem:
                     "chapter_type": taizi_output.get("chapter_type", "普通章"),
                     "emotion_target": taizi_output.get("emotion_target", {}),
                     "writing_preferences": taizi_output.get("writing_preferences", {}),
+                    "skill_policies": skill_policies,
                 },
             )
             zhongshu_result = await zhongshu.process(zhongshu_context)
@@ -248,9 +281,11 @@ class WritingAgentSystem:
                     "flow_config": {
                         **effective_config,
                         "skip_bridge_archive": True,
+                        "skill_policies": skill_policies,
                         "pre_collected_context": zhongshu_output.get("pre_collected_context"),
                     },
-                    "writing_notes": writing_notes or "",
+                    "writing_notes": effective_writing_notes,
+                    "skill_context": skill_context,
                     "use_orchestrator": True,
                 },
             )

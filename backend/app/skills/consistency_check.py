@@ -122,3 +122,24 @@ class ConsistencyCheckSkill(SkillBase):
         issues = [l.strip() for l in lines if l.strip() and not l.startswith('请') and not l.startswith('角色')]
 
         return issues
+
+    async def build_retrieval_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        return ["角色状态", "时间线", "硬性设定边界", "上一章摘要"]
+
+    async def build_prompt_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        return ["正文必须尊重既有设定", "避免角色行为越权或失真"]
+
+    async def build_verify_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        return ["连续性冲突扫描", "人物行为与设定符合度检查"]

@@ -250,6 +250,7 @@ class HumanizationService:
                 user_id=user_id,
                 timeout=300.0,
                 response_format=None,
+                max_tokens=int(len(text) * 1.2),
             )
             result = response.strip() if response else text
             # 基本校验：修复后文本不应过短

@@ -1,0 +1,69 @@
+llm_gateway:
+  enabled: true
+
+  # 连接池配置
+  pool:
+    max_idle_conns: 100
+    max_conns_per_host: 50
+    idle_conn_timeout: 90s
+    tls_handshake_timeout: 10s
+    expect_continue_timeout: 1s
+
+  # 重试策略
+  retry:
+    max_attempts: 3
+    initial_delay: 100ms
+    max_delay: 5s
+    multiplier: 2.0
+
+  # 模型路由
+  router:
+    default_provider: "openai"
+    fallback_enabled: true
+    load_balance_strategy: "round_robin"  # round_robin, least_latency, random
+
+  # Provider 配置
+  providers:
+    openai:
+      api_key: "${OPENAI_API_KEY}"
+      base_url: "https://api.openai.com/v1"
+      timeout: 120s
+      max_tokens: 4096
+      models:
+        - "gpt-4"
+        - "gpt-3.5-turbo"
+
+    anthropic:
+      api_key: "${ANTHROPIC_API_KEY}"
+      base_url: "https://api.anthropic.com/v1"
+      timeout: 120s
+      max_tokens: 4096
+      models:
+        - "claude-3-opus"
+        - "claude-3-sonnet"
+
+    ollama:
+      base_url: "http://localhost:11434"
+      timeout: 300s
+      models:
+        - "llama2"
+        - "mistral"
+
+  # 语义缓存
+  semantic_cache:
+    enabled: true
+    ttl: 3600  # 1 hour
+    similarity_threshold: 0.95
+    embedding_model: "text-embedding-ada-002"
+    max_cache_size: 10000
+
+  # 流式配置
+  stream:
+    buffer_size: 4096
+    flush_interval: 50ms
+
+  # 监控
+  metrics:
+    track_token_usage: true
+    track_latency: true
+    track_cache_hits: true

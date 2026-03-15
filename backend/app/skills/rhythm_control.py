@@ -109,3 +109,34 @@ class RhythmControlSkill(SkillBase):
 {context.content}
 
 直接输出调整后的文字，不要任何说明。"""
+
+    async def build_retrieval_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        chapter_type = context.chapter_info.get("type", "普通章")
+        return [
+            "近5章节奏分布",
+            "高潮密度",
+            f"章节类型: {chapter_type}",
+        ]
+
+    async def build_prompt_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        intensity = str((params or {}).get("intensity") or self.definition.config.default)
+        return [
+            f"节奏控制强度: {intensity}",
+            "关键动作使用短句推进",
+            "铺陈段落保持呼吸感和层次变化",
+        ]
+
+    async def build_verify_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        return ["节奏目标达成度", "段落密度是否匹配章节类型"]

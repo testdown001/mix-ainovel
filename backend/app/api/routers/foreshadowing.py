@@ -12,7 +12,7 @@ from ...services.foreshadowing_service import ForeshadowingService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...models.foreshadowing import Foreshadowing, ForeshadowingReminder, ForeshadowingAnalysis
-from ...models.novel import Chapter, ChapterOutline, NovelBlueprint, NovelProject
+from ...models.novel import Chapter, ChapterOutline, NovelBlueprint, NovelProject, BlueprintCharacter
 from ...schemas.novel import ChapterOutline as ChapterOutlineSchema
 from ...core.dependencies import get_current_user
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
@@ -711,6 +711,27 @@ async def generate_foreshadowings(
         prefer_outline_inference=False,
     )
     await session.commit()
+
+    # --- 清理引用了不存在角色的伏笔 ---
+    chars_result = await session.execute(
+        select(BlueprintCharacter.name).where(BlueprintCharacter.project_id == project_id)
+    )
+    valid_names = set(row[0] for row in chars_result.all())
+
+    if valid_names:
+        all_fs = await session.execute(
+            select(Foreshadowing).where(Foreshadowing.project_id == project_id)
+        )
+        dirty = False
+        for fs in all_fs.scalars().all():
+            if not isinstance(fs.related_characters, list) or not fs.related_characters:
+                continue
+            cleaned = [c for c in fs.related_characters if c in valid_names]
+            if len(cleaned) != len(fs.related_characters):
+                fs.related_characters = cleaned or None
+                dirty = True
+        if dirty:
+            await session.commit()
 
     # 返回写入后的数量
     count_result = await session.scalar(

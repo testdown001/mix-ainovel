@@ -114,3 +114,33 @@ class DialoguePolishSkill(SkillBase):
 {context.content}
 
 直接输出润色后的对话，不要任何说明。"""
+
+    async def build_retrieval_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        names = [char.get("name", "") for char in context.get_characters_in_scene() if char.get("name")]
+        hints = ["历史对白样本", "角色声纹样本", "人物口头禅"]
+        if names:
+            hints.append(f"重点角色: {', '.join(names[:4])}")
+        return hints
+
+    async def build_prompt_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        intensity = str((params or {}).get("intensity") or self.definition.config.default)
+        return [
+            f"对白润色强度: {intensity}",
+            "让角色说话方式彼此区分",
+            "对白必须推动情节或揭示性格",
+        ]
+
+    async def build_verify_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        return ["对白风格漂移检查", "角色语气一致性检查"]

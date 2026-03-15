@@ -5,12 +5,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from ..core.config import settings
 
-# MySQL 连接池参数：保持健康检查与连接复用，适用于生产环境的长连接需求
+# MySQL 连接池参数：优化高并发场景的连接管理
+# pool_size: 基础连接池大小，每个进程维护 20 个长连接
+# max_overflow: 峰值时额外创建的连接数，最多 40 个
+# pool_pre_ping: 每次使用前检查连接有效性，防止 MySQL gone away
+# pool_recycle: 连接回收时间（秒），避免 MySQL 8 小时超时
+# pool_timeout: 获取连接的超时时间（秒）
 engine = create_async_engine(
     settings.sqlalchemy_database_uri,
     echo=settings.debug,
-    pool_pre_ping=True,
-    pool_recycle=3600,
+    pool_size=20,              # 基础连接池大小
+    max_overflow=40,           # 峰值额外连接数
+    pool_pre_ping=True,        # 连接健康检查
+    pool_recycle=3600,         # 1 小时回收连接
+    pool_timeout=30,           # 30 秒获取连接超时
+    pool_use_lifo=True,        # LIFO 模式，优先复用最近使用的连接
 )
 
 # 统一的 Session 工厂，禁用 expire_on_commit 方便返回模型对象

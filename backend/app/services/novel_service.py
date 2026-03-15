@@ -1,6 +1,7 @@
 # AIMETA P=小说服务_小说管理业务逻辑|R=小说CRUD_章节管理|NR=不含内容生成|E=NovelService|X=internal|A=服务类|D=sqlalchemy|S=db|RD=./README.ai
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -43,6 +44,50 @@ _FORESHADOWING_HINT_KEYWORDS: tuple[str, ...] = (
 )
 _FORESHADOWING_CORE_HINTS: tuple[str, ...] = ("主线", "终极", "身世", "幕后", "真相", "宿命", "核心")
 _FORESHADOWING_DECOR_HINTS: tuple[str, ...] = ("细节", "小事", "日常", "装饰", "习惯")
+
+_chapter_record_locks: dict[tuple[str, int], asyncio.Lock] = {}
+_chapter_record_locks_guard = asyncio.Lock()
+
+
+async def _get_chapter_record_lock(project_id: str, chapter_number: int) -> asyncio.Lock:
+    key = (project_id, chapter_number)
+    async with _chapter_record_locks_guard:
+        lock = _chapter_record_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _chapter_record_locks[key] = lock
+        return lock
+
+
+def _has_meaningful_chapter_status(status_value: Optional[str]) -> bool:
+    normalized = (status_value or "").strip()
+    return normalized not in ("", "not_generated")
+
+
+def _chapter_completeness_sort_key(chapter: Any) -> tuple[int, int, int, int, int, int]:
+    versions = getattr(chapter, "versions", None) or []
+    evaluations = getattr(chapter, "evaluations", None) or []
+    return (
+        1 if getattr(chapter, "selected_version_id", None) else 0,
+        len(versions),
+        1 if getattr(chapter, "real_summary", None) else 0,
+        1 if _has_meaningful_chapter_status(getattr(chapter, "status", None)) else 0,
+        1 if (getattr(chapter, "word_count", 0) or 0) > 0 else 0,
+        -(getattr(chapter, "id", 0) or 0),
+    )
+
+
+def _select_canonical_chapter(chapters: Iterable[Any]) -> Any:
+    return max(chapters, key=_chapter_completeness_sort_key)
+
+
+def _collapse_chapters_by_number(chapters: Iterable[Any]) -> Dict[int, Any]:
+    chapter_map: Dict[int, Any] = {}
+    for chapter in chapters or []:
+        existing = chapter_map.get(chapter.chapter_number)
+        if existing is None or _chapter_completeness_sort_key(chapter) > _chapter_completeness_sort_key(existing):
+            chapter_map[chapter.chapter_number] = chapter
+    return chapter_map
 
 
 def _normalize_version_content(raw_content: Any, metadata: Any) -> str:
@@ -294,6 +339,8 @@ class NovelService:
     # 蓝图管理
     # ------------------------------------------------------------------
     async def replace_blueprint(self, project_id: str, blueprint: Blueprint) -> None:
+        existing_outline_metadata = await self._get_outline_metadata_map(project_id)
+
         record = await self.session.get(NovelBlueprint, project_id)
         if not record:
             record = NovelBlueprint(project_id=project_id)
@@ -363,6 +410,11 @@ class NovelService:
                         "chapter_number": number_map[outline.chapter_number],
                         "title": outline.title,
                         "summary": outline.summary,
+                        "metadata": (
+                            outline.metadata
+                            if getattr(outline, "metadata", None) is not None
+                            else existing_outline_metadata.get(number_map[outline.chapter_number])
+                        ),
                     }
                     for outline in sorted_outlines
                 ],
@@ -400,6 +452,8 @@ class NovelService:
         await self._touch_project(project_id)
 
     async def patch_blueprint(self, project_id: str, patch: Dict) -> None:
+        existing_outline_metadata = await self._get_outline_metadata_map(project_id)
+
         blueprint = await self.session.get(NovelBlueprint, project_id)
         if not blueprint:
             blueprint = NovelBlueprint(project_id=project_id)
@@ -461,6 +515,13 @@ class NovelService:
                         chapter_number=outline.get("chapter_number"),
                         title=outline.get("title", ""),
                         summary=outline.get("summary"),
+                        metadata=(
+                            outline.get("metadata")
+                            if outline.get("metadata") is not None
+                            else existing_outline_metadata.get(int(outline.get("chapter_number")))
+                            if outline.get("chapter_number") is not None
+                            else None
+                        ),
                     )
                 )
         if "foreshadowings" in patch and patch["foreshadowings"] is not None:
@@ -858,6 +919,19 @@ class NovelService:
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
+    async def _get_outline_metadata_map(self, project_id: str) -> Dict[int, dict]:
+        stmt = (
+            select(ChapterOutline.chapter_number, ChapterOutline.metadata_)
+            .where(ChapterOutline.project_id == project_id)
+        )
+        result = await self.session.execute(stmt)
+        metadata_map: Dict[int, dict] = {}
+        for chapter_number, metadata in result.all():
+            if metadata is None:
+                continue
+            metadata_map[int(chapter_number)] = json.loads(json.dumps(metadata, ensure_ascii=False))
+        return metadata_map
+
     async def update_or_create_outline(
         self,
         project_id: str,
@@ -867,47 +941,159 @@ class NovelService:
         metadata: Optional[dict] = None,
     ) -> ChapterOutline:
         """更新或创建章节大纲，支持 metadata 存储导演脚本等信息。"""
-        stmt = select(ChapterOutline).where(
-            ChapterOutline.project_id == project_id,
-            ChapterOutline.chapter_number == chapter_number,
-        )
-        result = await self.session.execute(stmt)
-        outline = result.scalars().first()
-        if outline:
-            outline.title = title
-            outline.summary = summary
-            if metadata is not None:
-                outline.metadata = metadata
-        else:
-            outline = ChapterOutline(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                title=title,
-                summary=summary,
-                metadata=metadata,
+        lock = await _get_chapter_record_lock(project_id, chapter_number)
+        async with lock:
+            stmt = (
+                select(ChapterOutline)
+                .where(
+                    ChapterOutline.project_id == project_id,
+                    ChapterOutline.chapter_number == chapter_number,
+                )
+                .order_by(ChapterOutline.id.asc())
             )
-            self.session.add(outline)
-        await self.session.flush()
-        return outline
+            result = await self.session.execute(stmt)
+            outlines = result.scalars().all()
+            outline = outlines[0] if outlines else None
+            if len(outlines) > 1 and outline is not None:
+                duplicate_ids = [item.id for item in outlines[1:]]
+                logger.warning(
+                    "检测到重复章节大纲记录，自动收敛为首条: project=%s chapter=%s ids=%s",
+                    project_id,
+                    chapter_number,
+                    [item.id for item in outlines],
+                )
+                if not outline.summary:
+                    for extra in outlines[1:]:
+                        if extra.summary:
+                            outline.summary = extra.summary
+                            break
+                if metadata is None and getattr(outline, "metadata", None) is None:
+                    for extra in outlines[1:]:
+                        extra_metadata = getattr(extra, "metadata", None)
+                        if extra_metadata is not None:
+                            outline.metadata = extra_metadata
+                            break
+                await self.session.execute(delete(ChapterOutline).where(ChapterOutline.id.in_(duplicate_ids)))
 
-    async def get_or_create_chapter(self, project_id: str, chapter_number: int) -> Chapter:
+            if outline:
+                outline.title = title
+                outline.summary = summary
+                if metadata is not None:
+                    outline.metadata = metadata
+            else:
+                outline = ChapterOutline(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    title=title,
+                    summary=summary,
+                    metadata=metadata,
+                )
+                self.session.add(outline)
+            await self.session.flush()
+            return outline
+
+    async def _load_chapters_by_number(self, project_id: str, chapter_number: int) -> List[Chapter]:
         stmt = (
             select(Chapter)
-            .options(selectinload(Chapter.selected_version))
+            .options(
+                selectinload(Chapter.selected_version),
+                selectinload(Chapter.versions),
+                selectinload(Chapter.evaluations),
+            )
             .where(
                 Chapter.project_id == project_id,
                 Chapter.chapter_number == chapter_number,
             )
+            .order_by(Chapter.id.asc())
         )
         result = await self.session.execute(stmt)
-        chapter = result.scalars().first()
-        if chapter:
+        return result.scalars().all()
+
+    async def _merge_duplicate_chapters(
+        self,
+        project_id: str,
+        chapter_number: int,
+        chapters: List[Chapter],
+    ) -> Chapter:
+        keeper = _select_canonical_chapter(chapters)
+        duplicates = [chapter for chapter in chapters if chapter.id != keeper.id]
+        if not duplicates:
+            return keeper
+
+        logger.warning(
+            "检测到重复章节记录，准备自动合并: project=%s chapter=%s ids=%s keeper=%s",
+            project_id,
+            chapter_number,
+            [chapter.id for chapter in chapters],
+            keeper.id,
+        )
+
+        for candidate in sorted(chapters, key=_chapter_completeness_sort_key, reverse=True):
+            if candidate.id == keeper.id:
+                continue
+            if not keeper.real_summary and candidate.real_summary:
+                keeper.real_summary = candidate.real_summary
+            if not keeper.selected_version_id and candidate.selected_version_id:
+                keeper.selected_version_id = candidate.selected_version_id
+            if not keeper.rag_ingest_hash and candidate.rag_ingest_hash:
+                keeper.rag_ingest_hash = candidate.rag_ingest_hash
+            if not _has_meaningful_chapter_status(keeper.status) and _has_meaningful_chapter_status(candidate.status):
+                keeper.status = candidate.status
+            if (keeper.word_count or 0) <= 0 and (candidate.word_count or 0) > 0:
+                keeper.word_count = candidate.word_count
+
+        duplicate_ids = [chapter.id for chapter in duplicates]
+        await self.session.execute(
+            update(ChapterVersion)
+            .where(ChapterVersion.chapter_id.in_(duplicate_ids))
+            .values(chapter_id=keeper.id)
+        )
+        await self.session.execute(
+            update(ChapterEvaluation)
+            .where(ChapterEvaluation.chapter_id.in_(duplicate_ids))
+            .values(chapter_id=keeper.id)
+        )
+        await self.session.execute(
+            update(Foreshadowing)
+            .where(Foreshadowing.chapter_id.in_(duplicate_ids))
+            .values(chapter_id=keeper.id)
+        )
+        await self.session.execute(
+            update(Foreshadowing)
+            .where(Foreshadowing.resolved_chapter_id.in_(duplicate_ids))
+            .values(resolved_chapter_id=keeper.id)
+        )
+        await self.session.execute(
+            update(ForeshadowingResolution)
+            .where(ForeshadowingResolution.resolved_at_chapter_id.in_(duplicate_ids))
+            .values(resolved_at_chapter_id=keeper.id)
+        )
+        await self.session.execute(delete(Chapter).where(Chapter.id.in_(duplicate_ids)))
+        await self.session.flush()
+        logger.info(
+            "重复章节记录已合并: project=%s chapter=%s keeper=%s removed=%s",
+            project_id,
+            chapter_number,
+            keeper.id,
+            duplicate_ids,
+        )
+        return keeper
+
+    async def get_or_create_chapter(self, project_id: str, chapter_number: int) -> Chapter:
+        lock = await _get_chapter_record_lock(project_id, chapter_number)
+        async with lock:
+            chapters = await self._load_chapters_by_number(project_id, chapter_number)
+            if chapters:
+                if len(chapters) > 1:
+                    await self._merge_duplicate_chapters(project_id, chapter_number, chapters)
+                    chapters = await self._load_chapters_by_number(project_id, chapter_number)
+                return _select_canonical_chapter(chapters)
+
+            chapter = Chapter(project_id=project_id, chapter_number=chapter_number)
+            self.session.add(chapter)
+            await self.session.commit()
+            await self.session.refresh(chapter)
             return chapter
-        chapter = Chapter(project_id=project_id, chapter_number=chapter_number)
-        self.session.add(chapter)
-        await self.session.commit()
-        await self.session.refresh(chapter)
-        return chapter
 
     async def replace_chapter_versions(self, chapter: Chapter, contents: List[str], metadata: Optional[List[Dict]] = None) -> List[ChapterVersion]:
         await self.session.execute(delete(ChapterVersion).where(ChapterVersion.chapter_id == chapter.id))
@@ -1107,6 +1293,16 @@ class NovelService:
         return self._build_chapter_schema(project, chapter_number)
 
     async def _serialize_project(self, project: NovelProject) -> NovelProjectSchema:
+        # 尝试从缓存获取
+        cache_service = CacheService()
+        cache_key = f"project_schema:{project.id}"
+        cached = await cache_service.get(cache_key)
+        if cached:
+            try:
+                return NovelProjectSchema(**cached)
+            except Exception as e:
+                logger.warning(f"缓存反序列化失败: {e}")
+
         conversations = [
             {"role": convo.role, "content": convo.content}
             for convo in sorted(project.conversations, key=lambda c: c.seq)
@@ -1160,7 +1356,7 @@ class NovelService:
         blueprint_schema = self._build_blueprint_schema(project, list(foreshadowings_result.scalars().all()))
 
         outlines_map = {outline.chapter_number: outline for outline in project.outlines}
-        chapters_map = {chapter.chapter_number: chapter for chapter in project.chapters}
+        chapters_map = _collapse_chapters_by_number(project.chapters)
         chapter_numbers = sorted(set(outlines_map.keys()) | set(chapters_map.keys()))
         chapters_schema: List[ChapterSchema] = [
             self._build_chapter_schema(
@@ -1172,7 +1368,7 @@ class NovelService:
             for number in chapter_numbers
         ]
 
-        return NovelProjectSchema(
+        result = NovelProjectSchema(
             id=project.id,
             user_id=project.user_id,
             title=project.title,
@@ -1181,6 +1377,14 @@ class NovelService:
             blueprint=blueprint_schema,
             chapters=chapters_schema,
         )
+
+        # 缓存结果（TTL 30 分钟）
+        try:
+            await cache_service.set(cache_key, result.model_dump(), ttl=1800)
+        except Exception as e:
+            logger.warning(f"缓存设置失败: {e}")
+
+        return result
 
     async def _touch_project(self, project_id: str) -> None:
         await self.session.execute(
@@ -1314,7 +1518,7 @@ class NovelService:
             }
         elif section == NovelSectionType.CHAPTERS:
             outlines_map = {outline.chapter_number: outline for outline in project.outlines}
-            chapters_map = {chapter.chapter_number: chapter for chapter in project.chapters}
+            chapters_map = _collapse_chapters_by_number(project.chapters)
             # 只返回有大纲或有实际内容的章节，过滤掉孤立的空 Chapter 记录
             chapter_numbers = sorted(
                 n for n in set(outlines_map.keys()) | set(chapters_map.keys())
@@ -1352,7 +1556,7 @@ class NovelService:
         include_content: bool = True,
     ) -> ChapterSchema:
         outlines = outlines_map or {outline.chapter_number: outline for outline in project.outlines}
-        chapters = chapters_map or {chapter.chapter_number: chapter for chapter in project.chapters}
+        chapters = chapters_map or _collapse_chapters_by_number(project.chapters)
         outline = outlines.get(chapter_number)
         chapter = chapters.get(chapter_number)
 

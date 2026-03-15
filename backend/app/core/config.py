@@ -249,6 +249,18 @@ class Settings(BaseSettings):
         description="是否启用题材自适应系统",
     )
 
+    # -------------------- 章节审查与增强 --------------------
+    enable_six_dimension: bool = Field(
+        default=True,
+        env="ENABLE_SIX_DIMENSION",
+        description="是否启用六维自动审查与重写增强",
+    )
+    six_dimension_min_score: int = Field(
+        default=70,
+        env="SIX_DIMENSION_MIN_SCORE",
+        description="六维审查最低合格分数，低于此分数将触发自动重写 (Auto-Refiner)",
+    )
+
     # -------------------- 混合 RAG 检索 --------------------
     rag_retrieval_mode: str = Field(
         default="vector",
@@ -287,6 +299,11 @@ class Settings(BaseSettings):
     )
 
     # -------------------- Strand Weave 节奏模型 --------------------
+    enable_pacing_control: bool = Field(
+        default=True,
+        env="ENABLE_PACING_CONTROL",
+        description="是否启用 PacingController 以进行章节节奏约束生成",
+    )
     pacing_model: str = Field(
         default="default",
         env="PACING_MODEL",

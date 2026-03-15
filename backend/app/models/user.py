@@ -36,3 +36,4 @@ class User(Base):
         back_populates="owner",
         cascade="all, delete-orphan",
     )
+    quota: Mapped[Optional["UserQuota"]] = relationship("UserQuota", back_populates="user", uselist=False)

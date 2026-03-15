@@ -221,6 +221,7 @@ async def rewrite_with_guardrails(
             user_id=user_id,
             timeout=300.0,
             response_format=None,
+            max_tokens=int(len(original_text) * 1.2),
         )
         cleaned = remove_think_tags(response)
         if not cleaned or not cleaned.strip():

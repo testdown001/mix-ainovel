@@ -96,10 +96,42 @@ class ForeshadowingSkill(SkillBase):
 {context.content}
 
 直接输出调整后的文字。"""
-        else:
-            return f"""请在以下章节中回收之前埋设的伏笔。
+        return f"""请在以下章节中回收之前埋设的伏笔。
 
 原文：
 {context.content}
 
 直接输出调整后的文字。"""
+
+    async def build_retrieval_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        mode = str((params or {}).get("mode") or "embed")
+        hints = ["未回收伏笔列表", "相关章节片段", "前文章节摘要"]
+        if mode == "recall":
+            hints.append("优先检索已到期伏笔")
+        else:
+            hints.append("优先检索可延展的暗线")
+        return hints
+
+    async def build_prompt_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        mode = str((params or {}).get("mode") or "embed")
+        if mode == "recall":
+            return ["本章优先回收旧伏笔", "回收动作必须自然嵌入情节"]
+        return ["本章适合埋设轻伏笔", "伏笔不能喧宾夺主"]
+
+    async def build_verify_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> list[str]:
+        mode = str((params or {}).get("mode") or "embed")
+        if mode == "recall":
+            return ["伏笔回收是否完成", "回收是否造成信息跳跃"]
+        return ["伏笔埋设是否自然", "新伏笔是否具备后续可回收性"]

@@ -277,6 +277,11 @@ export interface ChapterGenerationResponse {
 }
 
 export interface AdvancedGenerateFlowConfig {
+  selected_skills?: Array<{
+    skill_id: string
+    capability_name?: string
+    params?: Record<string, unknown>
+  }>
   preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'fast' | 'custom'
   versions?: number
   enable_preview?: boolean
@@ -855,13 +860,18 @@ export class NovelAPI {
     })
   }
 
-  static async rebuildRag(projectId: string): Promise<{ indexed_chapters: number }> {
-    return request(`${WRITER_BASE}/${projectId}/rag/rebuild`, { method: 'POST' })
+  static async generateForeshadowings(projectId: string): Promise<{ status: string; message: string; total: number }> {
+    return request(`${NOVELS_BASE}/${projectId}/foreshadowings/generate`, { method: 'POST' })
   }
 
-  static async generatePrediction(projectId: string, chapterNumber: number): Promise<ChapterPrediction> {
+  static async rebuildRag(projectId: string, forceFull: boolean = false): Promise<{ indexed_chapters: number; skipped_chapters: number; removed_chapters: number }> {
+    return request(`${WRITER_BASE}/${projectId}/rag/rebuild?force_full=${forceFull}`, { method: 'POST' })
+  }
+
+  static async generatePrediction(projectId: string, chapterNumber: number, exclusions?: string): Promise<ChapterPrediction> {
     return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/prediction`, {
-      method: 'POST'
+      method: 'POST',
+      body: JSON.stringify({ exclusions: exclusions || '' })
     })
   }
 
@@ -903,6 +913,22 @@ export class NovelAPI {
         character_names: characterNames || null,
         overwrite
       })
+    })
+  }
+
+  static async syncCharactersFromChapters(
+    projectId: string
+  ): Promise<{ status: string; message: string; new_characters: any[] }> {
+    return request(`${NOVELS_BASE}/${projectId}/characters/sync-from-chapters`, {
+      method: 'POST'
+    })
+  }
+
+  static async syncRelationshipsFromChapters(
+    projectId: string
+  ): Promise<{ status: string; message: string; new_relationships: any[] }> {
+    return request(`${NOVELS_BASE}/${projectId}/relationships/sync-from-chapters`, {
+      method: 'POST'
     })
   }
 

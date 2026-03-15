@@ -99,7 +99,7 @@ class ProseSculptorService:
         self, chapter_content: str, *, user_id: int, max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         prompt = RHYTHM_SCULPT_PROMPT.replace("{chapter_content}", chapter_content)
-        _rhythm_max_tokens = int(max_word_count * 1.5) if max_word_count else settings.writer_max_tokens
+        _rhythm_max_tokens = int(max_word_count * 1.2) if max_word_count else settings.writer_max_tokens
         try:
             response = await self.llm_service.get_llm_response(
                 system_prompt=RHYTHM_SCULPT_SYSTEM,
@@ -123,7 +123,7 @@ class ProseSculptorService:
         self, chapter_content: str, *, user_id: int, max_word_count: int = 0,
     ) -> Tuple[str, Dict[str, Any]]:
         prompt = DENSITY_SCULPT_PROMPT.replace("{chapter_content}", chapter_content)
-        _density_max_tokens = int(max_word_count * 1.5) if max_word_count else settings.writer_max_tokens
+        _density_max_tokens = int(max_word_count * 1.2) if max_word_count else settings.writer_max_tokens
         try:
             response = await self.llm_service.get_llm_response(
                 system_prompt=DENSITY_SCULPT_SYSTEM,

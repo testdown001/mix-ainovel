@@ -235,9 +235,10 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
         if re.match(
             r'^(可以[，。,.]|好的[，。,.]|当然[，。,.]|没问题[，。,.]|'
             r'下面是|以下是|这是|我来|让我|'
+            r'我已经|我已为|我为您|我把|'
             r'精简后|精简版|概要版|缩写版|草稿版|'
             r'如需扩展|如果需要|你(要是|需要|想)|'
-            r'我先给你|先给你|给你一版)',
+            r'我先给你|先给你|给你一版|根据您|按照您)',
             stripped,
         ):
             skip_count += 1
@@ -252,7 +253,29 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
         # 第一个看起来像正文的行，停止
         break
     if skip_count > 0:
-        text = "\n".join(lines[skip_count:]).lstrip("\n")
+        lines = lines[skip_count:]
+
+    # ── 去除 LLM 尾部元对话（安全网） ──
+    # 某些 LLM 会在正文后追加 "您需要我帮您…" "希望对您有帮助" 等
+    tail_skip = 0
+    for line in reversed(lines):
+        stripped = line.strip()
+        if not stripped:
+            tail_skip += 1
+            continue
+        if re.match(
+            r'^(您需要|需要我|希望我|如果您|如有需要|如需|是否需要|'
+            r'我已经为您|我已为您|以上是|以上就是|以上为|'
+            r'如果你|你需要|要我|还是继续|希望对您)',
+            stripped,
+        ):
+            tail_skip += 1
+            continue
+        break
+    if tail_skip > 0:
+        lines = lines[:-tail_skip]
+
+    text = "\n".join(lines).lstrip("\n")
 
     # 先移除代码块围栏标记（保留内部文本）
     text = re.sub(r"(?m)^\s*```(?:\w+)?\s*$", "", text)

@@ -49,6 +49,16 @@ def compute_ingest_hash(title: str, summary: Optional[str], content: str) -> str
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def _chapter_row_sort_key(chapter: Chapter) -> tuple[int, int, int, int, int]:
+    return (
+        1 if chapter.selected_version_id else 0,
+        1 if chapter.real_summary else 0,
+        1 if (chapter.word_count or 0) > 0 else 0,
+        1 if (chapter.status or "").strip() not in ("", "not_generated") else 0,
+        -(chapter.id or 0),
+    )
+
+
 class ChapterPostProcessor:
     """章节后处理的统一入口，保证同一章节串行执行。"""
 
@@ -123,6 +133,26 @@ class ChapterPostProcessor:
     # 内部方法
     # ------------------------------------------------------------------
 
+    async def _get_canonical_chapter(self, project_id: str, chapter_number: int) -> Optional[Chapter]:
+        result = await self._session.execute(
+            select(Chapter)
+            .where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number == chapter_number,
+            )
+            .order_by(Chapter.id.asc())
+        )
+        chapters = result.scalars().all()
+        if not chapters:
+            return None
+        if len(chapters) > 1:
+            logger.warning(
+                "章节 %d 存在重复记录，后处理将使用内容更完整的记录: ids=%s",
+                chapter_number,
+                [chapter.id for chapter in chapters],
+            )
+        return max(chapters, key=_chapter_row_sort_key)
+
     async def _ensure_summary(
         self,
         project_id: str,
@@ -133,12 +163,7 @@ class ChapterPostProcessor:
         force: bool = False,
     ) -> Optional[str]:
         """生成并保存 real_summary，返回摘要文本。"""
-        stmt = select(Chapter).where(
-            Chapter.project_id == project_id,
-            Chapter.chapter_number == chapter_number,
-        )
-        result = await self._session.execute(stmt)
-        chapter = result.scalars().first()
+        chapter = await self._get_canonical_chapter(project_id, chapter_number)
         if not chapter:
             return None
         if chapter.real_summary and not force:
@@ -159,13 +184,20 @@ class ChapterPostProcessor:
 
     async def _get_outline_title(self, project_id: str, chapter_number: int) -> str:
         result = await self._session.execute(
-            select(ChapterOutline.title).where(
+            select(ChapterOutline.title)
+            .where(
                 ChapterOutline.project_id == project_id,
                 ChapterOutline.chapter_number == chapter_number,
             )
+            .order_by(ChapterOutline.id.asc())
         )
-        title = result.scalar_one_or_none()
-        return title if title else f"第{chapter_number}章"
+        titles = result.scalars().all()
+        if len(titles) > 1:
+            logger.warning("章节 %d 存在重复大纲记录，入库时使用首条标题", chapter_number)
+        for title in titles:
+            if title:
+                return title
+        return f"第{chapter_number}章"
 
     async def _ingest_and_hash(
         self,
@@ -177,15 +209,8 @@ class ChapterPostProcessor:
         """向量入库 + 统一 hash 更新。"""
         try:
             title = await self._get_outline_title(project_id, chapter_number)
-
-            # 读取最新 real_summary
-            ch_result = await self._session.execute(
-                select(Chapter.real_summary).where(
-                    Chapter.project_id == project_id,
-                    Chapter.chapter_number == chapter_number,
-                )
-            )
-            real_summary = ch_result.scalar_one_or_none()
+            chapter = await self._get_canonical_chapter(project_id, chapter_number)
+            real_summary = chapter.real_summary if chapter else None
 
             ingest_service = ChapterIngestionService(llm_service=self._llm)
             await ingest_service.ingest_chapter(

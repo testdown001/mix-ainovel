@@ -275,7 +275,7 @@ class ConsistencyService:
             response = await self.llm_service.generate(
                 prompt=prompt,
                 user_id=user_id,
-                max_tokens=min(8000, int(len(chapter_text) * 1.5)),
+                max_tokens=min(8000, int(len(chapter_text) * 1.2)),
                 temperature=0.5
             )
             return response.strip() if response else None

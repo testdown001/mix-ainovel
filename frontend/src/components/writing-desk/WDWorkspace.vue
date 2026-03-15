@@ -164,6 +164,8 @@
           @confirmVersionSelection="$emit('confirmVersionSelection')"
           @generateChapter="(...args: any[]) => $emit('generateChapter', ...args)"
           @showVersionSelector="$emit('showVersionSelector')"
+          @openSkillApply="$emit('openSkillApply')"
+          @requestPrediction="$emit('requestPrediction', $event)"
           @regenerateChapter="$emit('regenerateChapter')"
           @evaluateChapter="$emit('evaluateChapter')"
           @showEvaluationDetail="$emit('showEvaluationDetail')"
@@ -248,7 +250,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
-import { NovelAPI } from '@/api/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction } from '@/api/novel'
 import TemplateSelector from './TemplateSelector.vue'
 
@@ -272,6 +273,7 @@ interface Props {
   selectedChapterNumber: number | null
   openPredictionTick?: number
   generatingChapter: number | null
+  predictionGeneratingChapter?: number | null
   evaluatingChapter: number | null
   showVersionSelector: boolean
   chapterGenerationResult: ChapterGenerationResponse | null
@@ -293,6 +295,8 @@ const emit = defineEmits([
   'confirmVersionSelection',
   'generateChapter',
   'showVersionSelector',
+  'openSkillApply',
+  'requestPrediction',
   'showEvaluationDetail',
   'fetchChapterStatus',
   'editChapter',
@@ -310,7 +314,9 @@ const confirmRegenerateChapter = async () => {
 const showPrediction = ref(false)
 const showTemplateSelector = ref(false)
 const templatePrompt = ref('')
-const generatingPrediction = ref(false)
+const generatingPrediction = computed(
+  () => props.predictionGeneratingChapter === props.selectedChapterNumber
+)
 const predictionPanelBlockedStatuses: Chapter['generation_status'][] = [
   'waiting_for_confirm',
   'evaluation_failed',
@@ -353,20 +359,9 @@ const predictionSections = computed(() => {
   ].filter(s => s.items.length > 0)
 })
 
-const handleGeneratePrediction = async () => {
-  if (!props.project?.id || !props.selectedChapterNumber || generatingPrediction.value) return
-  generatingPrediction.value = true
-  try {
-    const result = await NovelAPI.generatePrediction(props.project.id, props.selectedChapterNumber)
-    if (selectedChapterOutline.value) {
-      selectedChapterOutline.value.metadata = { ...selectedChapterOutline.value.metadata, prediction: result }
-    }
-    showPrediction.value = true
-  } catch (e: any) {
-    console.error('剧情推演失败:', e)
-  } finally {
-    generatingPrediction.value = false
-  }
+const handleGeneratePrediction = () => {
+  if (!props.selectedChapterNumber || generatingPrediction.value) return
+  emit('requestPrediction', props.selectedChapterNumber)
 }
 
 // 处理模板应用
@@ -627,6 +622,7 @@ const currentComponentProps = computed(() => {
     return {
       chapterNumber: props.selectedChapterNumber,
       generatingChapter: props.generatingChapter,
+      predictionGenerating: generatingPrediction.value,
       outline: selectedChapterOutline.value,
       projectId: props.project?.id
     }
@@ -634,6 +630,7 @@ const currentComponentProps = computed(() => {
   return {
     chapterNumber: props.selectedChapterNumber,
     generatingChapter: props.generatingChapter,
+    predictionGenerating: generatingPrediction.value,
     canGenerate: canGenerateChapter(props.selectedChapterNumber),
     outline: selectedChapterOutline.value,
     projectId: props.project?.id,

@@ -7,13 +7,14 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.dependencies import get_current_user
 from ...db.session import get_session
 from ...schemas.user import UserInDB
+from ...services.cache_service import CacheService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
@@ -228,6 +229,7 @@ class ApplyOptimizationRequest(BaseModel):
 @router.post("/apply-optimization")
 async def apply_optimization(
     request: ApplyOptimizationRequest,
+    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
@@ -235,7 +237,7 @@ async def apply_optimization(
     应用优化后的内容到章节
     """
     novel_service = NovelService(session)
-    
+
     # 验证项目所有权
     project = await novel_service.ensure_project_owner(request.project_id, current_user.id)
 
@@ -252,7 +254,26 @@ async def apply_optimization(
 
     # 更新内容
     chapter.selected_version.content = request.optimized_content
+    chapter.word_count = len(request.optimized_content or "")
     await session.commit()
+
+    # 清除项目序列化缓存
+    try:
+        cache_service = CacheService()
+        await cache_service.delete(f"project_schema:{request.project_id}")
+    except Exception:
+        pass
+
+    # 后台更新摘要和向量索引
+    from .writer import _background_chapter_post_process
+    background_tasks.add_task(
+        _background_chapter_post_process,
+        request.project_id,
+        request.chapter_number,
+        request.optimized_content,
+        current_user.id,
+        mode="edit",
+    )
 
     logger.info(
         "用户 %s 应用了项目 %s 第 %s 章的优化内容",
@@ -260,5 +281,5 @@ async def apply_optimization(
         request.project_id,
         request.chapter_number
     )
-    
+
     return {"status": "success", "message": "优化内容已应用"}

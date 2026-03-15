@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package arboris.task;
+
+option go_package = "github.com/arboris-novel/gateway/proto/taskpb";
+
+// ============================================================
+// Arboris Task Dispatcher - gRPC 协议定义
+//
+// Go Task Dispatcher ←→ Python AI Worker 之间的通信协议
+// ============================================================
+
+// TaskService Python AI Worker 实现此服务
+service TaskService {
+  // 执行章节生成任务
+  rpc GenerateChapter(GenerateChapterRequest) returns (GenerateChapterResponse);
+
+  // 流式执行章节生成（支持进度推送）
+  rpc GenerateChapterStream(GenerateChapterRequest) returns (stream TaskProgressEvent);
+
+  // 批量章节生成
+  rpc BatchGenerateChapters(BatchGenerateRequest) returns (stream TaskProgressEvent);
+
+  // 健康检查
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// ============================================================
+// 章节生成
+// ============================================================
+
+message GenerateChapterRequest {
+  string task_id = 1;           // 任务 ID（Go 端生成）
+  string project_id = 2;
+  int32  chapter_number = 3;
+  int32  user_id = 4;
+  GenerateConfig config = 5;
+  TaskPriority priority = 6;    // 任务优先级
+}
+
+message GenerateConfig {
+  string preset = 1;             // basic, standard, premium, literary
+  bool   use_agent_system = 2;   // 是否使用三省六部 Agent 系统
+  string rag_mode = 3;           // simple, two_stage, disabled
+  bool   enable_rag = 4;
+  bool   enable_foreshadowing = 5;
+  bool   enable_humanization = 6;
+  bool   enable_polish = 7;
+  bool   enable_consistency = 8;
+  bool   enable_mission_brief = 9;
+  string writing_notes = 10;     // 用户写作指令
+  map<string, string> extra = 20; // 额外配置
+}
+
+message GenerateChapterResponse {
+  string task_id = 1;
+  string status = 2;             // completed, failed
+  int32  chapter_id = 3;
+  int32  chapter_number = 4;
+  int32  versions_count = 5;
+  string error_message = 6;      // 失败时的错误信息
+  int64  duration_ms = 7;        // 执行耗时（毫秒）
+  map<string, string> metadata = 10;
+}
+
+// ============================================================
+// 批量生成
+// ============================================================
+
+message BatchGenerateRequest {
+  string task_id = 1;
+  string project_id = 2;
+  repeated int32 chapter_numbers = 3;
+  int32  user_id = 4;
+  GenerateConfig config = 5;
+  TaskPriority priority = 6;
+}
+
+// ============================================================
+// 任务进度事件（流式推送）
+// ============================================================
+
+message TaskProgressEvent {
+  string task_id = 1;
+  string event_type = 2;         // progress, stage_change, completed, failed
+  int32  progress = 3;           // 0-100
+  string stage = 4;              // context_assembly, rag_retrieval, llm_generation, review, post_processing
+  string message = 5;
+  int64  timestamp = 6;          // Unix 毫秒时间戳
+
+  // 仅在 completed 事件中有值
+  GenerateChapterResponse result = 10;
+}
+
+// ============================================================
+// 优先级
+// ============================================================
+
+enum TaskPriority {
+  PRIORITY_LOW = 0;       // 批量任务、后台处理
+  PRIORITY_DEFAULT = 1;   // 普通用户
+  PRIORITY_HIGH = 2;      // Premium 用户
+  PRIORITY_CRITICAL = 3;  // 管理员、紧急任务
+}
+
+// ============================================================
+// 健康检查
+// ============================================================
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  bool   healthy = 1;
+  string version = 2;
+  int32  active_tasks = 3;      // 当前正在执行的任务数
+  int32  max_concurrency = 4;   // 最大并发数
+  map<string, string> info = 5;
+}

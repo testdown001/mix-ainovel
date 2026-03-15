@@ -2,10 +2,13 @@
 """中书省 Agent - 规划中枢"""
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Optional
 
 from .base import BaseAgent
 from .message import AgentContext, AgentMessageType, AgentResult
+
+logger = logging.getLogger(__name__)
 
 
 class ZhongshuAgent(BaseAgent):
@@ -55,6 +58,7 @@ class ZhongshuAgent(BaseAgent):
             output={
                 "mission_id": mission.get("id"),
                 "writing_prompt": writing_prompt,
+                "context_plan": context_data.get("context_plan"),
                 "pre_collected_context": context_data.get("pre_collected_context"),
             },
             next_agent="shangshu"
@@ -63,7 +67,9 @@ class ZhongshuAgent(BaseAgent):
     async def _collect_context(self, context: AgentContext) -> Dict[str, Any]:
         """收集项目上下文"""
         from ..core.config import settings
-        from ..services.chapter_context_service import ChapterContextService
+        from ..services.context_planner_service import ContextPlannerService
+        from ..services.evidence_router_service import EvidenceRouterService
+        from ..services.history_context_service import HistoryContextService
         from ..services.llm_service import LLMService
         from ..services.novel_service import NovelService
         from ..services.pipeline_orchestrator import PipelineOrchestrator
@@ -71,16 +77,20 @@ class ZhongshuAgent(BaseAgent):
 
         novel_service = NovelService(self.session)
         orchestrator = PipelineOrchestrator(self.session)
+        context_config = context.config or {}
         user_id = int(context.metadata.get("user_id") or 0)
         writing_notes = context.mission.get("writing_notes") if context.mission else None
         writing_notes = writing_notes or "无额外写作指令"
+        history_service = HistoryContextService(self.session, self.prompt_service, self.llm_service)
 
         project = None
         blueprint = context.blueprint or {}
         history_context: Dict[str, Any] = {}
         outline_data: Dict[str, Any] = {}
         pre_collected_context: Dict[str, Any] = {}
-        resolved_config = await orchestrator._resolve_config(context.config)
+        resolved_config = await orchestrator._resolve_config(context_config)
+        planner = ContextPlannerService()
+        evidence_router = EvidenceRouterService()
 
         try:
             if user_id:
@@ -112,7 +122,7 @@ class ZhongshuAgent(BaseAgent):
         try:
             if project is not None and context.chapter_number:
                 outlines_map = {item.chapter_number: item for item in project.outlines}
-                history_context = await orchestrator._collect_history_context(
+                history_context = await history_service.collect_history_context(
                     project_id=context.project_id,
                     chapter_number=context.chapter_number,
                     outlines_map=outlines_map,
@@ -131,14 +141,50 @@ class ZhongshuAgent(BaseAgent):
         if blueprint:
             pre_collected_context["blueprint"] = blueprint
 
+        planner_flow_config = {
+            "preset": resolved_config.preset,
+            "selected_skills": list(context_config.get("selected_skills") or []),
+            "skill_policies": list(context.metadata.get("skill_policies") or []),
+            "enable_rag": resolved_config.enable_rag,
+            "enable_memory": resolved_config.enable_memory,
+            "enable_fast_path": resolved_config.enable_fast_path,
+            "enable_consistency": resolved_config.enable_consistency,
+            "enable_foreshadowing": resolved_config.enable_foreshadowing,
+            "enable_constitution": resolved_config.enable_constitution,
+            "enable_faction": resolved_config.enable_faction,
+            "enable_power_system": resolved_config.enable_power_system,
+            "enable_character_relationships": resolved_config.enable_character_relationships,
+            "enable_polish": resolved_config.enable_polish,
+            "enable_reader_sim": resolved_config.enable_reader_sim,
+            "enable_self_critique": resolved_config.enable_self_critique,
+            "enable_six_dimension": resolved_config.enable_six_dimension,
+            "enable_mission_brief": resolved_config.enable_mission_brief,
+            "rag_mode": resolved_config.rag_mode,
+            "rag_retrieval_mode": resolved_config.rag_retrieval_mode,
+        }
+        context_plan = await planner.build_plan(
+            project_id=context.project_id,
+            chapter_number=context.chapter_number or 0,
+            writing_notes=writing_notes,
+            flow_config=planner_flow_config,
+            selected_skills=planner_flow_config["selected_skills"],
+            skill_policies=planner_flow_config["skill_policies"],
+            user_id=user_id,
+            blueprint=blueprint,
+            outline_data=outline_data,
+            history_context=history_context,
+        )
+        pre_collected_context["context_plan"] = context_plan.to_dict()
+
         rag_context = {"chunks": [], "summaries": []}
-        if (
-            context.chapter_number
-            and resolved_config.enable_rag
-            and resolved_config.rag_mode != "two_stage"
-            and settings.vector_store_enabled
-        ):
-            try:
+        try:
+            local_queries = []
+            if (
+                context.chapter_number
+                and resolved_config.enable_rag
+                and resolved_config.rag_mode != "two_stage"
+                and settings.vector_store_enabled
+            ):
                 vector_store = create_vector_store_or_none()
                 if vector_store is not None:
                     outline_title = outline_data.get("title") or f"第{context.chapter_number}章"
@@ -147,62 +193,82 @@ class ZhongshuAgent(BaseAgent):
                         context.project_id,
                         context.chapter_number,
                     )
-                    if resolved_config.enable_fast_path:
-                        query_list = [
-                            q
-                            for q in orchestrator._build_fast_rag_queries(
-                                outline_title=outline_title,
-                                outline_summary=outline_summary,
-                                writing_notes=writing_notes,
-                                chapter_blueprint=chapter_blueprint,
-                            )
-                            if q
-                        ]
-                    else:
-                        query_list = [q for q in [outline_title, outline_summary] if q]
-                        if writing_notes and writing_notes != "无额外写作指令":
-                            query_list.append(writing_notes)
-
                     character_names = [
                         item.get("name", "")
                         for item in blueprint.get("characters", [])
                         if item.get("name")
                     ][:6]
-                    if character_names:
-                        query_list.append(" ".join(character_names))
-                    query_list = query_list[:4]
-
-                    context_service = ChapterContextService(
-                        llm_service=LLMService(self.session),
-                        vector_store=vector_store,
+                    fast_rag_queries = orchestrator._build_fast_rag_queries(
+                        outline_title=outline_title,
+                        outline_summary=outline_summary,
+                        writing_notes=writing_notes,
+                        chapter_blueprint=chapter_blueprint,
                     )
-                    rag_result = await context_service.retrieve_multi_query(
-                        project_id=context.project_id,
-                        queries=query_list or [outline_title or outline_summary],
-                        user_id=user_id,
-                        retrieval_mode=resolved_config.rag_retrieval_mode,
+                    local_queries = planner.build_retrieval_queries(
+                        plan=context_plan,
+                        outline_title=outline_title,
+                        outline_summary=outline_summary,
+                        writing_notes=writing_notes,
+                        character_names=character_names,
+                        story_skeleton=history_context.get("story_skeleton"),
+                        fast_rag_queries=fast_rag_queries,
                     )
-                    rag_context = {
-                        "chunks": rag_result.chunk_texts() if rag_result.chunks else [],
-                        "summaries": rag_result.summary_lines() if rag_result.summaries else [],
-                    }
-            except Exception:
-                rag_context = {"chunks": [], "summaries": []}
+                else:
+                    vector_store = None
+            else:
+                vector_store = None
 
-        if rag_context.get("chunks") or rag_context.get("summaries"):
-            pre_collected_context["rag_context"] = rag_context
-            pre_collected_context["rag_stats"] = {
-                "mode": "simple",
-                "source": "agent_zhongshu",
-                "chunks": len(rag_context.get("chunks", [])),
-                "summaries": len(rag_context.get("summaries", [])),
-            }
+            evidence_result = await evidence_router.execute(
+                plan=context_plan,
+                project_id=context.project_id,
+                chapter_number=context.chapter_number or 0,
+                user_id=user_id,
+                history_context=history_context,
+                local_queries=local_queries,
+                retrieval_mode=resolved_config.rag_retrieval_mode,
+                session=self.session,
+                prompt_service=self.prompt_service,
+                llm_service=self.llm_service,
+                vector_store=vector_store,
+                context_data={
+                    "world": str(blueprint.get("world_setting"))[:200] if blueprint.get("world_setting") else "",
+                },
+                blueprint_dict=blueprint,
+                involved_characters=[
+                    item.get("name", "")
+                    for item in blueprint.get("characters", [])
+                    if item.get("name")
+                ][:6],
+            )
+            rag_context = evidence_result.rag_context or {"chunks": [], "summaries": []}
+            if rag_context.get("chunks") or rag_context.get("summaries"):
+                pre_collected_context["rag_context"] = rag_context
+                pre_collected_context["rag_stats"] = {
+                    "mode": "simple",
+                    "source": "agent_zhongshu",
+                    **dict(evidence_result.task_reports.get("local_plot_rag") or {}),
+                    "chunks": len(rag_context.get("chunks", [])),
+                    "summaries": len(rag_context.get("summaries", [])),
+                }
+            if evidence_result.context_data.get("chapter_state_context"):
+                pre_collected_context["chapter_state_context"] = evidence_result.context_data.get("chapter_state_context")
+            if evidence_result.relationship_context:
+                pre_collected_context["relationship_context"] = evidence_result.relationship_context
+            if evidence_result.power_system_context:
+                pre_collected_context["power_system"] = evidence_result.power_system_context
+            if evidence_result.foreshadowing_data:
+                pre_collected_context["foreshadowing_data"] = evidence_result.foreshadowing_data
+            if evidence_result.evidence_pack.graded_summary:
+                pre_collected_context["retrieval_evidence_summary"] = evidence_result.evidence_pack.graded_summary
+        except Exception as e:
+            logger.warning("Agent统一取证失败，回退为空上下文: %s", e)
 
         return {
             "project": project,
             "blueprint": blueprint,
             "outline": outline_data,
             "history_context": history_context,
+            "context_plan": context_plan.to_dict(),
             "rag_results": rag_context,
             "pre_collected_context": pre_collected_context,
         }

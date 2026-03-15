@@ -19,7 +19,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +35,8 @@ from ...schemas.novel import (
     ChapterGenerationStatus,
     AdvancedGenerateRequest,
     AdvancedGenerateResponse,
+    AsyncGenerateChapterRequest,
+    AsyncGenerateChapterResponse,
     BatchGenerateRequest,
     BatchGenerateChapterResult,
     BatchGenerateResponse,
@@ -52,6 +54,7 @@ from ...schemas.novel import (
     UpdateChapterOutlineRequest,
 )
 from ...schemas.user import UserInDB
+from ...services.cache_service import CacheService
 from ...services.chapter_context_service import ChapterContextService
 from ...services.chapter_ingest_service import ChapterIngestionService
 from ...services.chapter_post_processor import ChapterPostProcessor, compute_ingest_hash
@@ -109,6 +112,10 @@ async def _background_chapter_post_process(
 
     通过 ChapterPostProcessor 保证同一章节串行执行，避免竞争。
     """
+    logger.info(
+        "后台任务开始: project=%s chapter=%d mode=%s content_len=%d",
+        project_id, chapter_number, mode, len(content or "")
+    )
     async with AsyncSessionLocal() as session:
         try:
             llm_service = LLMService(session)
@@ -128,6 +135,41 @@ async def _background_chapter_post_process(
                     user_id=user_id,
                     force_summary=force_summary,
                 )
+            logger.info("后台任务完成: project=%s chapter=%d mode=%s", project_id, chapter_number, mode)
+
+            # 编辑/优化后自动提取伏笔，确保手动修改的伏笔也能被后续章节感知
+            if mode == "edit":
+                try:
+                    from ...services.foreshadowing_service import ForeshadowingService
+
+                    stmt = select(Chapter).where(
+                        Chapter.project_id == project_id,
+                        Chapter.chapter_number == chapter_number,
+                    )
+                    result = await session.execute(stmt)
+                    chapter = result.scalars().first()
+                    if chapter:
+                        prompt_service = PromptService(session)
+                        fs_service = ForeshadowingService(session)
+                        stats = await fs_service.extract_foreshadowings_from_chapter(
+                            project_id=project_id,
+                            chapter_id=chapter.id,
+                            chapter_number=chapter_number,
+                            chapter_content=content,
+                            llm_service=llm_service,
+                            prompt_service=prompt_service,
+                            user_id=user_id,
+                        )
+                        await session.commit()
+                        logger.info(
+                            "编辑后伏笔提取完成: project=%s chapter=%d stats=%s",
+                            project_id, chapter_number, stats,
+                        )
+                except Exception as fs_exc:
+                    logger.warning(
+                        "编辑后伏笔提取失败(不影响主流程): project=%s chapter=%d error=%s",
+                        project_id, chapter_number, fs_exc,
+                    )
         except Exception as exc:
             logger.exception(
                 "后台章节后处理异常: project=%s chapter=%d mode=%s: %s",
@@ -188,18 +230,7 @@ async def _finalize_chapter_async(
                     skip_vector_update=True,
                 )
 
-        async def _do_post_process():
-            async with AsyncSessionLocal() as pp_session:
-                pp_llm = LLMService(pp_session)
-                processor = ChapterPostProcessor(pp_session, pp_llm)
-                await processor.process_after_select(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    content=_chapter_text,
-                    user_id=user_id,
-                )
-
-        await asyncio.gather(_do_finalize(), _do_post_process())
+        await asyncio.gather(_do_finalize())
 
 
 def _schedule_finalize_task(
@@ -234,6 +265,52 @@ async def _set_chapter_failed_status(
     if chapter:
         chapter.status = ChapterGenerationStatus.FAILED.value
         await session.commit()
+
+
+@router.post("/async/generate", response_model=AsyncGenerateChapterResponse)
+async def async_generate_chapter(
+    request: AsyncGenerateChapterRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> AsyncGenerateChapterResponse:
+    """
+    异步章节生成接口 - 提交任务后立即返回 task_id
+
+    优势：
+    1. 不阻塞 HTTP 请求，立即返回
+    2. 支持长时间运行的章节生成任务
+    3. 通过 /api/tasks/{task_id}/status 查询进度
+    """
+    from ...tasks.chapter_tasks import generate_chapter_task
+
+    # 验证项目权限
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(request.project_id, current_user.id)
+
+    # 提交 Celery 任务
+    task = generate_chapter_task.delay(
+        project_id=request.project_id,
+        chapter_number=request.chapter_number,
+        user_id=current_user.id,
+        config={
+            "preset": request.preset,
+            "use_agent_system": request.use_agent_system,
+            "rag_mode": request.rag_mode,
+        }
+    )
+
+    logger.info(
+        f"异步章节生成任务已提交: task_id={task.id}, "
+        f"project={request.project_id}, chapter={request.chapter_number}, user={current_user.id}"
+    )
+
+    return AsyncGenerateChapterResponse(
+        task_id=task.id,
+        project_id=request.project_id,
+        chapter_number=request.chapter_number,
+        status="submitted",
+        message=f"章节生成任务已提交，task_id: {task.id}",
+    )
 
 
 @router.post("/advanced/generate", response_model=AdvancedGenerateResponse)
@@ -596,15 +673,6 @@ async def finalize_chapter(
     )
 
     # 向量入库 + 摘要 + hash 统一由 ChapterPostProcessor 异步处理
-    asyncio.create_task(
-        _background_chapter_post_process(
-            project_id=request.project_id,
-            chapter_number=chapter_number,
-            content=selected_version.content,
-            user_id=current_user.id,
-            mode="select",
-        )
-    )
 
     return FinalizeChapterResponse(
         project_id=request.project_id,
@@ -1382,6 +1450,18 @@ async def edit_chapter_content_fast(
     chapter.word_count = len(request.content or "")
     await session.commit()
 
+    # 清除项目序列化缓存，确保刷新页面能获取最新内容
+    try:
+        cache_service = CacheService()
+        await cache_service.delete(f"project_schema:{project_id}")
+    except Exception:
+        pass
+
+    logger.info(
+        "用户 %s 编辑章节 %d 完成，内容长度=%d，启动后台任务更新向量索引",
+        current_user.id, request.chapter_number, len(request.content or "")
+    )
+
     background_tasks.add_task(
         _background_chapter_post_process,
         project_id,
@@ -1502,11 +1582,16 @@ def _build_prediction_prompt(
     outline_title: str,
     outline_summary: str,
     shared_ctx: dict,
+    exclusions: str = "",
 ) -> str:
     """用预计算的共享上下文拼装单章推演 prompt。"""
     summaries = [text for num, text in shared_ctx["completed_summaries"] if num < chapter_number]
     completed_text = "\n".join(summaries) if summaries else "无"
     foreshadowings = shared_ctx["foreshadowings_text"] or "无"
+
+    exclusion_block = ""
+    if exclusions and exclusions.strip():
+        exclusion_block = f"\n\n## 创作禁区\n以下内容禁止出现在推演结果中：\n{exclusions.strip()}\n"
 
     return f"""你是一位专业的小说剧情分析师。请根据以下信息，为第{chapter_number}章生成剧情推演。
 
@@ -1523,7 +1608,7 @@ def _build_prediction_prompt(
 {foreshadowings}
 
 ## 当前章节
-第{chapter_number}章 - {outline_title}: {outline_summary}
+第{chapter_number}章 - {outline_title}: {outline_summary}{exclusion_block}
 
 请输出严格的 JSON（不要 markdown 包裹），包含以下 6 个字段：
 - key_points: 本章核心剧情要点（3-5条字符串数组）
@@ -1558,6 +1643,7 @@ async def _run_prediction_for_outline(
     user_id: int,
     *,
     shared_ctx: Optional[dict] = None,
+    exclusions: str = "",
 ) -> dict:
     """为单个章节大纲生成剧情推演。
 
@@ -1573,12 +1659,14 @@ async def _run_prediction_for_outline(
 
     prompt = _build_prediction_prompt(
         chapter_number, outline.title, outline.summary or "", shared_ctx,
+        exclusions=exclusions,
     )
 
     raw = await llm_service.generate(prompt, temperature=0.4, response_format="json_object")
     prediction = _parse_prediction_json(raw)
 
-    meta = outline.metadata_ or {}
+    # 必须创建新 dict，否则 SQLAlchemy JSON 列检测不到同一对象的原地修改
+    meta = dict(outline.metadata_ or {})
     meta["prediction"] = prediction
     outline.metadata_ = meta
     await session.commit()
@@ -1590,6 +1678,7 @@ async def _run_prediction_for_outline(
 async def generate_prediction(
     project_id: str,
     chapter_number: int,
+    exclusions: str = Body("", embed=True),
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
@@ -1600,7 +1689,7 @@ async def generate_prediction(
     if not outline:
         raise HTTPException(status_code=404, detail="未找到对应章节大纲")
 
-    return await _run_prediction_for_outline(session, project, outline, current_user.id)
+    return await _run_prediction_for_outline(session, project, outline, current_user.id, exclusions=exclusions)
 
 
 @router.post("/novels/{project_id}/chapters/batch-prediction")
@@ -1682,7 +1771,8 @@ async def batch_generate_predictions(
                                 prompt, temperature=0.4, response_format="json_object",
                             )
                             prediction = _parse_prediction_json(raw)
-                            meta = bg_outline.metadata_ or {}
+                            # 必须创建新 dict，否则 SQLAlchemy JSON 列检测不到同一对象的原地修改
+                            meta = dict(bg_outline.metadata_ or {})
                             meta["prediction"] = prediction
                             bg_outline.metadata_ = meta
                             await bg_session.commit()
@@ -1769,21 +1859,38 @@ async def rebuild_rag(
     }
 
     existing_state = await VectorStoreService.get_ingest_state_from_db(session, project_id)
+    logger.info(
+        "项目 %s 知识库刷新开始: 已索引章节=%s, force_full=%s",
+        project_id, list(existing_state.keys()), force_full
+    )
+
     indexable_chapters: list[tuple[Chapter, str, str, Optional[str], str]] = []
     for chapter in chapters:
         content = (chapter.selected_version.content if chapter.selected_version else "") or ""
         if not content.strip():
+            logger.debug("章节 %d 内容为空，跳过", chapter.chapter_number)
             continue
         title = outline_title_map.get(chapter.chapter_number) or f"第{chapter.chapter_number}章"
         summary = chapter.real_summary
         content_hash = compute_ingest_hash(title, summary, content)
         indexable_chapters.append((chapter, content, title, summary, content_hash))
+        logger.debug(
+            "章节 %d: selected_version_id=%s, title=%s, summary=%s, content_len=%d, hash=%s..., existing_hash=%s...",
+            chapter.chapter_number,
+            chapter.selected_version_id,
+            title,
+            summary[:50] if summary else None,
+            len(content),
+            content_hash[:8],
+            (existing_state.get(chapter.chapter_number) or "")[:8]
+        )
 
     current_chapter_numbers = {chapter.chapter_number for chapter, _, _, _, _ in indexable_chapters}
     stale_numbers = sorted(set(existing_state.keys()) - current_chapter_numbers)
 
     removed = 0
     if stale_numbers:
+        logger.info("删除过期章节: %s", stale_numbers)
         await ingest_service.delete_chapters(project_id, stale_numbers)
         await VectorStoreService.clear_ingest_hash_in_db(session, project_id, stale_numbers)
         removed = len(stale_numbers)
@@ -1794,9 +1901,15 @@ async def rebuild_rag(
         indexable_chapters,
         key=lambda item: item[0].chapter_number,
     ):
-        if not force_full and existing_state.get(chapter.chapter_number) == content_hash:
+        existing_hash = existing_state.get(chapter.chapter_number)
+        if not force_full and existing_hash == content_hash:
+            logger.debug("章节 %d 哈希未变化，跳过索引", chapter.chapter_number)
             skipped += 1
             continue
+        logger.info(
+            "索引章节 %d: hash变化 %s... -> %s...",
+            chapter.chapter_number, (existing_hash or "")[:8], content_hash[:8]
+        )
         await processor.ingest_chapter(
             project_id=project_id,
             chapter_number=chapter.chapter_number,
@@ -1809,6 +1922,11 @@ async def rebuild_rag(
         indexed += 1
 
     await session.commit()
+
+    logger.info(
+        "项目 %s 知识库刷新完成: indexed=%d, skipped=%d, removed=%d",
+        project_id, indexed, skipped, removed
+    )
 
     return {
         "indexed_chapters": indexed,

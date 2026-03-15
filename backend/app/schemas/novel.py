@@ -212,6 +212,28 @@ class FlowConfig(BaseModel):
     use_local_anti_hallucination: Optional[bool] = Field(default=None, description="是否使用本地实体规则反幻觉检查")
     batch_parallel_workers: Optional[int] = Field(default=None, ge=1, le=8, description="批量生成并行工作数")
     use_agent: Optional[bool] = Field(default=None, description="是否启用 Agent 多代理系统生成")
+    selected_skills: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="Agent 模式下的技能编排配置列表",
+    )
+
+
+class AsyncGenerateChapterRequest(BaseModel):
+    """异步章节生成请求"""
+    project_id: str
+    chapter_number: int
+    preset: str = "basic"
+    use_agent_system: bool = False
+    rag_mode: str = "simple"
+
+
+class AsyncGenerateChapterResponse(BaseModel):
+    """异步章节生成响应"""
+    task_id: str
+    project_id: str
+    chapter_number: int
+    status: str = "submitted"
+    message: str = "章节生成任务已提交，请通过 task_id 查询进度"
 
 
 class AdvancedGenerateRequest(BaseModel):

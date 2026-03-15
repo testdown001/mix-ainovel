@@ -25,10 +25,10 @@
       <div class="flex items-center gap-3 pt-2">
         <button
           @click="handleGenerate"
-          :disabled="generating"
+          :disabled="predictionGenerating"
           class="md-btn md-btn-tonal md-ripple flex items-center gap-2 disabled:opacity-50"
         >
-          {{ generating ? '推演中...' : '重新推演' }}
+          {{ predictionGenerating ? '推演中...' : '重新推演' }}
         </button>
         <button
           @click="$emit('generateChapter', chapterNumber)"
@@ -53,10 +53,10 @@
         <div class="flex items-center gap-3 justify-center">
           <button
             @click="handleGenerate"
-            :disabled="generating"
+            :disabled="predictionGenerating"
             class="md-btn md-btn-tonal md-ripple flex items-center gap-2 disabled:opacity-50"
           >
-            {{ generating ? '推演中...' : '剧情推演' }}
+            {{ predictionGenerating ? '推演中...' : '剧情推演' }}
           </button>
           <button
             @click="$emit('generateChapter', chapterNumber)"
@@ -73,8 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { NovelAPI } from '@/api/novel'
+import { computed } from 'vue'
 import type { ChapterOutline, ChapterPrediction } from '@/api/novel'
 
 interface Props {
@@ -82,12 +81,11 @@ interface Props {
   generatingChapter: number | null
   outline?: ChapterOutline | null
   projectId?: string
+  predictionGenerating?: boolean
 }
 
 const props = defineProps<Props>()
-defineEmits(['generateChapter'])
-
-const generating = ref(false)
+const emit = defineEmits(['generateChapter', 'requestPrediction'])
 
 const prediction = computed<ChapterPrediction | null>(
   () => props.outline?.metadata?.prediction ?? null
@@ -106,17 +104,7 @@ const predictionSections = computed(() => {
 })
 
 const handleGenerate = async () => {
-  if (!props.projectId || generating.value) return
-  generating.value = true
-  try {
-    const result = await NovelAPI.generatePrediction(props.projectId, props.chapterNumber)
-    if (props.outline) {
-      props.outline.metadata = { ...props.outline.metadata, prediction: result }
-    }
-  } catch (e: any) {
-    console.error('剧情推演失败:', e)
-  } finally {
-    generating.value = false
-  }
+  if (!props.projectId || props.predictionGenerating) return
+  emit('requestPrediction', props.chapterNumber)
 }
 </script>

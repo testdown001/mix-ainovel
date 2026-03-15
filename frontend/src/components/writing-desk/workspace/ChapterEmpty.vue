@@ -42,13 +42,13 @@
       <div class="flex items-center gap-3 pt-2">
         <button
           @click="handleGenerate"
-          :disabled="generating"
+          :disabled="predictionGenerating"
           class="md-btn md-btn-tonal md-ripple flex items-center gap-2 disabled:opacity-50"
         >
-          <svg v-if="generating" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+          <svg v-if="predictionGenerating" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
             <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
           </svg>
-          {{ generating ? '推演中...' : '重新推演' }}
+          {{ predictionGenerating ? '推演中...' : '重新推演' }}
         </button>
         <button
           v-if="canGenerate"
@@ -81,10 +81,10 @@
           <div class="flex items-center gap-3 justify-center">
             <button
               @click="handleGenerate"
-              :disabled="generating"
+              :disabled="predictionGenerating"
               class="md-btn md-btn-tonal md-ripple flex items-center gap-2 disabled:opacity-50"
             >
-              {{ generating ? '推演中...' : '剧情推演' }}
+              {{ predictionGenerating ? '推演中...' : '剧情推演' }}
             </button>
             <button
               @click="$emit('generateChapter', chapterNumber, writingNotes || undefined)"
@@ -112,7 +112,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NovelAPI } from '@/api/novel'
 import type { ChapterOutline, ChapterPrediction } from '@/api/novel'
 
 const beatColorMap: Record<string, string> = {
@@ -131,12 +130,11 @@ interface Props {
   outline?: ChapterOutline | null
   projectId?: string
   templatePrompt?: string
+  predictionGenerating?: boolean
 }
 
 const props = defineProps<Props>()
-defineEmits(['generateChapter'])
-
-const generating = ref(false)
+const emit = defineEmits(['generateChapter', 'requestPrediction'])
 const writingNotes = ref('')
 
 watch(() => props.templatePrompt, (val) => {
@@ -164,18 +162,7 @@ const predictionSections = computed(() => {
 })
 
 const handleGenerate = async () => {
-  if (!props.projectId || generating.value) return
-  generating.value = true
-  try {
-    const result = await NovelAPI.generatePrediction(props.projectId, props.chapterNumber)
-    // 直接更新 outline.metadata 以触发响应式更新
-    if (props.outline) {
-      props.outline.metadata = { ...props.outline.metadata, prediction: result }
-    }
-  } catch (e: any) {
-    console.error('剧情推演失败:', e)
-  } finally {
-    generating.value = false
-  }
+  if (!props.projectId || props.predictionGenerating) return
+  emit('requestPrediction', props.chapterNumber)
 }
 </script>

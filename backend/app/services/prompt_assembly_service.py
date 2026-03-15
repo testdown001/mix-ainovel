@@ -1,39 +1,35 @@
-# AIMETA P=流水线提示词Mixin|R=情感表达_任务模式_提示词拼接|NR=不含API路由|E=PipelinePromptMixin|X=internal|A=Mixin|D=none|S=none|RD=./README.ai
 from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..core.constants import (
+    ALL_HARD_RULES,
     CHAPTER_MAX_WORDS,
     CHAPTER_MIN_WORDS,
     CHAPTER_RECOMMENDED_WORDS,
-    CHAPTER_STYLE_HARD_RULE,
     CHAPTER_WORD_COUNT_RULE,
-    PARAGRAPH_LENGTH_RULE,
-    DIALOGUE_RATIO_RULE,
-    CHAPTER_STRUCTURE_RULE,
-    SENTENCE_VARIETY_RULE,
-    PROTAGONIST_VOICE_RULE,
-    SCENE_TRANSITION_RULE,
-    ALL_HARD_RULES,
 )
 from ..utils.json_utils import remove_think_tags
 
 logger = logging.getLogger(__name__)
 
 
-class PipelinePromptMixin:
-    """流水线提示词构建相关方法。"""
+class PromptAssemblyService:
+    """统一承载 Prompt 规则构建与 section 组装。"""
+
+    def __init__(self, prompt_service, llm_service):
+        self.prompt_service = prompt_service
+        self.llm_service = llm_service
 
     @staticmethod
-    def _build_word_count_rule(
+    def build_word_count_rule(
         chapter_word_count_min: Optional[int],
         chapter_word_count_max: Optional[int],
         chapter_target_word_count: Optional[int],
     ) -> str:
-        """构建章节字数规则，优先使用运行时配置，失败时回退常量。"""
         try:
             min_words = int(chapter_word_count_min or CHAPTER_MIN_WORDS)
             max_words = int(chapter_word_count_max or CHAPTER_MAX_WORDS)
@@ -59,8 +55,7 @@ class PipelinePromptMixin:
             return CHAPTER_WORD_COUNT_RULE
 
     @staticmethod
-    def _build_emotion_expression_brief(completed_chapters: List[Dict[str, Any]]) -> str:
-        """构建情绪表达去模板化约束，减少"愤怒=握拳+指节发白"等重复句式。"""
+    def build_emotion_expression_brief(completed_chapters: List[Dict[str, Any]]) -> str:
         recent_chapters = sorted(
             completed_chapters or [],
             key=lambda item: item.get("chapter_number", 0),
@@ -90,15 +85,14 @@ class PipelinePromptMixin:
             [
                 "同一情绪必须用不同表达路径，不得复用固定模板。",
                 f"近期疑似高频表达：{observed_text}。",
-                "怒意优先通过\u201c行为后果\u201d体现：例如改策略、压冲动、转移目标、反制行动，而非只写身体反应。",
-                "允许写生理反应，但每次只保留一个短动作，并与场景细节绑定，禁止连续堆叠\u201c握拳+指节+目光\u201d套装。",
+                "怒意优先通过“行为后果”体现：例如改策略、压冲动、转移目标、反制行动，而非只写身体反应。",
+                "允许写生理反应，但每次只保留一个短动作，并与场景细节绑定，禁止连续堆叠“握拳+指节+目光”套装。",
                 "同段中相近情绪句式不得重复；如果上一段写了怒，下一段改用对话节奏、环境压力或决策代价呈现。",
             ]
         )
 
     @staticmethod
-    def _extract_mission_patterns(selected_version) -> Dict[str, str]:
-        """从 version metadata 中提取 opening_hook_type、chapter_end_style、satisfaction_design.type。"""
+    def extract_mission_patterns(selected_version) -> Dict[str, str]:
         if not selected_version:
             return {}
         metadata = getattr(selected_version, "metadata_", None) or {}
@@ -116,15 +110,12 @@ class PipelinePromptMixin:
         return result
 
     @staticmethod
-    def _build_pattern_differentiation(completed_chapters: List[Dict[str, Any]]) -> str:
-        """分析最近章节的开头/结尾/爽感模式，生成差异化约束文本。"""
+    def build_pattern_differentiation(completed_chapters: List[Dict[str, Any]]) -> str:
         if not completed_chapters:
             return ""
 
         sorted_chapters = sorted(completed_chapters, key=lambda c: c["chapter_number"])
         constraints: List[str] = []
-
-        # 分析最近3章的开头类型和结尾类型
         recent_3 = sorted_chapters[-3:]
         opening_types = [
             c["chapter_mission_patterns"].get("opening_hook_type", "")
@@ -144,7 +135,6 @@ class PipelinePromptMixin:
         if len(ending_types) >= 2 and len(set(ending_types)) == 1:
             constraints.append(f"最近{len(ending_types)}章结尾均为「{ending_types[0]}」风格，本章必须使用不同的结尾风格。")
 
-        # 分析最近5章的爽感模式
         recent_5 = sorted_chapters[-5:]
         sat_types = [
             c["chapter_mission_patterns"].get("satisfaction_type", "")
@@ -153,13 +143,10 @@ class PipelinePromptMixin:
         ]
         sat_types = [t for t in sat_types if t and t != "无（蓄力中）"]
         if len(sat_types) >= 3:
-            from collections import Counter
-            counter = Counter(sat_types)
-            most_common_type, most_common_count = counter.most_common(1)[0]
+            most_common_type, most_common_count = Counter(sat_types).most_common(1)[0]
             if most_common_count >= 3:
                 constraints.append(f"最近5章中「{most_common_type}」爽感出现{most_common_count}次，本章应尝试不同类型的爽感设计。")
 
-        # 对比最近3章开头摘录，检测开头模式雷同
         opening_excerpts = [
             c.get("opening_excerpt", "")[:80]
             for c in recent_3
@@ -176,7 +163,7 @@ class PipelinePromptMixin:
 
         return "[模式差异化约束]\n" + "\n".join(constraints)
 
-    async def _generate_mission_brief(
+    async def generate_mission_brief(
         self,
         *,
         chapter_mission: dict,
@@ -189,11 +176,6 @@ class PipelinePromptMixin:
         forbidden_characters: List[str],
         user_id: int,
     ) -> Optional[str]:
-        """将 ChapterMission JSON 转换为人类可读的创作任务书。"""
-        from ..db.session import AsyncSessionLocal
-        from .llm_service import LLMService
-        from .prompt_service import PromptService
-
         brief_input = f"""[章节导演脚本]
 {json.dumps(chapter_mission, ensure_ascii=False, indent=2)}
 
@@ -215,21 +197,18 @@ class PipelinePromptMixin:
 {", ".join(forbidden_characters) if forbidden_characters else "无"}"""
 
         try:
-            async with AsyncSessionLocal() as session:
-                prompt_service = PromptService(session)
-                llm_service = LLMService(session)
-                brief_prompt = await prompt_service.get_prompt("mission_brief")
-                if not brief_prompt:
-                    logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
-                    return None
+            brief_prompt = await self.prompt_service.get_prompt("mission_brief")
+            if not brief_prompt:
+                logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
+                return None
 
-                response = await llm_service.get_llm_response(
-                    system_prompt=brief_prompt,
-                    conversation_history=[{"role": "user", "content": brief_input}],
-                    temperature=0.3,
-                    user_id=user_id,
-                    timeout=120.0,
-                )
+            response = await self.llm_service.get_llm_response(
+                system_prompt=brief_prompt,
+                conversation_history=[{"role": "user", "content": brief_input}],
+                temperature=0.3,
+                user_id=user_id,
+                timeout=120.0,
+            )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
                 logger.warning("创作任务书生成结果为空，回退原始 JSON")
@@ -240,8 +219,8 @@ class PipelinePromptMixin:
             logger.warning("生成创作任务书失败，将回退原始 JSON: %s", exc)
             return None
 
-    @staticmethod
-    def _build_prompt_sections(
+    def build_prompt_sections(
+        self,
         *,
         writer_blueprint: Dict[str, Any],
         previous_summary: str,
@@ -272,11 +251,13 @@ class PipelinePromptMixin:
         chapter_state_context: Optional[str] = None,
         coolpoint_rhythm_directive: Optional[str] = None,
         writing_strategy: Optional[Any] = None,
+        power_system_context: Optional[str] = None,
+        relationship_context: Optional[str] = None,
+        trajectory_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
 
-        # --- TIER 1: 核心指令（利用首因效应，放在最前面）---
         sections: List[Tuple[str, str]] = [
             ("[当前章节目标]", f"标题：{outline_title}\n摘要：{outline_summary}\n写作要求：{writing_notes}"),
         ]
@@ -292,7 +273,7 @@ class PipelinePromptMixin:
         sections.append(
             (
                 "[章节字数要求]",
-                PipelinePromptMixin._build_word_count_rule(
+                self.build_word_count_rule(
                     chapter_word_count_min=chapter_word_count_min,
                     chapter_word_count_max=chapter_word_count_max,
                     chapter_target_word_count=chapter_target_word_count,
@@ -300,19 +281,16 @@ class PipelinePromptMixin:
             )
         )
 
-        # 伏笔提醒提升到TIER1（首因效应，确保LLM优先注意）
         if foreshadowing_urgency_brief:
             sections.append(("[高优先级伏笔提醒](必须在本章处理的伏笔)", foreshadowing_urgency_brief))
-
-        # 角色状态注入TIER1（变更2预留）
         if chapter_state_context:
             sections.append(("[角色当前状态](数据库实时查询，零幻觉)", chapter_state_context))
-
-        # 节奏纠偏指令注入TIER1（变更6预留）
         if coolpoint_rhythm_directive:
             sections.append(("[节奏纠偏指令](系统级强制)", coolpoint_rhythm_directive))
-
-        # --- TIER 2: 上下文参考（中间位置）---
+        if power_system_context:
+            sections.append(("[力量体系约束](角色能力上限，严禁超阶)", power_system_context))
+        if relationship_context:
+            sections.append(("[角色关系网](已确定的角色关系，行为需符合关系逻辑)", relationship_context))
         if story_skeleton:
             sections.append(("[故事骨架](三层压缩：近章详细/中距摘要/远距关键事件)", story_skeleton))
 
@@ -328,43 +306,37 @@ class PipelinePromptMixin:
             sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
         if memory_context:
             sections.append(("[记忆层上下文]", memory_context))
-
         if knowledge_context:
             sections.append(("[RAG精筛上下文](含POV裁剪)", knowledge_context))
-
         if rag_context:
             rag_chunks_text = "\n\n".join(rag_context.get("chunks", [])) or "未检索到章节片段"
             rag_summaries_text = "\n".join(rag_context.get("summaries", [])) or "未检索到章节摘要"
             sections.append(("[检索到的剧情上下文](Markdown)", rag_chunks_text))
             sections.append(("[检索到的章节摘要](Markdown)", rag_summaries_text))
-
-        # 钩子连续性提升到TIER2尾部（紧跟上下文参考之后）
         if hook_continuity_brief:
             sections.append(("[追更钩子连续性](上一章未兑现的钩子)", hook_continuity_brief))
 
-        # --- 策略权重提取 ---
-        _s_style_w = writing_strategy.style_weight if writing_strategy else 1.0
-        _s_ref_w = writing_strategy.reference_weight if writing_strategy else 1.0
-        _s_genre_w = writing_strategy.genre_weight if writing_strategy else 1.0
-        _s_warnings = writing_strategy.warnings if writing_strategy else []
+        style_weight = writing_strategy.style_weight if writing_strategy else 1.0
+        ref_weight = writing_strategy.reference_weight if writing_strategy else 1.0
+        genre_weight = writing_strategy.genre_weight if writing_strategy else 1.0
+        warnings = writing_strategy.warnings if writing_strategy else []
+        if warnings:
+            sections.insert(1, ("[策略协调提醒]", "\n".join(f"- {warning}" for warning in warnings)))
 
-        # --- 策略冲突提醒注入 TIER1（让 LLM 也感知到冲突）---
-        if _s_warnings:
-            sections.insert(1, ("[策略协调提醒]", "\n".join(f"- {w}" for w in _s_warnings)))
-
-        # --- TIER 3: 补充约束（利用近因效应，放在最后面）---
-        if genre_prompt_injection and _s_genre_w > 0:
+        if trajectory_context:
+            sections.append(("[故事轨迹分析](基于历史章节的节奏建议)", trajectory_context))
+        if genre_prompt_injection and genre_weight > 0:
             sections.append(("[题材写作约束]", genre_prompt_injection))
-        if fingerprint_context and _s_ref_w > 0:
+        if fingerprint_context and ref_weight > 0:
             sections.append(("[作者风格指纹]", fingerprint_context))
         if platinum_rhythm_brief:
             sections.append(("[白金节奏控制](Quest/Fire/Constellation)", platinum_rhythm_brief))
         if emotion_expression_brief:
             sections.append(("[情绪表达去模板化约束](重点减少怒意句式重复)", emotion_expression_brief))
-        if user_style_rules and _s_style_w > 0:
-            if _s_style_w >= 0.8:
+        if user_style_rules and style_weight > 0:
+            if style_weight >= 0.8:
                 style_label = "[用户写作风格](用户级全局约束，必须严格遵守)"
-            elif _s_style_w >= 0.5:
+            elif style_weight >= 0.5:
                 style_label = "[用户写作风格](参考约束，适度遵守)"
             else:
                 style_label = "[用户写作风格](参考建议，非强制)"

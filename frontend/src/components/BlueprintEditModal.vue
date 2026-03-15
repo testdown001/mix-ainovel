@@ -30,10 +30,10 @@
 
           <!-- Dialog Content -->
           <div class="md-dialog-content flex-1 overflow-y-auto py-4">
-            <ChapterOutlineEditor v-if="props.field === 'chapter_outline'" v-model="editableContent" />
+            <ChapterOutlineEditor v-if="props.field === 'chapter_outline'" v-model="editableContent" :project-id="props.projectId" />
             <KeyLocationsEditor v-else-if="props.field === 'world_setting.key_locations'" v-model="editableContent" />
             <CharactersEditor v-else-if="props.field === 'characters'" v-model="editableContent" :power-systems="props.powerSystems" :project-id="props.projectId" />
-            <RelationshipsEditor v-else-if="props.field === 'relationships'" v-model="editableContent" />
+            <RelationshipsEditor v-else-if="props.field === 'relationships'" v-model="editableContent" :project-id="props.projectId" />
             <FactionsEditor v-else-if="props.field === 'world_setting.factions'" v-model="editableContent" />
             <div v-else class="md-text-field">
               <textarea 

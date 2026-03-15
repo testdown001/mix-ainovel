@@ -47,8 +47,8 @@ class PlatinumStyleSkill(SkillBase):
 
         # 根据强度调整 temperature
         temp_map = {
-            "0.4,
-subtle":             "moderate": 0.5,
+            "subtle": 0.4,
+            "moderate": 0.5,
             "strong": 0.6
         }
         temperature = temp_map.get(intensity, 0.5)

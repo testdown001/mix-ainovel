@@ -48,6 +48,8 @@
           :batch-generating="batchGenerating"
           :batch-progress="batchProgress"
           :selected-preset="selectedPreset"
+          :selected-skill-count="selectedGenerationSkills.length"
+          :agent-enabled="useAgent"
           @close-sidebar="closeSidebar"
           @select-chapter="selectChapter"
           @preview-prediction="handlePreviewPrediction"
@@ -59,6 +61,7 @@
           @batch-generate="openBatchGenerateModal"
           @cancel-batch="cancelBatchGenerate"
           @open-preset-selector="showPresetSelector = true"
+          @open-skill-selector="showSkillSelector = true"
           @open-middle-product-viewer="showMiddleProductViewer = true"
           @open-diagnostic-panel="showDiagnosticPanel = true"
           @open-agent-visualizer="showAgentVisualizer = true"
@@ -67,9 +70,10 @@
         <div class="flex-1 min-w-0">
           <WDWorkspace
             :project="project"
-            :selected-chapter-number="selectedChapterNumber"
+          :selected-chapter-number="selectedChapterNumber"
           :open-prediction-tick="openPredictionTick"
           :generating-chapter="generatingChapter"
+          :prediction-generating-chapter="predictionGeneratingChapter"
           :evaluating-chapter="evaluatingChapter"
           :show-version-selector="showVersionSelector"
           :chapter-generation-result="chapterGenerationResult"
@@ -86,6 +90,8 @@
           @confirm-version-selection="confirmVersionSelection"
           @generate-chapter="generateChapter"
           @show-evaluation-detail="showEvaluationDetailModal = true"
+          @open-skill-apply="showSkillApplyModal = true"
+          @request-prediction="openPredictionRequestModal"
           @fetch-chapter-status="fetchChapterStatus"
           @edit-chapter="editChapterContent"
           @toggle-codex="codexPanelOpen = !codexPanelOpen"
@@ -112,6 +118,7 @@
       :project-id="project?.id || ''"
       @close="showEditChapterModal = false"
       @save="saveChapterChanges"
+      @prediction-updated="onPredictionUpdated"
     />
     <WDGenerateOutlineModal
       :show="showGenerateOutlineModal"
@@ -144,9 +151,134 @@
       </template>
     </n-modal>
 
+    <n-modal v-model:show="showPredictionRequestModal" preset="card" title="剧情推演设置" style="width: 640px; max-width: 92vw;">
+      <div class="space-y-4">
+        <div class="text-sm text-[var(--md-on-surface-variant)]">
+          <span class="font-medium text-[var(--md-on-surface)]">目标章节：</span>
+          第 {{ predictionTargetChapter || '-' }} 章
+        </div>
+        <div>
+          <label class="mb-2 block text-sm font-medium text-[var(--md-on-surface)]">排除内容 / 创作禁区（可选）</label>
+          <textarea
+            v-model="predictionExclusions"
+            rows="5"
+            class="md-textarea w-full resize-none"
+            placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
+          ></textarea>
+          <p class="mt-2 text-xs text-[var(--md-on-surface-variant)]">
+            这些内容会作为 exclusions 一起传给后端剧情推演接口。
+          </p>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <n-button @click="showPredictionRequestModal = false">取消</n-button>
+          <n-button type="primary" :loading="!!predictionGeneratingChapter" @click="confirmPredictionRequest">
+            重新推演
+          </n-button>
+        </div>
+      </template>
+    </n-modal>
+
+    <n-modal v-model:show="showSkillSelector" preset="card" title="配置 Agent 技能" style="width: 720px; max-width: 92vw;">
+      <SkillSelector
+        selection-only
+        :initial-selection="selectedGenerationSkills"
+        :project-id="project?.id || ''"
+        :chapter-number="selectedChapterNumber || 1"
+        :chapter-content="selectedChapter?.content || ''"
+        :chapter-info="selectedChapter ? { title: selectedChapter.title, summary: selectedChapter.summary } : {}"
+        :character-profiles="project?.blueprint?.characters || []"
+        :world-settings="project?.blueprint?.world_setting || {}"
+        :previous-summary="selectedChapter?.summary || ''"
+        :outline="selectedChapterOutline || {}"
+        @cancel="showSkillSelector = false"
+        @select="handleSkillSelection"
+      />
+    </n-modal>
+
+    <n-modal v-model:show="showSkillApplyModal" preset="card" title="应用写作技能" style="width: 720px; max-width: 92vw;">
+      <SkillSelector
+        :initial-selection="selectedGenerationSkills"
+        :project-id="project?.id || ''"
+        :chapter-number="selectedChapterNumber || 1"
+        :chapter-content="selectedChapter?.content || ''"
+        :chapter-info="selectedChapter ? { title: selectedChapter.title, summary: selectedChapter.summary } : {}"
+        :character-profiles="project?.blueprint?.characters || []"
+        :world-settings="project?.blueprint?.world_setting || {}"
+        :previous-summary="selectedChapter?.summary || ''"
+        :outline="selectedChapterOutline || {}"
+        @cancel="showSkillApplyModal = false"
+        @error="handleSkillApplyError"
+        @apply="handleSkillApplyResults"
+      />
+    </n-modal>
+
+    <n-modal v-model:show="showSkillPreviewModal" preset="card" title="技能应用对比预览" style="width: 1100px; max-width: 96vw;">
+      <div v-if="skillApplyPreview" class="space-y-4">
+        <div class="flex flex-wrap items-center gap-2 text-sm text-[var(--md-on-surface-variant)]">
+          <span class="font-medium text-[var(--md-on-surface)]">已应用技能：</span>
+          <span
+            v-for="skillName in skillApplyPreview.skillNames"
+            :key="skillName"
+            class="inline-flex items-center rounded-full px-3 py-1 text-xs"
+            style="background-color: var(--md-secondary-container); color: var(--md-on-secondary-container);"
+          >
+            {{ skillName }}
+          </span>
+        </div>
+
+        <div class="grid gap-3 md:grid-cols-3">
+          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
+            <div class="text-xs text-[var(--md-on-surface-variant)]">原文字数</div>
+            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.originalLength }}</div>
+          </div>
+          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
+            <div class="text-xs text-[var(--md-on-surface-variant)]">技能结果字数</div>
+            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.transformedLength }}</div>
+          </div>
+          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
+            <div class="text-xs text-[var(--md-on-surface-variant)]">变化段落</div>
+            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.changedParagraphs }}</div>
+          </div>
+        </div>
+
+        <div class="grid gap-4 lg:grid-cols-2">
+          <div class="rounded-xl border" style="border-color: var(--md-outline-variant);">
+            <div class="border-b px-4 py-3 text-sm font-medium" style="border-bottom-color: var(--md-outline-variant); background-color: var(--md-surface-container-low); color: var(--md-on-surface);">
+              原文
+            </div>
+            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7" style="color: var(--md-on-surface);">
+              {{ skillApplyPreview.originalContent }}
+            </div>
+          </div>
+
+          <div class="rounded-xl border" style="border-color: var(--md-outline-variant);">
+            <div class="border-b px-4 py-3 text-sm font-medium" style="border-bottom-color: var(--md-outline-variant); background-color: var(--md-secondary-container); color: var(--md-on-secondary-container);">
+              技能结果
+            </div>
+            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7" style="color: var(--md-on-surface);">
+              {{ skillApplyPreview.transformedContent }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <n-button @click="closeSkillPreview">取消</n-button>
+          <n-button type="primary" @click="confirmSkillApplyPreview">确认保存</n-button>
+        </div>
+      </template>
+    </n-modal>
+
     <!-- 中间产物预览 -->
     <n-modal v-model:show="showMiddleProductViewer" preset="card" title="生成中间产物" style="width: 700px; max-width: 90vw;">
       <MiddleProductViewer
+        :context-plan-data="currentContextPlanData"
+        :evidence-summary-data="currentEvidenceSummaryData"
+        :prompt-compile-summary-data="currentPromptCompileSummaryData"
+        :verification-report-data="currentVerificationReportData"
         :mission-data="currentMissionData"
         :rag-data="currentRagData"
         :context-data="currentContextData"
@@ -185,8 +317,11 @@ import { NModal, NButton } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { NovelAPI } from '@/api/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, AdvancedGenerateResponse, AdvancedGenerateFlowConfig } from '@/api/novel'
+import { TaskAPI } from '@/api/task'
 import { AdminAPI } from '@/api/admin'
 import { globalAlert } from '@/composables/useAlert'
+import { useWebSocket } from '@/composables/useWebSocket'
+import { useAsyncGeneration } from '@/composables/useAsyncGeneration'
 import WDHeader from '@/components/writing-desk/WDHeader.vue'
 import WDSidebar from '@/components/writing-desk/WDSidebar.vue'
 import WDWorkspace from '@/components/writing-desk/WDWorkspace.vue'
@@ -200,6 +335,7 @@ import PresetSelector from '@/components/shared/PresetSelector.vue'
 import MiddleProductViewer from '@/components/shared/MiddleProductViewer.vue'
 import DiagnosticPanel from '@/components/shared/DiagnosticPanel.vue'
 import AgentFlowVisualizer from '@/components/shared/AgentFlowVisualizer.vue'
+import SkillSelector from '@/components/writing-desk/SkillSelector.vue'
 
 interface Props {
   id: string
@@ -225,7 +361,20 @@ const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 const codexPanelOpen = ref(false)
 const showPresetSelector = ref(false)
+const showPredictionRequestModal = ref(false)
+const showSkillSelector = ref(false)
+const showSkillApplyModal = ref(false)
+const showSkillPreviewModal = ref(false)
 const selectedPreset = ref(localStorage.getItem('arboris_preset') || 'fast')
+const predictionTargetChapter = ref<number | null>(null)
+const predictionExclusions = ref('')
+const predictionGeneratingChapter = ref<number | null>(null)
+const selectedGenerationSkills = ref<NonNullable<AdvancedGenerateFlowConfig['selected_skills']>>([])
+const skillApplyPreview = ref<{
+  skillNames: string[]
+  originalContent: string
+  transformedContent: string
+} | null>(null)
 function confirmPreset() {
   localStorage.setItem('arboris_preset', selectedPreset.value)
   showPresetSelector.value = false
@@ -243,14 +392,25 @@ const fetchAgentSetting = async () => {
     useAgent.value = false
   }
 }
-const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | undefined>(() =>
-  useAgent.value ? { use_agent: true } : undefined
-)
+const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | undefined>(() => {
+  const overrides: Partial<AdvancedGenerateFlowConfig> = {}
+  if (useAgent.value) {
+    overrides.use_agent = true
+  }
+  if (selectedGenerationSkills.value.length > 0) {
+    overrides.selected_skills = selectedGenerationSkills.value
+  }
+  return Object.keys(overrides).length > 0 ? overrides : undefined
+})
 const showMiddleProductViewer = ref(false)
 const showDiagnosticPanel = ref(false)
 const showAgentVisualizer = ref(false)
 
 // 中间产物数据（模拟数据，实际应从API获取）
+const currentContextPlanData = ref(null)
+const currentEvidenceSummaryData = ref(null)
+const currentPromptCompileSummaryData = ref(null)
+const currentVerificationReportData = ref(null)
 const currentMissionData = ref(null)
 const currentRagData = ref(null)
 const currentContextData = ref(null)
@@ -385,6 +545,20 @@ const streamingChapterNumber = ref<number | null>(null)
 const streamingDraftText = ref('')
 const streamingStage = ref<string | null>(null)
 const activeGenerationToken = ref(0)
+
+// 异步任务生成（Go Gateway 模式）
+const asyncGen = useAsyncGeneration()
+const useAsyncMode = ref(false) // 是否启用异步任务模式
+
+// 检测 Go Gateway 是否可用
+const detectAsyncMode = async () => {
+  try {
+    await TaskAPI.getStats()
+    useAsyncMode.value = true
+  } catch {
+    useAsyncMode.value = false
+  }
+}
 
 // 连续生成相关状态
 const showBatchGenerateModal = ref(false)
@@ -659,6 +833,133 @@ const handlePreviewPrediction = (chapterNumber: number) => {
   openPredictionTick.value += 1
 }
 
+const handleSkillSelection = (skills: NonNullable<AdvancedGenerateFlowConfig['selected_skills']>) => {
+  selectedGenerationSkills.value = skills
+  showSkillSelector.value = false
+}
+
+const openPredictionRequestModal = (chapterNumber: number) => {
+  predictionTargetChapter.value = chapterNumber
+  showPredictionRequestModal.value = true
+}
+
+const confirmPredictionRequest = async () => {
+  if (!project.value?.id || predictionTargetChapter.value === null || predictionGeneratingChapter.value !== null) {
+    return
+  }
+
+  predictionGeneratingChapter.value = predictionTargetChapter.value
+  try {
+    const result = await NovelAPI.generatePrediction(
+      project.value.id,
+      predictionTargetChapter.value,
+      predictionExclusions.value.trim() || undefined
+    )
+
+    const targetOutline = project.value.blueprint?.chapter_outline?.find(
+      outline => outline.chapter_number === predictionTargetChapter.value
+    )
+    if (targetOutline) {
+      targetOutline.metadata = { ...targetOutline.metadata, prediction: result }
+    }
+
+    if (selectedChapterNumber.value === predictionTargetChapter.value) {
+      openPredictionTick.value += 1
+    }
+
+    showPredictionRequestModal.value = false
+    globalAlert.showSuccess(`第 ${predictionTargetChapter.value} 章剧情推演已更新`, '推演完成')
+  } catch (error) {
+    console.error('剧情推演失败:', error)
+    globalAlert.showError(
+      `剧情推演失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '推演失败'
+    )
+  } finally {
+    predictionGeneratingChapter.value = null
+  }
+}
+
+const handleSkillApplyError = (message: string) => {
+  globalAlert.showError(message, '技能执行失败')
+}
+
+const skillPreviewStats = computed(() => {
+  const originalContent = skillApplyPreview.value?.originalContent || ''
+  const transformedContent = skillApplyPreview.value?.transformedContent || ''
+  const originalParagraphs = originalContent.split(/\n\s*\n/).map(item => item.trim()).filter(Boolean)
+  const transformedParagraphs = transformedContent.split(/\n\s*\n/).map(item => item.trim()).filter(Boolean)
+  const maxParagraphs = Math.max(originalParagraphs.length, transformedParagraphs.length)
+  let changedParagraphs = 0
+
+  for (let index = 0; index < maxParagraphs; index += 1) {
+    if ((originalParagraphs[index] || '') !== (transformedParagraphs[index] || '')) {
+      changedParagraphs += 1
+    }
+  }
+
+  return {
+    originalLength: originalContent.length,
+    transformedLength: transformedContent.length,
+    changedParagraphs
+  }
+})
+
+const closeSkillPreview = () => {
+  showSkillPreviewModal.value = false
+  skillApplyPreview.value = null
+}
+
+const confirmSkillApplyPreview = async () => {
+  if (!skillApplyPreview.value || selectedChapterNumber.value === null) {
+    return
+  }
+
+  const saved = await editChapterContent({
+    chapterNumber: selectedChapterNumber.value,
+    content: skillApplyPreview.value.transformedContent
+  })
+  if (saved) {
+    closeSkillPreview()
+  }
+}
+
+const handleSkillApplyResults = async (results: Array<{
+  skill_id: string
+  transformed_content: string
+  success: boolean
+  changed: boolean
+  error?: string
+}>) => {
+  if (!project.value || selectedChapterNumber.value === null || !selectedChapter.value) {
+    globalAlert.showError('当前没有可应用技能的章节', '操作失败')
+    return
+  }
+
+  const successfulResults = results.filter(item => item.success)
+  if (successfulResults.length === 0) {
+    globalAlert.showError('所有技能执行都失败了，请稍后重试', '技能执行失败')
+    return
+  }
+
+  const finalResult = successfulResults[successfulResults.length - 1]
+  const originalContent = selectedChapter.value.content || ''
+  const finalContent = finalResult.transformed_content || originalContent
+  if (!finalContent || finalContent === originalContent) {
+    showSkillApplyModal.value = false
+    globalAlert.showAlert('技能已执行，但内容没有发生变化', 'info', '无需保存')
+    return
+  }
+
+  showSkillApplyModal.value = false
+  skillApplyPreview.value = {
+    skillNames: successfulResults.map(item => item.skill_id),
+    originalContent,
+    transformedContent: finalContent
+  }
+  showSkillPreviewModal.value = true
+}
+
 const generateChapter = async (chapterNumber: number, writingNotes?: string) => {
   // 检查是否可以生成该章节
   if (!canGenerateChapter(chapterNumber) && !isChapterFailed(chapterNumber) && !hasChapterInProgress(chapterNumber)) {
@@ -674,6 +975,10 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     streamingChapterNumber.value = chapterNumber
     streamingDraftText.value = ''
     streamingStage.value = '准备生成...'
+    currentContextPlanData.value = null
+    currentEvidenceSummaryData.value = null
+    currentPromptCompileSummaryData.value = null
+    currentVerificationReportData.value = null
     currentMissionData.value = null
     currentRagData.value = null
     currentContextData.value = null
@@ -709,54 +1014,86 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
       throw new Error('没有当前项目')
     }
 
-    await NovelAPI.generateChapterStream(
-      project.value.id,
-      chapterNumber,
-      writingNotes,
-      selectedPreset.value,
-      {
-        onStage: (payload) => {
-          if (activeGenerationToken.value !== generationToken) {
-            return
-          }
-          if (typeof payload?.message === 'string' && payload.message.trim()) {
-            streamingStage.value = payload.message.trim()
-          } else if (typeof payload?.stage === 'string' && payload.stage.trim()) {
-            streamingStage.value = payload.stage.trim()
-          }
-          // 将 stage 事件映射到 Agent 节点状态更新
-          if (payload?.stage) {
-            updateAgentByStage(payload.stage, payload?.message)
-          }
+    // 根据模式选择生成方式
+    if (useAsyncMode.value) {
+      // 异步任务模式（通过 Go Gateway Task Dispatcher）
+      await asyncGen.submitGeneration(
+        project.value.id,
+        chapterNumber,
+        {
+          preset: selectedPreset.value,
+          use_agent_system: useAgent.value,
+          writing_notes: writingNotes,
         },
-        onTextDelta: (delta) => {
-          if (activeGenerationToken.value !== generationToken) {
-            return
+        (state) => {
+          if (activeGenerationToken.value !== generationToken) return
+          streamingStage.value = state.stage || state.message || '处理中...'
+          if (state.stage) {
+            updateAgentByStage(state.stage, state.message)
           }
-          if (!delta) {
-            return
-          }
-          streamingDraftText.value += delta
-        },
-        onEvent: (event, payload) => {
-          if (event === 'middle_product' && payload?.type) {
-            if (payload.type === 'mission') {
-              currentMissionData.value = payload.data || null
-            } else if (payload.type === 'rag') {
-              currentRagData.value = payload.data || null
-            } else if (payload.type === 'foreshadowing') {
-              currentForeshadowingData.value = payload.data || null
+        }
+      )
+    } else {
+      // SSE 流式模式（直连 FastAPI）
+      await NovelAPI.generateChapterStream(
+        project.value.id,
+        chapterNumber,
+        writingNotes,
+        selectedPreset.value,
+        {
+          onStage: (payload) => {
+            if (activeGenerationToken.value !== generationToken) {
+              return
             }
-          }
+            if (typeof payload?.message === 'string' && payload.message.trim()) {
+              streamingStage.value = payload.message.trim()
+            } else if (typeof payload?.stage === 'string' && payload.stage.trim()) {
+              streamingStage.value = payload.stage.trim()
+            }
+            // 将 stage 事件映射到 Agent 节点状态更新
+            if (payload?.stage) {
+              updateAgentByStage(payload.stage, payload?.message)
+            }
+          },
+          onTextDelta: (delta) => {
+            if (activeGenerationToken.value !== generationToken) {
+              return
+            }
+            if (!delta) {
+              return
+            }
+            streamingDraftText.value += delta
+          },
+          onEvent: (event, payload) => {
+            if (event === 'middle_product' && payload?.type) {
+              if (payload.type === 'context_plan') {
+                currentContextPlanData.value = payload.data || null
+              } else if (payload.type === 'retrieval_evidence_summary') {
+                currentEvidenceSummaryData.value = payload.data || null
+              } else if (payload.type === 'prompt_compile_summary') {
+                currentPromptCompileSummaryData.value = payload.data || null
+              } else if (payload.type === 'verification_report') {
+                currentVerificationReportData.value = payload.data || null
+              } else if (payload.type === 'mission') {
+                currentMissionData.value = payload.data || null
+              } else if (payload.type === 'rag') {
+                currentRagData.value = payload.data || null
+              } else if (payload.type === 'foreshadowing') {
+                currentForeshadowingData.value = payload.data || null
+              } else if (payload.type === 'context') {
+                currentContextData.value = payload.data || null
+              }
+            }
+          },
         },
-      },
-      agentFlowConfigOverrides.value
-    )
-    
+        agentFlowConfigOverrides.value
+      )
+    }
+
     // store 中的 project 已经被更新，所以我们不需要手动修改本地状态
     // chapterGenerationResult 也不再需要，因为 availableVersions 会从更新后的 project.chapters 中获取数据
     // showVersionSelector is now a computed property and will update automatically.
-    chapterGenerationResult.value = null 
+    chapterGenerationResult.value = null
     selectedVersionIndex.value = 0
   } catch (error) {
     console.error('生成章节失败:', error)
@@ -919,14 +1256,16 @@ const generateOutline = async () => {
 }
 
 const editChapterContent = async (data: { chapterNumber: number, content: string }) => {
-  if (!project.value) return
+  if (!project.value) return false
 
   try {
     await novelStore.editChapterContent(project.value.id, data.chapterNumber, data.content)
     globalAlert.showSuccess('章节内容已更新', '保存成功')
+    return true
   } catch (error) {
     console.error('编辑章节内容失败:', error)
     globalAlert.showError(`编辑章节内容失败: ${error instanceof Error ? error.message : '未知错误'}`, '保存失败')
+    return false
   }
 }
 
@@ -945,17 +1284,39 @@ const handleGenerateOutline = async (numChapters: number, estimatedTotalChapters
   }
 }
 
-const rebuildRag = async () => {
+const rebuildRag = async (forceFull: boolean = false) => {
   if (!project.value) return
   isRebuildingRag.value = true
   try {
-    const result = await NovelAPI.rebuildRag(project.value.id)
-    globalAlert.showSuccess(`已重新索引 ${result.indexed_chapters} 个章节`, '知识库已刷新')
+    const result = await NovelAPI.rebuildRag(project.value.id, forceFull)
+    if (result.indexed_chapters === 0 && result.skipped_chapters > 0) {
+      globalAlert.showSuccess(
+        `已检查 ${result.skipped_chapters} 个章节，内容未变化，无需重新索引。如需强制刷新，请右键点击"刷新知识库"按钮。`,
+        '知识库无变化'
+      )
+    } else {
+      globalAlert.showSuccess(
+        `已重新索引 ${result.indexed_chapters} 个章节，跳过 ${result.skipped_chapters} 个未变化章节${forceFull ? '（强制全量刷新）' : ''}`,
+        '知识库已刷新'
+      )
+    }
   } catch (error) {
     console.error('刷新知识库失败:', error)
     globalAlert.showError(`刷新知识库失败: ${error instanceof Error ? error.message : '未知错误'}`, '刷新失败')
   } finally {
     isRebuildingRag.value = false
+  }
+}
+
+const onPredictionUpdated = async () => {
+  if (!project.value) return
+
+  // 自动刷新知识库（RAG），将推演结果纳入后续生成的检索范围
+  try {
+    await NovelAPI.rebuildRag(project.value.id)
+    globalAlert.showSuccess('知识库已自动更新', '推演同步')
+  } catch {
+    // 知识库刷新失败不阻塞主流程
   }
 }
 
@@ -1028,6 +1389,48 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
   let completedCount = 0
   let failedCount = 0
 
+  // 异步任务模式：提交批量任务到 Go Gateway
+  if (useAsyncMode.value) {
+    try {
+      batchProgress.value = { current: 1, total: targetChapters.length }
+      streamingStage.value = '提交批量任务...'
+
+      const result = await asyncGen.submitBatchGeneration(
+        projectId,
+        targetChapters,
+        {
+          preset: selectedPreset.value,
+          use_agent_system: useAgent.value,
+        },
+        (state) => {
+          streamingStage.value = state.stage || state.message || '处理中...'
+          // 根据进度更新 batchProgress
+          const progressChapter = Math.ceil((state.progress / 100) * targetChapters.length)
+          batchProgress.value = { current: Math.max(1, progressChapter), total: targetChapters.length }
+        }
+      )
+
+      if (result.status === 'completed') {
+        completedCount = targetChapters.length
+        globalAlert.showSuccess(`批量生成完成，共 ${completedCount} 章`, '连续生成')
+      }
+    } catch (error) {
+      console.error('批量异步生成失败:', error)
+      globalAlert.showError(`批量生成失败: ${error instanceof Error ? error.message : '未知错误'}`, '连续生成')
+    } finally {
+      batchGenerating.value = false
+      batchProgress.value = null
+      generatingChapter.value = null
+      streamingStage.value = null
+
+      if (componentMounted.value) {
+        try { await novelStore.loadProject(projectId, true) } catch { /* 静默 */ }
+      }
+    }
+    return
+  }
+
+  // SSE 模式：逐章生成
   try {
     for (const chapterNumber of targetChapters) {
       // 检查是否取消或组件已卸载
@@ -1132,6 +1535,13 @@ onMounted(() => {
   document.body.classList.add('m3-novel')
   loadProject()
   fetchAgentSetting()
+
+  // 连接 WebSocket（Go Gateway 实时推送）
+  const { connect: wsConnect } = useWebSocket()
+  wsConnect()
+
+  // 检测 Go Gateway 可用性，决定使用异步任务模式还是 SSE 流式模式
+  detectAsyncMode()
 })
 
 onUnmounted(() => {
@@ -1140,6 +1550,10 @@ onUnmounted(() => {
   if (batchGenerating.value) {
     batchCancelled.value = true
   }
+
+  // 断开 WebSocket
+  const { disconnect: wsDisconnect } = useWebSocket()
+  wsDisconnect()
 })
 </script>
 

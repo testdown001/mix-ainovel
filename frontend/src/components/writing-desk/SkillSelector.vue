@@ -4,7 +4,7 @@
     <!-- 顶部标题区 -->
     <header class="selector-header">
       <h2 class="selector-title">写作技能</h2>
-      <p class="selector-subtitle">选择技能优化章节内容</p>
+      <p class="selector-subtitle">{{ selectorSubtitle }}</p>
     </header>
 
     <!-- 分类标签 -->
@@ -102,17 +102,27 @@
 
     <!-- 执行按钮 -->
     <div v-if="selectedSkills.length" class="skill-actions">
-      <button class="btn-cancel" @click="emit('cancel')">取消</button>
-      <button class="btn-apply" @click="handleApply" :disabled="!canApply">
-        应用技能
+      <button class="btn-cancel" @click="emit('cancel')" :disabled="isApplying">取消</button>
+      <button class="btn-apply" @click="handleApply" :disabled="!canApply || isApplying">
+        <svg v-if="isApplying" class="spin-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        {{ isApplying ? '应用中...' : applyButtonLabel }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { listSkills, getSkillCategories, executeSkill, type SkillInfo, type SkillExecuteResponse } from '@/api/skill'
+
+interface SelectedSkillConfig {
+  skill_id: string
+  capability_name?: string
+  params?: Record<string, unknown>
+}
 
 interface Props {
   projectId: string
@@ -124,6 +134,8 @@ interface Props {
   previousSummary?: string
   outline?: Record<string, unknown>
   userId?: number
+  selectionOnly?: boolean
+  initialSelection?: SelectedSkillConfig[]
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -132,11 +144,14 @@ const props = withDefaults(defineProps<Props>(), {
   worldSettings: () => ({}),
   previousSummary: '',
   outline: () => ({}),
-  userId: 0
+  userId: 0,
+  selectionOnly: false,
+  initialSelection: () => []
 })
 
 const emit = defineEmits<{
   (e: 'apply', results: SkillExecuteResponse[]): void
+  (e: 'select', results: SelectedSkillConfig[]): void
   (e: 'cancel'): void
   (e: 'error', error: string): void
 }>()
@@ -148,7 +163,7 @@ const selectedCategory = ref<string | null>(null)
 const searchQuery = ref('')
 const selectedSkills = ref<string[]>([])
 const skillParams = ref<Record<string, { intensity: string; preserve_original: boolean }>>({})
-
+const isApplying = ref(false)
 // 分类映射
 const categoryLabels: Record<string, string> = {
   polish: '润色',
@@ -190,6 +205,50 @@ function getSkillName(skillId: string): string {
   return skill?.name || skillId
 }
 
+const selectorSubtitle = computed(() =>
+  props.selectionOnly
+    ? '选择要注入三省六部 Agent 生成链路的技能要求'
+    : '选择技能优化章节内容'
+)
+
+const applyButtonLabel = computed(() => (props.selectionOnly ? '保存技能配置' : '应用技能'))
+
+function buildSelectedSkillConfigs(): SelectedSkillConfig[] {
+  return selectedSkills.value.map(skillId => {
+    const skill = skills.value.find(item => item.id === skillId)
+    return {
+      skill_id: skillId,
+      capability_name: skill?.capabilities?.[0]?.name,
+      params: {
+        intensity: skillParams.value[skillId]?.intensity || skill?.config?.default || 'moderate',
+        preserve_original: skillParams.value[skillId]?.preserve_original ?? true
+      }
+    }
+  })
+}
+
+function hydrateSelection() {
+  const nextSelectedSkills = props.initialSelection.map(item => item.skill_id)
+  const nextSkillParams: Record<string, { intensity: string; preserve_original: boolean }> = {}
+
+  for (const item of props.initialSelection) {
+    const skill = skills.value.find(entry => entry.id === item.skill_id)
+    nextSkillParams[item.skill_id] = {
+      intensity:
+        typeof item.params?.intensity === 'string'
+          ? item.params.intensity
+          : skill?.config?.default || 'moderate',
+      preserve_original:
+        typeof item.params?.preserve_original === 'boolean'
+          ? item.params.preserve_original
+          : skill?.config?.preserve_original ?? true
+    }
+  }
+
+  selectedSkills.value = nextSelectedSkills
+  skillParams.value = nextSkillParams
+}
+
 // 加载技能列表
 onMounted(async () => {
   try {
@@ -199,10 +258,19 @@ onMounted(async () => {
     ])
     skills.value = skillsData
     categories.value = categoriesData
+    hydrateSelection()
   } catch (e) {
     console.error('Failed to load skills:', e)
   }
 })
+
+watch(
+  () => props.initialSelection,
+  () => {
+    hydrateSelection()
+  },
+  { deep: true }
+)
 
 // 过滤技能
 const filteredSkills = computed(() => {
@@ -247,35 +315,49 @@ const canApply = computed(() => {
 
 // 应用技能
 async function handleApply() {
-  if (!canApply.value) return
+  if (!canApply.value || isApplying.value) return
 
-  const results: SkillExecuteResponse[] = []
-
-  for (const skillId of selectedSkills.value) {
-    try {
-      const response = await executeSkill(skillId, {
-        project_id: props.projectId,
-        chapter_number: props.chapterNumber,
-        content: props.chapterContent,
-        chapter_info: props.chapterInfo,
-        character_profiles: props.characterProfiles,
-        world_settings: props.worldSettings,
-        previous_summary: props.previousSummary,
-        outline: props.outline,
-        params: {
-          intensity: skillParams.value[skillId].intensity,
-          preserve_original: skillParams.value[skillId].preserve_original
-        },
-        user_id: props.userId
-      })
-      results.push(response)
-    } catch (e) {
-      console.error(`Failed to execute skill ${skillId}:`, e)
-      emit('error', `技能执行失败: ${getSkillName(skillId)}`)
-    }
+  if (props.selectionOnly) {
+    emit('select', buildSelectedSkillConfigs())
+    return
   }
 
-  emit('apply', results)
+  isApplying.value = true
+  const results: SkillExecuteResponse[] = []
+  let currentContent = props.chapterContent
+
+  try {
+    for (const skillId of selectedSkills.value) {
+      try {
+        const response = await executeSkill(skillId, {
+          project_id: props.projectId,
+          chapter_number: props.chapterNumber,
+          content: currentContent,
+          chapter_info: props.chapterInfo,
+          character_profiles: props.characterProfiles,
+          world_settings: props.worldSettings,
+          previous_summary: props.previousSummary,
+          outline: props.outline,
+          params: {
+            intensity: skillParams.value[skillId].intensity,
+            preserve_original: skillParams.value[skillId].preserve_original
+          },
+          user_id: props.userId
+        })
+        results.push(response)
+        if (response.success && response.transformed_content) {
+          currentContent = response.transformed_content
+        }
+      } catch (e) {
+        console.error(`Failed to execute skill ${skillId}:`, e)
+        emit('error', `技能执行失败: ${getSkillName(skillId)}`)
+      }
+    }
+
+    emit('apply', results)
+  } finally {
+    isApplying.value = false
+  }
 }
 </script>
 
@@ -537,5 +619,19 @@ async function handleApply() {
 
 .btn-apply:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.spin-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  margin-right: 4px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

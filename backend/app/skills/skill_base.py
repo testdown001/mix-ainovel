@@ -253,6 +253,109 @@ class SkillBase(ABC):
                 return cap
         return None
 
+    async def build_policy(
+        self,
+        context: SkillContext,
+        capability_name: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        capability = self.get_capability(capability_name)
+        resolved_params = dict(params or {})
+        if "intensity" not in resolved_params:
+            resolved_params["intensity"] = self.definition.config.default
+        if "preserve_original" not in resolved_params:
+            resolved_params["preserve_original"] = self.definition.config.preserve_original
+        return {
+            "skill_id": self.id,
+            "phase": self._default_policy_phase(),
+            "capability_name": capability.name if capability else capability_name,
+            "params": resolved_params,
+            "retrieval_hints": await self.build_retrieval_hints(context, resolved_params),
+            "prompt_hints": await self.build_prompt_hints(context, resolved_params),
+            "verify_hints": await self.build_verify_hints(context, resolved_params),
+        }
+
+    async def build_retrieval_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        return list(self._category_default_hints().get("retrieval", []))
+
+    async def build_prompt_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        return list(self._category_default_hints().get("prompt", []))
+
+    async def build_verify_hints(
+        self,
+        context: SkillContext,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[str]:
+        return list(self._category_default_hints().get("verify", []))
+
+    def _default_policy_phase(self) -> str:
+        phase_map = {
+            SkillCategory.DIALOGUE: "pre_prompt",
+            SkillCategory.RHYTHM: "pre_plan",
+            SkillCategory.CONSISTENCY: "verify",
+            SkillCategory.FORESHADOWING: "retrieve",
+            SkillCategory.EMOTION: "pre_prompt",
+            SkillCategory.POLISH: "post_process",
+            SkillCategory.STYLE: "pre_prompt",
+            SkillCategory.STRUCTURE: "pre_plan",
+        }
+        category = self.category if isinstance(self.category, SkillCategory) else SkillCategory(str(self.category))
+        return phase_map.get(category, "pre_prompt")
+
+    def _category_default_hints(self) -> Dict[str, List[str]]:
+        hint_map: Dict[SkillCategory, Dict[str, List[str]]] = {
+            SkillCategory.DIALOGUE: {
+                "retrieval": ["角色对白样本", "人物口头禅"],
+                "prompt": ["对白节奏", "语气差异化"],
+                "verify": ["对白风格漂移检查"],
+            },
+            SkillCategory.RHYTHM: {
+                "retrieval": ["近章节奏分布", "高潮密度"],
+                "prompt": ["长短句配比", "场景推进速度"],
+                "verify": ["节奏目标达成度"],
+            },
+            SkillCategory.CONSISTENCY: {
+                "retrieval": ["人物状态", "时间线", "设定边界"],
+                "prompt": ["硬性设定约束"],
+                "verify": ["连续性冲突扫描"],
+            },
+            SkillCategory.FORESHADOWING: {
+                "retrieval": ["未回收伏笔", "相关章节片段"],
+                "prompt": ["伏笔处理清单"],
+                "verify": ["伏笔埋设/强化/回收检查"],
+            },
+            SkillCategory.POLISH: {
+                "retrieval": ["近章风格样本"],
+                "prompt": ["文风统一"],
+                "verify": ["风格漂移检查"],
+            },
+            SkillCategory.STYLE: {
+                "retrieval": ["参考文风样本"],
+                "prompt": ["叙述声线统一"],
+                "verify": ["风格一致性"],
+            },
+            SkillCategory.EMOTION: {
+                "retrieval": ["情绪曲线", "情感高点"],
+                "prompt": ["情绪递进"],
+                "verify": ["情绪落点核实"],
+            },
+            SkillCategory.STRUCTURE: {
+                "retrieval": ["剧情骨架"],
+                "prompt": ["结构完整性"],
+                "verify": ["结构缺口检查"],
+            },
+        }
+        category = self.category if isinstance(self.category, SkillCategory) else SkillCategory(str(self.category))
+        return hint_map.get(category, {})
+
     def render_prompt(
         self,
         template: str,

@@ -1,6 +1,26 @@
 <!-- AIMETA P=增强角色编辑器_增强版角色编辑|R=增强角色编辑|NR=不含基础功能|E=component:CharactersEditorEnhanced|X=internal|A=增强编辑器|D=vue|S=dom|RD=./README.ai -->
 <template>
   <div class="space-y-4 max-h-[600px] overflow-y-auto p-1">
+    <!-- 从章节同步角色按钮 -->
+    <div v-if="projectId" class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+      <div class="flex items-center gap-2">
+        <span class="text-blue-600 text-lg">🔄</span>
+        <span class="text-sm text-blue-700 font-medium">从章节同步角色</span>
+        <span class="text-xs text-gray-500">从已生成章节中提取新增人物</span>
+      </div>
+      <button
+        @click="syncFromChapters"
+        :disabled="isSyncing"
+        class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+      >
+        <svg v-if="isSyncing" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span>{{ isSyncing ? '同步中...' : '同步角色' }}</span>
+      </button>
+    </div>
+
     <!-- 批量生成DNA按钮 -->
     <div v-if="projectId" class="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
       <div class="flex items-center gap-2">
@@ -403,6 +423,9 @@ const isGeneratingDNA = ref(false);
 const dnaMessage = ref('');
 const dnaMessageType = ref<'success' | 'error' | 'info'>('info');
 
+// 从章节同步角色
+const isSyncing = ref(false);
+
 const showDNAMessage = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
   dnaMessage.value = msg;
   dnaMessageType.value = type;
@@ -467,6 +490,25 @@ const refreshCharacters = async () => {
     emit('update:modelValue', JSON.parse(JSON.stringify(localCharacters.value)));
   } catch (error) {
     console.error('刷新角色数据失败:', error);
+  }
+};
+
+const syncFromChapters = async () => {
+  if (!props.projectId || isSyncing.value) return;
+  isSyncing.value = true;
+  dnaMessage.value = '';
+  try {
+    const result = await NovelAPI.syncCharactersFromChapters(props.projectId);
+    if (result.status === 'no_new_characters') {
+      showDNAMessage(result.message, 'info');
+    } else {
+      showDNAMessage(result.message, 'success');
+      await refreshCharacters();
+    }
+  } catch (error: any) {
+    showDNAMessage(error.message || '同步角色失败，请重试', 'error');
+  } finally {
+    isSyncing.value = false;
   }
 };
 </script>

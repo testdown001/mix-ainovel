@@ -286,3 +286,15 @@ class SkillService:
             raise ValueError(f"Skill not found: {skill_id}")
 
         return await skill.execute(context, capability_name, params)
+
+    async def build_skill_policy(
+        self,
+        skill_id: str,
+        context: Any,
+        capability_name: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        skill = await self.get_skill(skill_id)
+        if not skill:
+            raise ValueError(f"Skill not found: {skill_id}")
+        return await skill.build_policy(context, capability_name, params)

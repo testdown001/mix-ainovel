@@ -1738,7 +1738,10 @@ async def generate_concepts(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
-    """AI一键从蓝图提取概念"""
+    """AI一键从蓝图和章节内容提取概念"""
+    from ...models.novel import Chapter
+    from sqlalchemy.orm import selectinload
+
     novel_service = NovelService(session)
     llm_service = LLMService(session)
 
@@ -1747,45 +1750,20 @@ async def generate_concepts(
     if not project_data.blueprint:
         raise HTTPException(status_code=400, detail="项目尚未生成蓝图，请先完成蓝图生成")
 
-    # 构建上下文
-    context_parts = []
     bp = project_data.blueprint
-    if bp.title:
-        context_parts.append(f"标题: {bp.title}")
-    if bp.genre:
-        context_parts.append(f"类型: {bp.genre}")
-    if bp.full_synopsis:
-        context_parts.append(f"梗概: {bp.full_synopsis}")
-    ws = bp.world_setting or {}
-    if ws:
-        context_parts.append(f"世界设定: {json.dumps(ws, ensure_ascii=False)}")
-    chars = bp.characters or []
-    if chars:
-        char_summary = "; ".join([f"{c.get('name','?')}({c.get('identity','')})" for c in chars])
-        context_parts.append(f"角色: {char_summary}")
-
-    context = "\n".join(context_parts)
-    prompt = CONCEPT_EXTRACTION_PROMPT.replace("{context}", context)
-
-    try:
-        llm_response = await llm_service.get_llm_response(
-            system_prompt=prompt,
-            conversation_history=[{"role": "user", "content": "请提取所有概念。"}],
-            user_id=current_user.id,
-            timeout=300.0,
-        )
-        cleaned = remove_think_tags(llm_response)
-        normalized = unwrap_markdown_json(cleaned)
-        result = json.loads(repair_json(sanitize_json_like_text(normalized)))
-    except Exception as exc:
-        logger.exception("概念提取失败: %s", exc)
-        raise HTTPException(status_code=500, detail=f"概念提取失败: {str(exc)[:200]}")
-
-    concepts_data = result.get("concepts", [])
     created_count = 0
 
-    for c in concepts_data:
-        name = c.get("canonical_name", "").strip()
+    # ------------------------------------------------------------------
+    # 第一步：从蓝图角色列表直接写入设定百科（无需 LLM，确定性操作）
+    # ------------------------------------------------------------------
+    chars_raw = bp.characters or []
+    chars = [
+        c.model_dump() if hasattr(c, 'model_dump') else (c.dict() if hasattr(c, 'dict') else c)
+        for c in chars_raw
+    ]
+
+    for c in chars:
+        name = (c.get("name") or "").strip()
         if not name:
             continue
 
@@ -1799,26 +1777,180 @@ async def generate_concepts(
         if existing.scalar_one_or_none():
             continue
 
+        # 从角色信息构建描述
+        desc_parts = []
+        if c.get("identity"):
+            desc_parts.append(c["identity"])
+        if c.get("personality"):
+            desc_parts.append(f"性格：{c['personality']}")
+        if c.get("goals"):
+            desc_parts.append(f"目标：{c['goals']}")
+        if c.get("abilities"):
+            desc_parts.append(f"能力：{c['abilities']}")
+        if c.get("relationship_to_protagonist"):
+            desc_parts.append(f"与主角关系：{c['relationship_to_protagonist']}")
+        description = "；".join(desc_parts) if desc_parts else ""
+
+        # 将角色信息存入 properties
+        props = {}
+        for key in ["identity", "personality", "goals", "abilities", "relationship_to_protagonist"]:
+            if c.get(key):
+                props[key] = c[key]
+        if c.get("extra", {}).get("dna_profile"):
+            props["dna_profile"] = c["extra"]["dna_profile"]
+
         entity = EntityRegistry(
             project_id=project_id,
-            entity_type=c.get("entity_type", "item"),
+            entity_type="character",
             canonical_name=name,
-            description=c.get("description", ""),
-            properties={},
-            source="auto_detected",
-            confidence=0.8,
+            description=description,
+            properties=props,
+            source="blueprint",
+            confidence=1.0,
         )
         session.add(entity)
         await session.flush()
-
-        for alias_name in c.get("aliases", []):
-            if alias_name.strip():
-                session.add(EntityAlias(entity_id=entity.id, alias=alias_name.strip(), alias_type="alias"))
-
         created_count += 1
 
+    # ------------------------------------------------------------------
+    # 第二步：用 LLM 从蓝图+章节中提取非角色概念（地点/物品/技能等）
+    # ------------------------------------------------------------------
+    context_parts = []
+    if bp.title:
+        context_parts.append(f"标题: {bp.title}")
+    if bp.genre:
+        context_parts.append(f"类型: {bp.genre}")
+    if bp.full_synopsis:
+        context_parts.append(f"梗概: {bp.full_synopsis}")
+    ws = bp.world_setting or {}
+    if ws:
+        context_parts.append(f"世界设定: {json.dumps(ws, ensure_ascii=False)}")
+
+    # 加入章节内容
+    stmt = select(Chapter).options(
+        selectinload(Chapter.selected_version)
+    ).where(
+        Chapter.project_id == project_id,
+        Chapter.status.in_(["completed", "successful"])
+    ).order_by(Chapter.chapter_number)
+    ch_result = await session.execute(stmt)
+    chapters = ch_result.scalars().all()
+
+    if chapters:
+        chapter_texts = []
+        for ch in chapters:
+            content = (ch.selected_version.content if ch.selected_version else ch.content) or ""
+            if content.strip():
+                chapter_texts.append(f"第{ch.chapter_number}章:\n{content[:1000]}")
+        if chapter_texts:
+            context_parts.append(f"## 章节内容（摘要）\n" + "\n\n".join(chapter_texts[:6]))
+
+    # 收集已有概念名用于去重
+    existing_concepts_result = await session.execute(
+        select(EntityRegistry.canonical_name).where(EntityRegistry.project_id == project_id)
+    )
+    existing_concept_names = [row[0] for row in existing_concepts_result.all()]
+    if existing_concept_names:
+        context_parts.append(f"已有概念（不要重复）: {', '.join(existing_concept_names)}")
+
+    llm_created = 0
+    if context_parts:
+        context = "\n".join(context_parts)
+        prompt = CONCEPT_EXTRACTION_PROMPT.replace("{context}", context)
+
+        try:
+            llm_response = await llm_service.get_llm_response(
+                system_prompt=prompt,
+                conversation_history=[{"role": "user", "content": "请提取除角色以外的所有概念（地点、物品、技能、组织等），角色已单独处理无需提取。"}],
+                user_id=current_user.id,
+                timeout=300.0,
+                disable_thinking=True,
+            )
+            cleaned = remove_think_tags(llm_response)
+            normalized = unwrap_markdown_json(cleaned)
+            try:
+                result = json.loads(repair_json(sanitize_json_like_text(normalized)))
+            except (json.JSONDecodeError, Exception):
+                result = _parse_llm_json_payload(llm_response)
+
+            # 纠错重试
+            if not result or "concepts" not in result:
+                logger.warning("概念提取首次解析失败，触发纠错重试")
+                correction_message = (
+                    "你上一条回复不是合法JSON。请严格按照以下格式重新输出，"
+                    "只输出一个JSON对象，不要附加任何说明、markdown标记或代码块：\n"
+                    '{"concepts": [{"entity_type": "location|item|ability|organization", '
+                    '"canonical_name": "名称", "description": "描述", '
+                    '"aliases": ["别名1"], "properties": {}}]}'
+                )
+                llm_response2 = await llm_service.get_llm_response(
+                    system_prompt="你是JSON格式转换器。只输出纯JSON，不要任何其他内容。",
+                    conversation_history=[
+                        {"role": "user", "content": "请提取所有概念。"},
+                        {"role": "assistant", "content": str(llm_response)[:3000]},
+                        {"role": "user", "content": correction_message},
+                    ],
+                    temperature=0.1,
+                    user_id=current_user.id,
+                    timeout=300.0,
+                    disable_thinking=True,
+                )
+                cleaned2 = remove_think_tags(llm_response2)
+                normalized2 = unwrap_markdown_json(cleaned2)
+                try:
+                    result = json.loads(repair_json(sanitize_json_like_text(normalized2)))
+                except (json.JSONDecodeError, Exception):
+                    result = _parse_llm_json_payload(llm_response2)
+
+            if result and "concepts" in result:
+                for c in result["concepts"]:
+                    name = c.get("canonical_name", "").strip()
+                    if not name:
+                        continue
+
+                    existing = await session.execute(
+                        select(EntityRegistry).where(
+                            EntityRegistry.project_id == project_id,
+                            EntityRegistry.canonical_name == name,
+                        )
+                    )
+                    if existing.scalar_one_or_none():
+                        continue
+
+                    entity = EntityRegistry(
+                        project_id=project_id,
+                        entity_type=c.get("entity_type", "item"),
+                        canonical_name=name,
+                        description=c.get("description", ""),
+                        properties={},
+                        source="auto_detected",
+                        confidence=0.8,
+                    )
+                    session.add(entity)
+                    await session.flush()
+
+                    for alias_name in c.get("aliases", []):
+                        if alias_name.strip():
+                            session.add(EntityAlias(entity_id=entity.id, alias=alias_name.strip(), alias_type="alias"))
+
+                    llm_created += 1
+            else:
+                logger.warning("LLM概念提取解析失败，仅保留蓝图角色提取结果")
+
+        except Exception as exc:
+            logger.warning("LLM概念提取失败（角色已提取成功）: %s", exc)
+
     await session.commit()
-    return {"status": "success", "message": f"成功提取 {created_count} 个概念", "count": created_count}
+
+    total = created_count + llm_created
+    parts = []
+    if created_count:
+        parts.append(f"{created_count} 个角色")
+    if llm_created:
+        parts.append(f"{llm_created} 个其他概念")
+    msg = f"成功提取 {'、'.join(parts)}" if parts else "未发现新概念，所有概念已存在"
+
+    return {"status": "success", "message": msg, "count": total}
 
 
 # ============================================================
@@ -1964,4 +2096,376 @@ async def generate_chapter_scenes(
     outline.metadata_ = metadata
     await session.commit()
 
-    return {"status": "success", "message": f"成功拆分为 {len(scenes)} 个场景", "scenes": scenes}
+    return {"scenes": scenes}
+
+
+# ============================================================
+# 从章节同步角色 API
+# ============================================================
+
+@router.post("/{project_id}/characters/sync-from-chapters")
+async def sync_characters_from_chapters(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """
+    从已生成的章节中提取角色信息，并与现有角色库合并。
+    """
+    from ...models.novel import Chapter
+    from sqlalchemy.orm import selectinload
+
+    novel_service = NovelService(session)
+    llm_service = LLMService(session)
+
+    # 验证项目所有权
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    project_schema = await novel_service._serialize_project(project)
+
+    if not project_schema.blueprint:
+        raise HTTPException(status_code=400, detail="项目尚未生成蓝图")
+
+    # 获取所有已生成的章节（包括 completed 和 successful 状态）
+    stmt = select(Chapter).options(
+        selectinload(Chapter.selected_version)
+    ).where(
+        Chapter.project_id == project_id,
+        Chapter.status.in_(["completed", "successful"])
+    ).order_by(Chapter.chapter_number)
+    result = await session.execute(stmt)
+    chapters = result.scalars().all()
+
+    if not chapters:
+        raise HTTPException(status_code=400, detail="暂无已生成的章节")
+
+    # 合并所有章节内容（使用 selected_version 的内容）
+    all_content = "\n\n".join([
+        (ch.selected_version.content if ch.selected_version else ch.content) or ""
+        for ch in chapters
+        if (ch.selected_version and ch.selected_version.content) or ch.content
+    ])
+
+    if not all_content.strip():
+        raise HTTPException(status_code=400, detail="章节内容为空")
+
+    # 获取现有角色名
+    existing_chars_raw = project_schema.blueprint.characters or []
+    existing_chars = [
+        c.model_dump() if hasattr(c, 'model_dump') else (c.dict() if hasattr(c, 'dict') else c)
+        for c in existing_chars_raw
+    ]
+    existing_names = [c.get("name", "") for c in existing_chars if c.get("name")]
+
+    # 直接用 LLM 从章节内容中提取角色
+    system_prompt = """你是一个专业的小说角色分析助手。你需要从小说章节中识别出所有具有明确名字的角色，并为每个角色生成基础信息。
+
+注意：
+1. 只提取有明确中文名字的角色（如"林摆"、"老李"），不要提取代词（如"她"、"那个女人"）或职务称呼（如"班主任"、"保安"）
+2. 不要提取以下已存在的角色：""" + "、".join(existing_names) + """
+3. 只提取在章节中实际出场并有一定戏份的角色，不要提取仅被提及一次的路人
+
+你必须严格输出纯JSON，不要包含任何markdown标记、解释文字或代码块标记。直接输出JSON对象：
+{"characters": [{"name": "角色名", "identity": "身份/职业", "personality": "性格特点", "goals": "目标/动机", "abilities": "能力/特长", "relationship_to_protagonist": "与主角的关系"}]}
+
+如果没有发现新角色，输出：{"characters": []}"""
+
+    # 截取章节内容，避免过长
+    content_for_llm = all_content[:12000]
+
+    user_message = f"""请从以下小说章节内容中，提取所有新出场的角色信息。
+
+已有角色（不要重复提取）：{", ".join(existing_names) if existing_names else "暂无"}
+
+章节内容：
+{content_for_llm}"""
+
+    try:
+        llm_response = await llm_service.get_llm_response(
+            system_prompt=system_prompt,
+            conversation_history=[{"role": "user", "content": user_message}],
+            temperature=0.3,
+            user_id=current_user.id,
+            timeout=300.0,
+            max_tokens=4096,
+            disable_thinking=True,
+        )
+
+        # 尝试解析 JSON
+        result = _parse_llm_json_payload(llm_response)
+
+        # 如果解析失败，尝试手动提取 JSON
+        if result is None:
+            cleaned = remove_think_tags(str(llm_response or ""))
+            normalized = unwrap_markdown_json(cleaned)
+            try:
+                result = json.loads(repair_json(sanitize_json_like_text(normalized)))
+            except Exception:
+                pass
+
+        # 如果仍然失败，发起纠错重试
+        if not result or "characters" not in result:
+            logger.warning(
+                "项目 %s 角色同步首次解析失败，触发纠错重试: %s",
+                project_id, str(llm_response)[:300]
+            )
+            correction_message = (
+                "你上一条回复不是合法JSON。请严格按照以下格式重新输出，"
+                "只输出一个JSON对象，不要附加任何说明、markdown标记或代码块：\n"
+                '{"characters": [{"name": "角色名", "identity": "身份", '
+                '"personality": "性格", "goals": "目标", "abilities": "能力", '
+                '"relationship_to_protagonist": "与主角关系"}]}\n'
+                "如果没有新角色，输出：{\"characters\": []}"
+            )
+            llm_response2 = await llm_service.get_llm_response(
+                system_prompt="你是JSON格式转换器。只输出纯JSON，不要任何其他内容。",
+                conversation_history=[
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": str(llm_response)[:3000]},
+                    {"role": "user", "content": correction_message},
+                ],
+                temperature=0.1,
+                user_id=current_user.id,
+                timeout=300.0,
+                max_tokens=4096,
+                disable_thinking=True,
+            )
+            result = _parse_llm_json_payload(llm_response2)
+            if result is None:
+                cleaned2 = remove_think_tags(str(llm_response2 or ""))
+                normalized2 = unwrap_markdown_json(cleaned2)
+                try:
+                    result = json.loads(repair_json(sanitize_json_like_text(normalized2)))
+                except Exception:
+                    pass
+
+        if not result or "characters" not in result:
+            logger.warning(
+                "项目 %s 角色同步纠错后仍无法解析: %s",
+                project_id, str(llm_response)[:500]
+            )
+            raise ValueError("AI返回的格式无法解析，请重试")
+
+        new_characters = result["characters"]
+
+        if not new_characters:
+            return {
+                "status": "no_new_characters",
+                "message": "未发现新角色，所有角色已在角色库中",
+                "new_characters": []
+            }
+
+        # 合并到现有角色列表
+        updated_characters = existing_chars + new_characters
+        await novel_service.patch_blueprint(project_id, {"characters": updated_characters})
+
+        logger.info(
+            "项目 %s 从章节同步了 %d 个新角色: %s",
+            project_id, len(new_characters), [c.get("name") for c in new_characters]
+        )
+
+        return {
+            "status": "success",
+            "message": f"成功同步 {len(new_characters)} 个新角色",
+            "new_characters": new_characters
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("项目 %s 从章节同步角色失败: %s", project_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"同步角色失败: {str(exc)[:200]}"
+        )
+
+
+# ============================================================
+# 从章节同步人物关系 API
+# ============================================================
+
+@router.post("/{project_id}/relationships/sync-from-chapters")
+async def sync_relationships_from_chapters(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """
+    从已生成的章节中提取人物关系，并与现有关系库合并。
+    """
+    from ...models.novel import Chapter
+    from sqlalchemy.orm import selectinload
+
+    novel_service = NovelService(session)
+    llm_service = LLMService(session)
+
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    project_schema = await novel_service._serialize_project(project)
+
+    if not project_schema.blueprint:
+        raise HTTPException(status_code=400, detail="项目尚未生成蓝图")
+
+    bp = project_schema.blueprint
+
+    # 获取已生成章节
+    stmt = select(Chapter).options(
+        selectinload(Chapter.selected_version)
+    ).where(
+        Chapter.project_id == project_id,
+        Chapter.status.in_(["completed", "successful"])
+    ).order_by(Chapter.chapter_number)
+    result = await session.execute(stmt)
+    chapters = result.scalars().all()
+
+    if not chapters:
+        raise HTTPException(status_code=400, detail="暂无已生成的章节")
+
+    all_content = "\n\n".join([
+        (ch.selected_version.content if ch.selected_version else ch.content) or ""
+        for ch in chapters
+        if (ch.selected_version and ch.selected_version.content) or ch.content
+    ])
+
+    if not all_content.strip():
+        raise HTTPException(status_code=400, detail="章节内容为空")
+
+    # 收集已有角色名和关系
+    existing_chars = bp.characters or []
+    char_names = [c.get("name", "") for c in existing_chars if c.get("name")]
+
+    existing_rels_raw = bp.relationships or []
+    # 统一转为 dict（可能是 Pydantic 对象或 dict）
+    existing_rels = [
+        r.model_dump() if hasattr(r, 'model_dump') else (r.dict() if hasattr(r, 'dict') else r)
+        for r in existing_rels_raw
+    ]
+    existing_rel_set = {
+        (r.get("character_from", ""), r.get("character_to", ""))
+        for r in existing_rels
+        if isinstance(r, dict)
+    }
+
+    system_prompt = """你是一个专业的小说人物关系分析助手。你需要从小说章节中提取角色之间的关系。
+
+注意：
+1. 只提取有明确互动或关系描述的角色对
+2. 关系描述要具体（如"师徒"、"情侣"、"死对头"、"上下级"），不要写模糊的"认识"
+3. character_from 和 character_to 必须是具体角色名
+
+你必须严格输出纯JSON，不要包含任何markdown标记、解释文字或代码块标记。直接输出JSON对象：
+{"relationships": [{"character_from": "角色A", "character_to": "角色B", "description": "关系描述"}]}
+
+如果没有发现新关系，输出：{"relationships": []}"""
+
+    existing_rel_desc = "\n".join([
+        f"- {r.get('character_from', '?')} → {r.get('character_to', '?')}: {r.get('description', '')}"
+        for r in existing_rels if isinstance(r, dict)
+    ]) or "暂无"
+
+    content_for_llm = all_content[:12000]
+
+    user_message = f"""请从以下小说章节内容中提取人物关系。
+
+已有角色：{", ".join(char_names) if char_names else "暂无"}
+
+已有关系（不要重复提取）：
+{existing_rel_desc}
+
+章节内容：
+{content_for_llm}"""
+
+    try:
+        llm_response = await llm_service.get_llm_response(
+            system_prompt=system_prompt,
+            conversation_history=[{"role": "user", "content": user_message}],
+            temperature=0.3,
+            user_id=current_user.id,
+            timeout=300.0,
+            max_tokens=4096,
+            disable_thinking=True,
+        )
+
+        result = _parse_llm_json_payload(llm_response)
+
+        if result is None:
+            cleaned = remove_think_tags(str(llm_response or ""))
+            normalized = unwrap_markdown_json(cleaned)
+            try:
+                result = json.loads(repair_json(sanitize_json_like_text(normalized)))
+            except Exception:
+                pass
+
+        # 纠错重试
+        if not result or "relationships" not in result:
+            logger.warning(
+                "项目 %s 关系同步首次解析失败，触发纠错重试",
+                project_id
+            )
+            correction_message = (
+                "你上一条回复不是合法JSON。请严格按照以下格式重新输出，"
+                "只输出一个JSON对象，不要附加任何说明、markdown标记或代码块：\n"
+                '{"relationships": [{"character_from": "角色A", "character_to": "角色B", '
+                '"description": "关系描述"}]}\n'
+                "如果没有新关系，输出：{\"relationships\": []}"
+            )
+            llm_response2 = await llm_service.get_llm_response(
+                system_prompt="你是JSON格式转换器。只输出纯JSON，不要任何其他内容。",
+                conversation_history=[
+                    {"role": "user", "content": user_message},
+                    {"role": "assistant", "content": str(llm_response)[:3000]},
+                    {"role": "user", "content": correction_message},
+                ],
+                temperature=0.1,
+                user_id=current_user.id,
+                timeout=300.0,
+                max_tokens=4096,
+                disable_thinking=True,
+            )
+            result = _parse_llm_json_payload(llm_response2)
+            if result is None:
+                cleaned2 = remove_think_tags(str(llm_response2 or ""))
+                normalized2 = unwrap_markdown_json(cleaned2)
+                try:
+                    result = json.loads(repair_json(sanitize_json_like_text(normalized2)))
+                except Exception:
+                    pass
+
+        if not result or "relationships" not in result:
+            raise ValueError("AI返回的格式无法解析，请重试")
+
+        new_rels = result["relationships"]
+
+        # 去重：排除已存在的关系对
+        truly_new = [
+            r for r in new_rels
+            if (r.get("character_from", ""), r.get("character_to", "")) not in existing_rel_set
+        ]
+
+        if not truly_new:
+            return {
+                "status": "no_new_relationships",
+                "message": "未发现新的人物关系",
+                "new_relationships": []
+            }
+
+        updated_rels = existing_rels + truly_new
+        await novel_service.patch_blueprint(project_id, {"relationships": updated_rels})
+
+        logger.info(
+            "项目 %s 从章节同步了 %d 条新关系",
+            project_id, len(truly_new)
+        )
+
+        return {
+            "status": "success",
+            "message": f"成功同步 {len(truly_new)} 条新人物关系",
+            "new_relationships": truly_new
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("项目 %s 从章节同步关系失败: %s", project_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"同步关系失败: {str(exc)[:200]}"
+        )

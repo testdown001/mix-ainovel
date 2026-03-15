@@ -63,6 +63,39 @@
           </div>
         </div>
 
+        <!-- 正文指标 - 单章模式 -->
+        <div class="metric-section" v-if="isChapterMode && contentMetrics">
+          <h4>📝 正文分析</h4>
+          <div class="metric-grid">
+            <div class="metric-item">
+              <span class="metric-label">正文字数</span>
+              <span class="metric-value">{{ formatMetricValue(contentMetrics.word_count) }}</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">段落数</span>
+              <span class="metric-value">{{ formatMetricValue(contentMetrics.paragraph_count) }}</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">最长段落</span>
+              <span class="metric-value">{{ formatChars(contentMetrics.longest_paragraph_chars) }}</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">平均段落</span>
+              <span class="metric-value">{{ formatChars(contentMetrics.avg_paragraph_chars) }}</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">对话占比</span>
+              <span class="metric-value">{{ formatPercent(contentMetrics.dialogue_ratio) }}</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">占位符残留</span>
+              <span class="metric-value" :class="{ 'metric-alert': (contentMetrics.placeholder_count ?? 0) > 0 }">
+                {{ formatMetricValue(contentMetrics.placeholder_count) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <!-- 性能指标 - 全书模式 -->
         <div class="metric-section" v-else>
           <h4>⚡ 性能总览</h4>
@@ -178,6 +211,14 @@ interface DiagnosticReport {
       severity: 'error' | 'warning' | 'info'
       description: string
     }>
+    content_metrics?: {
+      word_count?: number
+      paragraph_count?: number
+      longest_paragraph_chars?: number
+      avg_paragraph_chars?: number
+      dialogue_ratio?: number
+      placeholder_count?: number
+    }
     avg_score?: number
     evaluation_scores?: number[]
     version_count?: number
@@ -242,6 +283,8 @@ const overallStatusText = computed(() => {
   return map[overallStatus.value]
 })
 
+const contentMetrics = computed(() => report.value?.quality.content_metrics)
+
 function formatTime(ms: number): string {
   if (!ms) return '-'
   if (ms < 1000) return `${ms}ms`
@@ -252,6 +295,21 @@ function formatTime(ms: number): string {
 function formatRate(rate: number): string {
   if (!rate) return '-'
   return `${(rate * 100).toFixed(1)}%`
+}
+
+function formatMetricValue(value?: number): string {
+  if (value === undefined || value === null) return '-'
+  return String(value)
+}
+
+function formatChars(value?: number): string {
+  if (value === undefined || value === null) return '-'
+  return `${value} 字`
+}
+
+function formatPercent(value?: number): string {
+  if (value === undefined || value === null) return '-'
+  return `${(value * 100).toFixed(1)}%`
 }
 
 function getIssueIcon(severity: string): string {
@@ -433,6 +491,10 @@ async function runDiagnostic() {
   font-size: 18px;
   font-weight: 600;
   color: var(--md-primary, #1976d2);
+}
+
+.metric-value.metric-alert {
+  color: var(--md-error, #d32f2f);
 }
 
 /* 章节明细 */

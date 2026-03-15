@@ -42,6 +42,17 @@
             分层优化
           </button>
           <button
+            class="md-btn md-btn-tonal md-ripple flex items-center gap-1"
+            :class="selectedChapter.content ? '' : 'opacity-50 cursor-not-allowed'"
+            :disabled="!selectedChapter.content"
+            @click="$emit('openSkillApply')"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            应用技能
+          </button>
+          <button
             class="md-btn md-btn-outlined md-ripple flex items-center gap-1"
             :class="selectedChapter.content ? '' : 'opacity-50 cursor-not-allowed'"
             :disabled="!selectedChapter.content"
@@ -199,6 +210,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
+import { useNovelStore } from '@/stores/novel'
 import type { Chapter } from '@/api/novel'
 import { OptimizerAPI } from '@/api/novel'
 
@@ -209,7 +221,9 @@ interface Props {
 
 const props = defineProps<Props>()
 
-defineEmits(['showVersionSelector'])
+defineEmits(['showVersionSelector', 'openSkillApply'])
+
+const novelStore = useNovelStore()
 
 // 优化相关状态
 const showOptimizer = ref(false)
@@ -351,15 +365,19 @@ const applyOptimization = async () => {
 
     globalAlert.showSuccess('优化内容已应用')
     showOptimizeResult.value = false
-    
+
     // 重置状态
     selectedDimension.value = ''
     additionalNotes.value = ''
     optimizedContent.value = ''
     optimizeResultNotes.value = ''
-    
-    // 刷新页面以显示新内容
-    window.location.reload()
+
+    // 通过 store 重新加载章节，获取最新内容
+    try {
+      await novelStore.loadChapter(props.selectedChapter.chapter_number)
+    } catch {
+      // 静默失败，内容已保存到后端
+    }
   } catch (error: any) {
     console.error('应用优化失败:', error)
     globalAlert.showError(error.message || '应用优化失败，请稍后重试')

@@ -17,6 +17,74 @@
 
     <!-- 内容区域 -->
     <div class="viewer-content">
+      <div v-if="activeTab === 'plan'" class="content-panel">
+        <div class="panel-header">
+          <h4>🧭 ContextPlan</h4>
+          <span class="panel-hint">生成前的统一规划结果</span>
+        </div>
+        <div v-if="contextPlanData" class="panel-body">
+          <div class="info-section">
+            <span class="info-label">章节阶段：</span>
+            <span class="info-value">{{ contextPlanData.chapter_phase || 'development' }}</span>
+          </div>
+          <div class="info-section">
+            <span class="info-label">执行模式：</span>
+            <span class="info-value">{{ contextPlanData.is_fast_path ? 'Fast Path' : 'Balanced Path' }}</span>
+          </div>
+          <div v-if="contextPlanData.intent?.core_goal" class="info-section">
+            <span class="info-label">核心目标：</span>
+            <span class="info-value">{{ contextPlanData.intent.core_goal }}</span>
+          </div>
+          <div v-if="contextPlanData.prompt_modules?.length" class="info-section">
+            <span class="info-label">Prompt 模块：</span>
+            <span class="info-value">{{ contextPlanData.prompt_modules.join(' / ') }}</span>
+          </div>
+          <div v-if="contextPlanData.verification_tasks?.length" class="info-section">
+            <span class="info-label">验证任务：</span>
+            <span class="info-value">{{ contextPlanData.verification_tasks.join(' / ') }}</span>
+          </div>
+
+          <div v-if="contextPlanData.retrieval_tasks?.length" class="info-section">
+            <span class="info-label">检索任务：</span>
+            <div class="rag-chunks">
+              <div
+                v-for="task in contextPlanData.retrieval_tasks"
+                :key="task.task_id"
+                class="rag-chunk"
+              >
+                <div class="chunk-header">
+                  <span class="chunk-title">{{ task.source }}</span>
+                  <span class="chunk-score">P{{ task.priority }} / {{ task.max_items }}项</span>
+                </div>
+                <p class="chunk-content">{{ task.query_template }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="contextPlanData.skill_policies?.length" class="info-section">
+            <span class="info-label">技能策略：</span>
+            <div class="rag-chunks">
+              <div
+                v-for="policy in contextPlanData.skill_policies"
+                :key="policy.skill_id"
+                class="rag-chunk"
+              >
+                <div class="chunk-header">
+                  <span class="chunk-title">{{ policy.skill_id }}</span>
+                  <span class="chunk-score">{{ policy.phase }}</span>
+                </div>
+                <p class="chunk-content">
+                  {{ [policy.retrieval_hints?.join(' / '), policy.prompt_hints?.join(' / '), policy.verify_hints?.join(' / ')].filter(Boolean).join(' | ') || '暂无额外提示' }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="panel-empty">
+          <p>暂无 ContextPlan 数据</p>
+        </div>
+      </div>
+
       <!-- Mission 预览 -->
       <div v-if="activeTab === 'mission'" class="content-panel">
         <div class="panel-header">
@@ -167,6 +235,128 @@
           <p>暂无伏笔数据</p>
         </div>
       </div>
+
+      <div v-if="activeTab === 'evidence'" class="content-panel">
+        <div class="panel-header">
+          <h4>🗂 证据摘要</h4>
+          <span class="panel-hint">检索与状态证据的统一摘要</span>
+        </div>
+        <div v-if="evidenceSummaryData" class="panel-body">
+          <div class="rag-stats">
+            <span class="stat-item">
+              <span class="stat-label">总证据</span>
+              <span class="stat-value">{{ evidenceSummaryData.total_items || 0 }}</span>
+              <span class="stat-label">条</span>
+            </span>
+            <span class="stat-item">
+              <span class="stat-label">检索任务</span>
+              <span class="stat-value">{{ evidenceSummaryData.retrieval_task_count || 0 }}</span>
+              <span class="stat-label">个</span>
+            </span>
+          </div>
+          <div v-if="evidenceSummaryData.category_counts" class="info-section">
+            <span class="info-label">分类计数：</span>
+            <span class="info-value">
+              局部 {{ evidenceSummaryData.category_counts.local_plot || 0 }} /
+              全局 {{ evidenceSummaryData.category_counts.global_arc || 0 }} /
+              状态 {{ evidenceSummaryData.category_counts.state_items || 0 }} /
+              符号 {{ evidenceSummaryData.category_counts.symbolic_items || 0 }}
+            </span>
+          </div>
+          <div v-if="evidenceSummaryData.sources?.length" class="info-section">
+            <span class="info-label">证据源：</span>
+            <span class="info-value">{{ evidenceSummaryData.sources.join(' / ') }}</span>
+          </div>
+          <div v-if="evidenceSummaryData.top_titles?.length" class="info-section">
+            <span class="info-label">命中标题：</span>
+            <ul class="event-list">
+              <li v-for="title in evidenceSummaryData.top_titles" :key="title">{{ title }}</li>
+            </ul>
+          </div>
+        </div>
+        <div v-else class="panel-empty">
+          <p>暂无证据摘要</p>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'prompt'" class="content-panel">
+        <div class="panel-header">
+          <h4>🧩 Prompt 编译</h4>
+          <span class="panel-hint">模块选择后的 Prompt 组装结果</span>
+        </div>
+        <div v-if="promptCompileSummaryData" class="panel-body">
+          <div class="info-section">
+            <span class="info-label">模块请求：</span>
+            <span class="info-value">{{ promptCompileSummaryData.requested_modules?.join(' / ') || '无' }}</span>
+          </div>
+          <div class="info-section">
+            <span class="info-label">模块生效：</span>
+            <span class="info-value">{{ promptCompileSummaryData.applied_modules?.join(' / ') || '无' }}</span>
+          </div>
+          <div class="info-section">
+            <span class="info-label">Section 数量：</span>
+            <span class="info-value">
+              {{ promptCompileSummaryData.section_count_before || 0 }} -> {{ promptCompileSummaryData.section_count_after || 0 }}
+            </span>
+          </div>
+          <div v-if="promptCompileSummaryData.added_sections?.length" class="info-section">
+            <span class="info-label">新增 Section：</span>
+            <span class="info-value">{{ promptCompileSummaryData.added_sections.join(' / ') }}</span>
+          </div>
+          <div v-if="promptCompileSummaryData.dropped_sections?.length" class="info-section">
+            <span class="info-label">裁剪 Section：</span>
+            <ul class="event-list">
+              <li v-for="title in promptCompileSummaryData.dropped_sections" :key="title">{{ title }}</li>
+            </ul>
+          </div>
+        </div>
+        <div v-else class="panel-empty">
+          <p>暂无 Prompt 编译摘要</p>
+        </div>
+      </div>
+
+      <div v-if="activeTab === 'verify'" class="content-panel">
+        <div class="panel-header">
+          <h4>✅ 验证报告</h4>
+          <span class="panel-hint">统一生成后验证摘要</span>
+        </div>
+        <div v-if="verificationReportData" class="panel-body">
+          <div class="info-section">
+            <span class="info-label">总体结论：</span>
+            <span class="info-value">{{ verificationReportData.summary || '无' }}</span>
+          </div>
+          <div v-if="verificationReportData.status_counts" class="rag-stats">
+            <span class="stat-item">
+              <span class="stat-label">通过</span>
+              <span class="stat-value">{{ verificationReportData.status_counts.passed || 0 }}</span>
+            </span>
+            <span class="stat-item">
+              <span class="stat-label">警告</span>
+              <span class="stat-value">{{ verificationReportData.status_counts.warning || 0 }}</span>
+            </span>
+            <span class="stat-item">
+              <span class="stat-label">待定</span>
+              <span class="stat-value">{{ verificationReportData.status_counts.pending || 0 }}</span>
+            </span>
+          </div>
+          <div v-if="verificationReportData.tasks?.length" class="rag-chunks">
+            <div
+              v-for="task in verificationReportData.tasks"
+              :key="task.task"
+              class="rag-chunk"
+            >
+              <div class="chunk-header">
+                <span class="chunk-title">{{ task.task }}</span>
+                <span class="chunk-score">{{ task.status }}</span>
+              </div>
+              <p class="chunk-content">{{ task.summary }}</p>
+            </div>
+          </div>
+        </div>
+        <div v-else class="panel-empty">
+          <p>暂无验证报告</p>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -207,7 +397,73 @@ interface ForeshadowingData {
   total_unresolved?: number
 }
 
+interface ContextPlanData {
+  chapter_phase?: string
+  is_fast_path?: boolean
+  intent?: {
+    core_goal?: string
+  }
+  prompt_modules?: string[]
+  verification_tasks?: string[]
+  retrieval_tasks?: Array<{
+    task_id: string
+    source: string
+    query_template: string
+    priority: number
+    max_items: number
+  }>
+  skill_policies?: Array<{
+    skill_id: string
+    phase: string
+    retrieval_hints?: string[]
+    prompt_hints?: string[]
+    verify_hints?: string[]
+  }>
+}
+
+interface EvidenceSummaryData {
+  total_items?: number
+  retrieval_task_count?: number
+  sources?: string[]
+  top_titles?: string[]
+  category_counts?: {
+    local_plot?: number
+    global_arc?: number
+    state_items?: number
+    symbolic_items?: number
+  }
+}
+
+interface PromptCompileSummaryData {
+  requested_modules?: string[]
+  applied_modules?: string[]
+  dropped_sections?: string[]
+  added_sections?: string[]
+  section_count_before?: number
+  section_count_after?: number
+}
+
+interface VerificationReportData {
+  task_count?: number
+  summary?: string
+  status_counts?: {
+    passed?: number
+    warning?: number
+    failed?: number
+    pending?: number
+  }
+  tasks?: Array<{
+    task: string
+    status: string
+    summary: string
+  }>
+}
+
 interface Props {
+  contextPlanData?: ContextPlanData | null
+  evidenceSummaryData?: EvidenceSummaryData | null
+  promptCompileSummaryData?: PromptCompileSummaryData | null
+  verificationReportData?: VerificationReportData | null
   missionData?: MissionData | null
   ragData?: RagData | null
   contextData?: ContextData | null
@@ -219,6 +475,30 @@ const props = defineProps<Props>()
 const activeTab = ref('mission')
 
 const tabs = computed(() => [
+  {
+    id: 'plan',
+    label: 'Plan',
+    icon: '🧭',
+    badge: props.contextPlanData?.retrieval_tasks?.length ? `${props.contextPlanData.retrieval_tasks.length}` : null
+  },
+  {
+    id: 'evidence',
+    label: '证据',
+    icon: '🗂',
+    badge: props.evidenceSummaryData?.total_items ? `${props.evidenceSummaryData.total_items}` : null
+  },
+  {
+    id: 'prompt',
+    label: 'Prompt',
+    icon: '🧩',
+    badge: props.promptCompileSummaryData?.section_count_after ? `${props.promptCompileSummaryData.section_count_after}` : null
+  },
+  {
+    id: 'verify',
+    label: '验证',
+    icon: '✅',
+    badge: props.verificationReportData?.task_count ? `${props.verificationReportData.task_count}` : null
+  },
   { 
     id: 'mission', 
     label: 'Mission', 

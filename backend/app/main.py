@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import settings
+from .core.rate_limit_middleware import RateLimitMiddleware
 from .db.init_db import init_db
 from .services.prompt_service import PromptService
 from .db.session import AsyncSessionLocal
@@ -124,6 +125,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# API 限流中间件（用户级请求限流）
+app.add_middleware(RateLimitMiddleware)
 
 app.include_router(api_router)
 
