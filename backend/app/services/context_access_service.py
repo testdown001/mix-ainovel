@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import select
 
 from ..core.config import settings
+from ..db.session import AsyncSessionLocal
 from ..models.project_memory import ProjectMemory
 from .chapter_context_service import ChapterContextService
 from .evidence_router_service import EvidenceRouterService
@@ -85,17 +86,15 @@ class ContextAccessService:
             select(ProjectMemory).where(ProjectMemory.project_id == project_id)
         )
         memory = result.scalars().first()
-        if not memory:
-            return None
+        return self._format_project_memory_text(memory)
 
-        parts = []
-        if memory.global_summary:
-            parts.append(f"### 全局摘要\n{memory.global_summary}")
-        if memory.plot_arcs:
-            parts.append("### 剧情线追踪\n" + json.dumps(memory.plot_arcs, ensure_ascii=False, indent=2))
-        if not parts:
-            return None
-        return "\n\n".join(parts)
+    async def prefetch_project_memory_text(self, project_id: str) -> Optional[str]:
+        async with AsyncSessionLocal() as bg_session:
+            result = await bg_session.execute(
+                select(ProjectMemory).where(ProjectMemory.project_id == project_id)
+            )
+            memory = result.scalars().first()
+            return self._format_project_memory_text(memory)
 
     async def get_memory_context(
         self,
@@ -110,3 +109,19 @@ class ContextAccessService:
     @staticmethod
     def format_filtered_context(filtered: Any) -> Optional[str]:
         return EvidenceRouterService.format_filtered_context(filtered)
+
+    @staticmethod
+    def _format_project_memory_text(memory: Any) -> Optional[str]:
+        if not memory:
+            return None
+
+        parts = []
+        if getattr(memory, "global_summary", None):
+            parts.append(f"### 全局摘要\n{memory.global_summary}")
+        if getattr(memory, "plot_arcs", None):
+            parts.append("### 剧情线追踪\n" + json.dumps(memory.plot_arcs, ensure_ascii=False, indent=2))
+        if getattr(memory, "story_timeline_summary", None):
+            parts.append(f"### 叙事记忆摘要\n{memory.story_timeline_summary}")
+        if not parts:
+            return None
+        return "\n\n".join(parts)

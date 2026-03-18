@@ -6,6 +6,7 @@
 from typing import Optional, List, Dict, Any
 import json
 import logging
+import time
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +26,12 @@ logger = logging.getLogger(__name__)
 class ForeshadowingTrackerService:
     """伏笔追踪服务"""
 
-    def __init__(self, db: AsyncSession, llm_service: LLMService, prompt_service: PromptService):
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm_service: Optional[LLMService] = None,
+        prompt_service: Optional[PromptService] = None,
+    ):
         self.db = db
         self.llm_service = llm_service
         self.prompt_service = prompt_service
@@ -160,19 +166,38 @@ class ForeshadowingTrackerService:
         chapter_number: int,
         chapter_outline: Optional[str] = None,
         user_id: Optional[int] = None,
+        use_llm: bool = True,
     ) -> Dict[str, Any]:
         """获取伏笔提醒和发展建议"""
+        started_at = time.perf_counter()
         
         # 获取分类后的伏笔
         categorized = await self.get_foreshadowings_for_chapter(project_id, chapter_number)
+        categorized_counts = {
+            "urgent": len(categorized["urgent"]),
+            "due_soon": len(categorized["due_soon"]),
+            "overdue": len(categorized["overdue"]),
+            "related": len(categorized["related"]),
+        }
+
+        if not use_llm:
+            logger.info(
+                "伏笔提醒使用规则模式: project=%s chapter=%s counts=%s elapsed_ms=%d",
+                project_id,
+                chapter_number,
+                categorized_counts,
+                int((time.perf_counter() - started_at) * 1000),
+            )
+            return self._create_basic_reminders(categorized, chapter_number)
         
         # 无紧迫/即将到期/超期项时，直接使用本地规则结果，避免额外 LLM 调用。
         if not (categorized["urgent"] or categorized["due_soon"] or categorized["overdue"]):
             logger.info(
-                "伏笔提醒跳过 LLM: project=%s chapter=%s active_related=%d",
+                "伏笔提醒跳过 LLM: project=%s chapter=%s counts=%s elapsed_ms=%d",
                 project_id,
                 chapter_number,
-                len(categorized["related"]),
+                categorized_counts,
+                int((time.perf_counter() - started_at) * 1000),
             )
             return self._create_basic_reminders(categorized, chapter_number)
 
@@ -190,6 +215,14 @@ class ForeshadowingTrackerService:
         prompt = prompt.replace("{{chapter_title}}", "")
         prompt = prompt.replace("{{chapter_outline}}", chapter_outline or "（无大纲）")
         prompt = prompt.replace("{{active_foreshadowings}}", active_context)
+
+        logger.info(
+            "伏笔提醒开始调用 LLM: project=%s chapter=%s counts=%s prompt_len=%d",
+            project_id,
+            chapter_number,
+            categorized_counts,
+            len(prompt),
+        )
         
         # 调用 LLM 获取建议
         response = await self.llm_service.generate(
@@ -205,10 +238,22 @@ class ForeshadowingTrackerService:
             json_end = content.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
                 result = json.loads(content[json_start:json_end])
+                logger.info(
+                    "伏笔提醒 LLM 完成: project=%s chapter=%s elapsed_ms=%d",
+                    project_id,
+                    chapter_number,
+                    int((time.perf_counter() - started_at) * 1000),
+                )
                 return result
         except json.JSONDecodeError:
             pass
         
+        logger.warning(
+            "伏笔提醒 LLM 结果解析失败，回退规则模式: project=%s chapter=%s elapsed_ms=%d",
+            project_id,
+            chapter_number,
+            int((time.perf_counter() - started_at) * 1000),
+        )
         return self._create_basic_reminders(categorized, chapter_number)
 
     def _build_foreshadowing_context(self, categorized: Dict[str, List[Foreshadowing]]) -> str:

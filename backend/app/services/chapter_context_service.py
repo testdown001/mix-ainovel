@@ -206,13 +206,13 @@ class ChapterContextService:
         need_rerank = is_rerank_enabled()
         per_query_k = effective_top_k  # 每个 query 取 top_k 条
 
-        # ---- 并行生成所有 query 的 embedding ----
+        # ---- 批量生成所有 query 的 embedding ----
         normalized = [self._normalize(q) for q in queries if q and q.strip()]
         if not normalized:
             return ChapterRAGContext(query="", chunks=[], summaries=[])
 
-        embeddings: List[Optional[Sequence[float]]] = await asyncio.gather(
-            *[self._llm_service.get_embedding(q, user_id=user_id) for q in normalized]
+        embeddings: List[List[float]] = await self._llm_service.get_embeddings_batch(
+            normalized, user_id=user_id,
         )
 
         # ---- 并行检索每个 query ----

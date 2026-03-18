@@ -38,6 +38,27 @@ def test_context_access_service_get_project_memory_text():
     assert "剧情线追踪" in text
 
 
+def test_context_access_service_prefetch_project_memory_text(monkeypatch):
+    from app.services import context_access_service as module
+
+    memory = SimpleNamespace(global_summary="背景总览", plot_arcs={"支线": "发酵"})
+
+    class _SessionContext:
+        async def __aenter__(self):
+            return _DummySession(memory)
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(module, "AsyncSessionLocal", lambda: _SessionContext())
+
+    service = ContextAccessService(_DummySession(None), llm_service=None, prompt_service=None)
+    text = asyncio.run(service.prefetch_project_memory_text("proj-2"))
+
+    assert "背景总览" in text
+    assert "支线" in text
+
+
 def test_context_access_service_format_filtered_context():
     filtered = SimpleNamespace(
         plot_fuel=["情节A"],

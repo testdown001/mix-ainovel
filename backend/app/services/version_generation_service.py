@@ -41,7 +41,7 @@ class VersionGenerationService:
         for idx in range(version_count):
             style_hint = version_style_hints[idx] if idx < len(version_style_hints) else None
             version_tasks.append(
-                orchestrator._generate_single_version(
+                orchestrator.single_version_generation_service.generate(
                     index=idx,
                     prompt_input=prompt_input,
                     writer_prompt=writer_prompt,

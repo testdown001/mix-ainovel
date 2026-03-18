@@ -7,8 +7,7 @@ import json
 import logging
 import os
 import time
-from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -16,15 +15,10 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.constants import CHAPTER_MAX_WORDS, CHAPTER_MIN_WORDS, StageStatus, WritingStage
-from ..db.init_db import repair_schema_if_needed
+from ..core.constants import StageStatus, WritingStage
 from ..db.session import AsyncSessionLocal
-from ..models.chapter_blueprint import ChapterBlueprint
-from ..models.novel import Chapter, ChapterVersion, NovelProject
-from ..models.reference_novel import ReferenceNovel
-from ..repositories.system_config_repository import SystemConfigRepository
+from ..models.novel import Chapter, ChapterVersion
 from ..services.chapter_guardrails import default_guardrails
-from ..services.enhanced_writing_flow import EnhancedWritingFlow
 from ..services.llm_service import LLMService
 from ..services.novel_service import NovelService
 from ..services.preview_generation_service import PreviewGenerationService
@@ -38,7 +32,17 @@ from ..services.history_context_service import HistoryContextService
 from ..services.generation_result_service import GenerationResultService
 from ..services.generation_telemetry_service import GenerationTelemetryService
 from ..services.generation_policy_service import GenerationPolicyService
+from ..services.generation_background_task_service import GenerationBackgroundTaskService
 from ..services.context_access_service import ContextAccessService
+from ..services.enhanced_context_service import EnhancedContextService
+from ..services.generation_context_resolution_service import GenerationContextResolutionService
+from ..services.generation_evidence_stage_service import GenerationEvidenceStageService
+from ..services.generation_prompt_context_service import GenerationPromptContextService
+from ..services.generation_prompt_stage_service import GenerationPromptStageService
+from ..services.generation_finalize_service import GenerationFinalizeService
+from ..services.fast_generation_flow_service import FastGenerationFlowService
+from ..services.literary_generation_flow_service import LiteraryGenerationFlowService
+from ..services.standard_generation_flow_service import StandardGenerationFlowService
 from ..services.prompt_assembly_service import PromptAssemblyService
 from ..services.prompt_compiler_service import PromptCompilerService
 from ..services.narrative_verifier_service import NarrativeVerifierService
@@ -48,6 +52,17 @@ from ..services.standard_post_processing_service import StandardPostProcessingSe
 from ..services.version_generation_service import VersionGenerationService
 from ..services.text_compression_service import TextCompressionService
 from ..services.scene_generation_service import SceneGenerationService
+from ..services.mission_builder_service import MissionBuilderService
+from ..services.voice_sample_service import VoiceSampleService
+from ..services.single_version_generation_service import SingleVersionGenerationService
+from ..services.async_task_service import AsyncTaskService
+from ..services.pipeline_config_service import PipelineConfig, PipelineConfigService
+from ..services.generation_support_service import GenerationSupportService
+from ..services.generation_prefetch_service import GenerationPrefetchService
+from ..services.user_style_service import UserStyleService
+from ..services.fingerprint_service import FingerprintService
+from ..services.trajectory_analysis_service import TrajectoryAnalysisService
+from ..services.writer_prompt_service import WriterPromptService
 from ..services.writer_shared import (
     build_blueprint_constraints_for_mission,
     generate_chapter_mission as _shared_generate_chapter_mission,
@@ -55,67 +70,11 @@ from ..services.writer_shared import (
     resolve_version_count as _shared_resolve_version_count,
     rewrite_with_guardrails as _shared_rewrite_with_guardrails,
 )
-from ..services.platinum_writing_context import (
-    PLATINUM_WRITING_BRIEF_FALLBACK,
-    build_foreshadowing_urgency_brief,
-    build_hook_continuity_brief,
-    build_platinum_rhythm_brief,
-)
-from ..utils.json_utils import extract_text_from_json, remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
+from ..utils.json_utils import remove_think_tags, repair_json, unwrap_markdown_json
 
 from .pipeline_review import PipelineReviewMixin
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class PipelineConfig:
-    preset: str = "basic"
-    version_count: int = 2
-    enable_preview: bool = False
-    enable_optimizer: bool = False
-    enable_consistency: bool = False
-    enable_enrichment: bool = False
-    async_finalize: bool = False
-    enable_constitution: bool = False
-    enable_persona: bool = False
-    enable_six_dimension: bool = False
-    enable_reader_sim: bool = False
-    enable_self_critique: bool = False
-    enable_memory: bool = False
-    enable_rag: bool = True
-    rag_mode: str = "simple"
-    enable_foreshadowing: bool = False
-    enable_faction: bool = False
-    enable_anti_hallucination: bool = False
-    rag_retrieval_mode: str = "vector"
-    enable_pacing_control: bool = False
-    pacing_model: str = "default"
-    enable_humanization: bool = False
-    humanization_threshold: int = 70
-    enable_lightweight_humanization: bool = False  # fast 模式：scan + 规则替换，无 LLM
-    enable_fingerprint: bool = False
-    enable_polish: bool = False
-    enable_mission_brief: bool = False
-    enable_density_compression: bool = False
-    # Literary mode features (改进 1-10)
-    enable_scene_by_scene: bool = False
-    enable_prose_sculpting: bool = False
-    enable_golden_paragraph: bool = False
-    enable_reference_prose: bool = False
-    enable_voice_samples: bool = False
-    enable_narrative_variety: bool = False
-    use_slim_prompt: bool = False
-    literary_adaptive_postprocess: bool = True
-    enable_fast_path: bool = False
-    disable_guardrail_rewrite: bool = False
-    skip_history_summary_backfill: bool = False
-    use_local_anti_hallucination: bool = False
-    # Phase1: 力量体系 + 角色关系注入
-    enable_power_system: bool = False
-    enable_character_relationships: bool = False
-    # Phase4: 轨迹分析反馈环
-    enable_trajectory_analysis: bool = False
 
 
 class PipelineOrchestrator(PipelineReviewMixin):
@@ -126,13 +85,29 @@ class PipelineOrchestrator(PipelineReviewMixin):
         self.llm_service = LLMService(session)
         self.prompt_service = PromptService(session)
         self.novel_service = NovelService(session)
+
         self.context_planner = ContextPlannerService()
+        self.pipeline_config_service = PipelineConfigService(session)
+        self.generation_support_service = GenerationSupportService(session)
         self.evidence_router = EvidenceRouterService()
-        self.history_context_service = HistoryContextService(session, self.prompt_service, self.llm_service)
         self.generation_result_service = GenerationResultService()
-        self.context_access_service = ContextAccessService(session, self.llm_service, self.prompt_service)
         self.generation_policy_service = GenerationPolicyService()
+
+        self.context_builder = default_context_builder
+        self.guardrails = default_guardrails
+        self.async_task_service = AsyncTaskService(logger)
+
+        self.history_context_service = HistoryContextService(session, self.prompt_service, self.llm_service)
+        self.context_access_service = ContextAccessService(session, self.llm_service, self.prompt_service)
+        self.enhanced_context_service = EnhancedContextService()
         self.prompt_assembly_service = PromptAssemblyService(self.prompt_service, self.llm_service)
+        self.prompt_compiler = PromptCompilerService()
+        self.narrative_verifier = NarrativeVerifierService()
+        self.mission_builder_service = MissionBuilderService(
+            self.prompt_service,
+            self.llm_service,
+            self.generation_policy_service,
+        )
         self.text_compression_service = TextCompressionService(self.llm_service)
         self.scene_generation_service = SceneGenerationService(
             self.llm_service,
@@ -140,12 +115,91 @@ class PipelineOrchestrator(PipelineReviewMixin):
             self.generation_policy_service,
             self.text_compression_service,
         )
-        self.prompt_compiler = PromptCompilerService()
-        self.narrative_verifier = NarrativeVerifierService()
+        self.voice_sample_service = VoiceSampleService()
+        self.single_version_generation_service = SingleVersionGenerationService(
+            llm_service=self.llm_service,
+            guardrails=self.guardrails,
+            generation_policy_service=self.generation_policy_service,
+            text_compression_service=self.text_compression_service,
+            preview_generation_service_factory=lambda: PreviewGenerationService(
+                self.session,
+                self.llm_service,
+                self.prompt_service,
+            ),
+        )
         self.standard_post_processing_service = StandardPostProcessingService(self)
         self.version_generation_service = VersionGenerationService(self)
-        self.context_builder = default_context_builder
-        self.guardrails = default_guardrails
+
+        self.generation_context_resolution_service = GenerationContextResolutionService(
+            evidence_router=self.evidence_router,
+            generation_policy_service=self.generation_policy_service,
+            llm_service=self.llm_service,
+            session=self.session,
+        )
+        self.generation_evidence_stage_service = GenerationEvidenceStageService(
+            evidence_router=self.evidence_router,
+            session=self.session,
+            llm_service=self.llm_service,
+            prompt_service=self.prompt_service,
+        )
+        self.generation_prompt_context_service = GenerationPromptContextService(
+            prompt_service=self.prompt_service,
+            context_access_service=self.context_access_service,
+            prompt_assembly_service=self.prompt_assembly_service,
+        )
+        self.generation_prompt_stage_service = GenerationPromptStageService(
+            prompt_assembly_service=self.prompt_assembly_service,
+            prompt_compiler=self.prompt_compiler,
+            prompt_service=self.prompt_service,
+            enhanced_context_service=self.enhanced_context_service,
+        )
+
+        self.generation_background_task_service = GenerationBackgroundTaskService()
+        self.generation_finalize_service = GenerationFinalizeService(
+            generation_background_task_service=self.generation_background_task_service,
+            narrative_verifier=self.narrative_verifier,
+            generation_result_service=self.generation_result_service,
+            generation_policy_service=self.generation_policy_service,
+        )
+
+        self.fast_generation_flow_service = FastGenerationFlowService(
+            session=self.session,
+            llm_service=self.llm_service,
+            single_version_generation_service=self.single_version_generation_service,
+            text_compression_service=self.text_compression_service,
+        )
+        self.literary_generation_flow_service = LiteraryGenerationFlowService(
+            session=self.session,
+            llm_service=self.llm_service,
+            scene_generation_service=self.scene_generation_service,
+            generation_policy_service=self.generation_policy_service,
+            text_compression_service=self.text_compression_service,
+            guardrails=self.guardrails,
+        )
+        self.standard_generation_flow_service = StandardGenerationFlowService(
+            session=self.session,
+            llm_service=self.llm_service,
+            version_generation_service=self.version_generation_service,
+            standard_post_processing_service=self.standard_post_processing_service,
+            text_compression_service=self.text_compression_service,
+        )
+
+        self.user_style_service = UserStyleService()
+        self.fingerprint_service = FingerprintService()
+        self.trajectory_analysis_service = TrajectoryAnalysisService()
+        self.writer_prompt_service = WriterPromptService()
+        self.generation_prefetch_service = GenerationPrefetchService(
+            async_task_service=self.async_task_service,
+            enhanced_context_service=self.enhanced_context_service,
+            context_access_service=self.context_access_service,
+            evidence_router=self.evidence_router,
+            trajectory_analysis_service=self.trajectory_analysis_service,
+            user_style_service=self.user_style_service,
+            fingerprint_service=self.fingerprint_service,
+            writer_prompt_service=self.writer_prompt_service,
+            context_planner=self.context_planner,
+        )
+
         self._background_tasks = set()
 
     async def generate_chapter(
@@ -159,10 +213,6 @@ class PipelineOrchestrator(PipelineReviewMixin):
         stream_handler: Optional[Callable[[Dict[str, Any]], Awaitable[None] | None]] = None,
     ) -> Dict[str, Any]:
         total_started = time.perf_counter()
-        stage_timings_ms: Dict[str, int] = {}
-
-        def _mark_stage(stage_name: str, started_at: float) -> None:
-            stage_timings_ms[stage_name] = int((time.perf_counter() - started_at) * 1000)
 
         async def _emit_stream(event: str, payload: Optional[Dict[str, Any]] = None) -> None:
             if not stream_handler:
@@ -176,17 +226,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
             except Exception as callback_exc:
                 logger.debug("Pipeline stream_handler 回调异常（已忽略）: %s", callback_exc)
 
-        async def _emit_stage(stage: str, message: Optional[str] = None) -> None:
-            await _emit_stream(
-                "stage",
-                {
-                    "stage": stage,
-                    "message": message or stage,
-                    "chapter_number": chapter_number,
-                },
-            )
-
         telemetry = GenerationTelemetryService(_emit_stream)
+
+        # 使用 telemetry 的方法替代局部函数
+        _mark_stage = telemetry.mark_stage
+        async def _emit_stage(stage: str, message: Optional[str] = None) -> None:
+            await telemetry.emit_stage(stage, message, chapter_number)
 
         # 创建进度追踪（outline_title 在后续加载，此处先用 fallback）
         await progress_service.create_progress(
@@ -234,13 +279,13 @@ class PipelineOrchestrator(PipelineReviewMixin):
         pre_collected_context = raw_flow_config.get("pre_collected_context") or {}
 
         stage_started = time.perf_counter()
-        config = await self._resolve_config(raw_flow_config)
+        config = await self.pipeline_config_service.resolve_config(raw_flow_config)
         _mark_stage("resolve_config", stage_started)
 
         stage_started = time.perf_counter()
         project = await self.novel_service.ensure_project_owner(project_id, user_id)
         reference_service = ReferenceNovelLibraryService(self.session)
-        project_reference_novels = await self._load_project_reference_novels(project, reference_service)
+        project_reference_novels = await self.generation_support_service.load_project_reference_novels(project, reference_service)
 
         outline = await self.novel_service.get_outline(project_id, chapter_number)
         if not outline:
@@ -283,7 +328,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         outline_title = outline.title or f"第{outline.chapter_number}章"
         outline_summary = outline.summary or "暂无摘要"
         writing_notes = writing_notes or "无额外写作指令"
-        chapter_blueprint = await self._load_chapter_blueprint(project_id, chapter_number)
+        chapter_blueprint = await self.generation_support_service.load_chapter_blueprint(project_id, chapter_number)
         planner_flow_config = {
             "preset": config.preset,
             "selected_skills": list(raw_flow_config.get("selected_skills") or []),
@@ -328,7 +373,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             pre_collected_context["context_plan"] = context_plan.to_dict()
         context_plan_payload = context_plan.to_dict()
         await telemetry.emit_context_plan(context_plan_payload)
-        fast_rag_queries = self._build_fast_rag_queries(
+        fast_rag_queries = self.generation_support_service.build_fast_rag_queries(
             outline_title=outline_title,
             outline_summary=outline_summary,
             writing_notes=writing_notes,
@@ -360,336 +405,69 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         # ========== Mission 生成 + 上下文准备（并行化：不依赖 Mission 的任务提前启动） ==========
 
-        # 辅助函数：为并行任务添加超时控制
-        async def _with_timeout(coro, timeout_sec: int, task_name: str):
-            """为协程添加超时控制，超时返回 None"""
-            try:
-                return await asyncio.wait_for(coro, timeout=timeout_sec)
-            except asyncio.TimeoutError:
-                logger.warning(f"并行任务超时: {task_name} (timeout={timeout_sec}s)")
-                return None
-            except Exception as e:
-                logger.warning(f"并行任务失败: {task_name}, error={e}")
-                return None
-
-        # 提前启动不依赖 Mission 输出的任务（使用独立会话避免 session 并发）
-        _need_enhanced = (
-            config.enable_constitution or config.enable_persona
-            or config.enable_foreshadowing or config.enable_faction
-        )
-        _enhanced_flow_task: Optional[asyncio.Task] = None
-        if _need_enhanced:
-            async def _parallel_enhanced_flow():
-                async with AsyncSessionLocal() as bg_session:
-                    bg_llm = LLMService(bg_session)
-                    bg_prompt = PromptService(bg_session)
-                    flow = EnhancedWritingFlow(bg_session, bg_llm, bg_prompt)
-                    ctx = await flow.prepare_writing_context(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_outline=outline_summary,
-                    )
-                    return flow, ctx
-            _enhanced_flow_task = asyncio.create_task(
-                _with_timeout(_parallel_enhanced_flow(), 30, "enhanced_flow")
-            )
-
-        _memory_text_task: Optional[asyncio.Task] = None
-        async def _parallel_project_memory():
-            async with AsyncSessionLocal() as bg_session:
-                from ..models.project_memory import ProjectMemory
-                _result = await bg_session.execute(
-                    select(ProjectMemory).where(ProjectMemory.project_id == project_id)
-                )
-                memory = _result.scalars().first()
-                if not memory:
-                    return None
-                parts = []
-                if memory.global_summary:
-                    parts.append(f"### 全局摘要\n{memory.global_summary}")
-                if memory.plot_arcs:
-                    parts.append("### 剧情线追踪\n" + json.dumps(memory.plot_arcs, ensure_ascii=False, indent=2))
-                return "\n\n".join(parts) if parts else None
-        _memory_text_task = asyncio.create_task(
-            _with_timeout(_parallel_project_memory(), 10, "project_memory")
-        )
-
         pre_rag_context = pre_collected_context.get("rag_context")
         pre_rag_stats = pre_collected_context.get("rag_stats")
-
-        _rag_task: Optional[asyncio.Task] = None
-        if (
-            config.enable_rag
-            and config.rag_mode != "two_stage"
-            and not pre_rag_context
-        ):
-            # simple RAG 不依赖 Mission 输出，可并行（使用独立会话避免 session 竞态）
-            async def _parallel_rag():
-                async with AsyncSessionLocal() as bg_session:
-                    bg_llm = LLMService(bg_session)
-                    from .writer_shared import create_vector_store_or_none
-                    if not settings.vector_store_enabled:
-                        return {
-                            "chunks": [],
-                            "summaries": [],
-                            "stats": {"status": "skipped", "reason": "vector_store_disabled"},
-                            "queries": [],
-                        }
-                    vector_store = create_vector_store_or_none()
-                    if vector_store is None:
-                        return {
-                            "chunks": [],
-                            "summaries": [],
-                            "stats": {"status": "skipped", "reason": "vector_store_unavailable"},
-                            "queries": [],
-                        }
-                    _char_names = [
-                        c.get("name", "")
-                        for c in (blueprint_dict.get("characters", []) if blueprint_dict else [])
-                        if c.get("name")
-                    ][:6]
-                    query_list = self.context_planner.build_retrieval_queries(
-                        plan=context_plan,
-                        outline_title=outline_title,
-                        outline_summary=outline_summary,
-                        writing_notes=writing_notes,
-                        character_names=_char_names,
-                        story_skeleton=history_context.get("story_skeleton"),
-                        fast_rag_queries=fast_rag_queries,
-                    )
-                    return await self.evidence_router.route_local_plot(
-                        plan=context_plan,
-                        project_id=project_id,
-                        user_id=user_id,
-                        queries=query_list or [outline_title or outline_summary],
-                        retrieval_mode=config.rag_retrieval_mode,
-                        llm_service=bg_llm,
-                        vector_store=vector_store,
-                    )
-            _rag_task = asyncio.create_task(
-                _with_timeout(_parallel_rag(), 20, "rag_retrieval")
-            )
-
-        # 优化项3: 提前启动不依赖 Mission 的上下文构建任务（使用独立 session）
-        # Phase2: 增强为返回 (brief, structured) 元组
-        async def _parallel_foreshadowing():
-            async with AsyncSessionLocal() as bg_session:
-                brief = await build_foreshadowing_urgency_brief(
-                    session=bg_session,
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                )
-                structured = None
-                try:
-                    from .foreshadowing_tracker_service import ForeshadowingTrackerService
-                    bg_llm = LLMService(bg_session)
-                    bg_prompt = PromptService(bg_session)
-                    tracker = ForeshadowingTrackerService(bg_session, bg_llm, bg_prompt)
-                    fs_data = await tracker.get_foreshadowings_for_chapter(project_id, chapter_number)
-                    should_resolve = []
-                    for category in ("urgent", "overdue", "due_soon"):
-                        for fs in fs_data.get(category, []):
-                            should_resolve.append({
-                                "id": getattr(fs, "id", None),
-                                "content": getattr(fs, "content", "") or getattr(fs, "description", ""),
-                                "chapter_number": getattr(fs, "chapter_number", None),
-                                "urgency": "high" if category == "urgent" else "medium",
-                            })
-                    all_count = sum(len(fs_data.get(k, [])) for k in ("urgent", "due_soon", "overdue", "related"))
-                    structured = {
-                        "should_resolve": should_resolve[:10],
-                        "should_plant": [],
-                        "total_unresolved": all_count,
-                    }
-                except Exception as e:
-                    logger.warning("结构化伏笔数据构建失败: %s", e)
-                return brief, structured
-        _foreshadowing_task = asyncio.create_task(
-            _with_timeout(_parallel_foreshadowing(), 15, "foreshadowing")
+        prefetch_tasks = self.generation_prefetch_service.schedule_prefetch_tasks(
+            config=config,
+            project=project,
+            project_id=project_id,
+            chapter_number=chapter_number,
+            user_id=user_id,
+            outline_title=outline_title,
+            outline_summary=outline_summary,
+            writing_notes=writing_notes,
+            blueprint_dict=blueprint_dict,
+            context_plan=context_plan,
+            history_context=history_context,
+            fast_rag_queries=fast_rag_queries,
+            pre_rag_context=pre_rag_context,
         )
-
-        # Phase4: 轨迹分析并行任务（纯计算，零LLM/DB）
-        _trajectory_task: Optional[asyncio.Task] = None
-        if config.enable_trajectory_analysis and chapter_number >= 4:
-            async def _parallel_trajectory():
-                try:
-                    # 首先尝试从缓存获取完整的增强版分析！
-                    from .cache_service import get_cache_service
-                    cache_service = get_cache_service()
-                    cached_guidance = await cache_service.get(f"creative_guidance:{project_id}")
-                    if cached_guidance:
-                        items = []
-                        if cached_guidance.get('overall_assessment'):
-                            items.append(f"总体评估: {cached_guidance['overall_assessment']}")
-                        if cached_guidance.get('weaknesses'):
-                            items.append(f"需注意的弱点: {', '.join(cached_guidance['weaknesses'][:2])}")
-                        if cached_guidance.get('next_chapter_suggestions'):
-                            items.append("本章建议:")
-                            for sug in cached_guidance['next_chapter_suggestions']:
-                                items.append(f"- {sug}")
-                        return "\\n".join(items)
-
-                    # 回退到根据任务元数据进行轻量级计算
-                    from .story_trajectory_analyzer import StoryTrajectoryAnalyzer
-                    emotion_points = []
-                    for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
-                        if ch.chapter_number < chapter_number and ch.selected_version:
-                            meta = (ch.selected_version.metadata_ or {}) if hasattr(ch.selected_version, 'metadata_') else {}
-                            mission = meta.get("chapter_mission", {}) if isinstance(meta, dict) else {}
-                            intensity = 5.0
-                            sat = mission.get("satisfaction_design", {}) if isinstance(mission, dict) else {}
-                            if sat.get("intensity"):
-                                intensity = float(sat["intensity"])
-                            emotion_points.append({
-                                "chapter_number": ch.chapter_number,
-                                "intensity": intensity,
-                                "primary_intensity": intensity,
-                                "primary_emotion": "neutral",
-                                "pace": "medium"
-                            })
-                    if len(emotion_points) >= 3:
-                        analyzer = StoryTrajectoryAnalyzer()
-                        analysis = analyzer.analyze_trajectory(emotion_points)
-                        
-                        # 接入创意指导系统
-                        from .creative_guidance_system import CreativeGuidanceSystem
-                        from dataclasses import asdict
-                        guidance_system = CreativeGuidanceSystem()
-                        guidance = guidance_system.generate_guidance(
-                            emotion_points=emotion_points,
-                            trajectory_analysis=asdict(analysis),
-                            current_chapter=chapter_number
-                        )
-                        
-                        return "\\n".join([
-                            f"故事形状: {analysis.shape.value} (置信度{analysis.shape_confidence:.0%})",
-                            f"波动性: {analysis.volatility:.2f}",
-                            f"总体评估: {guidance.overall_assessment}",
-                            "建议:",
-                            *[f"- {r}" for r in guidance.next_chapter_suggestions],
-                        ])
-                    return None
-                except Exception as e:
-                    logger.warning("轨迹分析失败（不影响生成）: %s", e)
-                    return None
-            _trajectory_task = asyncio.create_task(
-                _with_timeout(_parallel_trajectory(), 5, "trajectory_analysis")
-            )
-
-        async def _parallel_user_style():
-            """返回 (rules_text, style_preset_name) 元组。"""
-            try:
-                async with AsyncSessionLocal() as bg_session:
-                    from sqlalchemy import select as sa_select
-                    from ..models.user_writing_preference import UserWritingPreference
-                    from ..core.writing_style_presets import build_user_style_prompt
-                    result = await bg_session.execute(
-                        sa_select(UserWritingPreference).where(UserWritingPreference.user_id == user_id)
-                    )
-                    pref = result.scalars().first()
-                    if pref:
-                        rules = build_user_style_prompt(pref)
-                        logger.info("用户 %s 已加载写作风格偏好 (preset=%s)", user_id, pref.style_preset)
-                        return rules, pref.style_preset
-                    return None, None
-            except Exception as e:
-                logger.warning("加载用户写作风格偏好失败（不影响生成）: %s", e)
-                return None, None
-        _user_style_task = asyncio.create_task(
-            _with_timeout(_parallel_user_style(), 10, "user_style")
-        )
-
-        _fingerprint_task: Optional[asyncio.Task] = None
-        if config.enable_fingerprint:
-            def _sync_fingerprint():
-                try:
-                    from .author_fingerprint_service import AuthorFingerprintService
-                    fp_service = AuthorFingerprintService()
-                    chapter_texts = [
-                        ch.selected_version.content
-                        for ch in project.chapters
-                        if ch.chapter_number < chapter_number
-                        and ch.selected_version
-                        and ch.selected_version.content
-                    ]
-                    return fp_service.get_or_extract(project_id, chapter_texts)
-                except Exception as e:
-                    logger.warning("风格指纹提取失败（不影响生成）: %s", e)
-                    return None
-            loop = asyncio.get_event_loop()
-            _fingerprint_task = asyncio.ensure_future(
-                loop.run_in_executor(None, _sync_fingerprint)
-            )
-
-        # 优化项4: writer prompt 提前加载（利用全局缓存，与 Mission 并行）
-        async def _parallel_writer_prompt():
-            async with AsyncSessionLocal() as bg_session:
-                bg_prompt = PromptService(bg_session)
-                if config.enable_fast_path:
-                    p = await bg_prompt.get_prompt("writing_fast")
-                    if p:
-                        return p
-                p = await bg_prompt.get_prompt("writing_v2")
-                if p:
-                    return p
-                p = await bg_prompt.get_prompt("writing")
-                return p
-        _writer_prompt_task = asyncio.create_task(
-            _with_timeout(_parallel_writer_prompt(), 5, "writer_prompt")
-        )
+        _enhanced_flow_task = prefetch_tasks.enhanced_context_task
+        _memory_text_task = prefetch_tasks.memory_text_task
+        _rag_task = prefetch_tasks.rag_task
+        _foreshadowing_task = prefetch_tasks.foreshadowing_task
+        _trajectory_task = prefetch_tasks.trajectory_task
+        _user_style_task = prefetch_tasks.user_style_task
+        _fingerprint_task = prefetch_tasks.fingerprint_task
+        _writer_prompt_task = prefetch_tasks.writer_prompt_task
 
         stage_started = time.perf_counter()
-        stage_started = time.perf_counter()
 
-        enhanced_flow = None
-        enhanced_context = None
+        enhanced_context = {}
 
-        # ========== Pacing Controller Integration ==========
-        pacing_constraint = ""
+        # ========== Pacing Controller: 并行启动 ==========
+        _pacing_task = None
         if config.enable_pacing_control:
-            _mark_stage("pacing_control_prep", stage_started)
-            from ..services.pacing_controller import PacingController
-            pacing_controller = PacingController(self.llm_service, self.session)
-            try:
-                # Get surrounding chapter outlines for context
-                outlines_context = ""
-                if project.blueprint and project.blueprint.chapter_outline:
-                    outlines = sorted(project.blueprint.chapter_outline, key=lambda x: x.chapter_number)
-                    start_idx = max(0, chapter_number - 3)
-                    end_idx = min(len(outlines), chapter_number + 2)
-                    context_outlines = outlines[start_idx:end_idx]
-                    outlines_context = "\n".join([f"第{o.chapter_number}章: {o.title} - {o.summary}" for o in context_outlines])
-                
-                pacing_plan = await pacing_controller.analyze_pacing(
-                    project_id=project_id,
-                    current_chapter=chapter_number,
-                    outline_context=outlines_context,
-                )
-                if pacing_plan:
-                    # Formatting the pacing plan for the prompt
-                    pacing_constraint = "### 节奏控制指令 (Pacing Control)\n"
-                    if pacing_plan.get("target_word_count"):
-                        pacing_constraint += f"- **目标字数**: 约 {pacing_plan['target_word_count']} 字\n"
-                    if pacing_plan.get("scene_count_recommendation"):
-                        pacing_constraint += f"- **场景数量建议**: {pacing_plan['scene_count_recommendation']}\n"
-                    if pacing_plan.get("dialogue_action_ratio"):
-                        pacing_constraint += f"- **对话与动作比例**: {pacing_plan['dialogue_action_ratio']}\n"
-                    if pacing_plan.get("pacing_strategy"):
-                        pacing_constraint += f"- **核心节奏策略**: {pacing_plan['pacing_strategy']}\n"
-                    
+            async def _compute_pacing() -> str:
+                """计算节奏约束（纯规则，不调用 LLM）。"""
+                from ..services.pacing_controller import PacingController
+                try:
+                    total_chapters = len(project.outlines) if project.outlines else 30
+                    pacing_controller = PacingController(total_chapters)
+                    pacing_controller.plan_emotion_curve()
+                    pacing_info = pacing_controller.get_chapter_pacing(chapter_number)
+                    if not pacing_info:
+                        return ""
+                    parts = ["### 节奏控制指令 (Pacing Control)"]
+                    if pacing_info.get("emotion_intensity"):
+                        parts.append(f"- **情绪强度**: {pacing_info['emotion_intensity']:.1f}/10")
+                    if pacing_info.get("narrative_phase"):
+                        parts.append(f"- **叙事阶段**: {pacing_info['narrative_phase']}")
+                    if pacing_info.get("trend"):
+                        parts.append(f"- **趋势**: {pacing_info['trend']}")
+                    for advice in (pacing_info.get("pacing_advice") or []):
+                        parts.append(f"- {advice}")
                     logger.info("应用Pacing Controller节奏约束于第 %d 章", chapter_number)
-            except Exception as exc:
-                logger.warning("Pacing Controller 约束生成失败: %s", exc)
-            _mark_stage("pacing_control_prep", stage_started)
-            stage_started = time.perf_counter()
+                    return "\n".join(parts)
+                except Exception as exc:
+                    logger.warning("Pacing Controller 约束生成失败: %s", exc)
+                    return ""
+            _pacing_task = asyncio.create_task(_compute_pacing())
 
-        # Update writing_notes with pacing constraint if it exists
-        if pacing_constraint:
-            writing_notes = (writing_notes or "") + "\n\n" + pacing_constraint
-
+        # ========== Mission 生成（与 Pacing 并行） ==========
         if config.enable_fast_path:
             # 优先尝试轻量LLM导演脚本，失败时回退到纯规则拼装
-            chapter_mission = await self._build_lite_chapter_mission(
+            chapter_mission = await self.mission_builder_service.build_lite_chapter_mission(
                 chapter_number=chapter_number,
                 outline_title=outline_title,
                 outline_summary=outline_summary,
@@ -700,7 +478,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 user_id=user_id,
             )
             if chapter_mission is None:
-                chapter_mission = self._build_fast_chapter_mission(
+                chapter_mission = self.mission_builder_service.build_fast_chapter_mission(
                     chapter_number=chapter_number,
                     outline_title=outline_title,
                     outline_summary=outline_summary,
@@ -727,11 +505,17 @@ class PipelineOrchestrator(PipelineReviewMixin):
             )
         _mark_stage("generate_chapter_mission", stage_started)
 
+        # 等待 Pacing 结果（与 Mission 并行计算完毕）并注入到 writing_notes
+        if _pacing_task is not None:
+            pacing_constraint = await _pacing_task
+            if pacing_constraint:
+                writing_notes = (writing_notes or "") + "\n\n" + pacing_constraint
+
         # 推送 Mission 中间产物
         await telemetry.emit_mission(chapter_mission if isinstance(chapter_mission, dict) else {})
 
         # 变更6: 爽点节奏验证 — 在mission生成完成后检查并可能修改mission
-        coolpoint_rhythm_directive = await self._validate_coolpoint_rhythm(
+        coolpoint_rhythm_directive = await self.generation_support_service.validate_coolpoint_rhythm(
             project_id=project_id,
             chapter_number=chapter_number,
             chapter_mission=chapter_mission,
@@ -756,74 +540,26 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 )
             )
 
-        # ========== 等待并行任务完成 + 处理依赖 Mission 的上下文 ==========
         stage_started = time.perf_counter()
-        if _enhanced_flow_task is not None:
-            enhanced_flow, enhanced_context = await _enhanced_flow_task
-
-        project_memory_text = await _memory_text_task
-
-        rag_context = None
-        knowledge_context = None
-        rag_stats = None
-        if config.enable_rag:
-            if pre_rag_context and config.rag_mode != "two_stage":
-                rag_context = pre_rag_context
-                rag_stats = {
-                    **(pre_rag_stats or {}),
-                    "mode": "simple",
-                    "reused": True,
-                    "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
-                    "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
-                }
-                logger.info(
-                    "复用中书省预收集 RAG 上下文: project=%s chapter=%s chunks=%s summaries=%s",
-                    project_id,
-                    chapter_number,
-                    rag_stats["chunks"],
-                    rag_stats["summaries"],
-                )
-            elif config.rag_mode == "two_stage":
-                routed_two_stage = await self.evidence_router.route_two_stage(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    user_id=user_id,
-                    writing_notes=writing_notes,
-                    pov_character=self.generation_policy_service.resolve_pov_character(chapter_mission),
-                    retrieval_mode=config.rag_retrieval_mode,
-                    session=self.session,
-                    llm_service=self.llm_service,
-                    vector_store=None,
-                )
-                knowledge_context = routed_two_stage.get("knowledge_context") or ""
-                rag_stats = dict(routed_two_stage.get("stats") or {})
-            elif _rag_task is not None:
-                routed_local = await _rag_task
-                rag_context = {
-                    "chunks": list((routed_local or {}).get("chunks") or []),
-                    "summaries": list((routed_local or {}).get("summaries") or []),
-                }
-                rag_stats = {
-                    "mode": "simple",
-                    **dict((routed_local or {}).get("stats") or {}),
-                    "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
-                    "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
-                    "queries": list((routed_local or {}).get("queries") or []),
-                }
-
-        # 推送 RAG 中间产物
-        if rag_context or knowledge_context:
-            await telemetry.emit_rag(
-                {
-                    "chunks": rag_context.get("chunks", []) if rag_context else [],
-                    "summaries": rag_context.get("summaries", []) if rag_context else [],
-                    "stats": rag_stats or {},
-                }
-            )
-
-        writer_prompt = await _writer_prompt_task
-        if not writer_prompt:
-            raise HTTPException(status_code=500, detail="缺少写作提示词，请联系管理员配置")
+        resolved_prefetch = await self.generation_context_resolution_service.resolve_prefetch_context(
+            config=config,
+            project_id=project_id,
+            chapter_number=chapter_number,
+            user_id=user_id,
+            writing_notes=writing_notes,
+            chapter_mission=chapter_mission,
+            prefetch_tasks=prefetch_tasks,
+            pre_rag_context=pre_rag_context,
+            pre_rag_stats=pre_rag_stats,
+            history_context=history_context,
+            telemetry=telemetry,
+        )
+        enhanced_context = resolved_prefetch.enhanced_context
+        project_memory_text = resolved_prefetch.project_memory_text
+        rag_context = resolved_prefetch.rag_context
+        knowledge_context = resolved_prefetch.knowledge_context
+        rag_stats = resolved_prefetch.rag_stats
+        writer_prompt = resolved_prefetch.writer_prompt
         _mark_stage("prepare_context", stage_started)
 
         allowed_new_characters = chapter_mission.get("allowed_new_characters", []) if chapter_mission else []
@@ -858,7 +594,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _voice_samples_task: Optional[asyncio.Task] = None
         if config.enable_scene_by_scene and config.enable_voice_samples:
             _voice_samples_task = asyncio.create_task(
-                self._generate_voice_samples(
+                self.voice_sample_service.generate_voice_samples(
                     characters=writer_blueprint.get("characters", []),
                     outline_summary=outline_summary,
                     chapter_mission=chapter_mission,
@@ -879,79 +615,38 @@ class PipelineOrchestrator(PipelineReviewMixin):
         memory_context = None
         if config.enable_memory:
             stage_started = time.perf_counter()
-            memory_context = await self.context_access_service.get_memory_context(
+            memory_context = await self.generation_prompt_context_service.get_memory_context_if_enabled(
+                enabled=config.enable_memory,
                 project_id=project_id,
                 chapter_number=chapter_number,
-                involved_characters=introduced_characters,
+                introduced_characters=introduced_characters,
             )
             _mark_stage("prepare_memory_context", stage_started)
 
         # P1: 等待 mission brief 结果（LLM 调用已在后台运行，此处几乎零等待）
-        mission_brief_text = None
-        if _mission_brief_task is not None:
-            stage_started = time.perf_counter()
-            try:
-                mission_brief_text = await _mission_brief_task
-            except Exception as e:
-                logger.warning("Mission brief 生成失败（不影响生成）: %s", e)
-            _mark_stage("generate_mission_brief", stage_started)
+        stage_started = time.perf_counter()
+        mission_brief_text = await self.generation_prompt_context_service.await_mission_brief(_mission_brief_task)
+        _mark_stage("generate_mission_brief", stage_started)
 
-        total_chapters = max(
-            chapter_number,
-            max((item.chapter_number for item in project.outlines), default=chapter_number),
-        )
-        platinum_writing_brief = (
-            await self.prompt_service.get_prompt("platinum_writing_brief")
-            or PLATINUM_WRITING_BRIEF_FALLBACK
-        )
-
-        # 题材自适应：加载 genre profile
-        genre_profile = None
-        genre_prompt_injection = ""
-        genre_pacing_config = None
-        if getattr(settings, "enable_genre_adaptation", True):
-            genre_name = blueprint_dict.get("genre") or ""
-            if genre_name:
-                from .genre_profile_service import GenreProfileService
-                genre_profile = GenreProfileService.get_profile(genre_name)
-                if genre_profile:
-                    genre_prompt_injection = GenreProfileService.build_genre_prompt_injection(genre_profile)
-                    genre_pacing_config = genre_profile.get("pacing_config")
-
-        # Strand Weave：获取线团分配
-        strand_info = None
-        if config.pacing_model == "strand_weave":
-            from .strand_weave_service import StrandWeaveService
-            sws_kwargs = {}
-            if genre_pacing_config:
-                sws_kwargs = {
-                    "quest_ratio": genre_pacing_config.get("quest_ratio", settings.strand_quest_ratio),
-                    "fire_ratio": genre_pacing_config.get("fire_ratio", settings.strand_fire_ratio),
-                    "constellation_ratio": genre_pacing_config.get("constellation_ratio", settings.strand_constellation_ratio),
-                }
-            else:
-                sws_kwargs = {
-                    "quest_ratio": settings.strand_quest_ratio,
-                    "fire_ratio": settings.strand_fire_ratio,
-                    "constellation_ratio": settings.strand_constellation_ratio,
-                }
-            strand_service = StrandWeaveService(
-                total_chapters=total_chapters,
-                interleave_interval=settings.strand_interleave_interval,
-                **sws_kwargs,
-            )
-            strand_service.plan_strands()
-            strand_info = strand_service.get_chapter_strand(chapter_number)
-
-        platinum_rhythm_brief = build_platinum_rhythm_brief(
+        prompt_context_inputs = await self.generation_prompt_context_service.resolve_prompt_context_inputs(
+            config=config,
+            project=project,
             chapter_number=chapter_number,
-            total_chapters=total_chapters,
             outline_title=outline_title,
             outline_summary=outline_summary,
             chapter_mission=chapter_mission,
-            genre_pacing_config=genre_pacing_config,
-            strand_info=strand_info,
+            history_context=history_context,
+            blueprint_dict=blueprint_dict,
         )
+        total_chapters = prompt_context_inputs.total_chapters
+        platinum_writing_brief = prompt_context_inputs.platinum_writing_brief
+        genre_profile = prompt_context_inputs.genre_profile
+        genre_prompt_injection = prompt_context_inputs.genre_prompt_injection
+        genre_pacing_config = prompt_context_inputs.genre_pacing_config
+        strand_info = prompt_context_inputs.strand_info
+        platinum_rhythm_brief = prompt_context_inputs.platinum_rhythm_brief
+        hook_continuity_brief = prompt_context_inputs.hook_continuity_brief
+        emotion_expression_brief = prompt_context_inputs.emotion_expression_brief
         # Phase2: 拆包伏笔结果（brief + structured 元组）
         _fs_result = await _foreshadowing_task
         foreshadowing_structured = None
@@ -960,126 +655,52 @@ class PipelineOrchestrator(PipelineReviewMixin):
         else:
             foreshadowing_urgency_brief = _fs_result
 
-        hook_continuity_brief = build_hook_continuity_brief(
-            previous_summary=history_context["previous_summary"],
-            previous_tail=history_context["previous_tail"],
-            chapter_mission=chapter_mission,
-        )
-        emotion_expression_brief = self.prompt_assembly_service.build_emotion_expression_brief(
-            history_context.get("completed_chapters", [])
-        )
-
         # ---- 作者风格指纹（已在并行区启动） ----
         fingerprint_context: Optional[str] = None
         if _fingerprint_task is not None:
             fingerprint_context = await _fingerprint_task
 
         # 提取剧情推演
-        prediction = (outline.metadata_ or {}).get("prediction")
-        prediction_text = ""
-        if prediction:
-            _labels = {"key_points": "章节要点", "cool_points": "爽点设计", "foreshadowing_hooks": "伏笔/钩子", "foreshadowing_targets": "需回收伏笔", "limitations": "写作限制"}
-            prediction_text = "\n".join(
-                f"{label}：\n" + "\n".join(f"- {item}" for item in prediction.get(key, []))
-                for key, label in _labels.items() if prediction.get(key)
-            )
-            # 追加 beats 节拍编排
-            beats = prediction.get("beats")
-            if beats:
-                _beat_type_labels = {"setup": "铺垫", "provoke": "激化", "twist": "转折", "payoff": "爆发", "hook": "悬念"}
-                beats_lines = []
-                for idx, b in enumerate(beats, 1):
-                    beat_type = _beat_type_labels.get(b.get("type", ""), b.get("type", ""))
-                    content = b.get("content", "")
-                    emotion = b.get("emotion", "")
-                    beats_lines.append(f"{idx}. [{beat_type}] {content} ({emotion})")
-                prediction_text += "\n节拍编排：\n" + "\n".join(beats_lines)
-
-        # ---- 用户写作风格偏好（已在并行区启动） ----
-        user_style_rules, _user_style_preset = await _user_style_task
-
-        chapter_state_context: Optional[str] = pre_collected_context.get("chapter_state_context")
-        power_system_context: Optional[str] = pre_collected_context.get("power_system")
-        relationship_context: Optional[str] = pre_collected_context.get("relationship_context")
-
-        # ---- Phase4: 轨迹分析上下文（已在并行区启动） ----
-        trajectory_context: Optional[str] = None
-        if _trajectory_task is not None:
-            trajectory_context = await _trajectory_task
-
-        had_initial_foreshadowing = bool(foreshadowing_urgency_brief or foreshadowing_structured)
-        if had_initial_foreshadowing:
-            fs_payload = foreshadowing_structured or {}
-            if not fs_payload.get("should_resolve") and foreshadowing_urgency_brief:
-                fs_payload["brief"] = foreshadowing_urgency_brief
-            await telemetry.emit_foreshadowing(fs_payload)
-
-        base_context_middle = {}
-        if blueprint_dict and blueprint_dict.get("world_setting"):
-            base_context_middle["world"] = str(blueprint_dict["world_setting"])[:200]
-        if not foreshadowing_structured and pre_collected_context.get("foreshadowing_data"):
-            foreshadowing_structured = pre_collected_context.get("foreshadowing_data")
-
-        evidence_result = await self.evidence_router.execute(
-            plan=context_plan,
+        evidence_stage = await self.generation_evidence_stage_service.resolve_evidence_stage(
+            config=config,
             project_id=project_id,
             chapter_number=chapter_number,
             user_id=user_id,
-            history_context=history_context,
-            local_queries=(rag_stats or {}).get("queries") or [],
-            retrieval_mode=config.rag_retrieval_mode,
-            session=self.session,
-            prompt_service=self.prompt_service,
-            llm_service=self.llm_service,
-            rag_context=rag_context,
-            knowledge_context=knowledge_context,
-            context_data=base_context_middle,
-            foreshadowing_data=foreshadowing_structured or (
-                {"brief": foreshadowing_urgency_brief} if foreshadowing_urgency_brief else {}
-            ),
-            power_system_context=power_system_context,
-            relationship_context=relationship_context,
             blueprint_dict=blueprint_dict,
-            involved_characters=introduced_characters,
+            history_context=history_context,
+            context_plan=context_plan,
+            chapter_mission=chapter_mission,
+            writing_notes=writing_notes,
+            project_reference_novels=project_reference_novels,
+            introduced_characters=introduced_characters,
+            pre_collected_context=pre_collected_context,
+            prefetch_tasks=prefetch_tasks,
+            resolved_prefetch=resolved_prefetch,
+            prediction=(outline.metadata_ or {}).get("prediction"),
+            telemetry=telemetry,
         )
-        chapter_state_context = chapter_state_context or evidence_result.context_data.get("chapter_state_context")
-        power_system_context = power_system_context or evidence_result.power_system_context or None
-        relationship_context = relationship_context or evidence_result.relationship_context or None
-        if not foreshadowing_structured and evidence_result.foreshadowing_data:
-            foreshadowing_structured = evidence_result.foreshadowing_data
-        if foreshadowing_structured and not foreshadowing_urgency_brief and foreshadowing_structured.get("brief"):
-            foreshadowing_urgency_brief = foreshadowing_structured.get("brief")
-        if not had_initial_foreshadowing and evidence_result.foreshadowing_data:
-            await telemetry.emit_foreshadowing(evidence_result.foreshadowing_data)
-        refreshed_context_middle = dict(base_context_middle)
-        if power_system_context:
-            refreshed_context_middle["cultivation_system"] = power_system_context[:500]
-        if chapter_state_context:
-            refreshed_context_middle["current_realm"] = evidence_result.context_data.get("current_realm") or "详见角色状态面板"
-        if refreshed_context_middle:
-            await telemetry.emit_context(refreshed_context_middle)
-        retrieval_evidence_summary = evidence_result.evidence_pack.graded_summary
-        await telemetry.emit_retrieval_evidence_summary(retrieval_evidence_summary)
-
-        # ---- 写作策略协调：检测冲突、调整权重 ----
-        from ..core.writing_strategy import WritingStrategyResolver
-        writing_strategy = await WritingStrategyResolver.resolve(
-            preset=config.preset,
-            user_style_preset=_user_style_preset,
-            user_style_rules=user_style_rules,
-            genre=blueprint_dict.get("genre", "") if blueprint_dict else "",
-            has_reference_novels=bool(project_reference_novels),
-            has_template=(writing_notes != "无额外写作指令"),
-            session=self.session,
-        )
+        prediction_text = evidence_stage.prediction_text
+        user_style_rules = evidence_stage.user_style_rules
+        _user_style_preset = evidence_stage.user_style_preset
+        fingerprint_context = evidence_stage.fingerprint_context
+        trajectory_context = evidence_stage.trajectory_context
+        chapter_state_context = evidence_stage.chapter_state_context
+        power_system_context = evidence_stage.power_system_context
+        relationship_context = evidence_stage.relationship_context
+        foreshadowing_urgency_brief = evidence_stage.foreshadowing_urgency_brief
+        foreshadowing_structured = evidence_stage.foreshadowing_structured
+        retrieval_evidence_summary = evidence_stage.retrieval_evidence_summary
+        writing_strategy = evidence_stage.writing_strategy
         if writing_strategy.warnings:
             logger.info("写作策略冲突: %s", "; ".join(writing_strategy.warnings))
 
         chapter_word_count_min, chapter_word_count_max, chapter_target_word_count = self.generation_policy_service.resolve_word_count_bounds()
-        prompt_sections = self.prompt_assembly_service.build_prompt_sections(
+        prompt_stage = await self.generation_prompt_stage_service.build_prompt_stage(
+            config=config,
+            context_plan=context_plan,
+            writer_prompt=writer_prompt,
             writer_blueprint=writer_blueprint,
-            previous_summary=history_context["previous_summary"],
-            previous_tail=history_context["previous_tail"],
+            history_context=history_context,
             chapter_mission=chapter_mission,
             mission_brief_text=mission_brief_text,
             rag_context=rag_context,
@@ -1095,7 +716,6 @@ class PipelineOrchestrator(PipelineReviewMixin):
             foreshadowing_urgency_brief=foreshadowing_urgency_brief,
             hook_continuity_brief=hook_continuity_brief,
             emotion_expression_brief=emotion_expression_brief,
-            story_skeleton=history_context.get("story_skeleton"),
             genre_prompt_injection=genre_prompt_injection,
             fingerprint_context=fingerprint_context,
             prediction_text=prediction_text,
@@ -1109,84 +729,20 @@ class PipelineOrchestrator(PipelineReviewMixin):
             power_system_context=power_system_context,
             relationship_context=relationship_context,
             trajectory_context=trajectory_context,
+            project=project,
+            chapter_number=chapter_number,
+            project_reference_novels=project_reference_novels,
+            reference_service=reference_service,
+            enhanced_context=enhanced_context,
         )
-        prompt_sections, prompt_compile_summary = self.prompt_compiler.compile(
-            plan=context_plan,
-            sections=prompt_sections,
-        )
+        prompt_sections = prompt_stage.prompt_sections
+        prompt_compile_summary = prompt_stage.prompt_compile_summary
+        prompt_input = prompt_stage.prompt_input
+        writer_prompt = prompt_stage.writer_prompt
+        reference_prose_text = prompt_stage.reference_prose_text
+        fusion_dna_text = prompt_stage.fusion_dna_text
         await telemetry.emit_prompt_compile_summary(prompt_compile_summary)
-
-        # ---- Literary 模式：范文注入 + 叙事多样性约束 ----
-        reference_prose_text = ""
-        if config.enable_reference_prose:
-            try:
-                from .reference_prose_service import ReferenceProseService
-                refs = ReferenceProseService.select_references(
-                    outline_summary,
-                    chapter_mission,
-                    project_reference_novels=project_reference_novels,
-                )
-                reference_prose_text = ReferenceProseService.format_for_prompt(refs)
-                if reference_prose_text:
-                    prompt_sections.append(("[风格参考]", reference_prose_text))
-                    if project_reference_novels:
-                        style_samples = reference_service.format_style_samples_for_prompt(project_reference_novels)
-                        if style_samples:
-                            prompt_sections.append(("[库风格样本]", style_samples))
-                        memory_card_text = reference_service.format_memory_card_for_prompt(project_reference_novels)
-                        if memory_card_text:
-                            prompt_sections.append(("[参考小说创作指导]", memory_card_text))
-            except Exception as e:
-                logger.warning("范文注入失败（不影响生成）: %s", e)
-
-        # ---- 融合DNA注入：替代原始拼接，提供统一的风格和结构指引 ----
-        fusion_dna_text = ""
-        if hasattr(project, 'fusion_dna') and project.fusion_dna:
-            fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
-            if fusion_dna_text:
-                prompt_sections.append(("[创作DNA融合指引]", fusion_dna_text))
-
-        narrative_variety_text = ""
-        if config.enable_narrative_variety:
-            try:
-                from .narrative_variety_tracker import NarrativeVarietyTracker, ChapterPattern
-                recent_patterns = []
-                for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
-                    if ch.chapter_number < chapter_number and ch.selected_version:
-                        ch_mission = (ch.selected_version.metadata_ or {}).get("chapter_mission")
-                        pattern = ChapterPattern.from_mission_and_text(
-                            ch.chapter_number, ch_mission, ch.selected_version.content
-                        )
-                        recent_patterns.append(pattern)
-
-                if len(recent_patterns) >= 2:
-                    tracker = NarrativeVarietyTracker()
-                    variety_constraints = tracker.analyze_variety(recent_patterns, chapter_number)
-                    structure_suggestion = tracker.suggest_structure(recent_patterns, chapter_mission)
-                    variety_constraints.update(structure_suggestion)
-                    narrative_variety_text = tracker.format_constraints_for_prompt(variety_constraints)
-                    if narrative_variety_text:
-                        prompt_sections.append(("[叙事差异化约束]", narrative_variety_text))
-            except Exception as e:
-                logger.warning("叙事多样性追踪失败（不影响生成）: %s", e)
-
-        if enhanced_flow and enhanced_context:
-            prompt_sections = enhanced_flow.build_enhanced_prompt_sections(prompt_sections, enhanced_context)
-
-        # P5 优化: Prompt Token Budget — 截断超额 section + 重排以利用 Prompt Cache
-        from .prompt_budget_manager import PromptBudgetManager
-        _budget_mgr = PromptBudgetManager()
-        prompt_sections = _budget_mgr.apply_budget(prompt_sections)
-        prompt_sections = _budget_mgr.reorder_for_cache(prompt_sections)
-
-        prompt_input = "\n\n".join(f"{title}\n{content}" for title, content in prompt_sections if content)
         logger.debug("Pipeline prompt length: %s chars", len(prompt_input))
-
-        # ---- Literary 模式：加载精简 prompt ----
-        if config.use_slim_prompt:
-            slim_prompt = await self.prompt_service.get_prompt("writing_v3")
-            if slim_prompt:
-                writer_prompt = slim_prompt
 
         _mark_stage("build_generation_prompt", stage_started)
         await _emit_stage("build_generation_prompt", "完成上下文组装，开始写作")
@@ -1194,185 +750,45 @@ class PipelineOrchestrator(PipelineReviewMixin):
         # ========== Literary 模式：场景级分步生成 ==========
         if config.enable_scene_by_scene:
             await _emit_stage("generate_scene_by_scene", "按场景分步生成中")
-            stage_started = time.perf_counter()
-
-            # 声纹样本（已在 prepare_context 阶段提前启动，此处仅 await）
-            voice_samples_text = ""
-            if _voice_samples_task is not None:
-                voice_samples_text = await _voice_samples_task
-
-            prompt_sections_data = {
-                "chapter_goals": f"[当前章节目标]\n标题：{outline_title}\n摘要：{outline_summary}\n写作指令：{writing_notes}",
-                "mission_brief": mission_brief_text or "",
-                "director_script": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else "",
-                "story_skeleton": history_context.get("story_skeleton", ""),
-                "previous_summary": history_context["previous_summary"],
-                "previous_tail": history_context["previous_tail"],
-                "writer_blueprint": json.dumps(writer_blueprint, ensure_ascii=False, indent=2)[:3000],
-                "forbidden_characters": ", ".join(forbidden_characters) if forbidden_characters else "",
-                "reference_prose": reference_prose_text,
-                "fusion_dna": fusion_dna_text,
-                "voice_samples": voice_samples_text,
-            }
-            prompt_sections_data = self.prompt_compiler.compile_scene_prompt_data(
-                plan=context_plan,
-                prompt_sections_data=prompt_sections_data,
-            )
-
-            version = await self.scene_generation_service.generate_scene_by_scene(
-                prompt_sections_data=prompt_sections_data,
+            literary_result = await self.literary_generation_flow_service.run(
+                voice_samples_task=_voice_samples_task,
+                context_plan=context_plan,
+                prompt_compiler=self.prompt_compiler,
+                prompt_sections_data={
+                    "chapter_goals": f"[当前章节目标]\n标题：{outline_title}\n摘要：{outline_summary}\n写作指令：{writing_notes}",
+                    "mission_brief": mission_brief_text or "",
+                    "director_script": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else "",
+                    "story_skeleton": history_context.get("story_skeleton", ""),
+                    "previous_summary": history_context["previous_summary"],
+                    "previous_tail": history_context["previous_tail"],
+                    "writer_blueprint": json.dumps(writer_blueprint, ensure_ascii=False, indent=2)[:3000],
+                    "forbidden_characters": ", ".join(forbidden_characters) if forbidden_characters else "",
+                    "reference_prose": reference_prose_text,
+                    "fusion_dna": fusion_dna_text,
+                },
                 writer_prompt=writer_prompt,
                 chapter_mission=chapter_mission,
                 forbidden_characters=forbidden_characters,
                 allowed_new_characters=allowed_new_characters,
                 user_id=user_id,
                 genre_profile=genre_profile,
-                voice_samples_text=voice_samples_text,
-                max_word_count=chapter_word_count_max,
-            )
-            versions = [version]
-            _mark_stage("generate_scene_by_scene", stage_started)
-
-            # ---- Literary 后处理：雕塑式重写（替代 multi-version review + optimizer） ----
-            stage_started = time.perf_counter()
-            best_content = version["content"]
-            review_summaries: Dict[str, Any] = {}
-            literary_profile = self.generation_policy_service.resolve_literary_postprocess_profile(
+                chapter_word_count_max=chapter_word_count_max,
+                chapter_target_word_count=chapter_target_word_count,
+                chapter_word_count_min=chapter_word_count_min,
                 config=config,
-                chapter_mission=chapter_mission,
-                target_word_count=chapter_target_word_count,
+                outline_title=outline_title,
+                history_context=history_context,
+                project_id=project_id,
+                chapter_number=chapter_number,
+                enhanced_context=enhanced_context,
+                run_enrichment=self._run_enrichment,
+                run_quality_detection=self._run_quality_detection,
+                mark_stage=_mark_stage,
             )
-            review_summaries["literary_profile"] = literary_profile
-
-            if literary_profile["enable_prose_sculpting"]:
-                from .prose_sculptor_service import ProseSculptorService
-                sculptor = ProseSculptorService(self.llm_service)
-
-                best_content, rhythm_report = await sculptor.sculpt_rhythm(
-                    best_content, user_id=user_id, max_word_count=chapter_word_count_max,
-                )
-                review_summaries["rhythm_sculpting"] = rhythm_report
-
-                best_content, density_report = await sculptor.sculpt_density(
-                    best_content, user_id=user_id, max_word_count=chapter_word_count_max,
-                )
-                review_summaries["density_sculpting"] = density_report
-
-            if literary_profile["enable_golden_paragraph"]:
-                from .prose_sculptor_service import ProseSculptorService
-                sculptor = ProseSculptorService(self.llm_service)
-                best_content, golden_report = await sculptor.enhance_peak_moments(
-                    best_content, user_id=user_id, chapter_mission=chapter_mission,
-                )
-                review_summaries["golden_paragraph"] = golden_report
-
-            # 人味化：先规则修复（无 LLM），再视分数决定是否 LLM 修复
-            if literary_profile["enable_humanization"]:
-                try:
-                    from .humanization_service import HumanizationService
-                    h_service = HumanizationService(self.session, self.llm_service)
-                    h_report = h_service.scan(best_content)
-                    best_content = h_service.apply_rule_fixes(best_content, h_report)
-                    h_report = h_service.scan(best_content)  # 规则修复后重扫
-                    humanized = False
-                    if h_report.score < config.humanization_threshold:
-                        best_content = await h_service.humanize(
-                            best_content, h_report, user_id=user_id,
-                        )
-                        humanized = True
-                    review_summaries["humanization"] = {
-                        "score": h_report.score,
-                        "issues_count": len(h_report.issues),
-                        "humanized": humanized,
-                    }
-                except Exception as e:
-                    logger.warning("人味化检查失败: %s", e)
-
-            best_content, enrichment_report = await self._run_enrichment(
-                best_content,
-                user_id=user_id,
-                target_word_count=chapter_target_word_count,
-                min_word_count=chapter_word_count_min,
-                max_word_count=chapter_word_count_max,
-            )
-            if enrichment_report:
-                review_summaries["enrichment"] = enrichment_report
-
-            # 最终护栏
-            guardrail_result = self.guardrails.check(
-                generated_text=best_content,
-                forbidden_characters=forbidden_characters,
-                allowed_new_characters=allowed_new_characters,
-                pov=chapter_mission.get("pov") if chapter_mission else None,
-            )
-            if not guardrail_result.passed:
-                best_content = self.guardrails.apply_local_patches(best_content, guardrail_result)
-
-            _mark_stage("literary_post_processing", stage_started)
-
-            version["content"] = best_content
-            version.setdefault("metadata", {})["review_summaries"] = review_summaries
-
-            # 背景分析任务
-            six_dimension_payload = None
-            if enhanced_flow and config.enable_six_dimension:
-                six_dimension_payload = {
-                    "project_id": project_id,
-                    "chapter_number": chapter_number,
-                    "chapter_title": outline_title,
-                    "chapter_content": best_content,
-                    "chapter_plan": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
-                    "previous_summary": history_context["previous_summary"],
-                }
-
-            async def _do_quality_detection_literary() -> None:
-                recent_openings = [
-                    ch["summary"][:200]
-                    for ch in history_context.get("completed_chapters", [])
-                    if ch.get("summary")
-                ][-3:]
-                quality_report = await self._run_quality_detection(
-                    best_content,
-                    chapter_number=chapter_number,
-                    chapter_mission=chapter_mission,
-                    previous_chapters_openings=recent_openings,
-                    user_id=user_id,
-                )
-                review_summaries["quality_detection"] = quality_report
-
-            stage_started = time.perf_counter()
-            await _do_quality_detection_literary()
-            _mark_stage("literary_readonly_analyses", stage_started)
-
-            # 最终字数兜底：如果后处理导致超限，执行压缩
-            if len(best_content) > chapter_word_count_max:
-                logger.info("Literary最终字数超限 (%d > %d)，触发兜底压缩", len(best_content), chapter_word_count_max)
-                best_content = await self.text_compression_service.compress_overlength(
-                    best_content,
-                    target_max=chapter_word_count_max,
-                    user_id=user_id,
-                )
-            # 硬截断兜底：压缩失败时保证不超限
-            if len(best_content) > chapter_word_count_max:
-                logger.warning("Literary压缩后仍超限 (%d > %d)，触发硬截断", len(best_content), chapter_word_count_max)
-                best_content = self.text_compression_service.hard_trim_to_limit(best_content, chapter_word_count_max)
-
-            # Phase3: 实体别名自动替换（零LLM，纯规则）
-            if config.enable_anti_hallucination:
-                try:
-                    async with AsyncSessionLocal() as bg_session:
-                        from .entity_registry_service import EntityRegistryService
-                        entity_service = EntityRegistryService(bg_session)
-                        alias_map = await entity_service.build_alias_map(project_id)
-                        if alias_map:
-                            for alias, canonical in alias_map.items():
-                                if alias != canonical and alias in best_content:
-                                    best_content = best_content.replace(alias, canonical)
-                                    logger.info("Literary实体别名替换: %s -> %s", alias, canonical)
-                except Exception as e:
-                    logger.warning("Literary实体别名替换失败（不影响生成）: %s", e)
-
-            version["content"] = best_content
+            version = literary_result.version
+            best_content = literary_result.best_content
+            review_summaries = literary_result.review_summaries
+            six_dimension_payload = literary_result.six_dimension_payload
 
             # 持久化
             await _emit_stage("persist_versions", "写入章节版本中")
@@ -1382,124 +798,75 @@ class PipelineOrchestrator(PipelineReviewMixin):
             versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata_list)
             _mark_stage("persist_versions", stage_started)
 
-            if six_dimension_payload and versions_models:
-                best_version_id = versions_models[0].id
-                six_dim_task = asyncio.create_task(
-                    self._run_six_dimension_review_async(version_id=best_version_id, **six_dimension_payload)
-                )
-                self._background_tasks.add(six_dim_task)
-                six_dim_task.add_done_callback(self._background_tasks.discard)
-
-            # Literary 模式同样需要更新记忆层（与标准模式保持一致）
-            # 使用后台任务避免阻塞章节返回
-            if config.enable_memory:
-                memory_task = asyncio.create_task(
-                    self._run_memory_update_async(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_content=best_content,
-                        character_names=introduced_characters,
-                        user_id=user_id,
-                    )
-                )
-                self._background_tasks.add(memory_task)
-                memory_task.add_done_callback(self._background_tasks.discard)
-
-            # 伏笔自动提取后台任务（与记忆更新并行）
-            _fs_task = asyncio.create_task(
-                self._run_foreshadowing_extraction_async(
-                    project_id=project_id,
-                    chapter_id=chapter.id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    user_id=user_id,
-                )
+            self.generation_finalize_service.schedule_followups(
+                task_registry=self._background_tasks,
+                versions_models=versions_models,
+                best_version_index=0,
+                project_id=project_id,
+                chapter=chapter,
+                chapter_number=chapter_number,
+                best_content=best_content,
+                introduced_characters=introduced_characters,
+                user_id=user_id,
+                enable_memory=config.enable_memory,
+                six_dimension_payload=six_dimension_payload,
             )
-            self._background_tasks.add(_fs_task)
-            _fs_task.add_done_callback(self._background_tasks.discard)
 
-            variants = [{"index": 0, "version_id": versions_models[0].id, "content": version["content"], "metadata": version.get("metadata")}]
-            stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
-
-            # 更新进度：章节生成完成
-            await progress_service.update_stage(
-                project_id, chapter_number,
-                WritingStage.MAIN_WRITING,
-                StageStatus.COMPLETED,
-                progress=100,
-                message="章节生成完成"
+            variants = self.generation_finalize_service.build_single_variant(
+                version_model=versions_models[0],
+                version=version,
             )
-            await progress_service.complete(project_id, chapter_number, success=True)
+            telemetry.stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
+
+            await self.generation_finalize_service.complete_progress(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                message="章节生成完成",
+            )
 
             # 完成写作任务档案（奏章批复）
-            if archive_id:
-                try:
-                    final_version_id = versions_models[0].id if versions_models else None
-                    await archive_service.complete_archive(
-                        archive_id,
-                        final_version_id=final_version_id,
-                        version_count=1,
-                        gatekeeper_score=None,
-                    )
-                except Exception as archive_err:
-                    logger.warning(f"Literary模式完成写作档案失败: {archive_err}")
+            await self.generation_finalize_service.complete_archive(
+                archive_service=archive_service,
+                archive_id=archive_id,
+                variants=variants,
+                versions_models=versions_models,
+                best_version_index=0,
+                version_count=1,
+                gatekeeper_score=None,
+                warning_label="Literary模式完成写作档案失败",
+            )
 
-            verification_report = self.narrative_verifier.verify(
+            return await self.generation_finalize_service.finalize_response(
                 plan=context_plan,
                 chapter_text=best_content,
                 review_summaries=review_summaries,
-                evidence_summary=retrieval_evidence_summary,
-            )
-            self.generation_result_service.attach_verification_report(
-                verification_report=verification_report,
+                retrieval_evidence_summary=retrieval_evidence_summary,
                 versions=[version],
                 variants=variants,
                 best_version_index=0,
-            )
-            await telemetry.emit_verification_report(verification_report)
-            await _emit_stage("completed", "章节生成完成")
-
-            debug_metadata = self.generation_result_service.build_debug_metadata(
-                version_count=1,
-                mode="literary_scene_by_scene",
-                stage_flags=self.generation_policy_service.build_stage_flags(config),
-                rag_stats=rag_stats,
-                context_plan=context_plan_payload,
-                retrieval_evidence_summary=retrieval_evidence_summary,
-                prompt_compile_summary=prompt_compile_summary,
-                verification_report=verification_report,
-                stage_timings_ms=stage_timings_ms,
-                strategy_warnings=writing_strategy.warnings,
-            )
-            return self.generation_result_service.build_response_payload(
+                telemetry=telemetry,
+                emit_completed=lambda: telemetry.emit_completed(chapter_number),
                 project_id=project_id,
                 chapter_number=chapter_number,
                 preset=config.preset,
-                best_version_index=0,
-                variants=variants,
-                review_summaries=review_summaries,
-                debug_metadata=debug_metadata,
+                mode="literary_scene_by_scene",
+                config=config,
+                rag_stats=rag_stats,
+                context_plan_payload=context_plan_payload,
+                prompt_compile_summary=prompt_compile_summary,
+                stage_timings_ms=telemetry.stage_timings_ms,
+                strategy_warnings=writing_strategy.warnings,
             )
 
         if config.enable_fast_path:
             await _emit_stage("generate_fast_version", "快速模式：生成正文中")
 
             async def _stream_fast_text_delta(delta: str) -> None:
-                await _emit_stream(
-                    "text_delta",
-                    {
-                        "delta": delta,
-                        "stage": "generate_fast_version",
-                        "chapter_number": chapter_number,
-                    },
-                )
+                await telemetry.emit_text_delta(delta, "generate_fast_version", chapter_number)
 
-            stage_started = time.perf_counter()
-            version = await self._generate_single_version(
-                index=0,
+            fast_result = await self.fast_generation_flow_service.run(
                 prompt_input=prompt_input,
                 writer_prompt=writer_prompt,
-                style_hint=None,
                 project_id=project_id,
                 chapter_number=chapter_number,
                 outline_title=outline_title,
@@ -1512,82 +879,18 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 memory_context=memory_context,
                 enhanced_context=enhanced_context,
                 config=config,
-                target_word_count=chapter_target_word_count,
-                max_word_count=chapter_word_count_max,
+                chapter_target_word_count=chapter_target_word_count,
+                chapter_word_count_max=chapter_word_count_max,
                 genre_profile=genre_profile,
-                disable_guardrail_rewrite=config.disable_guardrail_rewrite,
-                stream_callback=_stream_fast_text_delta if stream_handler else None,
+                history_context=history_context,
+                emit_text_delta=_stream_fast_text_delta if stream_handler else None,
+                mark_stage=_mark_stage,
+                run_polish=self._run_polish,
             )
-            _mark_stage("generate_fast_version", stage_started)
-
-            best_content = version.get("content", "")
-            review_summaries: Dict[str, Any] = {}
-
-            if config.enable_lightweight_humanization:
-                stage_started = time.perf_counter()
-                try:
-                    from .humanization_service import HumanizationService
-                    h_service = HumanizationService(self.session, self.llm_service)
-                    h_report = h_service.scan(best_content)
-                    best_content = h_service.apply_rule_fixes(best_content, h_report)
-                    review_summaries["lightweight_humanization"] = {
-                        "score": h_report.score,
-                        "issues_count": len(h_report.issues),
-                    }
-                except Exception as e:
-                    logger.warning("Fast 规则人味化失败（不影响生成）: %s", e)
-                    review_summaries["lightweight_humanization"] = {"error": str(e)}
-                _mark_stage("fast_lightweight_humanization", stage_started)
-
-            if config.enable_polish:
-                stage_started = time.perf_counter()
-                best_content, polish_report = await self._run_polish(
-                    best_content,
-                    user_id=user_id,
-                    max_word_count=chapter_word_count_max,
-                )
-                review_summaries["polish"] = polish_report
-                _mark_stage("fast_optional_polish", stage_started)
-
-            if len(best_content) > chapter_word_count_max:
-                logger.info(
-                    "Fast模式最终字数超限 (%d > %d)，触发兜底压缩",
-                    len(best_content),
-                    chapter_word_count_max,
-                )
-                best_content = await self.text_compression_service.compress_overlength(
-                    best_content,
-                    target_max=chapter_word_count_max,
-                    user_id=user_id,
-                )
-            # 硬截断兜底：压缩失败时保证不超限
-            if len(best_content) > chapter_word_count_max:
-                logger.warning("Fast压缩后仍超限 (%d > %d)，触发硬截断", len(best_content), chapter_word_count_max)
-                best_content = self.text_compression_service.hard_trim_to_limit(best_content, chapter_word_count_max)
-
-            # Phase3: 实体别名自动替换（零LLM，纯规则）
-            if config.enable_anti_hallucination:
-                try:
-                    async with AsyncSessionLocal() as bg_session:
-                        from .entity_registry_service import EntityRegistryService
-                        entity_service = EntityRegistryService(bg_session)
-                        alias_map = await entity_service.build_alias_map(project_id)
-                        if alias_map:
-                            for alias, canonical in alias_map.items():
-                                if alias != canonical and alias in best_content:
-                                    best_content = best_content.replace(alias, canonical)
-                                    logger.info("Fast实体别名替换: %s -> %s", alias, canonical)
-                except Exception as e:
-                    logger.warning("Fast实体别名替换失败（不影响生成）: %s", e)
-
-            version["content"] = best_content
-            review_summaries["quality_detection"] = {"status": "scheduled_async"}
-            if config.enable_anti_hallucination:
-                review_summaries["anti_hallucination"] = {
-                    "status": "scheduled_async",
-                    "mode": "local_registry" if config.use_local_anti_hallucination else "llm",
-                }
-            version.setdefault("metadata", {})["review_summaries"] = review_summaries
+            version = fast_result.version
+            best_content = fast_result.best_content
+            review_summaries = fast_result.review_summaries
+            _stage_b_params = fast_result.stage_b_params
 
             stage_started = time.perf_counter()
             await _emit_stage("persist_versions", "写入章节版本中")
@@ -1598,123 +901,72 @@ class PipelineOrchestrator(PipelineReviewMixin):
             )
             _mark_stage("persist_versions", stage_started)
 
-            _stage_b_params: Optional[Dict[str, Any]] = {
-                "analysis_snapshot": best_content,
-                "project_id": project_id,
-                "chapter_number": chapter_number,
-                "chapter_mission": chapter_mission,
-                "previous_summary": history_context["previous_summary"],
-                "completed_chapters": history_context.get("completed_chapters", []),
-                "enable_reader_sim": False,
-                "enable_anti_hallucination": config.enable_anti_hallucination,
-                "anti_hallucination_local_only": config.use_local_anti_hallucination,
-                "user_id": user_id,
-            }
-
-            if _stage_b_params and versions_models:
-                stage_b_bg_task = asyncio.create_task(
-                    self._run_stage_b_analyses_async(
-                        version_id=versions_models[0].id,
-                        **_stage_b_params,
-                    )
-                )
-                self._background_tasks.add(stage_b_bg_task)
-                stage_b_bg_task.add_done_callback(self._background_tasks.discard)
-
-            if config.enable_memory:
-                memory_task = asyncio.create_task(
-                    self._run_memory_update_async(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_content=best_content,
-                        character_names=introduced_characters,
-                        user_id=user_id,
-                    )
-                )
-                self._background_tasks.add(memory_task)
-                memory_task.add_done_callback(self._background_tasks.discard)
-
-            # 伏笔自动提取后台任务（与记忆更新并行）
-            _fs_task = asyncio.create_task(
-                self._run_foreshadowing_extraction_async(
-                    project_id=project_id,
-                    chapter_id=chapter.id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    user_id=user_id,
-                )
+            self.generation_finalize_service.schedule_followups(
+                task_registry=self._background_tasks,
+                versions_models=versions_models,
+                best_version_index=0,
+                project_id=project_id,
+                chapter=chapter,
+                chapter_number=chapter_number,
+                best_content=best_content,
+                introduced_characters=introduced_characters,
+                user_id=user_id,
+                enable_memory=config.enable_memory,
+                stage_b_params=_stage_b_params,
             )
-            self._background_tasks.add(_fs_task)
-            _fs_task.add_done_callback(self._background_tasks.discard)
 
-            variants = [
-                {
-                    "index": 0,
-                    "version_id": versions_models[0].id,
-                    "content": version["content"],
-                    "metadata": version.get("metadata"),
-                }
-            ]
-            stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
+            variants = self.generation_finalize_service.build_single_variant(
+                version_model=versions_models[0],
+                version=version,
+            )
+            telemetry.stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
 
-            # 完成写作任务档案（奏章批复）
-            if archive_id:
-                try:
-                    final_version_id = versions_models[0].id if versions_models else None
-                    await archive_service.complete_archive(
-                        archive_id,
-                        final_version_id=final_version_id,
-                        version_count=1,
-                        gatekeeper_score=None,
-                    )
-                except Exception as archive_err:
-                    logger.warning(f"Fast模式完成写作档案失败: {archive_err}")
+            await self.generation_finalize_service.complete_progress(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                message="章节生成完成",
+            )
 
-            verification_report = self.narrative_verifier.verify(
+            await self.generation_finalize_service.complete_archive(
+                archive_service=archive_service,
+                archive_id=archive_id,
+                variants=variants,
+                versions_models=versions_models,
+                best_version_index=0,
+                version_count=1,
+                gatekeeper_score=None,
+                warning_label="Fast模式完成写作档案失败",
+            )
+
+            return await self.generation_finalize_service.finalize_response(
                 plan=context_plan,
                 chapter_text=best_content,
                 review_summaries=review_summaries,
-                evidence_summary=retrieval_evidence_summary,
-            )
-            self.generation_result_service.attach_verification_report(
-                verification_report=verification_report,
+                retrieval_evidence_summary=retrieval_evidence_summary,
                 versions=[version],
                 variants=variants,
                 best_version_index=0,
-            )
-            await telemetry.emit_verification_report(verification_report)
-            await _emit_stage("completed", "章节生成完成")
-            debug_metadata = self.generation_result_service.build_debug_metadata(
-                version_count=1,
-                mode="fast_single_pass",
-                stage_flags=self.generation_policy_service.build_stage_flags(config),
-                rag_stats=rag_stats,
-                context_plan=context_plan_payload,
-                retrieval_evidence_summary=retrieval_evidence_summary,
-                prompt_compile_summary=prompt_compile_summary,
-                verification_report=verification_report,
-                stage_timings_ms=stage_timings_ms,
-                strategy_warnings=writing_strategy.warnings,
-            )
-            return self.generation_result_service.build_response_payload(
+                telemetry=telemetry,
+                emit_completed=lambda: telemetry.emit_completed(chapter_number),
                 project_id=project_id,
                 chapter_number=chapter_number,
                 preset=config.preset,
-                best_version_index=0,
-                variants=variants,
-                review_summaries=review_summaries,
-                debug_metadata=debug_metadata,
+                mode="fast_single_pass",
+                config=config,
+                rag_stats=rag_stats,
+                context_plan_payload=context_plan_payload,
+                prompt_compile_summary=prompt_compile_summary,
+                stage_timings_ms=telemetry.stage_timings_ms,
+                strategy_warnings=writing_strategy.warnings,
             )
 
         # ========== 标准模式：多版本并行生成 ==========
         await _emit_stage("generate_versions", "多版本生成中")
-        version_count = config.version_count
-        stage_started = time.perf_counter()
-        generation_result = await self.version_generation_service.run(
+        standard_result = await self.standard_generation_flow_service.run(
             prompt_input=prompt_input,
             writer_prompt=writer_prompt,
             enhanced_context=enhanced_context,
-            version_count=version_count,
+            config=config,
             project_id=project_id,
             chapter_number=chapter_number,
             outline_title=outline_title,
@@ -1725,84 +977,20 @@ class PipelineOrchestrator(PipelineReviewMixin):
             user_id=user_id,
             writer_blueprint=writer_blueprint,
             memory_context=memory_context,
-            config=config,
             chapter_target_word_count=chapter_target_word_count,
+            chapter_word_count_min=chapter_word_count_min,
             chapter_word_count_max=chapter_word_count_max,
             genre_profile=genre_profile,
+            history_context=history_context,
+            mark_stage=_mark_stage,
         )
-        versions: List[Dict[str, Any]] = generation_result["versions"]
-        _mark_stage("generate_versions", stage_started)
-
-        stage_started = time.perf_counter()
-        best_version_index = generation_result["best_version_index"]
-        ai_review_result = generation_result["ai_review_result"]
-        _mark_stage("ai_review", stage_started)
-
-        review_summaries: Dict[str, Any] = {}
-        six_dimension_payload: Optional[Dict[str, Any]] = None
-        _stage_b_params: Optional[Dict[str, Any]] = None
-        if ai_review_result:
-            review_summaries["ai_review"] = ai_review_result
-
-        if versions:
-            best_version = versions[best_version_index]
-            best_content = best_version["content"]
-            stage_started = time.perf_counter()
-            post_result = await self.standard_post_processing_service.run(
-                best_content=best_content,
-                best_version=best_version,
-                ai_review_result=ai_review_result,
-                review_summaries=review_summaries,
-                config=config,
-                project_id=project_id,
-                chapter_number=chapter_number,
-                chapter_mission=chapter_mission,
-                writer_blueprint=writer_blueprint,
-                history_context=history_context,
-                user_id=user_id,
-                chapter_word_count_min=chapter_word_count_min,
-                chapter_word_count_max=chapter_word_count_max,
-                chapter_target_word_count=chapter_target_word_count,
-                enhanced_flow=enhanced_flow,
-                outline_title=outline_title,
-                forbidden_characters=forbidden_characters,
-                allowed_new_characters=allowed_new_characters,
-            )
-            best_content = post_result["best_content"]
-            review_summaries = post_result["review_summaries"]
-            _stage_b_params = post_result["stage_b_params"]
-            _mark_stage("stage_a_post_processing", stage_started)
-
-        # 最终字数兜底（仅在 versions 非空时执行，best_content 在 if versions: 分支中定义）
-        if versions:
-            if len(best_content) > chapter_word_count_max:
-                logger.info("标准模式最终字数超限 (%d > %d)，触发兜底压缩", len(best_content), chapter_word_count_max)
-                best_content = await self.text_compression_service.compress_overlength(
-                    best_content,
-                    target_max=chapter_word_count_max,
-                    user_id=user_id,
-                )
-            # 硬截断兜底：压缩失败时保证不超限
-            if len(best_content) > chapter_word_count_max:
-                logger.warning("标准模式压缩后仍超限 (%d > %d)，触发硬截断", len(best_content), chapter_word_count_max)
-                best_content = self.text_compression_service.hard_trim_to_limit(best_content, chapter_word_count_max)
-
-            # Phase3: 实体别名自动替换（零LLM，纯规则）
-            if config.enable_anti_hallucination:
-                try:
-                    async with AsyncSessionLocal() as bg_session:
-                        from .entity_registry_service import EntityRegistryService
-                        entity_service = EntityRegistryService(bg_session)
-                        alias_map = await entity_service.build_alias_map(project_id)
-                        if alias_map:
-                            for alias, canonical in alias_map.items():
-                                if alias != canonical and alias in best_content:
-                                    best_content = best_content.replace(alias, canonical)
-                                    logger.info("标准模式实体别名替换: %s -> %s", alias, canonical)
-                except Exception as e:
-                    logger.warning("标准模式实体别名替换失败（不影响生成）: %s", e)
-
-            best_version["content"] = best_content
+        version_count = config.version_count
+        versions = standard_result.versions
+        best_version_index = standard_result.best_version_index
+        ai_review_result = standard_result.ai_review_result
+        best_content = standard_result.best_content
+        review_summaries = standard_result.review_summaries
+        _stage_b_params = standard_result.stage_b_params
 
         contents = [v.get("content", "") for v in versions]
         metadata = [v.get("metadata") for v in versions]
@@ -1814,1785 +1002,65 @@ class PipelineOrchestrator(PipelineReviewMixin):
         stage_started = time.perf_counter()
         _mark_stage("schedule_async_six_dimension", stage_started)
 
-        # Stage B 只读分析：后台异步执行，不阻塞响应返回
-        if _stage_b_params and 0 <= best_version_index < len(versions_models):
-            stage_b_version_id = versions_models[best_version_index].id
-            stage_b_bg_task = asyncio.create_task(
-                self._run_stage_b_analyses_async(
-                    version_id=stage_b_version_id,
-                    **_stage_b_params,
-                )
-            )
-            self._background_tasks.add(stage_b_bg_task)
-            stage_b_bg_task.add_done_callback(self._background_tasks.discard)
-
-        # 使用后台任务更新记忆层，避免阻塞章节返回（节省 30-60s）
-        if config.enable_memory:
-            memory_task = asyncio.create_task(
-                self._run_memory_update_async(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    character_names=introduced_characters,
-                    user_id=user_id,
-                )
-            )
-            self._background_tasks.add(memory_task)
-            memory_task.add_done_callback(self._background_tasks.discard)
-
-        # 伏笔自动提取后台任务（与记忆更新并行）
-        _fs_task = asyncio.create_task(
-            self._run_foreshadowing_extraction_async(
-                project_id=project_id,
-                chapter_id=chapter.id,
-                chapter_number=chapter_number,
-                chapter_content=best_content,
-                user_id=user_id,
-            )
+        self.generation_finalize_service.schedule_followups(
+            task_registry=self._background_tasks,
+            versions_models=versions_models,
+            best_version_index=best_version_index,
+            project_id=project_id,
+            chapter=chapter,
+            chapter_number=chapter_number,
+            best_content=best_content,
+            introduced_characters=introduced_characters,
+            user_id=user_id,
+            enable_memory=config.enable_memory,
+            stage_b_params=_stage_b_params,
+            run_post_processor=True,
         )
-        self._background_tasks.add(_fs_task)
-        _fs_task.add_done_callback(self._background_tasks.discard)
 
-        # 章节后处理异步任务（摘要生成+向量入库）
-        _pp_task = asyncio.create_task(
-            self._run_chapter_post_processor_async(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                content=best_content,
-                user_id=user_id,
-            )
+        variants = self.generation_finalize_service.build_variants(
+            versions_models=versions_models,
+            versions=versions,
         )
-        self._background_tasks.add(_pp_task)
-        _pp_task.add_done_callback(self._background_tasks.discard)
 
-        variants = []
-        for idx, version_model in enumerate(versions_models):
-            variant = {
-                "index": idx,
-                "version_id": version_model.id,
-                "content": versions[idx].get("content", ""),
-                "metadata": versions[idx].get("metadata"),
-            }
-            variants.append(variant)
+        telemetry.stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
 
-        stage_timings_ms["total_pipeline"] = int((time.perf_counter() - total_started) * 1000)
-
-        # 更新进度：章节生成完成
-        await progress_service.update_stage(
-            project_id, chapter_number,
-            WritingStage.MAIN_WRITING,
-            StageStatus.COMPLETED,
-            progress=100,
-            message=f"生成{version_count}个版本"
+        await self.generation_finalize_service.complete_progress(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            message=f"生成{version_count}个版本",
         )
-        await progress_service.complete(project_id, chapter_number, success=True)
 
-        # 完成写作任务档案（奏章批复）
-        if archive_id:
-            try:
-                # 获取最佳版本的审核评分（如果有）
-                gatekeeper_score = None
-                if review_summaries and len(review_summaries) > best_version_index:
-                    best_review = review_summaries[best_version_index]
-                    gatekeeper_score = best_review.get("overall_score")
+        await self.generation_finalize_service.complete_archive(
+            archive_service=archive_service,
+            archive_id=archive_id,
+            variants=variants,
+            versions_models=versions_models,
+            best_version_index=best_version_index,
+            version_count=version_count,
+            gatekeeper_score=(ai_review_result or {}).get("score") if isinstance(ai_review_result, dict) else None,
+            warning_label="完成写作档案失败",
+        )
 
-                final_version_id = None
-                if variants and best_version_index < len(variants):
-                    final_version_id = variants[best_version_index].get("version_id")
-
-                await archive_service.complete_archive(
-                    archive_id,
-                    final_version_id=final_version_id,
-                    version_count=version_count,
-                    gatekeeper_score=gatekeeper_score,
-                )
-            except Exception as archive_err:
-                logger.warning(f"完成写作档案失败: {archive_err}")
-
-        verification_report = self.narrative_verifier.verify(
+        return await self.generation_finalize_service.finalize_response(
             plan=context_plan,
             chapter_text=best_content if versions else "",
             review_summaries=review_summaries,
-            evidence_summary=retrieval_evidence_summary,
-        )
-        self.generation_result_service.attach_verification_report(
-            verification_report=verification_report,
+            retrieval_evidence_summary=retrieval_evidence_summary,
             versions=versions,
             variants=variants,
             best_version_index=best_version_index,
-        )
-        await telemetry.emit_verification_report(verification_report)
-        await _emit_stage("completed", "章节生成完成")
-
-        debug_metadata = self.generation_result_service.build_debug_metadata(
-            version_count=version_count,
-            stage_flags=self.generation_policy_service.build_stage_flags(config),
-            rag_stats=rag_stats,
-            context_plan=context_plan_payload,
-            retrieval_evidence_summary=retrieval_evidence_summary,
-            prompt_compile_summary=prompt_compile_summary,
-            verification_report=verification_report,
-            stage_timings_ms=stage_timings_ms,
-            strategy_warnings=writing_strategy.warnings,
-        )
-        return self.generation_result_service.build_response_payload(
+            telemetry=telemetry,
+            emit_completed=lambda: telemetry.emit_completed(chapter_number),
             project_id=project_id,
             chapter_number=chapter_number,
             preset=config.preset,
-            best_version_index=best_version_index,
-            variants=variants,
-            review_summaries=review_summaries,
-            debug_metadata=debug_metadata,
+            mode=None,
+            config=config,
+            rag_stats=rag_stats,
+            context_plan_payload=context_plan_payload,
+            prompt_compile_summary=prompt_compile_summary,
+            stage_timings_ms=telemetry.stage_timings_ms,
+            strategy_warnings=writing_strategy.warnings,
         )
-
-    async def _run_chapter_post_processor_async(
-        self,
-        project_id: str,
-        chapter_number: int,
-        content: str,
-        user_id: int,
-    ) -> None:
-        """后台执行章节后处理：生成摘要 -> 向量入库。"""
-        try:
-            from ..db.session import AsyncSessionLocal
-            async with AsyncSessionLocal() as pp_session:
-                try:
-                    pp_llm = LLMService(pp_session)
-                    processor = ChapterPostProcessor(pp_session, pp_llm)
-                    await processor.process_after_select(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        content=content,
-                        user_id=user_id,
-                    )
-                    logger.info(
-                        "异步章节后处理完成 project=%s chapter=%s",
-                        project_id, chapter_number,
-                    )
-                except Exception:
-                    await pp_session.rollback()
-                    raise
-        except Exception:
-            logger.exception(
-                "异步章节后处理失败 project=%s chapter=%s",
-                project_id, chapter_number,
-            )
-
-    async def _run_stage_b_analyses_async(
-        self,
-        *,
-        version_id: int,
-        analysis_snapshot: str,
-        project_id: str,
-        chapter_number: int,
-        chapter_mission: Optional[dict],
-        previous_summary: Optional[str],
-        completed_chapters: List[dict],
-        enable_reader_sim: bool,
-        enable_anti_hallucination: bool,
-        user_id: int,
-        anti_hallucination_local_only: bool = False,
-    ) -> None:
-        """后台异步执行 Stage B 只读分析（reader_sim / anti_hallucination / quality_detection），使用独立 DB session。"""
-        try:
-            async with AsyncSessionLocal() as bg_session:
-                try:
-                    bg_llm = LLMService(bg_session)
-                    bg_prompt = PromptService(bg_session)
-                    results: Dict[str, Any] = {}
-
-                    async def _bg_reader_sim() -> None:
-                        if not enable_reader_sim:
-                            return
-                        try:
-                            from .reader_simulator_service import ReaderSimulatorService, ReaderType
-                            service = ReaderSimulatorService(bg_session, bg_llm, bg_prompt)
-                            feedback = await service.simulate_reading_experience(
-                                chapter_content=analysis_snapshot,
-                                chapter_number=chapter_number,
-                                reader_types=[ReaderType.THRILL_SEEKER, ReaderType.CRITIC, ReaderType.CASUAL],
-                                previous_summary=previous_summary,
-                                user_id=user_id,
-                            )
-                            results["reader_simulator"] = feedback
-                        except Exception as e:
-                            logger.warning("后台读者模拟失败: %s", e)
-                            results["reader_simulator"] = {"error": str(e)}
-
-                    async def _bg_anti_hallucination() -> None:
-                        if not enable_anti_hallucination:
-                            return
-                        try:
-                            if anti_hallucination_local_only:
-                                from .entity_registry_service import EntityRegistryService
-
-                                entity_service = EntityRegistryService(bg_session)
-                                entities = await entity_service.get_all_entities(project_id)
-                                known_names = set()
-                                for entity in entities:
-                                    known_names.add(entity.canonical_name)
-                                    for alias in (entity.aliases or []):
-                                        known_names.add(alias.alias)
-
-                                unregistered = await entity_service.detect_unregistered_names(
-                                    project_id=project_id,
-                                    text=analysis_snapshot,
-                                    known_names=known_names,
-                                )
-                                warnings = [item for item in unregistered if item.get("occurrences", 0) >= 2][:8]
-                                criticals = [item for item in unregistered if item.get("occurrences", 0) >= 5][:3]
-                                report_lines = []
-                                for item in warnings:
-                                    report_lines.append(
-                                        f"- 未注册名称「{item.get('name', '')}」出现 {item.get('occurrences', 0)} 次"
-                                    )
-                                results["anti_hallucination"] = {
-                                    "mode": "local_registry",
-                                    "passed": len(criticals) == 0,
-                                    "registered_count": 0,
-                                    "warning_count": len(warnings),
-                                    "critical_count": len(criticals),
-                                    "report": "\n".join(report_lines) if report_lines else "本地实体检测未发现高频未注册名称",
-                                    "unregistered_top": warnings,
-                                }
-                            else:
-                                from .anti_hallucination_service import AntiHallucinationService
-
-                                ah_service = AntiHallucinationService(bg_session, bg_llm)
-                                ah_report = await ah_service.check_chapter(
-                                    project_id=project_id,
-                                    chapter_number=chapter_number,
-                                    chapter_text=analysis_snapshot,
-                                    user_id=user_id,
-                                )
-                                results["anti_hallucination"] = {
-                                    "mode": "llm",
-                                    "passed": ah_report.passed,
-                                    "registered_count": ah_report.registered_count,
-                                    "warning_count": ah_report.warning_count,
-                                    "critical_count": ah_report.critical_count,
-                                    "report": AntiHallucinationService.format_report_for_review(ah_report),
-                                }
-                        except Exception as e:
-                            logger.warning("后台反幻觉检查失败: %s", e)
-                            results["anti_hallucination"] = {"error": str(e)}
-
-                    async def _bg_quality_detection() -> None:
-                        try:
-                            recent_openings = [
-                                ch["summary"][:200]
-                                for ch in completed_chapters
-                                if ch.get("summary")
-                            ][-3:]
-                            opening_300 = analysis_snapshot[:300] if len(analysis_snapshot) > 300 else analysis_snapshot
-                            ending_300 = analysis_snapshot[-300:] if len(analysis_snapshot) > 300 else analysis_snapshot
-
-                            recent_patterns = ""
-                            if recent_openings:
-                                recent_patterns = "\n".join(
-                                    f"第{i+1}个近期章节开头：{op[:200]}"
-                                    for i, op in enumerate(recent_openings[-3:])
-                                )
-
-                            expected_beat = ""
-                            if chapter_mission:
-                                expected_beat = chapter_mission.get("macro_beat_description", "")
-                                sat_type = chapter_mission.get("satisfaction_design", {}).get("type", "")
-                                if sat_type:
-                                    expected_beat += f"（爽感类型：{sat_type}）"
-
-                            detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。\r
-\r
-## 分析维度\r
-\r
-### 1. 爽点密度\r
-检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。\r
-- coolpoint_score (0-10)：爽点密度评分\r
-- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）\r
-- coolpoint_issue：如果评分<6，指出具体问题\r
-\r
-### 2. 模式重复\r
-对比本章开头/结尾与近期章节是否存在套路化重复。\r
-- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）\r
-- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）\r
-- within_chapter_repetition：章节内部的句式/词汇重复\r
-\r
-### 3. 阶段性胜利 (Milestone Victory)\r
-判断本章是否包含"改变主角地位、能力层级或势力格局的决定性事件"。\r
-- milestone_victory_detected (true/false)：是否存在阶段性胜利\r
-- milestone_description：如果存在，一句话描述该阶段性胜利的内容\r
-\r
-[本章开头300字]\r
-{opening_300}\r
-\r
-[本章结尾300字]\r
-{ending_300}\r
-\r
-[本章预期]\r
-{expected_beat or "无特定预期"}\r
-\r
-[近期章节开头对比]\r
-{recent_patterns or "无（这是前几章）"}\r
-\r
-输出严格JSON格式：\r
-{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": ""}}"""
-
-                            response = await bg_llm.get_llm_response(
-                                system_prompt="你是一位擅长量化分析网文质量的编辑。只输出JSON，不要其他内容。",
-                                conversation_history=[{"role": "user", "content": detection_prompt}],
-                                temperature=0.2,
-                                user_id=user_id,
-                                timeout=60.0,
-                            )
-                            cleaned = remove_think_tags(response)
-                            normalized = unwrap_markdown_json(cleaned or response)
-                            try:
-                                result = json.loads(normalized)
-                            except json.JSONDecodeError:
-                                result = json.loads(repair_json(normalized))
-                            results["quality_detection"] = result
-                        except Exception as exc:
-                            logger.warning("后台质量检测失败: %s", exc)
-                            results["quality_detection"] = {"error": str(exc), "coolpoint_score": -1, "repetition_score": -1}
-
-                    await asyncio.gather(
-                        _bg_reader_sim(),
-                        _bg_anti_hallucination(),
-                        _bg_quality_detection(),
-                    )
-
-                    if results:
-                        db_result = await bg_session.execute(
-                            select(ChapterVersion).where(ChapterVersion.id == version_id)
-                        )
-                        version = db_result.scalars().first()
-                        if version:
-                            metadata = dict(version.metadata_ or {})
-                            review_summaries = dict(metadata.get("review_summaries") or {})
-                            review_summaries.update(results)
-                            metadata["review_summaries"] = review_summaries
-                            version.metadata_ = metadata
-                            await bg_session.commit()
-                            logger.info(
-                                "后台 Stage B 分析完成 project=%s chapter=%s version_id=%s keys=%s",
-                                project_id, chapter_number, version_id, list(results.keys()),
-                            )
-                        else:
-                            logger.warning(
-                                "后台 Stage B 落库失败：版本不存在 version_id=%s",
-                                version_id,
-                            )
-                except Exception:
-                    await bg_session.rollback()
-                    raise
-        except Exception:
-            logger.exception(
-                "后台 Stage B 分析失败 project=%s chapter=%s version_id=%s",
-                project_id, chapter_number, version_id,
-            )
-
-    async def _run_six_dimension_review_async(
-        self,
-        *,
-        version_id: int,
-        project_id: str,
-        chapter_number: int,
-        chapter_title: str,
-        chapter_content: str,
-        chapter_plan: Optional[str],
-        previous_summary: Optional[str],
-    ) -> None:
-        try:
-            async with AsyncSessionLocal() as background_session:
-                try:
-                    llm_service = LLMService(background_session)
-                    prompt_service = PromptService(background_session)
-                    enhanced_flow = EnhancedWritingFlow(background_session, llm_service, prompt_service)
-                    result = await enhanced_flow.post_generation_review(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_title=chapter_title,
-                        chapter_content=chapter_content,
-                        chapter_plan=chapter_plan,
-                        previous_summary=previous_summary,
-                    )
-
-                    db_result = await background_session.execute(
-                        select(ChapterVersion).where(ChapterVersion.id == version_id)
-                    )
-                    version = db_result.scalars().first()
-                    if not version:
-                        logger.warning(
-                            "异步六维评审落库失败：版本不存在 project=%s chapter=%s version_id=%s",
-                            project_id,
-                            chapter_number,
-                            version_id,
-                        )
-                        return
-
-                    metadata = dict(version.metadata_ or {})
-                    review_summaries = dict(metadata.get("review_summaries") or {})
-                    review_summaries["enhanced_review"] = result
-                    metadata["review_summaries"] = review_summaries
-                    version.metadata_ = metadata
-                    await background_session.commit()
-                except Exception:
-                    await background_session.rollback()
-                    raise
-        except Exception:
-            logger.exception(
-                "异步六维评审失败 project=%s chapter=%s version_id=%s",
-                project_id,
-                chapter_number,
-                version_id,
-            )
-
-    async def _run_memory_update_async(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        chapter_content: str,
-        character_names: List[str],
-        user_id: int,
-    ) -> None:
-        """后台异步执行记忆层更新，使用独立 DB session 避免影响主流程。"""
-        try:
-            async with AsyncSessionLocal() as background_session:
-                try:
-                    llm_service = LLMService(background_session)
-                    prompt_service = PromptService(background_session)
-                    from ..services.memory_layer_service import MemoryLayerService
-                    memory_layer = MemoryLayerService(
-                        background_session, llm_service, prompt_service
-                    )
-                    results = await memory_layer.update_memory_after_chapter(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        chapter_content=chapter_content,
-                        character_names=character_names,
-                        user_id=user_id,
-                    )
-                    logger.info(
-                        "异步记忆层更新完成 project=%s chapter=%s results=%s",
-                        project_id, chapter_number, results,
-                    )
-                except Exception:
-                    await background_session.rollback()
-                    raise
-        except Exception:
-            logger.exception(
-                "异步记忆层更新失败 project=%s chapter=%s",
-                project_id,
-                chapter_number,
-            )
-
-    async def _run_foreshadowing_extraction_async(
-        self,
-        *,
-        project_id: str,
-        chapter_id: int,
-        chapter_number: int,
-        chapter_content: str,
-        user_id: int,
-    ) -> None:
-        """后台异步执行伏笔提取，使用独立DB session。"""
-        try:
-            async with AsyncSessionLocal() as bg_session:
-                try:
-                    bg_llm = LLMService(bg_session)
-                    bg_prompt = PromptService(bg_session)
-                    from ..services.foreshadowing_service import ForeshadowingService
-                    fs = ForeshadowingService(bg_session)
-                    stats = await fs.extract_foreshadowings_from_chapter(
-                        project_id=project_id,
-                        chapter_id=chapter_id,
-                        chapter_number=chapter_number,
-                        chapter_content=chapter_content,
-                        llm_service=bg_llm,
-                        prompt_service=bg_prompt,
-                        user_id=user_id,
-                    )
-                    logger.info(
-                        "异步伏笔提取完成 project=%s chapter=%s stats=%s",
-                        project_id, chapter_number, stats,
-                    )
-                except Exception:
-                    await bg_session.rollback()
-                    raise
-        except Exception:
-            logger.exception(
-                "异步伏笔提取失败 project=%s chapter=%s",
-                project_id, chapter_number,
-            )
-
-    async def _resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
-        flow_config = flow_config or {}
-        preset = flow_config.get("preset", "basic")
-
-        # 全局快速模式开关：当 WRITER_FAST_MODE=true 且前端未指定 literary 时，强制使用 fast preset
-        if getattr(settings, "writer_fast_mode", False) and preset not in ("literary",):
-            preset = "fast"
-
-        config = PipelineConfig(preset=preset)
-        config.version_count = await self._resolve_version_count(flow_config.get("versions"))
-        config.literary_adaptive_postprocess = bool(
-            getattr(settings, "writer_literary_adaptive_postprocess", True)
-        )
-
-        # 从全局配置读取新功能默认值
-        config.rag_retrieval_mode = getattr(settings, "rag_retrieval_mode", "vector")
-        config.enable_pacing_control = bool(getattr(settings, "enable_pacing_control", False))
-        config.pacing_model = getattr(settings, "pacing_model", "default")
-
-        # 从全局配置读取人味化默认值
-        if getattr(settings, "enable_humanization", True):
-            config.enable_humanization = True
-            config.humanization_threshold = getattr(settings, "humanization_threshold", 70)
-        if getattr(settings, "enable_author_fingerprint", True):
-            config.enable_fingerprint = True
-
-        if preset in ("enhanced", "ultimate", "platinum"):
-            config.enable_constitution = True
-            config.enable_persona = True
-            config.enable_foreshadowing = True
-            config.enable_faction = True
-            config.enable_power_system = True
-            config.enable_character_relationships = True
-            config.enable_trajectory_analysis = True
-            config.rag_mode = settings.rag_default_mode
-            # enhanced+ 预设启用反幻觉
-            if getattr(settings, "enable_entity_registry", True):
-                config.enable_anti_hallucination = True
-
-        if preset == "enhanced":
-            config.enable_six_dimension = True
-            config.enable_enrichment = True
-            config.enable_polish = True
-
-        if preset == "ultimate":
-            config.enable_memory = True
-            config.enable_six_dimension = True
-            config.enable_consistency = True
-            config.enable_enrichment = True
-            config.enable_polish = True
-
-        if preset == "platinum":
-            config.enable_memory = True
-            config.enable_six_dimension = True
-            config.enable_self_critique = True
-            config.enable_reader_sim = True
-            config.enable_consistency = True
-            config.enable_enrichment = True
-            config.enable_polish = True
-
-        if preset == "literary":
-            config.version_count = 1
-            config.enable_rag = True
-            config.rag_mode = settings.rag_default_mode
-            config.enable_constitution = True
-            config.enable_persona = True
-            config.enable_foreshadowing = True
-            config.enable_faction = True
-            config.enable_power_system = True
-            config.enable_character_relationships = True
-            config.enable_trajectory_analysis = True
-            config.enable_memory = True
-            config.enable_humanization = True
-            config.enable_fingerprint = True
-            config.enable_mission_brief = True
-            config.enable_scene_by_scene = True
-            config.enable_prose_sculpting = True
-            config.enable_golden_paragraph = True
-            config.enable_reference_prose = True
-            config.enable_voice_samples = True
-            config.enable_narrative_variety = True
-            config.use_slim_prompt = True
-            if getattr(settings, "enable_entity_registry", True):
-                config.enable_anti_hallucination = True
-
-        if preset == "basic":
-            config.enable_rag = True
-            # basic 模式缺少 AI Review 选优机制，多版本无实际收益
-            config.version_count = 1
-
-        if preset == "fast":
-            config.version_count = 1
-            config.enable_fast_path = True
-            config.enable_rag = True
-            config.rag_mode = "simple"
-            config.enable_constitution = False
-            config.enable_persona = False
-            config.enable_foreshadowing = False
-            config.enable_faction = False
-            config.enable_power_system = False
-            config.enable_character_relationships = False
-            config.enable_trajectory_analysis = False
-            config.enable_memory = False
-            config.enable_humanization = False
-            config.enable_lightweight_humanization = True  # fast：规则级去 AI 味，无 LLM
-            config.enable_fingerprint = False
-            config.enable_mission_brief = False
-            config.enable_scene_by_scene = False
-            config.enable_prose_sculpting = False
-            config.enable_golden_paragraph = False
-            config.enable_reference_prose = False
-            config.enable_voice_samples = False
-            config.enable_narrative_variety = False
-            config.use_slim_prompt = False
-            config.enable_six_dimension = False
-            config.enable_self_critique = False
-            config.enable_reader_sim = False
-            config.enable_consistency = False
-            config.enable_optimizer = False
-            config.enable_enrichment = False
-            config.enable_density_compression = False
-            config.enable_preview = False
-            config.disable_guardrail_rewrite = True
-            config.skip_history_summary_backfill = True
-            config.use_local_anti_hallucination = True
-            config.enable_anti_hallucination = bool(getattr(settings, "enable_entity_registry", True))
-
-        # Ultra fast mode: 启用快速路径 + 跳过所有后处理，达到最短耗时
-        if getattr(settings, "writer_ultra_fast_mode", False):
-            config.version_count = 1
-            config.enable_fast_path = True
-            config.enable_scene_by_scene = False
-            config.enable_self_critique = False
-            config.enable_consistency = False
-            config.enable_humanization = False
-            config.enable_lightweight_humanization = False
-            config.enable_optimizer = False
-            config.enable_enrichment = False
-            config.enable_polish = False
-            config.enable_reader_sim = False
-            config.enable_anti_hallucination = False
-            config.enable_density_compression = False
-            config.enable_six_dimension = False
-            config.enable_fingerprint = False
-            config.enable_mission_brief = False
-            config.enable_narrative_variety = False
-            config.enable_reference_prose = False
-            config.enable_voice_samples = False
-            config.enable_prose_sculpting = False
-            config.enable_golden_paragraph = False
-            config.enable_constitution = False
-            config.enable_persona = False
-            config.enable_foreshadowing = False
-            config.enable_faction = False
-            config.enable_memory = False
-            config.disable_guardrail_rewrite = True
-            config.skip_history_summary_backfill = True
-            config.use_local_anti_hallucination = True
-            logger.info("Ultra fast mode: 已启用快速路径并跳过所有后处理步骤")
-
-        for key in (
-            "enable_preview",
-            "enable_optimizer",
-            "enable_consistency",
-            "enable_enrichment",
-            "async_finalize",
-            "enable_rag",
-            "enable_polish",
-            "enable_mission_brief",
-            "enable_density_compression",
-            "enable_pacing_control",
-            "enable_scene_by_scene",
-            "enable_prose_sculpting",
-            "enable_golden_paragraph",
-            "enable_reference_prose",
-            "enable_voice_samples",
-            "enable_narrative_variety",
-            "use_slim_prompt",
-            "literary_adaptive_postprocess",
-            "enable_fast_path",
-            "enable_lightweight_humanization",
-            "disable_guardrail_rewrite",
-            "skip_history_summary_backfill",
-            "use_local_anti_hallucination",
-            "enable_power_system",
-            "enable_character_relationships",
-            "enable_trajectory_analysis",
-        ):
-            if key in flow_config and flow_config[key] is not None:
-                setattr(config, key, bool(flow_config[key]))
-
-        if flow_config.get("rag_mode"):
-            config.rag_mode = str(flow_config["rag_mode"])
-
-        if flow_config.get("rag_retrieval_mode"):
-            config.rag_retrieval_mode = str(flow_config["rag_retrieval_mode"])
-
-        if flow_config.get("pacing_model"):
-            config.pacing_model = str(flow_config["pacing_model"])
-
-        return config
-
-    async def _resolve_version_count(self, requested_count: Optional[int]) -> int:
-        return await _shared_resolve_version_count(self.session, requested_count)
-
-    async def _load_chapter_blueprint(
-        self,
-        project_id: str,
-        chapter_number: int,
-    ) -> Optional[ChapterBlueprint]:
-        stmt = select(ChapterBlueprint).where(
-            ChapterBlueprint.project_id == project_id,
-            ChapterBlueprint.chapter_number == chapter_number,
-        )
-
-        try:
-            result = await self.session.execute(stmt)
-        except OperationalError as exc:
-            repaired = await repair_schema_if_needed(exc)
-            if not repaired:
-                raise
-            result = await self.session.execute(stmt)
-
-        return result.scalars().first()
-
-    @staticmethod
-    def _extract_fast_keywords(text: Optional[str]) -> List[str]:
-        if not text:
-            return []
-        import re
-
-        tokens = re.findall(r"[\u4e00-\u9fffA-Za-z0-9]{2,12}", text)
-        stop_words = {
-            "本章",
-            "章节",
-            "当前",
-            "相关",
-            "内容",
-            "剧情",
-            "要求",
-            "以及",
-            "需要",
-            "进行",
-            "一个",
-            "我们",
-            "他们",
-        }
-        result: List[str] = []
-        for token in tokens:
-            cleaned = token.strip()
-            if not cleaned or cleaned in stop_words:
-                continue
-            result.append(cleaned)
-        return result
-
-    def _build_fast_rag_queries(
-        self,
-        *,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        chapter_blueprint: Optional[ChapterBlueprint],
-    ) -> List[str]:
-        queries: List[str] = [outline_title, outline_summary]
-        if writing_notes and writing_notes != "无额外写作指令":
-            queries.append(writing_notes)
-
-        keyword_pool: List[str] = []
-        if chapter_blueprint:
-            keyword_pool.extend(self._extract_fast_keywords(chapter_blueprint.chapter_focus))
-            keyword_pool.extend(self._extract_fast_keywords(chapter_blueprint.brief_summary))
-            keyword_pool.extend(self._extract_fast_keywords(chapter_blueprint.chapter_function))
-            keyword_pool.extend(self._extract_fast_keywords(chapter_blueprint.suspense_type))
-            keyword_pool.extend(self._extract_fast_keywords(chapter_blueprint.emotional_arc))
-            constraints = chapter_blueprint.mission_constraints or {}
-            if isinstance(constraints, dict):
-                for value in constraints.get("must_include", [])[:6]:
-                    keyword_pool.extend(self._extract_fast_keywords(str(value)))
-
-        deduped_keywords = list(dict.fromkeys(keyword_pool))
-        if deduped_keywords:
-            queries.append(" ".join(deduped_keywords[:10]))
-
-        return [item for item in queries if item][:4]
-
-    async def _validate_coolpoint_rhythm(
-        self,
-        project_id: str,
-        chapter_number: int,
-        chapter_mission: Optional[Dict[str, Any]],
-    ) -> Optional[str]:
-        """验证爽点节奏，返回纠偏指令（若需要）。
-
-        规则：
-        - >=6章无爽点：强制返回爽点指令 + 修改mission的satisfaction_design
-        - >=3章无爽点：返回建议指令
-        """
-        if chapter_number <= 1:
-            return None
-
-        try:
-            # 查询最近10章的蓝图
-            start_ch = max(1, chapter_number - 10)
-            result = await self.session.execute(
-                select(ChapterBlueprint).where(
-                    ChapterBlueprint.project_id == project_id,
-                    ChapterBlueprint.chapter_number >= start_ch,
-                    ChapterBlueprint.chapter_number < chapter_number,
-                ).order_by(ChapterBlueprint.chapter_number.desc())
-            )
-            blueprints = list(result.scalars().all())
-
-            if not blueprints:
-                return None
-
-            # 计算距上一个爽点章的章数
-            coolpoint_functions = {"climax", "turning", "revelation"}
-            chapters_since_coolpoint = 0
-
-            for bp in blueprints:
-                is_coolpoint = (
-                    (bp.cognitive_twist_level and bp.cognitive_twist_level >= 3)
-                    or (bp.chapter_function and bp.chapter_function in coolpoint_functions)
-                )
-                if is_coolpoint:
-                    break
-                chapters_since_coolpoint += 1
-
-            if chapters_since_coolpoint >= 6:
-                # 强制：修改mission的satisfaction_design
-                if chapter_mission and isinstance(chapter_mission, dict):
-                    sat = chapter_mission.get("satisfaction_design")
-                    if isinstance(sat, dict) and sat.get("type") in ("无", "无（蓄力中）", "推进成长"):
-                        sat["type"] = "逆袭爽"
-                        sat["buildup_from"] = f"已连续{chapters_since_coolpoint}章蓄力"
-                        sat["cost_attached"] = "强制爽点需附带代价"
-
-                return (
-                    f"【节奏强制纠偏】已连续{chapters_since_coolpoint}章没有爽点/高潮/转折，"
-                    "本章必须包含至少一个明确的爽点设计（逆袭、翻盘、揭秘、突破等），"
-                    "不得再写纯过渡/蓄力章。爽点须有蓄力-释放结构，且附带代价。"
-                )
-
-            elif chapters_since_coolpoint >= 3:
-                return (
-                    f"【节奏建议】已连续{chapters_since_coolpoint}章没有明显爽点，"
-                    "建议本章在推进主线的同时，安排至少一个小型爽感设计（认知爽、社交爽、成长爽等），"
-                    "避免读者疲劳流失。"
-                )
-
-            return None
-
-        except Exception as e:
-            logger.warning("爽点节奏验证失败: %s", e)
-            return None
-
-    async def _generate_scene_by_scene(
-        self,
-        *,
-        prompt_sections_data: Dict[str, Any],
-        writer_prompt: str,
-        chapter_mission: Optional[dict],
-        forbidden_characters: List[str],
-        allowed_new_characters: List[str],
-        user_id: int,
-        genre_profile: Optional[Dict[str, Any]] = None,
-        voice_samples_text: str = "",
-        max_word_count: int = 0,
-    ) -> Dict[str, Any]:
-        """场景级分步生成：按 scene_list 逐场景生成，每场景一次 LLM 调用。
-
-        每次调用的 prompt 只包含该场景任务 + 已写内容 + 精简上下文，
-        释放 LLM 认知带宽，让它聚焦在"把这 700 字写好"。
-        """
-        metadata: Dict[str, Any] = {
-            "chapter_mission": chapter_mission,
-            "pipeline": {"preset": "literary", "mode": "scene_by_scene"},
-            "resolved_temperature": self.generation_policy_service.resolve_temperature(chapter_mission),
-        }
-
-        scenes = (chapter_mission or {}).get("scene_list") or []
-        if not scenes or len(scenes) < 2:
-            scenes = self._build_fallback_scenes(chapter_mission)
-
-        core_context = self._build_slim_context(prompt_sections_data)
-
-        chapter_parts: List[str] = []
-        scene_timings: List[int] = []
-
-        for i, scene in enumerate(scenes):
-            scene_start = time.perf_counter()
-            is_first = i == 0
-            is_last = i == len(scenes) - 1
-
-            scene_prompt_parts = []
-
-            if is_first:
-                scene_prompt_parts.append(core_context)
-            else:
-                scene_prompt_parts.append("[精简上下文]\n" + self._compress_context(core_context, max_len=1500))
-
-            if chapter_parts:
-                recent_text = "\n\n".join(chapter_parts)
-                if len(recent_text) > 2000:
-                    recent_text = "（前文省略）\n\n" + recent_text[-2000:]
-                scene_prompt_parts.append(f"[已写正文——你要无缝接续]\n{recent_text}")
-
-            scene_goal = scene.get("goal", "推进剧情")
-            scene_words = scene.get("target_words", 700)
-            scene_location = scene.get("location", "")
-            scene_conflict = scene.get("conflict", "")
-            human_texture = scene.get("human_texture", [])
-            dialogue_noise = scene.get("dialogue_noise", "")
-
-            scene_instruction = f"[本场景任务——场景 {i + 1}/{len(scenes)}]\n"
-            scene_instruction += f"- 目标：{scene_goal}\n"
-            if scene_location:
-                scene_instruction += f"- 地点：{scene_location}\n"
-            if scene_conflict:
-                scene_instruction += f"- 阻力/冲突：{scene_conflict}\n"
-            scene_instruction += f"- 目标字数：约{scene_words}字\n"
-            if human_texture:
-                scene_instruction += f"- 生活噪音：{'、'.join(human_texture)}\n"
-            if dialogue_noise:
-                scene_instruction += f"- 对话噪音：{dialogue_noise}\n"
-
-            if is_first:
-                scene_instruction += "- 这是开篇，需要吸引读者\n"
-            if is_last:
-                scene_instruction += "- 这是本章最后一个场景，结尾必须落在具体动作/画面上，戛然而止\n"
-
-            scene_prompt_parts.append(scene_instruction)
-
-            if voice_samples_text and is_first:
-                scene_prompt_parts.append(voice_samples_text)
-
-            scene_prompt = "\n\n".join(scene_prompt_parts)
-
-            resolved_temp = self.generation_policy_service.resolve_temperature(chapter_mission)
-            if is_last:
-                resolved_temp = min(resolved_temp + 0.05, 0.95)
-
-            response = await self.llm_service.get_llm_response(
-                system_prompt=writer_prompt,
-                conversation_history=[{"role": "user", "content": scene_prompt}],
-                temperature=resolved_temp,
-                user_id=user_id,
-                timeout=60.0,
-                response_format=None,
-                max_tokens=min(4096, int(max(700, scene_words) * 1.8)),
-                disable_thinking=not settings.writer_enable_thinking,
-            )
-            cleaned = remove_think_tags(response)
-            scene_text = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
-
-            if scene_text:
-                chapter_parts.append(scene_text)
-
-            scene_timings.append(int((time.perf_counter() - scene_start) * 1000))
-
-        content = "\n\n".join(chapter_parts)
-
-        # 场景拼接后字数检查
-        if max_word_count and len(content) > max_word_count:
-            logger.warning("场景拼接总字数超限 (%d > %d)，截断", len(content), max_word_count)
-            content = self._hard_trim_to_limit(content, max_word_count)
-
-        omniscient_tolerance = "medium"
-        if genre_profile:
-            from .genre_profile_service import GenreProfileService
-            omniscient_tolerance = GenreProfileService.get_omniscient_tolerance(genre_profile)
-
-        guardrail_result = self.guardrails.check(
-            generated_text=content,
-            forbidden_characters=forbidden_characters,
-            allowed_new_characters=allowed_new_characters,
-            pov=chapter_mission.get("pov") if chapter_mission else None,
-            omniscient_tolerance=omniscient_tolerance,
-        )
-        if not guardrail_result.passed:
-            content = self.guardrails.apply_local_patches(content, guardrail_result)
-
-        metadata["scene_timings_ms"] = scene_timings
-        metadata["scene_count"] = len(scenes)
-
-        return {"index": 0, "content": content, "metadata": metadata}
-
-    @staticmethod
-    def _build_fallback_scenes(chapter_mission: Optional[dict]) -> List[dict]:
-        word_budget = (chapter_mission or {}).get("word_budget", {})
-        raw_total = word_budget.get("total", 3500) if isinstance(word_budget, dict) else 3500
-        total = raw_total if isinstance(raw_total, (int, float)) and raw_total > 0 else 3500
-        return [
-            {"goal": "开篇：承接上文，建立本章情境", "target_words": int(total * 0.25), "scene": "1"},
-            {"goal": "发展：推进核心冲突", "target_words": int(total * 0.45), "scene": "2"},
-            {"goal": "高潮+收束：情绪峰值，刀切结尾", "target_words": int(total * 0.30), "scene": "3"},
-        ]
-
-    @staticmethod
-    def _build_slim_context(prompt_sections_data: Dict[str, Any]) -> str:
-        priority_keys = [
-            "chapter_goals", "mission_brief", "director_script",
-            "story_skeleton", "previous_summary", "previous_tail",
-            "skill_instructions",
-            "writer_blueprint", "forbidden_characters",
-            "reference_prose", "fusion_dna",
-        ]
-        parts = []
-        for key in priority_keys:
-            val = prompt_sections_data.get(key, "")
-            if val:
-                parts.append(str(val)[:2000])
-        return "\n\n".join(parts)
-
-    @staticmethod
-    def _compress_context(context: str, max_len: int = 1500) -> str:
-        if len(context) <= max_len:
-            return context
-        return context[:max_len] + "\n（上下文已压缩）"
-
-    async def _build_lite_chapter_mission(
-        self,
-        *,
-        chapter_number: int,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        previous_summary: str,
-        previous_tail: str,
-        chapter_blueprint: Optional[ChapterBlueprint],
-        user_id: int,
-    ) -> Optional[Dict[str, Any]]:
-        """轻量导演脚本：用精简prompt做一次LLM调用，为fast/basic模式生成有结构的mission。"""
-        plan_lite_prompt = await self.prompt_service.get_prompt("chapter_plan_lite")
-        if not plan_lite_prompt:
-            logger.warning("未配置 chapter_plan_lite 提示词，回退到规则拼装")
-            return None
-
-        constraints = (
-            dict(chapter_blueprint.mission_constraints or {})
-            if chapter_blueprint and isinstance(chapter_blueprint.mission_constraints, dict)
-            else {}
-        )
-        min_words, max_words, target_words = self.generation_policy_service.resolve_word_count_bounds()
-        budget_cfg = constraints.get("word_budget") or {}
-        word_target = int(budget_cfg.get("target") or target_words)
-
-        plan_input = f"""
-[上一章摘要]
-{previous_summary or "暂无（这是第一章）"}
-
-[上一章结尾]
-{previous_tail or "暂无（这是第一章）"}
-
-[当前章节大纲]
-标题：{outline_title}
-摘要：{outline_summary}
-
-[写作指令]
-{writing_notes or "无额外指令"}
-
-[章节字数限制]
-正文必须控制在 {min_words}-{max_words} 字之间。word_budget_total 推荐 {word_target}。
-"""
-        try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt=plan_lite_prompt,
-                conversation_history=[{"role": "user", "content": plan_input}],
-                temperature=0.3,
-                user_id=user_id,
-                timeout=60.0,
-                response_format=None,
-                disable_thinking=not settings.writer_enable_thinking,
-            )
-            cleaned = remove_think_tags(response)
-            normalized = unwrap_markdown_json(cleaned or response)
-            parsed = json.loads(repair_json(normalized))
-            if not isinstance(parsed, dict):
-                logger.warning("轻量导演脚本返回非对象，回退到规则拼装")
-                return None
-
-            fallback = self._build_fast_chapter_mission(
-                chapter_number=chapter_number,
-                outline_title=outline_title,
-                outline_summary=outline_summary,
-                writing_notes=writing_notes,
-                chapter_blueprint=chapter_blueprint,
-            )
-            result = dict(fallback)
-            result.update({key: value for key, value in parsed.items() if value is not None})
-
-            raw_budget = result.get("word_budget")
-            merged_budget = dict(fallback.get("word_budget") or {})
-            if isinstance(raw_budget, dict):
-                merged_budget.update({key: value for key, value in raw_budget.items() if value is not None})
-            result["word_budget"] = merged_budget
-
-            if not isinstance(result.get("satisfaction_design"), dict):
-                sat_type = result.get("satisfaction_design") or fallback.get("satisfaction_design", {}).get("type") or "推进成长"
-                result["satisfaction_design"] = {"type": sat_type}
-
-            for key in ("scene_list", "allowed_new_characters", "must_include", "must_not_include"):
-                value = result.get(key)
-                if not isinstance(value, list):
-                    result[key] = list(value) if isinstance(value, tuple) else []
-
-            if not result.get("macro_beat_description"):
-                result["macro_beat_description"] = fallback["macro_beat_description"]
-            if not result.get("chapter_type"):
-                result["chapter_type"] = fallback["chapter_type"]
-            if not result.get("macro_beat"):
-                result["macro_beat"] = fallback["macro_beat"]
-
-            return result
-        except Exception as e:
-            logger.warning("轻量导演脚本生成失败，回退到规则拼装: %s", e)
-            return None
-
-    def _build_fast_chapter_mission(
-        self,
-        *,
-        chapter_number: int,
-        outline_title: str,
-        outline_summary: str,
-        writing_notes: str,
-        chapter_blueprint: Optional[ChapterBlueprint],
-    ) -> Dict[str, Any]:
-        constraints = (
-            dict(chapter_blueprint.mission_constraints or {})
-            if chapter_blueprint and isinstance(chapter_blueprint.mission_constraints, dict)
-            else {}
-        )
-        min_words, max_words, target_words = self.generation_policy_service.resolve_word_count_bounds()
-        budget_cfg = constraints.get("word_budget") or {}
-        word_budget = {
-            "min": int(budget_cfg.get("min") or min_words),
-            "target": int(budget_cfg.get("target") or target_words),
-            "max": int(budget_cfg.get("max") or max_words),
-            "total": int(budget_cfg.get("target") or target_words),
-        }
-        if word_budget["max"] < word_budget["min"]:
-            word_budget["max"] = word_budget["min"]
-
-        chapter_function = (
-            (chapter_blueprint.chapter_function if chapter_blueprint else None)
-            or "progression"
-        )
-        satisfaction_type = {
-            "climax": "高潮爆发",
-            "turning": "转折兑现",
-            "revelation": "信息揭示",
-            "resolution": "阶段收束",
-            "interlude": "无（蓄力中）",
-            "buildup": "无（蓄力中）",
-            "progression": "推进成长",
-        }.get(chapter_function, "推进成长")
-
-        focus = (
-            (chapter_blueprint.chapter_focus if chapter_blueprint else None)
-            or (chapter_blueprint.brief_summary if chapter_blueprint else None)
-            or outline_summary
-            or outline_title
-        )
-        must_include = constraints.get("must_include") or []
-        must_not_include = constraints.get("must_not_include") or []
-        scene_list = constraints.get("scene_list") or []
-        allowed_new_characters = constraints.get("allowed_new_characters") or []
-        pov_character = constraints.get("pov_character")
-
-        notes_block = ""
-        if writing_notes and writing_notes != "无额外写作指令":
-            notes_block = f"；用户指令：{writing_notes}"
-        mission_summary = f"第{chapter_number}章核心任务：{focus}{notes_block}"
-
-        return {
-            "chapter_type": chapter_function,
-            "macro_beat": chapter_function,
-            "macro_beat_description": mission_summary,
-            "satisfaction_design": {"type": satisfaction_type},
-            "word_budget": word_budget,
-            "scene_list": scene_list,
-            "allowed_new_characters": allowed_new_characters,
-            "must_include": must_include,
-            "must_not_include": must_not_include,
-            "pov": pov_character,
-        }
-
-    async def _generate_voice_samples(
-        self,
-        *,
-        characters: List[Dict[str, Any]],
-        outline_summary: str,
-        chapter_mission: Optional[dict],
-        user_id: int,
-    ) -> str:
-        """为出场角色生成对话声纹样本，锁定每个角色的说话方式。"""
-        if not characters or len(characters) < 2:
-            return ""
-
-        char_list = []
-        for ch in characters[:6]:
-            name = ch.get("name", "")
-            personality = ch.get("personality", "")
-            role = ch.get("role", "")
-            if name:
-                char_list.append(f"- {name}：{role}，{personality}")
-
-        if not char_list:
-            return ""
-
-        prompt = (
-            f"以下角色将在本章出场。为每个角色写2句对话样本，展示他们的说话方式。\n"
-            f"要求：遮住名字能认出是谁。对话要口语化、有性格差异。\n\n"
-            f"角色：\n{''.join(char_list)}\n\n"
-            f"当前情境：{outline_summary[:200]}\n\n"
-            f"格式：每个角色名后跟2句示例台词，简短即可。"
-        )
-
-        try:
-            async with AsyncSessionLocal() as session:
-                llm_service = LLMService(session)
-                response = await llm_service.get_llm_response(
-                    system_prompt="你是一个角色对话设计师。为每个角色写出有辨识度的对话样本。",
-                    conversation_history=[{"role": "user", "content": prompt}],
-                    temperature=0.8,
-                    user_id=user_id,
-                    timeout=30.0,
-                )
-            result = (remove_think_tags(response) or response).strip()
-            return f"[角色声纹参考——遮住名字要能认出谁在说话]\n{result}" if result else ""
-        except Exception as e:
-            logger.warning("声纹样本生成失败（不影响生成）: %s", e)
-            return ""
-
-    async def _generate_single_version(
-        self,
-        *,
-        index: int,
-        prompt_input: str,
-        writer_prompt: str,
-        style_hint: Optional[Any],  # str 或 Dict[str, Any]
-        project_id: str,
-        chapter_number: int,
-        outline_title: str,
-        outline_summary: str,
-        chapter_mission: Optional[dict],
-        forbidden_characters: List[str],
-        allowed_new_characters: List[str],
-        user_id: int,
-        writer_blueprint: Dict[str, Any],
-        memory_context: Optional[str],
-        enhanced_context: Optional[Dict[str, Any]],
-        config: PipelineConfig,
-        target_word_count: int,
-        max_word_count: int = 4000,
-        genre_profile: Optional[Dict[str, Any]] = None,
-        disable_guardrail_rewrite: bool = False,
-        stream_callback: Optional[Callable[[str], Awaitable[None] | None]] = None,
-    ) -> Dict[str, Any]:
-        # 解析style_hint：兼容str和dict格式
-        if isinstance(style_hint, dict):
-            style_text = style_hint.get("text", "")
-            temp_offset = float(style_hint.get("temp_offset", 0.0))
-        elif isinstance(style_hint, str):
-            style_text = style_hint
-            temp_offset = 0.0
-        else:
-            style_text = ""
-            temp_offset = 0.0
-
-        base_temp = self.generation_policy_service.resolve_temperature(chapter_mission)
-        resolved_temp = max(0.1, min(1.5, base_temp + temp_offset))
-
-        metadata: Dict[str, Any] = {
-            "chapter_mission": chapter_mission,
-            "style_hint": style_hint,
-            "pipeline": {"preset": config.preset},
-            "resolved_temperature": resolved_temp,
-        }
-
-        content = ""
-        if config.enable_preview:
-            content, preview_meta = await self._generate_with_preview(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                outline_title=outline_title,
-                outline_summary=outline_summary,
-                writer_blueprint=writer_blueprint,
-                memory_context=memory_context,
-                style_hint=style_text or style_hint,
-                enhanced_context=enhanced_context,
-                target_word_count=target_word_count,
-                user_id=user_id,
-            )
-            metadata["preview"] = preview_meta
-
-        if not content:
-            final_prompt_input = prompt_input
-            # 策略指令前置到prompt（利用首因效应）
-            if style_text:
-                final_prompt_input = f"[版本风格策略]\n{style_text}\n\n{final_prompt_input}"
-            # P2: 根据字数上限动态计算 max_tokens，限制物理输出长度
-            # 中文约 1.5 tokens/字，取 1.5 作为安全系数
-            dynamic_max_tokens = min(
-                settings.writer_max_tokens,
-                int(max_word_count * 1.5),
-            )
-            response = await self.llm_service.get_llm_response(
-                system_prompt=writer_prompt,
-                conversation_history=[{"role": "user", "content": final_prompt_input}],
-                temperature=resolved_temp,
-                user_id=user_id,
-                timeout=180.0,
-                response_format=None,
-                max_tokens=dynamic_max_tokens,
-                disable_thinking=not settings.writer_enable_thinking,
-                on_chunk=stream_callback,
-            )
-            cleaned = remove_think_tags(response)
-            content = unwrap_markdown_json(cleaned or response)
-
-        omniscient_tolerance = "medium"
-        if genre_profile:
-            from .genre_profile_service import GenreProfileService
-            omniscient_tolerance = GenreProfileService.get_omniscient_tolerance(genre_profile)
-
-        guardrail_result = self.guardrails.check(
-            generated_text=content,
-            forbidden_characters=forbidden_characters,
-            allowed_new_characters=allowed_new_characters,
-            pov=chapter_mission.get("pov") if chapter_mission else None,
-            omniscient_tolerance=omniscient_tolerance,
-        )
-        guardrail_metadata = {"passed": guardrail_result.passed, "violations": []}
-
-        if not guardrail_result.passed:
-            guardrail_metadata["violations"] = [
-                {"type": v.type, "severity": v.severity, "description": v.description}
-                for v in guardrail_result.violations
-            ]
-            locally_patched = self.guardrails.apply_local_patches(content, guardrail_result)
-            guardrail_metadata["local_patch_applied"] = locally_patched != content
-            recheck_result = self.guardrails.check(
-                generated_text=locally_patched,
-                forbidden_characters=forbidden_characters,
-                allowed_new_characters=allowed_new_characters,
-                pov=chapter_mission.get("pov") if chapter_mission else None,
-                omniscient_tolerance=omniscient_tolerance,
-            )
-            guardrail_metadata["post_patch_passed"] = recheck_result.passed
-
-            if recheck_result.passed:
-                content = locally_patched
-            else:
-                guardrail_metadata["post_patch_violations"] = [
-                    {"type": v.type, "severity": v.severity, "description": v.description}
-                    for v in recheck_result.violations
-                ]
-                # 优化项5: 推迟 LLM 重写到后处理末尾，避免后处理覆盖重写结果
-                content = locally_patched
-                if not disable_guardrail_rewrite:
-                    guardrail_metadata["deferred_llm_rewrite"] = True
-
-        parsed_json = None
-        extracted_text = None
-        try:
-            parsed_json = json.loads(content)
-            extracted_text = self._extract_text(parsed_json)
-        except Exception:
-            parsed_json = None
-
-        final_text = sanitize_chapter_plain_text(extracted_text or content)
-
-        # P3: 超字数后处理压缩——如果生成内容超过上限 102%，使用 LLM 压缩
-        overflow_threshold = int(max_word_count * 1.02)
-        if len(final_text) > overflow_threshold:
-            logger.info(
-                "章节字数超限 (%d > %d)，触发压缩 target=%d",
-                len(final_text), overflow_threshold, max_word_count,
-            )
-            compressed = await self.text_compression_service.compress_overlength(
-                final_text, target_max=max_word_count, user_id=user_id,
-            )
-            metadata["word_count_compression"] = {
-                "original_length": len(final_text),
-                "compressed_length": len(compressed),
-                "target_max": max_word_count,
-            }
-            final_text = compressed
-
-        metadata["guardrail"] = guardrail_metadata
-        if parsed_json is not None:
-            metadata["parsed_json"] = parsed_json
-
-        return {
-            "index": index,
-            "content": final_text,
-            "metadata": metadata,
-        }
-
-    @staticmethod
-    def _strip_compression_preamble(text: str) -> str:
-        """去除 LLM 压缩时可能添加的前言/元注释和尾部元对话。
-
-        前言示例: "可以，下面是精简后的版本（控制在4000字以内）：\n\n正文..."
-        尾部示例: "您需要我帮您提炼这段剧情的大纲，还是继续为您精简下一章的内容？"
-        """
-        import re
-        lines = text.split("\n")
-
-        # ── 去除前言 ──
-        skip_count = 0
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                skip_count += 1
-                continue
-            # 检测常见 LLM 元注释模式
-            if re.match(
-                r'^(可以|好的|当然|没问题|下面是|以下是|精简后|精简版|控制在|保留|压缩|'
-                r'我已经|我已为|我为您|我把|以上是|以上为|根据您|按照您|'
-                r'这是|我来|让我|我先)',
-                stripped,
-            ):
-                skip_count += 1
-                continue
-            if re.match(r'^#{1,4}\s+.*(精简版|精简|压缩版|缩写版)', stripped):
-                skip_count += 1
-                continue
-            if re.match(r'^[\(（].*字.*[\)）][：:]?\s*$', stripped):
-                skip_count += 1
-                continue
-            # 第一个看起来像正文的行，停止
-            break
-        if skip_count > 0:
-            lines = lines[skip_count:]
-
-        # ── 去除尾部元对话 ──
-        tail_skip = 0
-        for line in reversed(lines):
-            stripped = line.strip()
-            if not stripped:
-                tail_skip += 1
-                continue
-            if re.match(
-                r'^(您需要|需要我|希望我|如果您|如有需要|如需|是否需要|'
-                r'我已经为您|我已为您|以上是|以上就是|以上为|'
-                r'如果你|你需要|要我|还是继续)',
-                stripped,
-            ):
-                tail_skip += 1
-                continue
-            # 检测 "...字左右" "...字以内" 等总结性陈述
-            if re.search(r'\d+\s*字(左右|以内|以上|之间|范围)', stripped):
-                # 仅当该行不像正文时才跳过（正文不太可能以"字左右"结尾）
-                if len(stripped) < 80:
-                    tail_skip += 1
-                    continue
-            break
-        if tail_skip > 0:
-            lines = lines[:-tail_skip]
-
-        text = "\n".join(lines).strip()
-        return text
-
-    async def _compress_overlength(
-        self,
-        chapter_text: str,
-        *,
-        target_max: int,
-        user_id: int,
-    ) -> str:
-        """使用 LLM 将超字数章节压缩到目标范围内。
-
-        保留核心剧情、对话和关键动作，精简冗余描写和过渡。
-        最多重试一次，确保最终结果在目标范围内。
-        包含过度压缩保护：如果压缩结果低于目标的 60%，则丢弃。
-        """
-        target_min = int(target_max * 0.85)
-        over_compress_floor = int(target_max * 0.6)
-
-        system_prompt = (
-            "你是一个精炼大师。你的任务是将给定的小说章节精简到指定字数范围内，"
-            "同时保留核心剧情、角色对话、关键动作和情绪转折。\n"
-            "精简策略：\n"
-            "1. 只删除明显冗余的环境描写和重复的内心戏\n"
-            "2. 适度压缩过渡段落，不要过度删减\n"
-            "3. 精简对话中的废话，保留有性格的台词\n"
-            "4. 不要删除关键剧情节点和伏笔\n"
-            "5. 保持开头和结尾的质量\n\n"
-            "【绝对禁止】\n"
-            "- 禁止输出任何前言、说明、注释、标题或元信息\n"
-            "- 禁止写「可以」「下面是」「精简版」「我已经为您」等任何非正文内容\n"
-            "- 禁止添加章节标题或「精简版」标记\n"
-            "- 禁止在末尾添加任何总结、询问或对话（如「需要我帮您...」「希望...」）\n"
-            "- 你的输出第一个字必须是小说正文的第一个字\n"
-            "- 你的输出最后一个字必须是小说正文的最后一个字\n"
-            "只输出精简后的纯小说正文，没有任何其他内容。"
-        )
-
-        current_text = chapter_text
-        max_attempts = 2
-
-        for attempt in range(max_attempts):
-            user_prompt = (
-                f"将以下 {len(current_text)} 字章节正文精简到 {target_min}~{target_max} 字之间。"
-                f"注意：不要过度精简，字数必须保持在 {target_min} 字以上。"
-                f"直接输出精简后的纯正文，第一个字就是小说内容。\n\n"
-                f"{current_text}"
-            )
-            try:
-                response = await self.llm_service.get_llm_response(
-                    system_prompt=system_prompt,
-                    conversation_history=[{"role": "user", "content": user_prompt}],
-                    temperature=0.3,
-                    user_id=user_id,
-                    timeout=180.0,
-                    max_tokens=int(target_max * 1.2),
-                )
-                cleaned = remove_think_tags(response)
-                result = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
-
-                # 去除 LLM 可能残留的前言/元注释和尾部元对话
-                if result:
-                    result = self._strip_compression_preamble(result)
-
-                if not result or len(result) >= len(current_text):
-                    logger.warning("压缩结果无效（更长或为空），保留当前文本 (attempt=%d)", attempt + 1)
-                    break
-
-                # 过度压缩保护：如果结果低于目标的 60%，说明 LLM 过度删减或输出异常
-                if len(result) < over_compress_floor:
-                    logger.warning(
-                        "压缩结果过短 (%d < %d，目标下限的60%%)，丢弃压缩结果保留原文 (attempt=%d)",
-                        len(result), over_compress_floor, attempt + 1,
-                    )
-                    break
-
-                logger.info(
-                    "超字数压缩完成 (attempt=%d): %d -> %d 字 (目标 %d~%d)",
-                    attempt + 1, len(current_text), len(result), target_min, target_max,
-                )
-                current_text = result
-
-                # 如果已在目标范围内，停止重试
-                if len(current_text) <= target_max:
-                    break
-            except Exception as e:
-                logger.warning("超字数压缩失败 (attempt=%d)，保留当前文本: %s", attempt + 1, e)
-                break
-
-        # 硬截断兜底：确保 _compress_overlength 永不返回超限文本
-        if len(current_text) > target_max:
-            logger.warning("压缩重试耗尽仍超限 (%d > %d)，触发硬截断", len(current_text), target_max)
-            current_text = self._hard_trim_to_limit(current_text, target_max)
-        return current_text
-
-    @staticmethod
-    def _hard_trim_to_limit(text: str, max_chars: int) -> str:
-        """硬截断兜底：保证文本不超过 max_chars 字。
-
-        策略：优先按段落从末尾回退 → 在范围内找最后一个句末标点截断。
-        此方法不可失败，作为字数控制的最终保障。
-        """
-        if not text or len(text) <= max_chars:
-            return text
-
-        # 策略1：按段落从末尾回退
-        paragraphs = text.split("\n\n")
-        while len("\n\n".join(paragraphs)) > max_chars and len(paragraphs) > 1:
-            paragraphs.pop()
-        result = "\n\n".join(paragraphs)
-        if len(result) <= max_chars:
-            return result
-
-        # 策略2：在 max_chars 范围内找最后一个句末标点（。！？）
-        truncated = text[:max_chars]
-        for i in range(len(truncated) - 1, max(0, len(truncated) - 200), -1):
-            if truncated[i] in "。！？":
-                return truncated[: i + 1]
-
-        # 策略3：实在找不到句末标点，直接截断
-        return truncated
-
-    async def _generate_with_preview(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        outline_title: str,
-        outline_summary: str,
-        writer_blueprint: Dict[str, Any],
-        memory_context: Optional[str],
-        style_hint: Optional[str],
-        enhanced_context: Optional[Dict[str, Any]],
-        target_word_count: int,
-        user_id: int,
-    ) -> Tuple[str, Dict[str, Any]]:
-        preview_service = PreviewGenerationService(self.session, self.llm_service, self.prompt_service)
-        blueprint_context = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
-
-        extra_constraints = []
-        if enhanced_context:
-            if enhanced_context.get("constitution"):
-                extra_constraints.append(enhanced_context["constitution"])
-            if enhanced_context.get("writer_persona"):
-                extra_constraints.append(enhanced_context["writer_persona"])
-
-        if extra_constraints:
-            blueprint_context = blueprint_context + "\n\n" + "\n\n".join(extra_constraints)
-
-        preview_result = await preview_service.generate_with_preview(
-            project_id=project_id,
-            chapter_number=chapter_number,
-            outline={"title": outline_title, "summary": outline_summary},
-            blueprint_context=blueprint_context,
-            emotion_context="（无情绪曲线指导）",
-            memory_context=memory_context or "（无记忆层上下文）",
-            target_word_count=target_word_count,
-            style_hint=style_hint or "",
-            user_id=user_id,
-        )
-
-        return preview_result.get("full_chapter", ""), preview_result
-
-    @staticmethod
-    def _extract_text(value: object) -> Optional[str]:
-        return extract_text_from_json(value)
-
-    @staticmethod
-    async def generate_chapter_batch(
-        *,
-        project_id: str,
-        chapter_numbers: List[int],
-        user_id: int,
-        writing_notes: Optional[str] = None,
-        flow_config: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
-        """流水线批量生成章节。
-
-        采用“前序依赖感知并发”：
-        - 若某章节最近可用前章来自本批次，则等待该前章完成（保证上下文连贯）；
-        - 若依赖不在本批次内，则可与其他独立章节并发执行。
-        每章使用独立 DB session，默认并行度为 1（等价串行，可通过配置提升）。
-        """
-        sorted_numbers = sorted(set(chapter_numbers))
-        if not sorted_numbers:
-            return []
-
-        flow_config = flow_config or {}
-        max_requested = sorted_numbers[-1]
-
-        try:
-            parallel_workers = int(
-                flow_config.get(
-                    "batch_parallel_workers",
-                    getattr(settings, "writer_batch_parallel_workers", 1),
-                )
-            )
-        except (TypeError, ValueError):
-            parallel_workers = 1
-        parallel_workers = max(1, min(8, parallel_workers))
-
-        existing_generated: set[int] = set()
-        try:
-            async with AsyncSessionLocal() as dependency_session:
-                stmt = (
-                    select(Chapter.chapter_number)
-                    .where(Chapter.project_id == project_id)
-                    .where(Chapter.chapter_number < max_requested)
-                    .where(Chapter.selected_version_id.is_not(None))
-                )
-                rows = await dependency_session.execute(stmt)
-                existing_generated = {int(num) for num in rows.scalars().all()}
-        except Exception as exc:
-            logger.warning("批量依赖预扫描失败，将回退为保守依赖计算: %s", exc)
-
-        dependencies: Dict[int, Optional[int]] = {}
-        dependents: Dict[int, List[int]] = {}
-        last_requested: Optional[int] = None
-
-        for chapter_number in sorted_numbers:
-            dependency: Optional[int] = None
-            if last_requested is not None:
-                nearest_existing = max((n for n in existing_generated if n < chapter_number), default=None)
-                if nearest_existing is None or last_requested > nearest_existing:
-                    dependency = last_requested
-            dependencies[chapter_number] = dependency
-            if dependency is not None:
-                dependents.setdefault(dependency, []).append(chapter_number)
-            last_requested = chapter_number
-
-        async def _generate_one(chapter_number: int) -> Dict[str, Any]:
-            try:
-                async with AsyncSessionLocal() as session:
-                    orchestrator = PipelineOrchestrator(session)
-                    result = await orchestrator.generate_chapter(
-                        project_id=project_id,
-                        chapter_number=chapter_number,
-                        user_id=user_id,
-                        writing_notes=writing_notes,
-                        flow_config=flow_config,
-                    )
-                    return {
-                        "chapter_number": chapter_number,
-                        "status": "success",
-                        "result": result,
-                    }
-            except Exception as e:
-                logger.error("批量生成: 章节 %s 失败: %s", chapter_number, e)
-                return {
-                    "chapter_number": chapter_number,
-                    "status": "failed",
-                    "error": str(e)[:500],
-                }
-
-        ready = [num for num in sorted_numbers if dependencies.get(num) is None]
-        ready.sort()
-        running: Dict[asyncio.Task, int] = {}
-        results_by_chapter: Dict[int, Dict[str, Any]] = {}
-        remaining = set(sorted_numbers)
-
-        while remaining:
-            while ready and len(running) < parallel_workers:
-                chapter_number = ready.pop(0)
-                if chapter_number not in remaining:
-                    continue
-                task = asyncio.create_task(_generate_one(chapter_number))
-                running[task] = chapter_number
-
-            if not running:
-                fallback = min(remaining)
-                logger.warning("批量调度出现空转，回退执行章节 %s", fallback)
-                ready.append(fallback)
-                continue
-
-            done, _ = await asyncio.wait(set(running.keys()), return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                chapter_number = running.pop(task)
-                remaining.discard(chapter_number)
-                task_result = task.result()
-                results_by_chapter[chapter_number] = task_result
-
-                logger.info(
-                    "批量生成: 章节 %s 完成 (%d/%d)",
-                    chapter_number,
-                    len(results_by_chapter),
-                    len(sorted_numbers),
-                )
-
-                for dependent in dependents.get(chapter_number, []):
-                    if dependent in remaining:
-                        ready.append(dependent)
-                ready.sort()
-
-        return [results_by_chapter[num] for num in sorted_numbers]
-
-    async def _load_project_reference_novels(
-        self,
-        project: NovelProject,
-        reference_service: ReferenceNovelLibraryService,
-    ) -> List[ReferenceNovel]:
-        ids = project.reference_novel_ids or []
-        if not ids:
-            return []
-        novels = await reference_service.get_by_ids(ids)
-        return [n for n in novels if n.status == "ready"]
-
 
 __all__ = ["PipelineOrchestrator", "PipelineConfig"]

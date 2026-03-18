@@ -19,6 +19,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from ...core.safe_task import safe_create_task
+
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
@@ -58,6 +60,7 @@ from ...services.cache_service import CacheService
 from ...services.chapter_context_service import ChapterContextService
 from ...services.chapter_ingest_service import ChapterIngestionService
 from ...services.chapter_post_processor import ChapterPostProcessor, compute_ingest_hash
+from ...services.batch_generation_service import BatchGenerationService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
@@ -240,14 +243,15 @@ def _schedule_finalize_task(
     user_id: int,
     skip_vector_update: bool = False,
 ) -> None:
-    asyncio.create_task(
+    safe_create_task(
         _finalize_chapter_async(
             project_id=project_id,
             chapter_number=chapter_number,
             selected_version_id=selected_version_id,
             user_id=user_id,
             skip_vector_update=skip_vector_update,
-        )
+        ),
+        name=f"finalize-{project_id}-ch{chapter_number}",
     )
 
 
@@ -594,7 +598,7 @@ async def batch_generate_chapters(
     novel_service = NovelService(session)
     await novel_service.ensure_project_owner(request.project_id, current_user.id)
 
-    results = await PipelineOrchestrator.generate_chapter_batch(
+    results = await BatchGenerationService.generate_chapter_batch(
         project_id=request.project_id,
         chapter_numbers=request.chapter_numbers,
         user_id=current_user.id,
@@ -705,14 +709,15 @@ async def select_chapter_version(
 
     content_snapshot = selected_version.content
 
-    asyncio.create_task(
+    safe_create_task(
         _background_chapter_post_process(
             project_id=project_id,
             chapter_number=request.chapter_number,
             content=content_snapshot,
             user_id=current_user.id,
             mode="select",
-        )
+        ),
+        name=f"post-process-{project_id}-ch{request.chapter_number}",
     )
 
     return await _load_project_schema(novel_service, project_id, current_user.id)
@@ -1453,7 +1458,7 @@ async def edit_chapter_content_fast(
     # 清除项目序列化缓存，确保刷新页面能获取最新内容
     try:
         cache_service = CacheService()
-        await cache_service.delete(f"project_schema:{project_id}")
+        await cache_service.invalidate_project_schema(project_id)
     except Exception:
         pass
 
@@ -1674,6 +1679,84 @@ async def _run_prediction_for_outline(
     return prediction
 
 
+@router.post("/novels/{project_id}/chapters/{chapter_number}/preview-plan")
+async def preview_context_plan(
+    project_id: str,
+    chapter_number: int,
+    writing_notes: str = Body("", embed=True),
+    preset: str = Body("enhanced", embed=True),
+    selected_skills: List[Dict[str, Any]] = Body([], embed=True),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """预览生成计划（不触发实际生成），供前端白盒化展示与编辑。"""
+    from ...services.context_planner_service import ContextPlannerService
+    from ...services.pipeline_config_service import PipelineConfigService
+    from ...services.history_context_service import HistoryContextService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    config_service = PipelineConfigService(session)
+    config = await config_service.resolve_config({"preset": preset})
+
+    blueprint_dict = {}
+    if project.blueprint:
+        try:
+            blueprint_dict = json.loads(project.blueprint) if isinstance(project.blueprint, str) else project.blueprint
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    outline_data = {}
+    for outline in project.outlines or []:
+        if outline.chapter_number == chapter_number:
+            outline_data = {"title": outline.title, "summary": outline.summary or ""}
+            break
+
+    llm_service = LLMService(session)
+    prompt_service = PromptService(session)
+    history_service = HistoryContextService(session, llm_service, prompt_service)
+    history_context = await history_service.build_history_context(
+        project_id=project_id,
+        chapter_number=chapter_number,
+    )
+
+    flow_config = {
+        "preset": config.preset,
+        "selected_skills": list(selected_skills or []),
+        "enable_rag": config.enable_rag,
+        "enable_memory": config.enable_memory,
+        "enable_fast_path": config.enable_fast_path,
+        "enable_consistency": config.enable_consistency,
+        "enable_foreshadowing": config.enable_foreshadowing,
+        "enable_constitution": config.enable_constitution,
+        "enable_faction": config.enable_faction,
+        "enable_power_system": config.enable_power_system,
+        "enable_character_relationships": config.enable_character_relationships,
+        "enable_polish": config.enable_polish,
+        "enable_reader_sim": config.enable_reader_sim,
+        "enable_self_critique": config.enable_self_critique,
+        "enable_six_dimension": config.enable_six_dimension,
+        "enable_mission_brief": config.enable_mission_brief,
+        "rag_mode": config.rag_mode,
+        "rag_retrieval_mode": config.rag_retrieval_mode,
+    }
+
+    planner = ContextPlannerService()
+    plan = await planner.build_plan(
+        project_id=project_id,
+        chapter_number=chapter_number,
+        writing_notes=writing_notes or "无额外写作指令",
+        flow_config=flow_config,
+        selected_skills=selected_skills,
+        blueprint=blueprint_dict,
+        outline_data=outline_data,
+        history_context=history_context,
+    )
+
+    return plan.to_dict()
+
+
 @router.post("/novels/{project_id}/chapters/{chapter_number}/prediction")
 async def generate_prediction(
     project_id: str,
@@ -1788,11 +1871,11 @@ async def batch_generate_predictions(
             await asyncio.gather(*tasks, return_exceptions=True)
 
             progress = _prediction_progress.get(project_id, {})
+            progress["running"] = False
             logger.info(
                 "批量推演完成: project=%s 成功=%d 失败=%d",
                 project_id, progress.get("completed", 0), progress.get("failed", 0),
             )
-            _prediction_progress.pop(project_id, None)
 
     background_tasks.add_task(_background_batch_predict)
 
@@ -1812,6 +1895,100 @@ async def get_prediction_progress(
     if not progress:
         return {"running": False, "total": 0, "completed": 0, "failed": 0}
     return progress
+
+
+@router.post("/novels/{project_id}/volumes/rebuild-summaries")
+async def rebuild_volume_summaries(
+    project_id: str,
+    force: bool = Body(False, embed=True),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """重建卷级摘要索引，默认增量（仅更新有变化的卷），force=True 时全量重建。"""
+    from ...services.volume_summary_service import VolumeSummaryService
+
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    llm_service = LLMService(session)
+    vol_service = VolumeSummaryService(session, llm_service)
+    result = await vol_service.rebuild_all(project_id, current_user.id, force=force)
+
+    return {
+        "updated": result["updated"],
+        "skipped": result["skipped"],
+        "total_volumes": result["total_volumes"],
+        "mode": "full" if force else "incremental",
+    }
+
+
+@router.get("/novels/{project_id}/volumes/summaries")
+async def get_volume_summaries(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取项目所有卷级摘要。"""
+    from ...services.volume_summary_service import VolumeSummaryService
+
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    llm_service = LLMService(session)
+    vol_service = VolumeSummaryService(session, llm_service)
+    volumes = await vol_service.get_all_volume_summaries(project_id)
+
+    return [
+        {
+            "volume_number": v.volume_number,
+            "title": v.title,
+            "chapter_start": v.chapter_start,
+            "chapter_end": v.chapter_end,
+            "chapter_count": v.chapter_count,
+            "summary": v.summary,
+            "updated_at": v.updated_at.isoformat() if v.updated_at else None,
+        }
+        for v in volumes
+    ]
+
+
+@router.get("/novels/{project_id}/book-summary")
+async def get_book_summary(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """获取全书摘要。"""
+    from ...services.book_summary_service import BookSummaryService
+
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    llm_service = LLMService(session)
+    book_service = BookSummaryService(session, llm_service)
+    summary = await book_service.get_book_summary(project_id)
+
+    return {"summary": summary}
+
+
+@router.post("/novels/{project_id}/book-summary/rebuild")
+async def rebuild_book_summary(
+    project_id: str,
+    force: bool = Body(False, embed=True),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """重建全书摘要。"""
+    from ...services.book_summary_service import BookSummaryService
+
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    llm_service = LLMService(session)
+    book_service = BookSummaryService(session, llm_service)
+    summary = await book_service.update_book_summary(project_id, current_user.id, force=force)
+
+    return {"summary": summary, "mode": "full" if force else "incremental"}
 
 
 @router.post("/novels/{project_id}/rag/rebuild")

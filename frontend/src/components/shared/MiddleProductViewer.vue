@@ -279,6 +279,57 @@
         </div>
       </div>
 
+      <!-- 证据评分 -->
+      <div v-if="activeTab === 'grade'" class="content-panel">
+        <div class="panel-header">
+          <h4>⭐ 证据评分</h4>
+          <span class="panel-hint">轻量级 LLM 相关性评分结果</span>
+        </div>
+        <div v-if="evidenceGradeData && evidenceGradeData.graded" class="panel-body">
+          <div class="rag-stats">
+            <span class="stat-item">
+              <span class="stat-label">总证据</span>
+              <span class="stat-value">{{ evidenceGradeData.total || 0 }}</span>
+              <span class="stat-label">条</span>
+            </span>
+            <span class="stat-item">
+              <span class="stat-label">过滤</span>
+              <span class="stat-value grade-filtered">{{ evidenceGradeData.filtered || 0 }}</span>
+              <span class="stat-label">条</span>
+            </span>
+            <span class="stat-item">
+              <span class="stat-label">阈值</span>
+              <span class="stat-value">{{ evidenceGradeData.threshold || 0.3 }}</span>
+            </span>
+          </div>
+          <div v-if="evidenceGradeData.scores?.length" class="rag-chunks">
+            <div
+              v-for="item in evidenceGradeData.scores"
+              :key="item.index"
+              class="rag-chunk"
+              :class="{ 'graded-out': item.graded_out }"
+            >
+              <div class="chunk-header">
+                <span class="chunk-title">{{ item.title }}</span>
+                <span class="chunk-score" :class="{ 'score-low': item.graded_out }">
+                  {{ (item.grader_score * 100).toFixed(0) }}%
+                </span>
+              </div>
+              <p class="chunk-content">
+                <span class="grade-source">{{ item.source }}</span>
+                {{ item.reason }}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div v-else-if="evidenceGradeData && !evidenceGradeData.graded" class="panel-empty">
+          <p>评分已跳过：{{ evidenceGradeData.reason || '未知' }}</p>
+        </div>
+        <div v-else class="panel-empty">
+          <p>暂无证据评分数据</p>
+        </div>
+      </div>
+
       <div v-if="activeTab === 'prompt'" class="content-panel">
         <div class="panel-header">
           <h4>🧩 Prompt 编译</h4>
@@ -421,6 +472,23 @@ interface ContextPlanData {
   }>
 }
 
+interface EvidenceGradeData {
+  graded: boolean
+  reason?: string
+  total?: number
+  filtered?: number
+  threshold?: number
+  scores?: Array<{
+    index: number
+    title: string
+    source: string
+    original_score: number
+    grader_score: number
+    reason: string
+    graded_out: boolean
+  }>
+}
+
 interface EvidenceSummaryData {
   total_items?: number
   retrieval_task_count?: number
@@ -462,6 +530,7 @@ interface VerificationReportData {
 interface Props {
   contextPlanData?: ContextPlanData | null
   evidenceSummaryData?: EvidenceSummaryData | null
+  evidenceGradeData?: EvidenceGradeData | null
   promptCompileSummaryData?: PromptCompileSummaryData | null
   verificationReportData?: VerificationReportData | null
   missionData?: MissionData | null
@@ -486,6 +555,12 @@ const tabs = computed(() => [
     label: '证据',
     icon: '🗂',
     badge: props.evidenceSummaryData?.total_items ? `${props.evidenceSummaryData.total_items}` : null
+  },
+  {
+    id: 'grade',
+    label: '评分',
+    icon: '⭐',
+    badge: props.evidenceGradeData?.graded && props.evidenceGradeData?.filtered ? `${props.evidenceGradeData.filtered}` : null
   },
   {
     id: 'prompt',
@@ -783,5 +858,28 @@ const tabs = computed(() => [
   word-break: break-word;
   color: var(--md-on-surface-variant, #666);
   font-family: inherit;
+}
+
+.grade-filtered {
+  color: var(--md-error, #f44336);
+}
+
+.graded-out {
+  opacity: 0.5;
+  border-left: 3px solid var(--md-error, #f44336);
+}
+
+.score-low {
+  color: var(--md-error, #f44336);
+}
+
+.grade-source {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 4px;
+  margin-right: 4px;
+  background: var(--md-surface-container, #f5f5f5);
+  border-radius: 4px;
+  color: var(--md-on-surface-variant, #999);
 }
 </style>

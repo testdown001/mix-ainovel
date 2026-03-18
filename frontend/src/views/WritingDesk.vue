@@ -63,6 +63,7 @@
           @open-preset-selector="showPresetSelector = true"
           @open-skill-selector="showSkillSelector = true"
           @open-middle-product-viewer="showMiddleProductViewer = true"
+          @preview-context-plan="handlePreviewContextPlan"
           @open-diagnostic-panel="showDiagnosticPanel = true"
           @open-agent-visualizer="showAgentVisualizer = true"
         />
@@ -277,6 +278,7 @@
       <MiddleProductViewer
         :context-plan-data="currentContextPlanData"
         :evidence-summary-data="currentEvidenceSummaryData"
+        :evidence-grade-data="currentEvidenceGradeData"
         :prompt-compile-summary-data="currentPromptCompileSummaryData"
         :verification-report-data="currentVerificationReportData"
         :mission-data="currentMissionData"
@@ -341,6 +343,30 @@ interface Props {
   id: string
 }
 
+type WritingPreset = NonNullable<AdvancedGenerateFlowConfig['preset']>
+type AgentNodeStatus = 'pending' | 'running' | 'completed' | 'failed'
+
+interface AgentLog {
+  time: string
+  message: string
+  type: 'info' | 'warning' | 'error' | 'success'
+}
+
+interface AgentNode {
+  id: string
+  name: string
+  role: string
+  icon: string
+  status: AgentNodeStatus
+  logs: AgentLog[]
+}
+
+const VALID_PRESETS: WritingPreset[] = ['basic', 'enhanced', 'ultimate', 'platinum', 'literary', 'fast', 'custom']
+
+function isWritingPreset(value: string | null): value is WritingPreset {
+  return value !== null && VALID_PRESETS.includes(value as WritingPreset)
+}
+
 const props = defineProps<Props>()
 const router = useRouter()
 const novelStore = useNovelStore()
@@ -365,7 +391,8 @@ const showPredictionRequestModal = ref(false)
 const showSkillSelector = ref(false)
 const showSkillApplyModal = ref(false)
 const showSkillPreviewModal = ref(false)
-const selectedPreset = ref(localStorage.getItem('arboris_preset') || 'fast')
+const storedPreset = localStorage.getItem('arboris_preset')
+const selectedPreset = ref<WritingPreset>(isWritingPreset(storedPreset) ? storedPreset : 'fast')
 const predictionTargetChapter = ref<number | null>(null)
 const predictionExclusions = ref('')
 const predictionGeneratingChapter = ref<number | null>(null)
@@ -406,7 +433,7 @@ const showMiddleProductViewer = ref(false)
 const showDiagnosticPanel = ref(false)
 const showAgentVisualizer = ref(false)
 
-// 中间产物数据（模拟数据，实际应从API获取）
+// 中间产物数据
 const currentContextPlanData = ref(null)
 const currentEvidenceSummaryData = ref(null)
 const currentPromptCompileSummaryData = ref(null)
@@ -415,6 +442,7 @@ const currentMissionData = ref(null)
 const currentRagData = ref(null)
 const currentContextData = ref(null)
 const currentForeshadowingData = ref(null)
+const currentEvidenceGradeData = ref(null)
 
 // Agent 可视化数据
 const currentAgentId = ref<string | null>(null)
@@ -423,24 +451,18 @@ const isAgentCompleted = ref(false)
 const agentTotalTime = ref(0)
 const agentLLMCalls = ref(0)
 let _agentStartTime = 0
-interface AgentLog {
-  time: string
-  message: string
-  type: 'info' | 'warning' | 'error' | 'success'
-}
-
-const agentNodes = ref([
-  { id: 'taizi', name: '太子省', role: '需求分拣', icon: '👶', status: 'pending' as string, logs: [] as AgentLog[] },
-  { id: 'zhongshu', name: '中书省', role: '规划中枢', icon: '📜', status: 'pending' as string, logs: [] as AgentLog[] },
-  { id: 'shangshu', name: '尚书省', role: '调度协调', icon: '🏛️', status: 'pending' as string, logs: [] as AgentLog[] },
-  { id: 'bingbu', name: '兵部', role: '章节生成', icon: '⚔️', status: 'pending' as string, logs: [] as AgentLog[] },
-  { id: 'libu', name: '吏部', role: '角色管理', icon: '📋', status: 'pending' as string, logs: [] as AgentLog[] },
-  { id: 'hubu', name: '户部', role: '技能系统', icon: '🎯', status: 'pending' as string, logs: [] as AgentLog[] },
-  { id: 'menxia', name: '门下省', role: '质量审核', icon: '🔍', status: 'pending' as string, logs: [] as AgentLog[] },
+const agentNodes = ref<AgentNode[]>([
+  { id: 'taizi', name: '太子省', role: '需求分拣', icon: '👶', status: 'pending', logs: [] },
+  { id: 'zhongshu', name: '中书省', role: '规划中枢', icon: '📜', status: 'pending', logs: [] },
+  { id: 'shangshu', name: '尚书省', role: '调度协调', icon: '🏛️', status: 'pending', logs: [] },
+  { id: 'bingbu', name: '兵部', role: '章节生成', icon: '⚔️', status: 'pending', logs: [] },
+  { id: 'libu', name: '吏部', role: '角色管理', icon: '📋', status: 'pending', logs: [] },
+  { id: 'hubu', name: '户部', role: '技能系统', icon: '🎯', status: 'pending', logs: [] },
+  { id: 'menxia', name: '门下省', role: '质量审核', icon: '🔍', status: 'pending', logs: [] },
 ])
 
 // Stage → Agent 状态映射：将后端推送的 stage 事件映射到 Agent 节点状态变更
-function _setAgentStatus(id: string, status: string) {
+function _setAgentStatus(id: string, status: AgentNodeStatus) {
   const node = agentNodes.value.find(a => a.id === id)
   if (node) node.status = status
 }
@@ -833,6 +855,25 @@ const handlePreviewPrediction = (chapterNumber: number) => {
   openPredictionTick.value += 1
 }
 
+const handlePreviewContextPlan = async () => {
+  if (!project.value?.id || !selectedChapterNumber.value) return
+  try {
+    const res = await NovelAPI.previewContextPlan(
+      project.value.id,
+      selectedChapterNumber.value,
+      {
+        writing_notes: '',
+        preset: selectedPreset.value,
+        selected_skills: selectedGenerationSkills.value,
+      }
+    )
+    currentContextPlanData.value = res
+    showMiddleProductViewer.value = true
+  } catch (err: any) {
+    globalAlert.showError(err?.response?.data?.detail || '预览计划失败')
+  }
+}
+
 const handleSkillSelection = (skills: NonNullable<AdvancedGenerateFlowConfig['selected_skills']>) => {
   selectedGenerationSkills.value = skills
   showSkillSelector.value = false
@@ -979,6 +1020,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     currentEvidenceSummaryData.value = null
     currentPromptCompileSummaryData.value = null
     currentVerificationReportData.value = null
+    currentEvidenceGradeData.value = null
     currentMissionData.value = null
     currentRagData.value = null
     currentContextData.value = null
@@ -1082,6 +1124,8 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
                 currentForeshadowingData.value = payload.data || null
               } else if (payload.type === 'context') {
                 currentContextData.value = payload.data || null
+              } else if (payload.type === 'evidence_grade') {
+                currentEvidenceGradeData.value = payload.data || null
               }
             }
           },
@@ -1463,7 +1507,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
 
       try {
         // 调用生成 API，获取含 best_version_index 的原始响应
-        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(projectId, chapterNumber, writingNotes, selectedPreset.value as any, agentFlowConfigOverrides.value)
+        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(projectId, chapterNumber, writingNotes, selectedPreset.value, agentFlowConfigOverrides.value)
 
         // 再次检查是否取消或组件已卸载（生成过程中可能点了取消或离开页面）
         if (batchCancelled.value || !componentMounted.value) {

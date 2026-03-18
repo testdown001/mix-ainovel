@@ -712,9 +712,7 @@ const pollPredictionProgress = async (projectId: string) => {
       predictionPollTimer = setTimeout(() => pollPredictionProgress(projectId), 3000)
     } else {
       sectionRef.value?.setPredictGenerating?.(false)
-      if (progress.completed > 0 || progress.failed > 0) {
-        reloadSection(activeSection.value, true)
-      }
+      reloadSection('chapter_outline', true)
     }
   } catch {
     predictionPollTimer = setTimeout(() => pollPredictionProgress(projectId), 5000)
@@ -781,6 +779,10 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('resize', handleResize)
+  }
+  if (predictionPollTimer) {
+    clearTimeout(predictionPollTimer)
+    predictionPollTimer = null
   }
   if (typeof document !== 'undefined') {
     document.body.style.overflow = originalBodyOverflow.value || ''

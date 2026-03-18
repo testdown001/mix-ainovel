@@ -35,10 +35,6 @@ class ChapterIngestionService:
         self._llm_service = llm_service
         self._vector_store = vector_store or VectorStoreService()
         self._text_splitter = self._init_text_splitter()
-        self._embedding_concurrency = max(
-            1,
-            int(getattr(settings, "vector_ingest_concurrency", 4) or 4),
-        )
 
     async def ingest_chapter(
         self,
@@ -77,22 +73,40 @@ class ChapterIngestionService:
         if summary:
             ctx_prefix += f" {summary[:200]}"
 
-        semaphore = asyncio.Semaphore(self._embedding_concurrency)
-        tasks = [
-            self._build_chunk_record(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                title=title,
-                chunk_text=chunk_text,
-                chunk_index=index,
-                ctx_prefix=ctx_prefix,
-                user_id=user_id,
-                semaphore=semaphore,
-            )
-            for index, chunk_text in enumerate(chunks)
-        ]
-        chunk_records_raw = await asyncio.gather(*tasks)
-        chunk_records = [item for item in chunk_records_raw if item is not None]
+        # 批量生成 embeddings（单次请求处理所有 chunks）
+        contextual_inputs = [f"{ctx_prefix}\n{chunk}" for chunk in chunks]
+        embeddings = await self._llm_service.get_embeddings_batch(
+            contextual_inputs,
+            user_id=user_id,
+        )
+
+        # 构建 chunk records
+        chunk_records = []
+        for index, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+            if not embedding:
+                logger.warning(
+                    "生成章节片段向量失败，已跳过: project=%s chapter=%s chunk=%d",
+                    project_id,
+                    chapter_number,
+                    index,
+                )
+                continue
+
+            record_id = f"{project_id}:{chapter_number}:{index}"
+            chunk_records.append({
+                "id": record_id,
+                "project_id": project_id,
+                "chapter_number": chapter_number,
+                "chunk_index": index,
+                "chapter_title": title,
+                "content": chunk_text,
+                "embedding": embedding,
+                "metadata": {
+                    "chunk_id": record_id,
+                    "length": len(chunk_text),
+                    "contextual_prefix": ctx_prefix,
+                },
+            })
 
         if chunk_records:
             await self._vector_store.upsert_chunks(records=chunk_records, sync_bm25=sync_bm25)
@@ -135,50 +149,6 @@ class ChapterIngestionService:
                         project_id,
                         chapter_number,
                     )
-
-    async def _build_chunk_record(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        title: str,
-        chunk_text: str,
-        chunk_index: int,
-        ctx_prefix: str,
-        user_id: int,
-        semaphore: asyncio.Semaphore,
-    ) -> Optional[Dict[str, Any]]:
-        # embedding 输入 = 上下文前缀 + 原始文本，提升检索精度
-        contextual_input = f"{ctx_prefix}\n{chunk_text}"
-        async with semaphore:
-            embedding = await self._llm_service.get_embedding(
-                contextual_input,
-                user_id=user_id,
-            )
-        if not embedding:
-            logger.warning(
-                "生成章节片段向量失败，已跳过: project=%s chapter=%s chunk=%s",
-                project_id,
-                chapter_number,
-                chunk_index,
-            )
-            return None
-
-        record_id = f"{project_id}:{chapter_number}:{chunk_index}"
-        return {
-            "id": record_id,
-            "project_id": project_id,
-            "chapter_number": chapter_number,
-            "chunk_index": chunk_index,
-            "chapter_title": title,
-            "content": chunk_text,
-            "embedding": embedding,
-            "metadata": {
-                "chunk_id": record_id,
-                "length": len(chunk_text),
-                "contextual_prefix": ctx_prefix,
-            },
-        }
 
     async def delete_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
         """从向量库中删除指定章节的所有片段与摘要。"""

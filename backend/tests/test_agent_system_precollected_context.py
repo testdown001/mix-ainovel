@@ -82,3 +82,88 @@ def test_agent_system_passes_precollected_context_to_bingbu_flow_config():
         == pre_collected_context
     )
 
+
+def test_agent_system_passes_skill_policies_and_augmented_notes_to_bingbu():
+    skill_policies = [
+        {
+            "skill_id": "dialogue_polish",
+            "phase": "pre_prompt",
+            "prompt_hints": ["对白风格差异化"],
+        }
+    ]
+    pre_collected_context = {
+        "context_plan": {"chapter_phase": "climax"},
+        "retrieval_evidence_summary": {"total_items": 3},
+    }
+
+    taizi = _DummyAgent(
+        AgentResult(
+            status="completed",
+            output={
+                "parsed_command": {"intent": "generate"},
+                "chapter_type": "高潮章",
+                "emotion_target": {"tone": "intense"},
+                "writing_preferences": {"pace": "fast"},
+            },
+        )
+    )
+    hubu = _DummyAgent(
+        AgentResult(
+            status="completed",
+            output={
+                "skill_context": {
+                    "skill_policies": skill_policies,
+                    "prompt_injection": "[技能增强要求]\n- 对白风格差异化",
+                }
+            },
+        )
+    )
+    zhongshu = _DummyAgent(
+        AgentResult(
+            status="delegated",
+            output={
+                "writing_prompt": "prompt",
+                "pre_collected_context": pre_collected_context,
+            },
+        )
+    )
+    bingbu = _DummyAgent(
+        AgentResult(
+            status="completed",
+            output={
+                "versions": [{"content": "章节正文", "version_id": "v1"}],
+                "stages": {"generate": {"status": "ok"}},
+            },
+        )
+    )
+
+    system = WritingAgentSystem(session=SimpleNamespace(), archive_service=None)
+    system._initialized = True
+    system._agents = {
+        "taizi": taizi,
+        "hubu": hubu,
+        "zhongshu": zhongshu,
+        "bingbu": bingbu,
+    }
+
+    asyncio.run(
+        system.execute_chapter_generation(
+            project_id="project-2",
+            chapter_number=18,
+            writing_notes="保留原始剧情走向",
+            config={
+                "preset": "platinum",
+                "versions": 1,
+                "selected_skills": [{"skill_id": "dialogue_polish"}],
+            },
+            user_id=7,
+        )
+    )
+
+    assert zhongshu.received_contexts[0].metadata["skill_policies"] == skill_policies
+    assert bingbu.received_contexts[0].metadata["flow_config"]["skill_policies"] == skill_policies
+    assert "对白风格差异化" in bingbu.received_contexts[0].metadata["writing_notes"]
+    assert (
+        bingbu.received_contexts[0].metadata["flow_config"]["pre_collected_context"]
+        == pre_collected_context
+    )

@@ -69,12 +69,27 @@ class VectorStoreService:
             self._schema_ready = False
             logger.info("Qdrant 客户端初始化成功，等待检查 Collection。")
 
+    async def _resolve_vector_size(self) -> int:
+        """从系统配置优先读取向量维度，回退到 .env，最终默认 3072。"""
+        try:
+            from ..db.session import AsyncSessionLocal
+            from ..repositories.system_config_repository import SystemConfigRepository
+
+            async with AsyncSessionLocal() as session:
+                repo = SystemConfigRepository(session)
+                record = await repo.get_by_key("embedding.model_vector_size")
+                if record and record.value:
+                    return int(record.value)
+        except Exception:
+            pass
+        return settings.embedding_model_vector_size or 3072
+
     async def ensure_schema(self) -> None:
         """初始化向量表结构，保证系统首次运行即可使用。"""
         if not self._client or self._schema_ready:
             return
 
-        vector_size = settings.embedding_model_vector_size or 3072
+        vector_size = await self._resolve_vector_size()
 
         async def _check_and_create(collection_name: str) -> None:
             if not await self._client.collection_exists(collection_name):

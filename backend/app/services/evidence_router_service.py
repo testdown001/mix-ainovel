@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from ..core.config import settings
+from ..db.session import AsyncSessionLocal
+from .budget_enforcer_service import BudgetEnforcerService
 from .chapter_context_service import ChapterContextService
 from .context_planner_service import ContextPlan, EvidenceItem, GenerationEvidencePack
+from .foreshadowing_tracker_service import ForeshadowingTrackerService
 from .knowledge_retrieval_service import FilteredContext, KnowledgeRetrievalService
 from .llm_service import LLMService
+from .platinum_writing_context import build_foreshadowing_urgency_brief
 from .prompt_service import PromptService
 from .vector_store_service import VectorStoreService
+from .writer_shared import create_vector_store_or_none
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -22,10 +31,14 @@ class RoutedEvidenceResult:
     power_system_context: str = ""
     relationship_context: str = ""
     task_reports: Dict[str, Any] = field(default_factory=dict)
+    budget_reports: Dict[str, Any] = field(default_factory=dict)
 
 
 class EvidenceRouterService:
-    """按 ContextPlan 的 retrieval_tasks 执行多源证据路由。"""
+    """按 ContextPlan 的 retrieval_tasks 执行多源证据路由，并执行预算控制。"""
+
+    def __init__(self):
+        self.budget_enforcer = BudgetEnforcerService()
 
     async def route_local_plot(
         self,
@@ -90,6 +103,67 @@ class EvidenceRouterService:
             },
             "queries": list(normalized_queries),
         }
+
+    async def prefetch_local_plot(
+        self,
+        *,
+        plan: ContextPlan,
+        project_id: str,
+        user_id: int,
+        queries: Sequence[str],
+        retrieval_mode: str,
+    ) -> Dict[str, Any]:
+        if not settings.vector_store_enabled:
+            return {
+                "chunks": [],
+                "summaries": [],
+                "stats": {"status": "skipped", "reason": "vector_store_disabled"},
+                "queries": [],
+            }
+
+        vector_store = create_vector_store_or_none()
+        if vector_store is None:
+            return {
+                "chunks": [],
+                "summaries": [],
+                "stats": {"status": "skipped", "reason": "vector_store_unavailable"},
+                "queries": [],
+            }
+
+        async with AsyncSessionLocal() as bg_session:
+            bg_llm = LLMService(bg_session)
+            return await self.route_local_plot(
+                plan=plan,
+                project_id=project_id,
+                user_id=user_id,
+                queries=queries,
+                retrieval_mode=retrieval_mode,
+                llm_service=bg_llm,
+                vector_store=vector_store,
+            )
+
+    async def prefetch_symbolic_foreshadowing(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        async with AsyncSessionLocal() as bg_session:
+            brief = await build_foreshadowing_urgency_brief(
+                session=bg_session,
+                project_id=project_id,
+                chapter_number=chapter_number,
+            )
+            structured = None
+            try:
+                bg_llm = LLMService(bg_session)
+                bg_prompt = PromptService(bg_session)
+                tracker = ForeshadowingTrackerService(bg_session, bg_llm, bg_prompt)
+                fs_data = await tracker.get_foreshadowings_for_chapter(project_id, chapter_number)
+                structured = self._build_foreshadowing_payload(fs_data)
+            except Exception as exc:
+                logger.warning("结构化伏笔数据构建失败: %s", exc)
+            return brief, structured
 
     async def route_two_stage(
         self,
@@ -236,6 +310,10 @@ class EvidenceRouterService:
             global_items, global_report = await self.route_global_arc(
                 plan=plan,
                 history_context=history,
+                project_id=project_id,
+                chapter_number=chapter_number,
+                session=session,
+                llm_service=llm_service,
             )
             evidence_pack.global_arc.extend(global_items)
             task_reports["global_arc_rag"] = {
@@ -259,11 +337,22 @@ class EvidenceRouterService:
             routed_context_data.update(state_payload.get("context_data") or {})
             if state_payload.get("relationship_context"):
                 routed_relationship_context = str(state_payload.get("relationship_context") or "")
-            self._append_state_items(
-                evidence_pack=evidence_pack,
-                context_data=routed_context_data,
-                relationship_context=routed_relationship_context,
-            )
+
+            # temporal_snapshot 模式：使用 TemporalStateService 转换为 EvidenceItem
+            if "snapshot" in state_payload:
+                from .temporal_state_service import TemporalStateService
+
+                temporal = TemporalStateService(session)
+                budget_tokens = self._get_state_budget(evidence_pack)
+                evidence_pack.state_items.extend(
+                    temporal.to_evidence_items(state_payload["snapshot"], budget_tokens=budget_tokens)
+                )
+            else:
+                self._append_state_items(
+                    evidence_pack=evidence_pack,
+                    context_data=routed_context_data,
+                    relationship_context=routed_relationship_context,
+                )
             task_reports["state_rag"] = {
                 **state_report,
                 "items": len(evidence_pack.state_items),
@@ -292,6 +381,10 @@ class EvidenceRouterService:
                 **symbolic_report,
                 "items": len(evidence_pack.symbolic_items),
             }
+
+        budget_report = self._enforce_evidence_budgets(evidence_pack, plan.budgets)
+        if budget_report:
+            task_reports["evidence_budget"] = budget_report
 
         evidence_pack.graded_summary = self.build_summary(
             plan=plan,
@@ -332,6 +425,10 @@ class EvidenceRouterService:
         *,
         plan: ContextPlan,
         history_context: Dict[str, Any],
+        project_id: Optional[str] = None,
+        chapter_number: Optional[int] = None,
+        session: Optional[Any] = None,
+        llm_service: Optional[LLMService] = None,
     ) -> tuple[List[EvidenceItem], Dict[str, Any]]:
         tasks = [task for task in plan.retrieval_tasks if task.source == "global_arc_rag"]
         if not tasks:
@@ -339,6 +436,48 @@ class EvidenceRouterService:
 
         items: List[EvidenceItem] = []
         self._append_global_arc_items(items=items, history_context=history_context)
+
+        # 注入卷级摘要和书级摘要
+        volume_count = 0
+        has_book_summary = False
+        if session and llm_service and project_id and chapter_number:
+            try:
+                from .volume_summary_service import VolumeSummaryService
+                vol_service = VolumeSummaryService(session, llm_service)
+                vol_summaries = await vol_service.get_relevant_volume_summaries(
+                    project_id, chapter_number, max_volumes=3,
+                )
+                for vs in vol_summaries:
+                    items.append(
+                        EvidenceItem(
+                            source="global_arc_rag",
+                            title=vs["title"],
+                            content=vs["summary"],
+                            score=0.75,
+                            metadata={"type": "volume_summary", "volume_number": vs["volume_number"]},
+                        )
+                    )
+                    volume_count += 1
+            except Exception as exc:
+                logger.warning("卷级摘要检索失败: %s", exc)
+
+            try:
+                from .book_summary_service import BookSummaryService
+                book_service = BookSummaryService(session, llm_service)
+                book_summary = await book_service.get_book_summary(project_id)
+                if book_summary:
+                    items.append(
+                        EvidenceItem(
+                            source="global_arc_rag",
+                            title="全书摘要",
+                            content=book_summary,
+                            score=0.85,
+                            metadata={"type": "book_summary"},
+                        )
+                    )
+                    has_book_summary = True
+            except Exception as exc:
+                logger.warning("书级摘要检索失败: %s", exc)
 
         if not items:
             completed = history_context.get("completed_chapters") or []
@@ -356,7 +495,12 @@ class EvidenceRouterService:
                     )
                 )
 
-        return items, {"status": "completed" if items else "skipped", "reason": None if items else "empty_history"}
+        report = {"status": "completed" if items else "skipped", "reason": None if items else "empty_history"}
+        if volume_count:
+            report["volume_summaries"] = volume_count
+        if has_book_summary:
+            report["book_summary"] = True
+        return items, report
 
     async def route_state(
         self,
@@ -379,6 +523,24 @@ class EvidenceRouterService:
         resolved_context = dict(context_data)
         resolved_relationship = relationship_context
         active_fetches = 0
+
+        # temporal_snapshot 模式：使用 TemporalStateService 聚合全量时序数据
+        state_task = tasks[0] if tasks else None
+        if state_task and state_task.mode == "temporal_snapshot" and session:
+            from .temporal_state_service import TemporalStateService
+
+            temporal = TemporalStateService(session)
+            snapshot = await temporal.get_world_snapshot(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                involved_characters=involved_characters,
+                blueprint_dict=blueprint_dict,
+            )
+            return {
+                "context_data": resolved_context,
+                "relationship_context": resolved_relationship,
+                "snapshot": snapshot,
+            }, {"status": "completed", "mode": "temporal_snapshot"}
 
         if session and llm_service and prompt_service and not resolved_context.get("chapter_state_context"):
             from .memory_layer_service import MemoryLayerService
@@ -453,27 +615,9 @@ class EvidenceRouterService:
         active_fetches = 0
 
         if session and llm_service and prompt_service and not resolved_foreshadowing:
-            from .foreshadowing_tracker_service import ForeshadowingTrackerService
-
             tracker = ForeshadowingTrackerService(session, llm_service, prompt_service)
             fs_data = await tracker.get_foreshadowings_for_chapter(project_id, chapter_number)
-            should_resolve: List[Dict[str, Any]] = []
-            for category in ("urgent", "overdue", "due_soon"):
-                for fs in fs_data.get(category, []):
-                    should_resolve.append(
-                        {
-                            "id": getattr(fs, "id", None),
-                            "content": getattr(fs, "content", "") or getattr(fs, "description", ""),
-                            "chapter_number": getattr(fs, "chapter_number", None),
-                            "urgency": "high" if category == "urgent" else "medium",
-                        }
-                    )
-            all_count = sum(len(fs_data.get(key, [])) for key in ("urgent", "due_soon", "overdue", "related"))
-            resolved_foreshadowing = {
-                "should_resolve": should_resolve[:10],
-                "should_plant": [],
-                "total_unresolved": all_count,
-            }
+            resolved_foreshadowing = self._build_foreshadowing_payload(fs_data)
             active_fetches += 1
 
         if session and not resolved_power_system_context:
@@ -530,6 +674,32 @@ class EvidenceRouterService:
             "top_titles": self._top_titles(categories.values(), limit=6),
             "retrieval_task_count": len(plan.retrieval_tasks),
             "task_reports": dict(task_reports or {}),
+        }
+
+    @staticmethod
+    def _build_foreshadowing_payload(fs_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        resolved = fs_data or {}
+        should_resolve: List[Dict[str, Any]] = []
+        for category in ("urgent", "overdue", "due_soon"):
+            urgency = "high" if category == "urgent" else "medium"
+            for fs in resolved.get(category, []) or []:
+                should_resolve.append(
+                    {
+                        "id": getattr(fs, "id", None),
+                        "content": getattr(fs, "content", "") or getattr(fs, "description", ""),
+                        "chapter_number": getattr(fs, "chapter_number", None),
+                        "urgency": urgency,
+                    }
+                )
+
+        total_unresolved = sum(
+            len(resolved.get(key, []) or [])
+            for key in ("urgent", "due_soon", "overdue", "related")
+        )
+        return {
+            "should_resolve": should_resolve[:10],
+            "should_plant": [],
+            "total_unresolved": total_unresolved,
         }
 
     def _append_local_plot(
@@ -612,6 +782,12 @@ class EvidenceRouterService:
                 )
             )
 
+    def _get_state_budget(self, evidence_pack: GenerationEvidencePack) -> int:
+        """获取 state_items 的 token 预算。"""
+        # 从 _build_evidence_budgets 的 balanced 预算中取 state_items 分配
+        # balanced: state_items = 2000 tokens (来自 context_planner_service)
+        return 2000
+
     def _append_state_items(
         self,
         *,
@@ -689,6 +865,100 @@ class EvidenceRouterService:
                     score=0.6,
                 )
             )
+
+    def _enforce_evidence_budgets(
+        self,
+        evidence_pack: GenerationEvidencePack,
+        budgets: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """对证据包的四个分类执行 token 预算控制。
+
+        在每个分类内按 score 降序排列，超出预算的项被截断或丢弃。
+        返回预算执行报告，无预算配置时返回 None。
+        """
+        evidence_budgets = (budgets or {}).get("evidence_budgets")
+        if not evidence_budgets:
+            return None
+
+        category_map = {
+            "local_plot": evidence_pack.local_plot,
+            "global_arc": evidence_pack.global_arc,
+            "state_items": evidence_pack.state_items,
+            "symbolic_items": evidence_pack.symbolic_items,
+        }
+
+        report: Dict[str, Any] = {}
+        total_before = 0
+        total_after = 0
+
+        for category_name, items in category_map.items():
+            cat_budget = evidence_budgets.get(category_name)
+            if not cat_budget or not items:
+                continue
+
+            max_tokens = cat_budget.get("max_tokens", 10000)
+            max_items = cat_budget.get("max_items", 20)
+
+            before_count = len(items)
+            before_tokens = sum(
+                self.budget_enforcer.estimate_tokens(item.content) for item in items
+            )
+            total_before += before_tokens
+
+            # 按 score 降序排序
+            items.sort(key=lambda x: x.score, reverse=True)
+
+            # 限制数量
+            if len(items) > max_items:
+                items[:] = items[:max_items]
+
+            # 限制 token 总量
+            kept: List[EvidenceItem] = []
+            used_tokens = 0
+            truncated = 0
+
+            for item in items:
+                item_tokens = self.budget_enforcer.estimate_tokens(item.content)
+                if used_tokens + item_tokens <= max_tokens:
+                    kept.append(item)
+                    used_tokens += item_tokens
+                else:
+                    remaining = max_tokens - used_tokens
+                    if remaining > 100:
+                        truncated_text, was_truncated = self.budget_enforcer.truncate_to_budget(
+                            item.content, remaining
+                        )
+                        if was_truncated:
+                            truncated += 1
+                        item.content = truncated_text
+                        kept.append(item)
+                        used_tokens += self.budget_enforcer.estimate_tokens(truncated_text)
+                    break
+
+            items[:] = kept
+            total_after += used_tokens
+
+            if before_count != len(kept) or truncated > 0:
+                report[category_name] = {
+                    "before": before_count,
+                    "after": len(kept),
+                    "dropped": before_count - len(kept),
+                    "truncated": truncated,
+                    "tokens_before": before_tokens,
+                    "tokens_after": used_tokens,
+                    "max_tokens": max_tokens,
+                }
+
+        total_max = evidence_budgets.get("total_max_tokens", 0)
+        if total_max and total_before > 0:
+            report["total"] = {
+                "tokens_before": total_before,
+                "tokens_after": total_after,
+                "max_tokens": total_max,
+                "utilization": round(total_after / total_max, 2) if total_max else 0,
+            }
+
+        return report if report else None
 
     def _normalize_queries(self, queries: Sequence[str]) -> List[str]:
         result: List[str] = []

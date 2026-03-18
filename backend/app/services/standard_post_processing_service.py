@@ -202,11 +202,17 @@ class StandardPostProcessingService:
 
         if enhanced_flow and config.enable_six_dimension:
             from ..services.six_dimension_review_service import SixDimensionReviewService
+            from ..services.constitution_service import ConstitutionService
+            from ..services.writer_persona_service import WriterPersonaService
 
+            constitution_service = ConstitutionService(orchestrator.session, orchestrator.llm_service, orchestrator.prompt_service)
+            writer_persona_service = WriterPersonaService(orchestrator.session, orchestrator.llm_service, orchestrator.prompt_service)
             six_dim_service = SixDimensionReviewService(
                 orchestrator.session,
                 orchestrator.llm_service,
                 orchestrator.prompt_service,
+                constitution_service,
+                writer_persona_service,
             )
             try:
                 six_dim_result = await six_dim_service.review_chapter(

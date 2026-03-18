@@ -1,15 +1,15 @@
 """
-记忆层服务 (集成 mem0)
+记忆层服务 (集成 mem0 AsyncMemory)
 
 提供角色状态追踪、时间线管理、因果链维护的核心功能，
-并使用 mem0 提供长期、跨章节的非结构化事实记忆检索池。"""
-from typing import ClassVar, Optional, List, Dict, Any
+并使用 mem0 AsyncMemory 提供长期、跨章节的非结构化事实记忆检索池。"""
+from typing import Optional, List, Dict, Any
 import asyncio
 import json
 import logging
 from datetime import datetime
 
-from mem0 import Memory
+from mem0 import AsyncMemory
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, desc, func
 
@@ -27,20 +27,21 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryLayerService:
-    """基于 mem0 的记忆层服务"""
+    """基于 mem0 AsyncMemory 的记忆层服务"""
 
-    # 类级别单例：避免每次请求都重建 Memory → Qdrant 连接
-    _memory_instance: ClassVar[Optional[Memory]] = None
-    _memory_config_hash: ClassVar[Optional[int]] = None
-
-    def __init__(self, db: AsyncSession, llm_service: LLMService, prompt_service: PromptService):
+    def __init__(
+        self,
+        db: AsyncSession,
+        llm_service: Optional[LLMService] = None,
+        prompt_service: Optional[PromptService] = None,
+    ):
         self.db = db
         self.llm_service = llm_service
         self.prompt_service = prompt_service
-        self.memory = self._get_or_create_memory()
+        self._memory: Optional[AsyncMemory] = None
 
-    @classmethod
-    def _build_mem0_config(cls) -> dict:
+    @staticmethod
+    def _build_mem0_config() -> dict:
         """构建 mem0 配置字典。"""
         qdrant_config: Dict[str, Any] = {
             "host": settings.qdrant_host,
@@ -81,16 +82,13 @@ class MemoryLayerService:
             },
         }
 
-    @classmethod
-    def _get_or_create_memory(cls) -> Memory:
-        """获取或创建 Memory 单例。配置变更时自动重建。"""
-        config = cls._build_mem0_config()
-        config_hash = hash(json.dumps(config, sort_keys=True, default=str))
-        if cls._memory_instance is None or cls._memory_config_hash != config_hash:
-            logger.info("初始化 mem0 Memory 实例（单例模式）...")
-            cls._memory_instance = Memory.from_config(config_dict=config)
-            cls._memory_config_hash = config_hash
-        return cls._memory_instance
+    async def _ensure_memory(self) -> AsyncMemory:
+        """异步延迟初始化 AsyncMemory 实例，缓存到实例属性。"""
+        if self._memory is None:
+            config = self._build_mem0_config()
+            logger.info("初始化 mem0 AsyncMemory 实例...")
+            self._memory = await AsyncMemory.from_config(config_dict=config)
+        return self._memory
 
     # ===== 角色状态管理 =====
 
@@ -612,10 +610,12 @@ class MemoryLayerService:
         
         query = "\n".join(query_parts)
         try:
-            # mem0 的 search() 是同步阻塞方法，使用 to_thread 避免阻塞事件循环
-            results = await asyncio.to_thread(self.memory.search, query, user_id=project_id)
-            if results:
-                for res in results:
+            memory = await self._ensure_memory()
+            results = await memory.search(query, user_id=project_id)
+            # AsyncMemory.search 返回 {"results": [...]} 格式
+            result_list = results.get("results", []) if isinstance(results, dict) else results
+            if result_list:
+                for res in result_list:
                     mem_text = res.get('memory', '')
                     if mem_text:
                         lines.append(f"- {mem_text}")
@@ -738,7 +738,8 @@ class MemoryLayerService:
         try:
             if facts:
                 messages = [{"role": "user", "content": fact} for fact in facts]
-                await asyncio.to_thread(self.memory.add, messages, user_id=project_id)
+                memory = await self._ensure_memory()
+                await memory.add(messages, user_id=project_id)
                 results["mem0_memories_added"] = len(facts)
         except Exception as e:
             logger.warning(f"存入 mem0 记忆失败: {e}")

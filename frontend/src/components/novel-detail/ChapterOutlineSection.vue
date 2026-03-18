@@ -234,6 +234,18 @@
                 </svg>
                 新
               </span>
+              <span
+                v-if="chapter.metadata?.prediction"
+                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700"
+              >
+                已推演
+              </span>
+              <span
+                v-else
+                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500"
+              >
+                未推演
+              </span>
             </div>
             <div class="flex items-center gap-2 flex-shrink-0">
               <button
@@ -253,8 +265,8 @@
           </div>
           <p class="mt-3 text-sm text-slate-600 leading-6 whitespace-pre-line">{{ chapter.summary || '暂无摘要' }}</p>
 
-          <!-- 推演标签和展开按钮（仅已完成且有推演数据的章节显示） -->
-          <div v-if="isCompleted(chapter.chapter_number) && chapter.metadata?.prediction" class="mt-3">
+          <!-- 推演标签和展开按钮 -->
+          <div v-if="chapter.metadata?.prediction" class="mt-3">
             <div class="flex items-center gap-1.5 flex-wrap">
               <span v-if="chapter.metadata.prediction.cool_points?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #F59E0B;">爽</span>
               <span v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #3B82F6;">伏</span>
@@ -611,4 +623,3 @@ export default defineComponent({
   }
 }
 </style>
-

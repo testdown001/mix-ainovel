@@ -392,6 +392,15 @@
                 </span>
               </button>
               <button
+                @click="$emit('previewContextPlan')"
+                :disabled="!selectedChapterNumber"
+                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="预览本章生成计划"
+              >
+                <span>🧭</span>
+                <span class="hidden sm:inline">计划</span>
+              </button>
+              <button
                 @click="$emit('openMiddleProductViewer')"
                 class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
                 title="查看生成中间产物"
@@ -487,6 +496,7 @@ const emit = defineEmits([
   'openPresetSelector',
   'openSkillSelector',
   'openMiddleProductViewer',
+  'previewContextPlan',
   'openDiagnosticPanel',
   'openAgentVisualizer'
 ])

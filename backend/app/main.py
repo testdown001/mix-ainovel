@@ -9,14 +9,19 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from .core.config import settings
 from .core.rate_limit_middleware import RateLimitMiddleware
+from .core.request_id_middleware import RequestIdFilter, RequestIdMiddleware
 from .db.init_db import init_db
 from .services.prompt_service import PromptService
+from .utils.rerank_utils import get_rerank_runtime_status
 from .db.session import AsyncSessionLocal
 from .api.routers import api_router
 
+logger = logging.getLogger(__name__)
 
 LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -27,16 +32,22 @@ dictConfig(
         "disable_existing_loggers": False,
         "formatters": {
             "default": {
-                "format": "%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+                "format": "%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s - %(message)s",
             },
             "verbose": {
-                "format": "%(asctime)s [%(levelname)s] %(name)s %(funcName)s:%(lineno)d - %(message)s",
+                "format": "%(asctime)s [%(levelname)s] [%(request_id)s] %(name)s %(funcName)s:%(lineno)d - %(message)s",
+            },
+        },
+        "filters": {
+            "request_id": {
+                "()": "app.core.request_id_middleware.RequestIdFilter",
             },
         },
         "handlers": {
             "console": {
                 "class": "logging.StreamHandler",
                 "formatter": "default",
+                "filters": ["request_id"],
             },
             "file_app": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -45,6 +56,7 @@ dictConfig(
                 "backupCount": 5,
                 "encoding": "utf-8",
                 "formatter": "verbose",
+                "filters": ["request_id"],
             },
             "file_llm": {
                 "class": "logging.handlers.RotatingFileHandler",
@@ -53,6 +65,7 @@ dictConfig(
                 "backupCount": 10,
                 "encoding": "utf-8",
                 "formatter": "verbose",
+                "filters": ["request_id"],
             },
         },
         "loggers": {
@@ -107,6 +120,16 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as session:
         prompt_service = PromptService(session)
         await prompt_service.preload()
+    rerank_status = await get_rerank_runtime_status()
+    logger.info(
+        "Reranker 启动状态: enabled=%s model=%s source=%s api_url=%s api_key_configured=%s integration=%s",
+        rerank_status["enabled"],
+        rerank_status["model"],
+        rerank_status["config_source"],
+        rerank_status["api_url"] or "none",
+        rerank_status["api_key_configured"],
+        "chapter_generation_rag",
+    )
     yield
 
 
@@ -117,17 +140,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置，生产环境建议改为具体域名
+# CORS 配置，通过 CORS_ORIGINS 环境变量控制允许的来源
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# API 限流中间件（用户级请求限流）
+# API 限流中间件（IP + 用户级请求限流）
 app.add_middleware(RateLimitMiddleware)
+
+# Request ID 中间件（最外层，确保所有日志可关联）
+app.add_middleware(RequestIdMiddleware)
 
 app.include_router(api_router)
 
@@ -136,9 +162,26 @@ app.include_router(api_router)
 @app.get("/health", tags=["Health"])
 @app.get("/api/health", tags=["Health"])
 async def health_check():
-    """健康检查接口，返回应用状态。"""
-    return {
-        "status": "healthy",
+    """健康检查接口，检查数据库连接后返回应用状态。"""
+    checks = {}
+
+    # 检查数据库连接
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except Exception as e:
+        checks["database"] = f"error: {e}"
+
+    all_ok = all(v == "ok" for v in checks.values())
+
+    payload = {
+        "status": "healthy" if all_ok else "unhealthy",
         "app": settings.app_name,
         "version": "1.0.0",
+        "checks": checks,
     }
+
+    if not all_ok:
+        return JSONResponse(content=payload, status_code=503)
+    return payload

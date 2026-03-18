@@ -6,14 +6,41 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db.session import get_session
+from ...core.config import settings
+from ...db.session import AsyncSessionLocal
+from ...models.novel import NovelProject
 from ...services.writer_progress_service import progress_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/writer", tags=["WriterProgress"])
+
+
+async def _authenticate_websocket(websocket: WebSocket, project_id: str) -> Optional[int]:
+    """从 query param 解析 JWT 并校验 project_id 归属，失败返回 None。"""
+    token = websocket.query_params.get("token")
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        user_id = int(payload.get("sub", 0))
+        if not user_id:
+            return None
+    except (JWTError, ValueError):
+        return None
+
+    # 校验用户是否拥有该项目
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(NovelProject.id).where(NovelProject.id == project_id, NovelProject.user_id == user_id)
+        )
+        if result.scalar_one_or_none() is None:
+            return None
+    return user_id
 
 
 @router.websocket("/progress/{project_id}/{chapter_number}")
@@ -22,7 +49,12 @@ async def writer_progress_websocket(
     project_id: str,
     chapter_number: int
 ):
-    """WebSocket 端点：实时推送写作进度"""
+    """WebSocket 端点：实时推送写作进度（需 query param token 认证）"""
+    user_id = await _authenticate_websocket(websocket, project_id)
+    if user_id is None:
+        await websocket.close(code=1008, reason="认证失败或无权限")
+        return
+
     await websocket.accept()
     
     # 订阅进度更新

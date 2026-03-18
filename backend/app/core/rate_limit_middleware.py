@@ -1,22 +1,35 @@
 # AIMETA P=限流中间件_API请求限流|R=请求限流_用户隔离|E=rate_limit_middleware|X=http|A=中间件|D=fastapi|S=net
 """
-API 限流中间件 - 用户级请求限流
+API 限流中间件 - IP 级兜底 + 用户级限流
 
 核心功能：
-1. 每用户每分钟请求数限制
-2. 每用户每秒请求数限制
-3. 白名单支持（管理员、Premium 用户）
+1. 中间件层自行解析 JWT 提取 user_id，不依赖路由层 Depends
+2. 已认证用户使用 user_id 级限流
+3. 未认证用户使用 IP 级限流（登录、注册等端点的暴力破解防护）
+4. 使用 TTLCache 自动清理过期条目，防止内存泄漏
 """
 import logging
 import time
-from collections import defaultdict
-from typing import Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from fastapi import Request, Response, status
+from cachetools import TTLCache
+from fastapi import Request, status
 from fastapi.responses import JSONResponse
+from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from .config import settings
+from ..db.session import AsyncSessionLocal
+from ..repositories.system_config_repository import SystemConfigRepository
+
 logger = logging.getLogger(__name__)
+
+# 免限流路径
+_SKIP_PATHS = frozenset(["/health", "/api/health", "/docs", "/openapi.json"])
+
+# 敏感端点（登录/注册）使用更严格的 IP 限流
+_AUTH_PATHS = frozenset(["/api/auth/token", "/api/auth/users", "/api/auth/send-code"])
+_GENERAL_RPM_CONFIG_KEY = "rate_limit.requests_per_minute"
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -24,57 +37,75 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     API 请求限流中间件
 
     限流策略：
-    - 普通用户: 60 req/min, 10 req/sec
-    - Premium 用户: 180 req/min, 30 req/sec
-    - 管理员: 无限制
+    - 已认证用户（user_id 维度）: 60 req/min, 10 req/sec
+    - 未认证 IP（IP 维度）: 30 req/min, 5 req/sec
+    - 敏感端点（IP 维度）: 5 req/min（暴力破解防护）
     """
 
     def __init__(self, app):
         super().__init__(app)
-        # 用户请求计数: {user_id: (minute_count, minute_start, second_count, second_start)}
-        self.user_requests: Dict[int, Tuple[int, float, int, float]] = defaultdict(
-            lambda: (0, time.time(), 0, time.time())
-        )
-        self.premium_users: set[int] = set()
-        self.admin_users: set[int] = set()
+        # TTLCache：maxsize 限制最大条目数，ttl 控制过期时间（秒）
+        # 条目格式: (minute_count, minute_start, second_count, second_start)
+        self.user_requests: TTLCache = TTLCache(maxsize=10000, ttl=120)
+        self.ip_requests: TTLCache = TTLCache(maxsize=50000, ttl=120)
+        self.auth_requests: TTLCache = TTLCache(maxsize=10000, ttl=120)
 
         # 限流配置
-        self.default_rpm = 60  # 普通用户每分钟请求数
-        self.default_rps = 10  # 普通用户每秒请求数
-        self.premium_rpm = 180  # Premium 用户每分钟请求数
-        self.premium_rps = 30  # Premium 用户每秒请求数
+        self.general_rpm_default = settings.api_rate_limit_requests_per_minute
+        self.user_rps = 10
+        self.ip_rps = 5
+        self.auth_rpm = 5  # 敏感端点每分钟最多 5 次
 
-    def set_premium_user(self, user_id: int):
-        """设置 Premium 用户"""
-        self.premium_users.add(user_id)
+    @staticmethod
+    def _parse_positive_int(value: Optional[str]) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
 
-    def set_admin_user(self, user_id: int):
-        """设置管理员用户"""
-        self.admin_users.add(user_id)
+    async def _load_general_rpm_limit(self) -> int:
+        try:
+            async with AsyncSessionLocal() as session:
+                config = await SystemConfigRepository(session).get_by_key(_GENERAL_RPM_CONFIG_KEY)
+            parsed = self._parse_positive_int(config.value if config else None)
+            return parsed or self.general_rpm_default
+        except Exception:
+            logger.exception(
+                "读取系统配置 %s 失败，回退到默认限流值 %s req/min",
+                _GENERAL_RPM_CONFIG_KEY,
+                self.general_rpm_default,
+            )
+            return self.general_rpm_default
 
-    async def dispatch(self, request: Request, call_next):
-        # 跳过健康检查和静态资源
-        if request.url.path in ["/health", "/api/health", "/docs", "/openapi.json"]:
-            return await call_next(request)
+    def _extract_user_id(self, request: Request) -> Optional[int]:
+        """从 Authorization header 解析 JWT，提取 user_id。失败返回 None。"""
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return None
+        token = auth_header[7:]
+        try:
+            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+            return int(payload.get("sub", 0)) or None
+        except (JWTError, ValueError):
+            return None
 
-        # 获取用户 ID（从 JWT token 或其他认证方式）
-        user_id = getattr(request.state, "user_id", None)
+    def _get_client_ip(self, request: Request) -> str:
+        """获取客户端真实 IP（支持 X-Forwarded-For）。"""
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        return request.client.host if request.client else "unknown"
 
-        if user_id is None:
-            # 未认证用户，不限流（由认证中间件处理）
-            return await call_next(request)
-
-        # 管理员不限流
-        if user_id in self.admin_users:
-            return await call_next(request)
-
-        # 检查限流
-        is_premium = user_id in self.premium_users
-        rpm_limit = self.premium_rpm if is_premium else self.default_rpm
-        rps_limit = self.premium_rps if is_premium else self.default_rps
-
+    def _check_rate(
+        self, cache: TTLCache, key: str, rpm_limit: int, rps_limit: int
+    ) -> Optional[JSONResponse]:
+        """通用限流检查。返回 429 响应或 None（放行）。"""
         now = time.time()
-        minute_count, minute_start, second_count, second_start = self.user_requests[user_id]
+        entry = cache.get(key, (0, now, 0, now))
+        minute_count, minute_start, second_count, second_start = entry
 
         # 重置分钟计数器
         if now - minute_start >= 60:
@@ -86,9 +117,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             second_count = 0
             second_start = now
 
-        # 检查每分钟限制
         if minute_count >= rpm_limit:
-            logger.warning(f"用户 {user_id} 超过每分钟请求限制: {minute_count}/{rpm_limit}")
+            logger.warning("限流触发 [%s]: %d/%d req/min", key, minute_count, rpm_limit)
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
@@ -97,9 +127,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        # 检查每秒限制
-        if second_count >= rps_limit:
-            logger.warning(f"用户 {user_id} 超过每秒请求限制: {second_count}/{rps_limit}")
+        if rps_limit and second_count >= rps_limit:
+            logger.warning("限流触发 [%s]: %d/%d req/sec", key, second_count, rps_limit)
             return JSONResponse(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 content={
@@ -108,15 +137,42 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        # 更新计数器
-        minute_count += 1
-        second_count += 1
-        self.user_requests[user_id] = (minute_count, minute_start, second_count, second_start)
+        # 更新计数
+        cache[key] = (minute_count + 1, minute_start, second_count + 1, second_start)
+        return None
 
-        # 添加限流信息到响应头
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path in _SKIP_PATHS:
+            return await call_next(request)
+
+        general_rpm = await self._load_general_rpm_limit()
+        client_ip = self._get_client_ip(request)
+
+        # 敏感端点：IP 级严格限流
+        if path in _AUTH_PATHS:
+            rejection = self._check_rate(
+                self.auth_requests, f"auth:{client_ip}", self.auth_rpm, 0
+            )
+            if rejection:
+                return rejection
+
+        # 尝试提取 user_id
+        user_id = self._extract_user_id(request)
+
+        if user_id:
+            # 已认证：用户级限流
+            rejection = self._check_rate(
+                self.user_requests, f"user:{user_id}", general_rpm, self.user_rps
+            )
+        else:
+            # 未认证：IP 级限流
+            rejection = self._check_rate(
+                self.ip_requests, f"ip:{client_ip}", general_rpm, self.ip_rps
+            )
+
+        if rejection:
+            return rejection
+
         response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(rpm_limit)
-        response.headers["X-RateLimit-Remaining"] = str(rpm_limit - minute_count)
-        response.headers["X-RateLimit-Reset"] = str(int(minute_start + 60))
-
         return response

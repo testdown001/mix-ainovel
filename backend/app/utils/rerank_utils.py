@@ -5,8 +5,9 @@
 提供单一入口调用外部 Reranker API，
 并将 reranker 分数与原始分数加权组合，避免直接覆盖。
 
-API 地址和密钥复用系统配置中的 embedding 配置（embedding.base_url / embedding.api_key），
-不再使用独立的 reranker 环境变量。
+优先使用专用 Reranker 配置（RAG_RERANKER_API_URL / RAG_RERANKER_API_KEY），
+仅在未配置时回退到 embedding 配置（embedding.base_url / embedding.api_key），
+以兼容旧部署。
 """
 import logging
 import os
@@ -47,25 +48,65 @@ def is_rerank_enabled() -> bool:
     return bool(getattr(settings, "rag_reranker_enabled", False))
 
 
+async def get_rerank_runtime_status() -> Dict[str, Any]:
+    """返回当前实例的 Reranker 运行时状态，供启动日志和诊断使用。"""
+    model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
+    dedicated_url = getattr(settings, "rag_reranker_api_url", None)
+    dedicated_key = getattr(settings, "rag_reranker_api_key", None)
+
+    if dedicated_url and dedicated_key:
+        rerank_url = str(dedicated_url).rstrip("/")
+        if not rerank_url.endswith("/rerank"):
+            rerank_url += "/rerank"
+        return {
+            "enabled": is_rerank_enabled(),
+            "model": model,
+            "config_source": "dedicated",
+            "api_url": rerank_url,
+            "api_key_configured": True,
+        }
+
+    fallback_url = await _get_embedding_config("embedding.base_url")
+    fallback_key = await _get_embedding_config("embedding.api_key")
+    if fallback_url and fallback_key:
+        rerank_url = str(fallback_url).rstrip("/")
+        if not rerank_url.endswith("/rerank"):
+            rerank_url += "/rerank"
+        return {
+            "enabled": is_rerank_enabled(),
+            "model": model,
+            "config_source": "embedding_fallback",
+            "api_url": rerank_url,
+            "api_key_configured": True,
+        }
+
+    return {
+        "enabled": is_rerank_enabled(),
+        "model": model,
+        "config_source": "unconfigured",
+        "api_url": None,
+        "api_key_configured": False,
+    }
+
+
 async def _resolve_rerank_config() -> tuple:
     """解析 rerank 的 API 地址、密钥和模型。
 
-    优先从 system_configs 表读取 embedding 配置，
-    在 embedding.base_url 基础上拼接 /rerank 作为 rerank 端点。
+    优先级：
+    1. 专用 Reranker 配置（settings.rag_reranker_api_url / api_key）
+    2. 旧兼容路径：embedding.base_url / embedding.api_key
+
+    传入基础地址时自动拼接 /rerank；若已经是完整 rerank 端点则保持原样。
     """
-    base_url = await _get_embedding_config("embedding.base_url")
-    api_key = await _get_embedding_config("embedding.api_key")
-    model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
+    status = await get_rerank_runtime_status()
+    model = status["model"]
+    base_url = status["api_url"]
+    api_key = getattr(settings, "rag_reranker_api_key", None) or await _get_embedding_config("embedding.api_key")
 
     if not base_url or not api_key:
         return None, None, model
 
-    # 在 embedding base_url 基础上拼接 /rerank
-    rerank_url = str(base_url).rstrip("/")
-    if not rerank_url.endswith("/rerank"):
-        rerank_url += "/rerank"
-
-    return rerank_url, api_key, model
+    return str(base_url), api_key, model
 
 
 async def rerank_documents(
@@ -87,7 +128,9 @@ async def rerank_documents(
 
     api_url, api_key, model = await _resolve_rerank_config()
     if not api_url or not api_key:
-        logger.debug("Rerank 配置不完整（embedding.base_url 或 embedding.api_key 未设置），跳过重排")
+        logger.debug(
+            "Rerank 配置不完整（未设置专用 Reranker 配置，且 embedding 配置也不可用），跳过重排"
+        )
         return None
 
     truncated = [d[:800] for d in documents]

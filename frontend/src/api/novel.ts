@@ -868,6 +868,39 @@ export class NovelAPI {
     return request(`${WRITER_BASE}/${projectId}/rag/rebuild?force_full=${forceFull}`, { method: 'POST' })
   }
 
+  static async previewContextPlan(
+    projectId: string,
+    chapterNumber: number,
+    params: { writing_notes?: string; preset?: string; selected_skills?: any[] }
+  ): Promise<any> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/preview-plan`, {
+      method: 'POST',
+      body: JSON.stringify(params)
+    })
+  }
+
+  static async rebuildVolumeSummaries(projectId: string, force: boolean = false): Promise<{ updated: number; skipped: number; total_volumes: number; mode: string }> {
+    return request(`${WRITER_BASE}/${projectId}/volumes/rebuild-summaries`, {
+      method: 'POST',
+      body: JSON.stringify({ force })
+    })
+  }
+
+  static async getVolumeSummaries(projectId: string): Promise<Array<{ volume_number: number; title: string; chapter_start: number; chapter_end: number; chapter_count: number; summary: string; updated_at: string | null }>> {
+    return request(`${WRITER_BASE}/${projectId}/volumes/summaries`)
+  }
+
+  static async getBookSummary(projectId: string): Promise<{ summary: string | null }> {
+    return request(`${WRITER_BASE}/${projectId}/book-summary`)
+  }
+
+  static async rebuildBookSummary(projectId: string, force: boolean = false): Promise<{ summary: string | null; mode: string }> {
+    return request(`${WRITER_BASE}/${projectId}/book-summary/rebuild`, {
+      method: 'POST',
+      body: JSON.stringify({ force })
+    })
+  }
+
   static async generatePrediction(projectId: string, chapterNumber: number, exclusions?: string): Promise<ChapterPrediction> {
     return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/prediction`, {
       method: 'POST',

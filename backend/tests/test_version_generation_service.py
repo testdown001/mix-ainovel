@@ -22,6 +22,31 @@ class _DummyOrchestrator:
     async def _run_ai_review(self, *, versions, chapter_mission, user_id):
         return 99, {"score": 88, "selected": 0}
 
+    # 新增属性以支持 VersionGenerationService.run()
+    @property
+    def generation_policy_service(self):
+        """Mock generation_policy_service"""
+        class _PolicyService:
+            def resolve_style_hints(self, enhanced_context, version_count):
+                return [{"label": f"style-{idx}"} for idx in range(version_count)]
+        return _PolicyService()
+
+    @property
+    def single_version_generation_service(self):
+        """Mock single_version_generation_service"""
+        class _VersionService:
+            async def generate(self, **kwargs):
+                index = kwargs["index"]
+                self.generated_indexes.append(index)
+                return {
+                    "index": index,
+                    "content": f"版本{index}",
+                    "metadata": {"style_hint": kwargs.get("style_hint")},
+                }
+        svc = _VersionService()
+        svc.generated_indexes = self.generated_indexes
+        return svc
+
 
 def test_version_generation_service_runs_versions_and_clamps_best_index():
     orchestrator = _DummyOrchestrator()

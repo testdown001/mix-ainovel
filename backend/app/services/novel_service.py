@@ -1295,8 +1295,7 @@ class NovelService:
     async def _serialize_project(self, project: NovelProject) -> NovelProjectSchema:
         # 尝试从缓存获取
         cache_service = CacheService()
-        cache_key = f"project_schema:{project.id}"
-        cached = await cache_service.get(cache_key)
+        cached = await cache_service.get_project_schema(project.id)
         if cached:
             try:
                 return NovelProjectSchema(**cached)
@@ -1380,7 +1379,7 @@ class NovelService:
 
         # 缓存结果（TTL 30 分钟）
         try:
-            await cache_service.set(cache_key, result.model_dump(), ttl=1800)
+            await cache_service.set_project_schema(project.id, result.model_dump())
         except Exception as e:
             logger.warning(f"缓存设置失败: {e}")
 
@@ -1393,6 +1392,10 @@ class NovelService:
             .values(updated_at=datetime.now(timezone.utc))
         )
         await self.session.commit()
+        try:
+            await CacheService().invalidate_project_schema(project_id)
+        except Exception as e:
+            logger.warning("项目详情缓存失效失败: project_id=%s error=%s", project_id, e)
 
     def _build_blueprint_schema(
         self,

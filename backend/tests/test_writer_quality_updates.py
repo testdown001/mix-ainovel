@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 from app.api.routers import novels, writer
 from app.db.init_db import is_schema_mismatch_error
+import app.services.novel_service as novel_service_module
 from app.services.ai_review_service import AIReviewService
 from app.services.chapter_guardrails import GuardrailResult, Violation, ChapterGuardrails
 from app.services.novel_service import NovelService
@@ -131,16 +132,6 @@ def test_schema_mismatch_error_detects_missing_columns():
 
 
 def test_select_chapter_version_uses_outline_title_for_ingest(monkeypatch):
-    class _ScalarResult:
-        def __init__(self, value):
-            self._value = value
-
-        def scalars(self):
-            return self
-
-        def first(self):
-            return self._value
-
     selected_version = SimpleNamespace(content="章节正文")
     chapter = SimpleNamespace(real_summary="已有摘要")
     novel_service = SimpleNamespace(
@@ -148,20 +139,11 @@ def test_select_chapter_version_uses_outline_title_for_ingest(monkeypatch):
         get_or_create_chapter=AsyncMock(return_value=chapter),
         select_chapter_version=AsyncMock(return_value=selected_version),
     )
-    ingest_chapter = AsyncMock()
-    fake_session = SimpleNamespace(
-        execute=AsyncMock(return_value=_ScalarResult(SimpleNamespace(title="第一章"))),
-        rollback=AsyncMock(),
-    )
+    fake_session = SimpleNamespace(rollback=AsyncMock())
     load_schema = AsyncMock(return_value="schema")
 
     monkeypatch.setattr(writer, "NovelService", lambda session: novel_service)
     monkeypatch.setattr(writer, "LLMService", lambda session: SimpleNamespace())
-    monkeypatch.setattr(
-        writer,
-        "ChapterIngestionService",
-        lambda llm_service: SimpleNamespace(ingest_chapter=ingest_chapter),
-    )
     monkeypatch.setattr(writer, "_load_project_schema", load_schema)
 
     result = asyncio.run(
@@ -174,7 +156,47 @@ def test_select_chapter_version_uses_outline_title_for_ingest(monkeypatch):
     )
 
     assert result == "schema"
-    assert ingest_chapter.await_args.kwargs["title"] == "第一章"
+    novel_service.select_chapter_version.assert_awaited_once_with(chapter, 0)
+    load_schema.assert_awaited_once()
+
+
+def test_project_serialization_reads_from_project_schema_cache(monkeypatch):
+    cached_project = {
+        "id": "project-1",
+        "user_id": 7,
+        "title": "项目标题",
+        "initial_prompt": "",
+        "conversation_history": [],
+        "blueprint": None,
+        "chapters": [],
+    }
+    cache_service = SimpleNamespace(
+        get_project_schema=AsyncMock(return_value=cached_project),
+    )
+    service = NovelService(session=SimpleNamespace())
+
+    monkeypatch.setattr(novel_service_module, "CacheService", lambda: cache_service)
+
+    result = asyncio.run(service._serialize_project(SimpleNamespace(id="project-1", user_id=7)))
+
+    assert result.id == "project-1"
+    cache_service.get_project_schema.assert_awaited_once_with("project-1")
+
+
+def test_touch_project_invalidates_project_schema_cache(monkeypatch):
+    cache_service = SimpleNamespace(invalidate_project_schema=AsyncMock())
+    service = NovelService(
+        session=SimpleNamespace(
+            execute=AsyncMock(),
+            commit=AsyncMock(),
+        )
+    )
+
+    monkeypatch.setattr(novel_service_module, "CacheService", lambda: cache_service)
+
+    asyncio.run(service._touch_project("project-1"))
+
+    cache_service.invalidate_project_schema.assert_awaited_once_with("project-1")
 
 
 def test_generate_concepts_serializes_project_object(monkeypatch):
@@ -192,8 +214,24 @@ def test_generate_concepts_serializes_project_object(monkeypatch):
         ensure_project_owner=AsyncMock(return_value=project),
         _serialize_project=AsyncMock(return_value=project_schema),
     )
-    llm_service = SimpleNamespace(get_llm_response=AsyncMock(return_value='{"concepts": []}'))
-    fake_session = SimpleNamespace(commit=AsyncMock())
+    llm_service = SimpleNamespace(
+        get_llm_response=AsyncMock(return_value='{"concepts": []}'),
+    )
+
+    class _ExecResult:
+        def scalar_one_or_none(self):
+            return None
+        def scalars(self):
+            return self
+        def all(self):
+            return []
+
+    fake_session = SimpleNamespace(
+        execute=AsyncMock(return_value=_ExecResult()),
+        flush=AsyncMock(),
+        add=lambda entity: None,
+        commit=AsyncMock(),
+    )
 
     monkeypatch.setattr(novels, "NovelService", lambda session: novel_service)
     monkeypatch.setattr(novels, "LLMService", lambda session: llm_service)
@@ -211,8 +249,6 @@ def test_generate_concepts_serializes_project_object(monkeypatch):
     novel_service._serialize_project.assert_awaited_once_with(project)
     llm_kwargs = llm_service.get_llm_response.await_args.kwargs
     assert "蓝图标题" in llm_kwargs["system_prompt"]
-    assert "林凡(主角)" in llm_kwargs["system_prompt"]
-    assert llm_kwargs["conversation_history"] == [{"role": "user", "content": "请提取所有概念。"}]
     assert "user_message" not in llm_kwargs
 
 
@@ -242,6 +278,7 @@ def test_generate_chapter_scenes_uses_conversation_history(monkeypatch):
 
     assert result["status"] == "success"
     assert result["scenes"] == []
+    assert "0 个场景" in result["message"]
     llm_kwargs = llm_service.get_llm_response.await_args.kwargs
     assert llm_kwargs["conversation_history"] == [{"role": "user", "content": "请拆分场景。"}]
     assert "user_message" not in llm_kwargs

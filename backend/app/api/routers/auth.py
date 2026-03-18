@@ -1,4 +1,5 @@
 # AIMETA P=认证API_登录注册和令牌管理|R=用户认证_令牌生成|NR=不含用户管理|E=route:POST_/api/auth/*|X=http|A=登录_注册_令牌|D=fastapi,jose|S=db|RD=./README.ai
+import html
 import logging
 from datetime import timedelta
 from typing import Optional
@@ -85,7 +86,7 @@ async def login_with_linuxdo(service: AuthService = Depends(get_auth_service)):
 async def register_with_linuxdo(code: str, service: AuthService = Depends(get_auth_service)):
     token = await service.handle_linuxdo_callback(code)
     logger.info("Linux.do 授权回调成功")
-    token_json = token.model_dump_json()
+    token_json = html.escape(token.model_dump_json())
     html_content = f"""<!DOCTYPE html>
 <html lang=\"zh-CN\">
 <head><meta charset=\"UTF-8\"><title>正在跳转</title></head>

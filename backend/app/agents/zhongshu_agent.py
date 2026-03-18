@@ -70,6 +70,8 @@ class ZhongshuAgent(BaseAgent):
         from ..services.context_planner_service import ContextPlannerService
         from ..services.evidence_router_service import EvidenceRouterService
         from ..services.history_context_service import HistoryContextService
+        from ..services.pipeline_config_service import PipelineConfigService
+        from ..services.generation_support_service import GenerationSupportService
         from ..services.llm_service import LLMService
         from ..services.novel_service import NovelService
         from ..services.pipeline_orchestrator import PipelineOrchestrator
@@ -82,13 +84,15 @@ class ZhongshuAgent(BaseAgent):
         writing_notes = context.mission.get("writing_notes") if context.mission else None
         writing_notes = writing_notes or "无额外写作指令"
         history_service = HistoryContextService(self.session, self.prompt_service, self.llm_service)
+        config_service = PipelineConfigService(self.session)
+        support_service = GenerationSupportService(self.session)
 
         project = None
         blueprint = context.blueprint or {}
         history_context: Dict[str, Any] = {}
         outline_data: Dict[str, Any] = {}
         pre_collected_context: Dict[str, Any] = {}
-        resolved_config = await orchestrator._resolve_config(context_config)
+        resolved_config = await config_service.resolve_config(context_config)
         planner = ContextPlannerService()
         evidence_router = EvidenceRouterService()
 
@@ -189,7 +193,7 @@ class ZhongshuAgent(BaseAgent):
                 if vector_store is not None:
                     outline_title = outline_data.get("title") or f"第{context.chapter_number}章"
                     outline_summary = outline_data.get("summary") or ""
-                    chapter_blueprint = await orchestrator._load_chapter_blueprint(
+                    chapter_blueprint = await support_service.load_chapter_blueprint(
                         context.project_id,
                         context.chapter_number,
                     )
@@ -198,7 +202,7 @@ class ZhongshuAgent(BaseAgent):
                         for item in blueprint.get("characters", [])
                         if item.get("name")
                     ][:6]
-                    fast_rag_queries = orchestrator._build_fast_rag_queries(
+                    fast_rag_queries = support_service.build_fast_rag_queries(
                         outline_title=outline_title,
                         outline_summary=outline_summary,
                         writing_notes=writing_notes,

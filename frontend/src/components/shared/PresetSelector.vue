@@ -92,19 +92,19 @@ const levels = [
 
 const currentLevel = ref('beginner')
 
-// 预设数据
+// 预设数据（与后端 pipeline_config_service.py 对应）
 const allPresets: PresetInfo[] = [
   // 初级
-  { name: 'quick', level: 'beginner', name_cn: '快速生成', description: '快速生成初稿，适合灵感记录', features: ['生成速度快', '基础质量', '适合初稿'], suitable_for: ['快速记录灵感', '大纲扩展'], estimated_time: '30秒' },
-  { name: 'quality', level: 'beginner', name_cn: '质量优先', description: '注重生成质量，适合正式写作', features: ['质量优先', '多维评审', '自动修订'], suitable_for: ['正式写作', '重要章节'], estimated_time: '2-3分钟' },
-  { name: 'fast', level: 'beginner', name_cn: '极速模式', description: '最快速度生成，适合快速迭代', features: ['极速生成', '轻量处理'], suitable_for: ['快速迭代', '大纲测试'], estimated_time: '10秒' },
-  
+  { name: 'basic', level: 'beginner', name_cn: '基础模式', description: '基础生成，单版本输出', features: ['RAG检索', '单版本', '基础质量'], suitable_for: ['日常写作', '快速记录'], estimated_time: '1-2分钟' },
+  { name: 'fast', level: 'beginner', name_cn: '极速模式', description: '最快速度生成，适合快速迭代', features: ['极速生成', '轻量处理', '快速路径'], suitable_for: ['快速迭代', '大纲测试'], estimated_time: '30-60秒' },
+
   // 中级
-  { name: 'style', level: 'intermediate', name_cn: '文笔打磨', description: '强化文笔和风格，适合进阶作者', features: ['文笔优化', '风格强化', '人味增强'], suitable_for: ['追求文笔', '风格化写作'], estimated_time: '3-4分钟' },
-  { name: '爽点', level: 'intermediate', name_cn: '爽点强化', description: '强化爽点和情感共鸣', features: ['爽点增强', '情感共鸣', '节奏把控'], suitable_for: ['高潮章节', '打脸情节'], estimated_time: '2-3分钟' },
-  
+  { name: 'enhanced', level: 'intermediate', name_cn: '增强模式', description: '六维评审+文笔打磨，适合进阶作者', features: ['六维评审', '文笔打磨', '丰富化处理'], suitable_for: ['追求质量', '正式写作'], estimated_time: '3-5分钟' },
+  { name: 'ultimate', level: 'intermediate', name_cn: '终极模式', description: '完整功能+一致性检查', features: ['记忆层', '一致性检查', '六维评审'], suitable_for: ['长篇连载', '复杂剧情'], estimated_time: '4-6分钟' },
+
   // 高级
-  { name: 'platinum', level: 'advanced', name_cn: '铂金模式', description: '完整功能，适合高要求写作', features: ['六维评审', '自动修订', '伏笔追踪'], suitable_for: ['精品创作', '长篇连载'], estimated_time: '5-10分钟' },
+  { name: 'platinum', level: 'advanced', name_cn: '铂金模式', description: '最高质量，包含自我批判和读者模拟', features: ['自我批判', '读者模拟', '优化器'], suitable_for: ['精品创作', '高要求写作'], estimated_time: '5-10分钟' },
+  { name: 'literary', level: 'advanced', name_cn: '文学模式', description: '场景级分步生成，追求文学性', features: ['场景分步', '散文雕琢', '黄金段落'], suitable_for: ['文学创作', '精雕细琢'], estimated_time: '8-15分钟' },
 ]
 
 // 当前级别的预设

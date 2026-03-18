@@ -1,4 +1,6 @@
 import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from app.services.context_planner_service import ContextPlan
 from app.services.evidence_router_service import EvidenceRouterService
@@ -201,7 +203,7 @@ def test_evidence_router_format_filtered_context():
 def test_evidence_router_route_two_stage_skips_when_vector_store_disabled(monkeypatch):
     from app.services import evidence_router_service as module
 
-    monkeypatch.setattr(module.settings, "vector_store_enabled", False)
+    monkeypatch.setattr(module.settings, "qdrant_host", "")
     service = EvidenceRouterService()
 
     routed = asyncio.run(
@@ -220,3 +222,84 @@ def test_evidence_router_route_two_stage_skips_when_vector_store_disabled(monkey
 
     assert routed["stats"]["status"] == "skipped"
     assert routed["stats"]["mode"] == "two_stage"
+
+
+def test_evidence_router_prefetch_local_plot_skips_when_vector_store_disabled(monkeypatch):
+    from app.services import evidence_router_service as module
+
+    monkeypatch.setattr(module.settings, "qdrant_host", "")
+    service = EvidenceRouterService()
+    plan = ContextPlan.from_dict(
+        {
+            "intent": {},
+            "chapter_phase": "development",
+            "retrieval_tasks": [
+                {"task_id": "local_plot", "source": "local_plot_rag", "mode": "vector", "query_template": "{outline_title}"},
+            ],
+            "skill_policies": [],
+            "prompt_modules": [],
+            "verification_tasks": [],
+            "budgets": {},
+            "is_fast_path": False,
+            "metadata": {},
+        }
+    )
+
+    routed = asyncio.run(
+        service.prefetch_local_plot(
+            plan=plan,
+            project_id="proj-5",
+            user_id=1,
+            queries=["终局前夜"],
+            retrieval_mode="vector",
+        )
+    )
+
+    assert routed["stats"]["status"] == "skipped"
+    assert routed["stats"]["reason"] == "vector_store_disabled"
+
+
+def test_evidence_router_prefetch_symbolic_foreshadowing_builds_structured_payload(monkeypatch):
+    from app.services import evidence_router_service as module
+
+    class _SessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    tracker = SimpleNamespace(
+        get_foreshadowings_for_chapter=AsyncMock(
+            return_value={
+                "urgent": [SimpleNamespace(id=1, content="黑玉碎片来源", chapter_number=3)],
+                "overdue": [],
+                "due_soon": [SimpleNamespace(id=2, description="旧誓言需要兑现", chapter_number=6)],
+                "related": [SimpleNamespace(id=3, content="旁支线索", chapter_number=2)],
+            }
+        )
+    )
+
+    monkeypatch.setattr(module, "AsyncSessionLocal", lambda: _SessionContext())
+    monkeypatch.setattr(module, "LLMService", lambda session: SimpleNamespace())
+    monkeypatch.setattr(module, "PromptService", lambda session: SimpleNamespace())
+    monkeypatch.setattr(module, "ForeshadowingTrackerService", lambda session, llm, prompt: tracker)
+    monkeypatch.setattr(
+        module,
+        "build_foreshadowing_urgency_brief",
+        AsyncMock(return_value="伏笔摘要"),
+    )
+
+    service = EvidenceRouterService()
+    brief, structured = asyncio.run(
+        service.prefetch_symbolic_foreshadowing(
+            project_id="proj-6",
+            chapter_number=7,
+        )
+    )
+
+    assert brief == "伏笔摘要"
+    assert structured is not None
+    assert structured["total_unresolved"] == 3
+    assert structured["should_resolve"][0]["urgency"] == "high"
+    assert structured["should_resolve"][1]["content"] == "旧誓言需要兑现"

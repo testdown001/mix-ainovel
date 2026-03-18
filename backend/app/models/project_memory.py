@@ -67,6 +67,34 @@ class ProjectMemory(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class VolumeSummary(Base):
+    """
+    卷级摘要表
+
+    将多个连续章节聚合为一个卷级摘要，用于：
+    - 全局叙事 RAG 的中层检索（介于章节摘要和全书摘要之间）
+    - 长篇小说 30+ 章时维持叙事一致性
+    - 向量库索引，支持卷级语义检索
+    """
+    __tablename__ = "volume_summaries"
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("novel_projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    volume_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    chapter_start: Mapped[int] = mapped_column(Integer, nullable=False)
+    chapter_end: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[Optional[str]] = mapped_column(String(255))
+    summary: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
+    chapter_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class ChapterSnapshot(Base):
     """
     章节快照表

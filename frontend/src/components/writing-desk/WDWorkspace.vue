@@ -368,7 +368,7 @@ const handleGeneratePrediction = () => {
 const handleTemplateApply = (prompt: string) => {
   showTemplateSelector.value = false
   templatePrompt.value = prompt
-  globalAlert.showMessage('模板已应用，写作指令已更新')
+  globalAlert.showAlert('模板已应用，写作指令已更新', 'info')
 }
 
 const openPredictionPanel = async () => {

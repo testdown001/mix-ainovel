@@ -260,7 +260,7 @@ async def apply_optimization(
     # 清除项目序列化缓存
     try:
         cache_service = CacheService()
-        await cache_service.delete(f"project_schema:{request.project_id}")
+        await cache_service.invalidate_project_schema(request.project_id)
     except Exception:
         pass
 

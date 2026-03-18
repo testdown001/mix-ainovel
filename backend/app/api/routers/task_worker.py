@@ -177,10 +177,7 @@ async def _execute_chapter_generate(
         # 创建向量存储
         vector_store = None
         if settings.vector_store_enabled:
-            vector_store = VectorStoreService(
-                db_url=settings.vector_db_url,
-                auth_token=settings.vector_db_auth_token,
-            )
+            vector_store = VectorStoreService()
 
         # 创建 Pipeline
         orchestrator = PipelineOrchestrator(

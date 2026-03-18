@@ -35,6 +35,7 @@ from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
+from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
@@ -335,7 +336,7 @@ async def converse_with_concept(
     reference_context = (request.reference_context or "").strip()
     normalized_reference_novels = _normalize_reference_novel_names(request.reference_novels)
     reference_service = ReferenceNovelLibraryService(session)
-    project_reference_novels = await _load_project_reference_novels(project, reference_service)
+    project_reference_novels = await GenerationSupportService(session).load_project_reference_novels(project, reference_service)
     ready_reference_novels: List[ReferenceNovel] = []
     missing_reference_titles: List[str] = []
     for novel_title in normalized_reference_novels:
@@ -517,15 +518,6 @@ async def bind_project_reference_novels(
 
     await session.commit()
     return {"status": "success", "bound_ids": approved_ids, "fusion_dna_ready": bool(project.fusion_dna)}
-
-
-async def _load_project_reference_novels(project, reference_service: ReferenceNovelLibraryService) -> List[ReferenceNovel]:
-    bound: List[ReferenceNovel] = []
-    for rid in project.reference_novel_ids or []:
-        novel = await reference_service.get_by_id(rid)
-        if novel and novel.status == "ready":
-            bound.append(novel)
-    return bound
 
 
 @router.post("/{project_id}/reference-search", response_model=ReferenceSearchResponse)
@@ -2096,7 +2088,11 @@ async def generate_chapter_scenes(
     outline.metadata_ = metadata
     await session.commit()
 
-    return {"scenes": scenes}
+    return {
+        "status": "success",
+        "message": f"成功拆分为 {len(scenes)} 个场景",
+        "scenes": scenes,
+    }
 
 
 # ============================================================

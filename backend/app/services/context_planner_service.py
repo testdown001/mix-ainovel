@@ -362,11 +362,12 @@ class ContextPlannerService:
             )
 
         if flow_config.get("enable_memory") or flow_config.get("enable_character_relationships") or chapter_number > 1:
+            state_mode = "temporal_snapshot" if flow_config.get("enable_temporal_state") else "structured"
             tasks.append(
                 RetrievalTask(
                     task_id="state_snapshot",
                     source="state_rag",
-                    mode="structured",
+                    mode=state_mode,
                     query_template="{character_names}\n{writing_notes}",
                     priority=2,
                     max_items=4 if is_fast_path else 6,
@@ -476,14 +477,95 @@ class ContextPlannerService:
         verification_tasks: Sequence[str],
         is_fast_path: bool,
     ) -> Dict[str, Any]:
+        """构建统一的 Token 预算配额，防止 Prompt 过载和成本激增。
+
+        预算策略：
+        - Fast 模式：严格限制，优先速度
+        - Balanced 模式：平衡质量与成本
+        - 每类检索任务都有明确的 Token 上限
+        """
         max_retrieval_items = sum(item.max_items for item in retrieval_tasks)
+
+        # Token 预算配额（字符数估算，1 token ≈ 1.5 中文字符）
+        if is_fast_path:
+            # Fast 模式：严格限制
+            token_budgets = {
+                "max_context_tokens": 8000,           # 总上下文 Token 上限
+                "max_rag_tokens": 2000,               # RAG 检索内容上限
+                "max_history_tokens": 1500,           # 历史章节上限
+                "max_blueprint_tokens": 1000,         # 蓝图内容上限
+                "max_mission_tokens": 800,            # Mission 上限
+                "max_memory_tokens": 500,             # 记忆层上限
+                "max_skill_tokens": 300,              # 技能指令上限
+                "max_verification_tokens": 1000,      # 验证任务上限
+                "per_retrieval_item_tokens": 300,     # 单个检索项上限
+            }
+        else:
+            # Balanced 模式：平衡质量与成本
+            token_budgets = {
+                "max_context_tokens": 16000,          # 总上下文 Token 上限
+                "max_rag_tokens": 4000,               # RAG 检索内容上限
+                "max_history_tokens": 3000,           # 历史章节上限
+                "max_blueprint_tokens": 2000,         # 蓝图内容上限
+                "max_mission_tokens": 1500,           # Mission 上限
+                "max_memory_tokens": 1000,            # 记忆层上限
+                "max_skill_tokens": 600,              # 技能指令上限
+                "max_verification_tokens": 2000,      # 验证任务上限
+                "per_retrieval_item_tokens": 500,     # 单个检索项上限
+            }
+
+        # 检索任务预算分配
+        retrieval_budgets = {}
+        for task in retrieval_tasks:
+            task_budget = task.max_items * token_budgets["per_retrieval_item_tokens"]
+            retrieval_budgets[task.task_id] = {
+                "max_items": task.max_items,
+                "max_tokens": task_budget,
+                "priority": task.priority,
+            }
+
         return {
+            # 基础配额
             "max_retrieval_tasks": len(retrieval_tasks),
             "max_retrieval_items": max_retrieval_items,
             "max_prompt_modules": len(prompt_modules),
             "max_verification_tasks": len(verification_tasks),
             "retrieval_retry_limit": 0 if is_fast_path else 1,
             "mode": "fast" if is_fast_path else "balanced",
+
+            # Token 预算配额
+            "token_budgets": token_budgets,
+            "retrieval_budgets": retrieval_budgets,
+
+            # 预算策略
+            "budget_strategy": {
+                "enforce_hard_limits": True,          # 强制执行硬性限制
+                "truncate_on_overflow": True,         # 超限时截断而非失败
+                "priority_based_allocation": True,    # 基于优先级分配
+                "warn_on_80_percent": True,           # 达到 80% 时警告
+            },
+
+            # 证据分类预算（用于多层 RAG 证据融合）
+            "evidence_budgets": self._build_evidence_budgets(is_fast_path),
+        }
+
+    @staticmethod
+    def _build_evidence_budgets(is_fast_path: bool) -> Dict[str, Any]:
+        """构建四类证据的 token 预算配额。"""
+        if is_fast_path:
+            return {
+                "local_plot": {"max_tokens": 1500, "max_items": 4},
+                "global_arc": {"max_tokens": 1200, "max_items": 3},
+                "state_items": {"max_tokens": 800, "max_items": 3},
+                "symbolic_items": {"max_tokens": 500, "max_items": 3},
+                "total_max_tokens": 4000,
+            }
+        return {
+            "local_plot": {"max_tokens": 3000, "max_items": 8},
+            "global_arc": {"max_tokens": 2500, "max_items": 6},
+            "state_items": {"max_tokens": 1500, "max_items": 5},
+            "symbolic_items": {"max_tokens": 1500, "max_items": 5},
+            "total_max_tokens": 8500,
         }
 
     def _infer_chapter_phase(

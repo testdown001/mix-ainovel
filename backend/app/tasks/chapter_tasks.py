@@ -27,11 +27,17 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseTask(Task):
-    """支持数据库会话的 Celery 任务基类"""
-    _session: Optional[AsyncSession] = None
+    """支持数据库会话的 Celery 任务基类
+
+    注意：session 是实例属性（非类属性），确保每次任务执行使用独立会话。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._session: Optional[AsyncSession] = None
 
     async def get_session(self) -> AsyncSession:
-        """获取数据库会话"""
+        """获取数据库会话（任务级隔离）"""
         if self._session is None:
             self._session = AsyncSessionLocal()
         return self._session
@@ -153,10 +159,7 @@ async def _async_generate_chapter(
         # 创建向量存储服务（如果启用）
         vector_store = None
         if settings.vector_store_enabled:
-            vector_store = VectorStoreService(
-                db_url=settings.vector_db_url,
-                auth_token=settings.vector_db_auth_token,
-            )
+            vector_store = VectorStoreService()
 
         # 创建 Pipeline Orchestrator
         orchestrator = PipelineOrchestrator(

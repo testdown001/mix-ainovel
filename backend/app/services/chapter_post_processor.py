@@ -79,11 +79,14 @@ class ChapterPostProcessor:
         user_id: int,
         force_summary: bool = False,
     ) -> None:
-        """选版后的完整后处理：摘要 → 向量入库 → hash 更新。"""
+        """选版后的完整后处理：摘要 → 向量入库 → hash 更新 → 卷摘要增量更新。"""
         lock = await _get_chapter_lock(project_id, chapter_number)
         async with lock:
             await self._ensure_summary(project_id, chapter_number, content, user_id, force=force_summary)
             await self._ingest_and_hash(project_id, chapter_number, content, user_id)
+            await self._update_volume_summary(project_id, chapter_number, user_id)
+            await self._update_book_summary(project_id, user_id)
+            await self._update_narrative_summary(project_id, chapter_number, user_id)
 
     async def process_after_edit(
         self,
@@ -93,11 +96,14 @@ class ChapterPostProcessor:
         content: str,
         user_id: int,
     ) -> None:
-        """编辑后的完整后处理：摘要 → 向量入库 → hash 更新。"""
+        """编辑后的完整后处理：摘要 → 向量入库 → hash 更新 → 卷摘要增量更新。"""
         lock = await _get_chapter_lock(project_id, chapter_number)
         async with lock:
             await self._ensure_summary(project_id, chapter_number, content, user_id, force=True)
             await self._ingest_and_hash(project_id, chapter_number, content, user_id)
+            await self._update_volume_summary(project_id, chapter_number, user_id)
+            await self._update_book_summary(project_id, user_id)
+            await self._update_narrative_summary(project_id, chapter_number, user_id)
 
     async def ingest_chapter(
         self,
@@ -230,3 +236,45 @@ class ChapterPostProcessor:
             logger.info("章节 %d 入库完成 (hash=%s...)", chapter_number, content_hash[:8])
         except Exception as exc:
             logger.error("章节 %d 入库失败: %s", chapter_number, exc)
+
+    async def _update_volume_summary(
+        self,
+        project_id: str,
+        chapter_number: int,
+        user_id: int,
+    ) -> None:
+        """增量更新章节所属卷的摘要。"""
+        try:
+            from .volume_summary_service import VolumeSummaryService
+            vol_service = VolumeSummaryService(self._session, self._llm)
+            await vol_service.update_volume_for_chapter(project_id, chapter_number, user_id)
+        except Exception as exc:
+            logger.warning("卷摘要增量更新失败（章节 %d）: %s", chapter_number, exc)
+
+    async def _update_book_summary(
+        self,
+        project_id: str,
+        user_id: int,
+    ) -> None:
+        """增量更新全书摘要。"""
+        try:
+            from .book_summary_service import BookSummaryService
+            book_service = BookSummaryService(self._session, self._llm)
+            await book_service.update_book_summary(project_id, user_id)
+        except Exception as exc:
+            logger.warning("书级摘要增量更新失败: %s", exc)
+
+    async def _update_narrative_summary(
+        self,
+        project_id: str,
+        chapter_number: int,
+        user_id: int,
+    ) -> None:
+        """更新叙事记忆摘要。"""
+        try:
+            from .narrative_summary_service import NarrativeSummaryService
+            service = NarrativeSummaryService(self._session, self._llm)
+            if await service.should_update(project_id, chapter_number):
+                await service.update(project_id, chapter_number, user_id)
+        except Exception as exc:
+            logger.warning("叙事记忆摘要更新失败: %s", exc)

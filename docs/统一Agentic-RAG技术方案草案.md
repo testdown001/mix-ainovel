@@ -1,9 +1,9 @@
 # 统一 Agentic RAG 技术方案草案
 
-> 版本：v0.1  
-> 日期：2026-03-09  
-> 适用范围：`Arboris-Novel` 中文 AI 小说生成系统  
-> 状态：方案草案 / 可进入第一阶段实现
+> 版本：v0.3
+> 日期：2026-03-16
+> 适用范围：`Arboris-Novel` 中文 AI 小说生成系统
+> 状态：Phase 1/1.5/2 已完成 / Phase 3 方案已规划（时序记忆图 + 长期记忆蒸馏）
 
 ---
 
@@ -22,6 +22,101 @@
 核心统一对象定义为：`ContextPlan`
 
 ---
+
+## 零、当前实现状态
+
+截至 `2026-03-16`，本方案第一阶段已基本完成，系统已从”`PipelineOrchestrator` 巨型流程 + 零散 mixin”显著演进为”service-first 编排”结构。
+
+### 0.1 已落地的统一层
+
+以下服务已经存在并接入主流程：
+
+- `ContextPlannerService`
+- `EvidenceRouterService`
+- `HistoryContextService`
+- `ContextAccessService`
+- `EnhancedContextService`
+- `PromptAssemblyService`
+- `PromptCompilerService`
+- `NarrativeVerifierService`
+- `EnhancedReviewService`
+- `GenerationTelemetryService`
+- `GenerationResultService`
+- `PipelineConfigService`
+- `GenerationPolicyService`
+- `GenerationSupportService`
+- `GenerationContextResolutionService`
+- `GenerationEvidenceStageService`
+- `GenerationPromptContextService`
+- `GenerationPromptStageService`
+- `GenerationFinalizeService`
+- `FastGenerationFlowService`
+- `LiteraryGenerationFlowService`
+- `StandardGenerationFlowService`
+- `GenerationAnalysisTaskService`
+- `GenerationWriteTaskService`
+- `MissionBuilderService`
+- `VersionGenerationService`
+- `StandardPostProcessingService`
+- `SceneGenerationService`
+- `TextCompressionService`
+- `VoiceSampleService`
+- `SingleVersionGenerationService`
+- `BatchGenerationService`
+
+### 0.2 当前主线架构
+
+当前单章生成主线已经基本收敛为：
+
+1. `PipelineConfigService` 解析运行时配置
+2. `HistoryContextService` / `ContextAccessService` 提供历史与记忆上下文
+3. `ContextPlannerService` 产出 `ContextPlan`
+4. `EvidenceRouterService` 执行任务式取证
+5. `PromptAssemblyService` + `PromptCompilerService` 组装 Prompt
+6. `VersionGenerationService` / `SceneGenerationService` 负责正文生成
+7. `StandardPostProcessingService` 处理标准模式后处理链
+8. `NarrativeVerifierService` 汇总生成后验证
+9. `GenerationResultService` 统一返回值与调试元数据
+10. `GenerationTelemetryService` 统一中间产物事件发射
+
+### 0.3 已完成的结构性收口
+
+- `PipelineContextMixin` 已退役，职责迁移到 `HistoryContextService` 与 `ContextAccessService`
+- `PipelinePromptMixin` 已退役，职责迁移到 `PromptAssemblyService` 与 `PromptCompilerService`
+- `PipelineOrchestrator` 已摆脱批量调度、配置解析、结果装配、Prompt 组装、验证汇总、scene 生成、压缩、voice sample、single version 生成等外围职责
+- `simple RAG` 并行预取、伏笔 brief/结构化伏笔预取、项目长期记忆预取、用户风格偏好预取、风格指纹预取、增强上下文预热，已经分别迁移到 `EvidenceRouterService`、`ContextAccessService`、`UserStyleService`、`FingerprintService`、`EnhancedContextService`
+- `Stage B` 后台分析、章节后处理、记忆更新、伏笔提取、六维异步审查都已迁移到后台任务服务
+- Agent 路径中的 `ZhongshuAgent` 与主流水线已经共享 `ContextPlannerService`、`EvidenceRouterService`、`PipelineConfigService`
+
+### 0.4 Phase 1 收尾完成情况（2026-03-16）
+
+**已完成的收尾工作：**
+
+1. **局部函数迁移到 GenerationTelemetryService**
+   - 迁移了 `_mark_stage`、`_emit_stage`、`_emit_text_delta`、`_emit_completed` 等流式事件函数
+   - `GenerationTelemetryService` 现在统一管理阶段耗时记录、事件发射和中间产物推送
+   - `PipelineOrchestrator` 中的局部函数已大幅减少
+
+2. **Token 预算控制系统**
+   - 增强了 `ContextPlan.budgets` 字段，添加了细粒度的 Token 配额管理
+   - 新增 `BudgetEnforcerService`，提供统一的预算执行和截断策略
+   - `EvidenceRouterService` 已集成预算控制，防止 Prompt 过载和成本激增
+   - 支持 Fast/Balanced 两种预算模式，分别对应 8k/16k 总上下文限制
+
+3. **预算策略细节**
+   - 每类检索任务都有明确的 Token 上限（RAG、历史、蓝图、Mission、记忆、技能、验证）
+   - 支持基于优先级的预算分配
+   - 超限时自动截断而非失败，并在句子边界智能截断
+   - 达到 80% 使用率时自动警告
+
+**仍保留在 PipelineOrchestrator 的部分：**
+
+- 主流程 `generate_chapter()` 本身的阶段串联与时序控制（这是编排器的核心职责，应当保留）
+- 少量 live path helper 与现有路由兼容代码
+
+**Phase 1 状态：基本完成 ✅**
+
+系统已经完成”架构主骨架切换”和”核心收尾工作”，Phase 1 的主要目标已达成。
 
 ## 二、背景与问题定义
 
@@ -381,15 +476,26 @@ Skill 不再只是：
 
 | 现有模块 | 可复用角色 |
 |----------|------------|
-| `PipelineOrchestrator` | 总编排器 / 第一阶段承载主体 |
+| `PipelineOrchestrator` | 总编排器 / 当前仍承担主流程编排 |
+| `PipelineConfigService` | 运行时预设与开关解析 |
+| `GenerationPolicyService` | 温度、阶段 flags、文学模式策略 |
 | `HistoryContextService` / `ContextAccessService` | 历史上下文与上下文访问基础 |
-| `KnowledgeRetrievalService` | 检索执行器基础 |
+| `EvidenceRouterService` | 任务式取证主执行器 |
+| `KnowledgeRetrievalService` | 两阶段检索与过滤基础 |
 | `PromptService` | Prompt 模板仓库 |
 | `PromptAssemblyService` / `PromptCompilerService` | Prompt 组装与编译基础 |
 | `SkillService` | Skill 注册与执行基础 |
 | `HubuAgent` | Skill Policy Compiler |
 | `MemoryLayerService` | 时序记忆服务基础 |
 | `ForeshadowingService` | 符号级证据源 |
+| `NarrativeVerifierService` | 验证汇总层 |
+| `GenerationTelemetryService` | 中间产物发射层 |
+| `GenerationResultService` | 返回值与调试元数据装配 |
+| `VersionGenerationService` / `StandardPostProcessingService` | 标准模式生成阶段与后处理阶段 |
+| `SceneGenerationService` / `TextCompressionService` | 文学模式场景生成与压缩层 |
+| `MissionBuilderService` / `VoiceSampleService` | fast/basic mission 与声纹样本支持 |
+| `BatchGenerationService` | 批量生成调度 |
+| `GenerationSupportService` | 蓝图、参考小说、fast RAG query、爽点节奏支持 |
 
 ### 8.2 建议新增模块
 
@@ -401,6 +507,25 @@ Skill 不再只是：
 - `backend/app/services/prompt_compiler_service.py`
 - `backend/app/services/narrative_verifier_service.py`
 - `backend/app/services/temporal_memory_service.py`
+
+当前已经实际落地的新增服务：
+
+- `backend/app/services/history_context_service.py`
+- `backend/app/services/context_access_service.py`
+- `backend/app/services/prompt_assembly_service.py`
+- `backend/app/services/generation_telemetry_service.py`
+- `backend/app/services/generation_result_service.py`
+- `backend/app/services/pipeline_config_service.py`
+- `backend/app/services/generation_policy_service.py`
+- `backend/app/services/generation_support_service.py`
+- `backend/app/services/mission_builder_service.py`
+- `backend/app/services/version_generation_service.py`
+- `backend/app/services/standard_post_processing_service.py`
+- `backend/app/services/scene_generation_service.py`
+- `backend/app/services/text_compression_service.py`
+- `backend/app/services/voice_sample_service.py`
+- `backend/app/services/single_version_generation_service.py`
+- `backend/app/services/batch_generation_service.py`
 
 ### 8.3 与三省六部的职责映射
 
@@ -422,6 +547,8 @@ Skill 不再只是：
 
 目标：在不破坏现有生成链路的前提下，引入统一决策对象。
 
+当前状态：`基本完成 ✅`（2026-03-16）
+
 ### 范围
 
 - 新增 `ContextPlan`（含生命周期 phase 与 token budgets 限制）
@@ -438,6 +565,15 @@ Skill 不再只是：
 - 中间产物中可查看计划与任务清单
 - Agent 模式与流水线模式都能复用该计划层
 
+当前已落地产物：
+
+- `context_plan`
+- `retrieval_evidence_summary`
+- `prompt_compile_summary`
+- `verification_report`
+- `skill_policies`
+- service-first 的 generation pipeline
+
 ### 验收标准
 
 - 每次生成都能透明产出 `ContextPlan` 并供用户调整
@@ -447,6 +583,8 @@ Skill 不再只是：
 ## 9.2 Phase 2：双层叙事 RAG（推荐 3~5 周）
 
 目标：实现局部剧情 + 全局叙事双层检索。
+
+当前状态：`已完成`
 
 ### 范围
 
@@ -463,20 +601,253 @@ Skill 不再只是：
 - 长篇章节（30+）的一致性显著提升
 - 伏笔与主线回收命中率提升
 
-## 9.3 Phase 3：时序记忆图（推荐 4~8 周）
+当前已落地部分：
 
-目标：引入人物 / 关系 / 道具 / 伏笔的时序状态查询。
+- `local_plot_rag / global_arc_rag / state_rag / symbolic_rag` 已进入 `EvidenceRouterService`
+- `two_stage RAG` 已收口到统一路由层
+- 证据包与证据摘要已进入中间产物链路
+- ✅ 卷级摘要索引（`VolumeSummaryService`）：固定分卷 + 增量 hash 更新 + 向量入库
+  - `VolumeSummary` ORM 模型 (`models/project_memory.py`)
+  - 章节 finalize 后自动增量更新卷摘要 (`ChapterPostProcessor._update_volume_summary`)
+  - 手动全量重建 API (`POST /novels/{project_id}/volumes/rebuild-summaries`)
+  - 查询 API (`GET /novels/{project_id}/volumes/summaries`)
+  - `EvidenceRouterService.route_global_arc` 自动注入相关卷摘要
+  - 测试覆盖：7 例 (`test_volume_summary_service.py`)
+- ✅ 全局书级摘要层（`BookSummaryService`）：聚合卷级摘要为全书摘要
+  - 复用 `ProjectMemory.global_summary` 字段，`extra` JSON 存 `book_summary_hash` 做增量检测
+  - 卷摘要更新后自动触发书级摘要更新 (`ChapterPostProcessor._update_book_summary`)
+  - 手动重建 API (`POST /novels/{project_id}/book-summary/rebuild`)
+  - 查询 API (`GET /novels/{project_id}/book-summary`)
+  - `EvidenceRouterService.route_global_arc` 自动注入书级摘要（score=0.85）
+  - 向量入库 ID: `{project_id}:book:summary`
+  - 测试覆盖：6 例 (`test_book_summary_service.py`)
 
-### 范围
+## 9.3 Phase 3：时序记忆图 + 长期记忆蒸馏（推荐 4~8 周）
 
-- 定义时序状态抽象
-- 支持“截至第 N 章”的状态视图查询
-- 逐步向 Graphiti 风格能力靠拢
+目标：① 统一”截至第 N 章”的多维状态视图查询；② 解决 mem0 长期记忆无限增长问题，引入记忆蒸馏与生命周期管理。
+
+当前状态：`未完成`
+
+### 问题分析
+
+**时序状态碎片化**：CharacterState、TimelineEvent、CausalChain、Foreshadowing、PowerSystem 各自独立查询，没有统一的”截至第 N 章世界快照”抽象。`EvidenceRouterService.route_state()` 只取了 CharacterState + power_level，大量已有时序数据（因果链、伏笔紧迫度、时间线）未被充分利用。
+
+**mem0 无限增长**：每章 finalize 后 `_extract_mem0_facts()` 提取 N 条原子事实直接 `memory.add()` 存入 Qdrant，只增不减。30+ 章后 mem0 中会累积数百条事实，其中大量是冗余（”角色A在第5章位于京城”、”角色A在第8章位于京城”）或已被后续事件覆盖的过期信息。search 返回结果充斥低价值重复，浪费 token 预算且稀释关键信息的浓度。
+
+### 已有基础
+
+| 组件 | 状态 | 说明 |
+|------|------|------|
+| `CharacterState` | ✅ 完整 | 每章一条快照，支持按章节查询最新状态 |
+| `TimelineEvent` | ✅ 完整 | 支持 major/minor/background 分类，有 caused_by 自指 |
+| `CausalChain` | ✅ 完整 | pending/resolved/abandoned 生命周期 |
+| `StoryTimeTracker` | ✅ 完整 | chapter_time_map 记录每章时间跨度 |
+| `Foreshadowing` | ✅ 完整 | urgency 紧迫度 + status 生命周期 + target_reveal_chapter |
+| `PowerSystem/Level` | ✅ 完整 | 力量体系层级定义 |
+| `ChapterSnapshot` | ✅ 完整 | 每章定稿时的全局摘要+角色状态+剧情线快照 |
+| `ProjectMemory` | ✅ 完整 | global_summary + plot_arcs + story_timeline_summary |
+| `MemoryLayerService` | ✅ 完整 | build_chapter_state_context() 纯 DB <100ms |
+| `EvidenceRouterService.route_state()` | ✅ 已集成 | 但只取 CharacterState + power_level |
+| mem0 事实提取+存储 | ✅ 已实现 | `_extract_mem0_facts()` → `memory.add()` |
+| mem0 蒸馏/压缩/清理 | ❌ 缺失 | 只增不减，无生命周期管理 |
+| 统一时序状态视图 | ❌ 缺失 | 各表独立查询，无统一抽象 |
+
+### 设计方案
+
+#### 3.1 统一时序状态视图：`TemporalStateService`
+
+**核心思路**：不引入图数据库，在现有 MySQL + Qdrant 基础上构建统一查询层。
+
+```python
+@dataclass
+class WorldStateSnapshot:
+    “””截至第 N 章的世界状态快照”””
+    chapter_number: int
+
+    # 角色维度
+    character_states: List[CharacterState]       # 每个角色的最新状态
+    active_relationships: List[Dict[str, Any]]   # 从 blueprint_relationships 取活跃关系
+
+    # 事件维度
+    recent_major_events: List[TimelineEvent]     # 近 N 章重大事件
+    pending_causal_chains: List[CausalChain]     # 待解决因果链
+
+    # 伏笔维度
+    urgent_foreshadowings: List[Dict[str, Any]]  # 紧迫伏笔（urgency≥8 或即将到期）
+    overdue_foreshadowings: List[Dict[str, Any]] # 逾期伏笔（埋下 20+ 章未处理）
+
+    # 时间维度
+    story_time: Optional[str]                    # 当前故事时间
+    story_date: Optional[str]                    # 当前故事日期
+
+    # 力量维度
+    power_landscape: List[Dict[str, str]]        # [{character, level, system}]
+```
+
+**新增服务**：`backend/app/services/temporal_state_service.py`
+
+```python
+class TemporalStateService:
+    “””统一时序状态查询服务 — 纯 DB 查询，零 LLM 调用”””
+
+    async def get_world_snapshot(
+        self, project_id: str, chapter_number: int,
+        involved_characters: Optional[List[str]] = None,
+    ) -> WorldStateSnapshot:
+        “””获取截至第 N 章的世界状态快照（目标延迟 <200ms）”””
+        # 并行查询 5 个数据源
+        ...
+
+    async def format_for_evidence(
+        self, snapshot: WorldStateSnapshot, budget_tokens: int = 2000,
+    ) -> List[EvidenceItem]:
+        “””将快照格式化为 EvidenceItem 列表，供 route_state 使用”””
+        # 按优先级装配：紧迫伏笔 > 角色状态 > 因果链 > 事件 > 力量
+        # 在 budget_tokens 内截断
+        ...
+
+    async def diff_between_chapters(
+        self, project_id: str, from_chapter: int, to_chapter: int,
+    ) -> Dict[str, Any]:
+        “””两章之间的状态变化差分（用于 Verifier 一致性校验）”””
+        ...
+```
+
+**集成点**：
+- `EvidenceRouterService.route_state()` 改为调用 `TemporalStateService.get_world_snapshot()` + `format_for_evidence()`，替代当前散落的单表查询
+- `NarrativeVerifierService` 可使用 `diff_between_chapters()` 做生成后一致性校验
+
+#### 3.2 mem0 记忆蒸馏：`MemoryDistillationService`
+
+**核心思路**：每 N 章（默认 10 章，与卷级摘要对齐）对 mem0 中的原子事实执行一次”蒸馏”——用 LLM 将冗余/过期事实归并为精炼摘要，删除被覆盖的旧事实。
+
+**蒸馏流程**：
+
+```
+触发时机：章节 finalize 且 chapter_number % distill_interval == 0
+                    ↓
+    ① memory.get_all(user_id=project_id)  — 取全量事实
+                    ↓
+    ② 按语义聚类分组（角色状态类 / 事件类 / 世界设定类）
+                    ↓
+    ③ LLM 蒸馏：每组 N 条原子事实 → 1-3 条精炼陈述
+       - 合并冗余（同一角色多次位置更新 → 保留最新）
+       - 标记过期（已被后续事件覆盖的事实）
+       - 提升抽象（细节事件 → 阶段性总结）
+                    ↓
+    ④ memory.delete() 旧事实 + memory.add() 蒸馏后事实
+                    ↓
+    ⑤ 记录蒸馏报告到 GenerationTelemetryService
+```
+
+**新增服务**：`backend/app/services/memory_distillation_service.py`
+
+```python
+class MemoryDistillationService:
+    “””mem0 长期记忆蒸馏服务”””
+
+    # 配置
+    DISTILL_INTERVAL: int = 10          # 每 10 章蒸馏一次
+    MAX_FACTS_BEFORE_DISTILL: int = 100 # 超过 100 条强制蒸馏
+    TARGET_FACTS_AFTER_DISTILL: int = 30 # 蒸馏后目标条数
+
+    async def should_distill(self, project_id: str, chapter_number: int) -> bool:
+        “””判断是否需要蒸馏”””
+        # 条件 1: chapter_number % DISTILL_INTERVAL == 0
+        # 条件 2: 当前 mem0 事实总数 > MAX_FACTS_BEFORE_DISTILL
+        ...
+
+    async def distill(
+        self, project_id: str, chapter_number: int, user_id: int,
+    ) -> Dict[str, Any]:
+        “””执行蒸馏”””
+        # 1. 从 mem0 获取全量事实
+        # 2. 与结构化状态交叉验证（CharacterState 是 ground truth）
+        # 3. LLM 归并蒸馏
+        # 4. 替换 mem0 中的旧事实
+        # 返回 {before_count, after_count, removed, merged, report}
+        ...
+
+    async def _classify_facts(self, facts: List[Dict]) -> Dict[str, List[Dict]]:
+        “””按语义对事实分组（规则优先，LLM 兜底）”””
+        # 关键词匹配：角色名→character, 地点→location, 获得/失去→inventory, ...
+        ...
+
+    async def _merge_group(
+        self, group_name: str, facts: List[Dict], user_id: int,
+    ) -> List[str]:
+        “””将一组同类事实归并为精炼陈述”””
+        ...
+```
+
+**蒸馏策略细节**：
+
+| 事实类型 | 蒸馏规则 | 示例 |
+|----------|----------|------|
+| 角色位置 | 只保留最新位置 | “A在第3章到了京城” + “A在第7章到了边关” → “A当前在边关（第7章起）” |
+| 角色情绪 | 保留最新 + 重大转折 | 日常情绪变化删除，仅保留”A在第5章因B背叛而愤怒” |
+| 物品获取 | 增量合并 | “A获得剑” + “A获得盾” → “A持有：剑、盾” |
+| 关系变化 | 保留最新状态 | “A与B关系紧张” + “A与B和好” → “A与B当前关系友好（第8章和好）” |
+| 重大事件 | 保留，不蒸馏 | importance ≥ 8 的事件原样保留 |
+| 世界设定 | 去重合并 | 重复的设定类事实合并为一条 |
+
+**触发集成**：挂载到 `ChapterPostProcessor` 的 finalize 链路中，位于卷摘要更新之后。
+
+```
+ChapterPostProcessor.finalize_chapter()
+  → _update_volume_summary()
+  → _update_book_summary()
+  → _distill_memory_if_needed()    ← 新增
+```
+
+#### 3.3 route_state 增强
+
+当前 `EvidenceRouterService.route_state()` 只取 CharacterState + power_level 两个维度。升级后：
+
+**Before**:
+```python
+# route_state 当前实现
+memory_service = MemoryLayerService(session, llm_service, prompt_service)
+state_text = await memory_service.build_chapter_state_context(...)
+# 只有：角色状态 + 近3章事件 + 因果链
+```
+
+**After**:
+```python
+# route_state 升级后
+temporal_service = TemporalStateService(session)
+snapshot = await temporal_service.get_world_snapshot(project_id, chapter_number, involved_characters)
+state_evidence = await temporal_service.format_for_evidence(snapshot, budget_tokens=budgets[“state_items”])
+evidence_pack.state_items.extend(state_evidence)
+# 包含：角色状态 + 紧迫伏笔 + 因果链 + 力量格局 + 故事时间 + 关系网
+```
+
+### 验收标准
+
+1. `TemporalStateService.get_world_snapshot()` 纯 DB 查询，延迟 <200ms
+2. 30+ 章项目蒸馏后 mem0 事实数量从 200+ 降至 30-50 条
+3. `route_state` 返回的 state_items 包含伏笔紧迫度和因果链信息
+4. 蒸馏过程不丢失重大事件（importance ≥ 8）
+5. 蒸馏报告可通过中间产物面板查看
 
 ### 注意事项
 
-- 第一阶段不强依赖图数据库
-- 可先以 MySQL + 向量库 + 结构化状态表实现
+- 不引入图数据库，在现有 MySQL + Qdrant 上实现
+- 蒸馏使用轻量级模型（与 EvidenceGrader 共用 `llm_grader.*` 配置通道）
+- `build_chapter_state_context()` 保留作为轻量备选（fast_path 模式下使用）
+- mem0 蒸馏是异步后台任务，不阻塞章节生成主流程
+
+### 分步实施建议
+
+| 步骤 | 内容 | 依赖 | 预估工作量 |
+|------|------|------|-----------|
+| 3.1a | `TemporalStateService` — 统一查询层 + `WorldStateSnapshot` | 无 | 1 周 |
+| 3.1b | `route_state` 切换到 `TemporalStateService` | 3.1a | 2-3 天 |
+| 3.2a | `MemoryDistillationService` — 蒸馏核心逻辑 | 无 | 1 周 |
+| 3.2b | 挂载到 `ChapterPostProcessor` finalize 链路 | 3.2a | 1-2 天 |
+| 3.2c | mem0 蒸馏配置项（interval、阈值）加入 `Settings` | 3.2a | 半天 |
+| 3.3 | `diff_between_chapters` + Verifier 一致性校验集成 | 3.1a | 3-5 天 |
+| 3.4 | 测试 + 文档 + 中间产物面板展示蒸馏报告 | 3.1-3.3 | 3-5 天 |
 
 ---
 
@@ -571,22 +942,26 @@ class NarrativeVerifierService:
 
 ### 12.1 风险
 
-1. 检索规划过重、串行链路长导致的“生成延迟深渊”
+1. 检索规划过重、串行链路长导致的”生成延迟深渊”
 2. Prompt 过载导致生成质量下降、Token 成本激增
 3. Skill 之间约束冲突
 4. 中文实体状态抽取噪声高
 5. 全局摘要与局部片段之间产生信息不一致
 6. Grader 评估过严抹杀 AI 生成的神来之笔，丧失生活气息
+7. mem0 长期记忆无限增长，search 结果充斥低价值冗余事实，稀释关键信息浓度
+8. 蒸馏过程误删重要事实，导致后续章节丢失关键上下文
 
 ### 12.2 缓解措施
 
 - 在 ContextPlan 严格设定每类检索任务的预算配额 (Budgets)
 - 增加快慢路 (Fast/Slow Path) 设计，日常章可跳过繁琐重度评估
 - evidence grading 指派轻量级小模型，且最多只允许一次重试
-- 在提示词装配中随机轮询“熵增证据”，避免生成内容枯燥套路化
+- 在提示词装配中随机轮询”熵增证据”，避免生成内容枯燥套路化
 - Skill 引入优先级与冲突规则
-- 先做结构化状态（重点加强“人物心理与情感坐标”），再做复杂图谱
+- 先做结构化状态（重点加强”人物心理与情感坐标”），再做复杂图谱
 - 全局摘要采用渐进更新，而非每次全量重算
+- mem0 蒸馏以结构化数据（CharacterState）为 ground truth 交叉验证，importance ≥ 8 的事实免蒸馏
+- 蒸馏前自动备份原始事实到 WritingArchive，支持回滚
 
 ---
 
@@ -614,12 +989,62 @@ class NarrativeVerifierService:
 
 ## 十四、建议的下一步实施任务
 
-建议先按以下顺序推进：
+基于当前代码状态（2026-03-16），建议按以下顺序继续推进：
 
-1. 落地 `ContextPlan` 数据结构
-2. 新建 `ContextPlannerService`
-3. 让 `HubuAgent` 输出标准 `SkillPolicy`
-4. 将现有上下文聚合链路收敛到任务式 `EvidenceRouterService`
-5. 在中间产物中展示计划与证据摘要
-6. 再逐步推进双层 RAG 与时序记忆图
+### Phase 1 收尾（已完成 ✅）
+1. ~~继续收缩 `PipelineOrchestrator` 中仍保留的 live helper~~ ✅
+2. ~~整理 `two_stage RAG` 与多源取证的统一执行预算~~ ✅
+
+### Phase 1.5 完善（已完成 ✅）
+1. ~~**引入 EvidenceGraderService**：评估并接入轻量级相关性评分（使用 Claude-3-Haiku 或 8B 级别本地模型）~~ ✅
+   - `EvidenceGraderService` 已实现，集成到 `GenerationEvidenceStageService`
+   - LLMService 新增 `_resolve_grader_llm_config()` + `get_grader_llm_response()`（`llm_grader.*` 配置通道）
+   - 未配置时静默跳过，fast_path 模式下跳过，单次批量评分，最多重试一次
+   - 评分结果写回 `EvidenceItem.metadata["grader_score"]`，低分项标记 `graded_out`
+   - `GenerationTelemetryService` 新增 `emit_evidence_grade()` 事件
+2. ~~**前端白盒化增强**：在 WritingDesk.vue 中增强中间产物面板，支持 context_plan 展示与编辑~~ ✅
+   - MiddleProductViewer 新增「评分」Tab，展示每个证据项的 grader 评分和过滤状态
+   - WDSidebar 新增「计划」按钮，调用 `POST /preview-plan` API 预览 ContextPlan
+   - WritingDesk.vue 新增 `evidence_grade` 事件处理和预览逻辑
+   - NovelAPI 新增 `previewContextPlan()` 方法
+3. ~~**补齐回归测试**：为新的 service-first 架构补充回归测试矩阵~~ ✅
+   - 新增 `test_evidence_grader_service.py`（9 个测试用例）
+   - 扩展 `test_service_first_regression_matrix.py`（+3 个集成测试）
+   - 修复 `_DummySession` 缺少 `execute` 方法导致的回归失败
+   - 全部 17 个相关测试通过
+
+### Phase 2 推进（建议 3~5 周）
+1. ~~建立卷级/书级剧情摘要索引~~ ✅
+   - 卷级：`VolumeSummaryService`（固定分卷 + 增量 hash + 向量入库）
+   - 书级：`BookSummaryService`（聚合卷摘要 + 增量 hash + 向量入库）
+   - 触发链：章节 finalize → 卷摘要更新 → 书级摘要更新
+2. ~~实现全局社区摘要层（参考 LightRAG）~~ ✅（通过书级摘要实现）
+3. ~~完善双层 RAG 的证据融合策略~~ ✅
+   - `ContextPlannerService._build_evidence_budgets()`: 四类证据的 token/数量预算（fast vs balanced）
+   - `EvidenceRouterService._enforce_evidence_budgets()`: score 降序排序 → 数量限制 → token 截断 → 报告
+   - 预算报告写入 `task_reports["evidence_budget"]`
+   - 测试覆盖：6 例 (`test_evidence_budget_enforcement.py`)
+
+### Phase 3 推进：时序记忆图 + 长期记忆蒸馏（建议 4~8 周）
+
+**3.1 统一时序状态视图**
+1. 新增 `TemporalStateService` + `WorldStateSnapshot` 数据结构
+   - 并行查询 CharacterState / TimelineEvent / CausalChain / Foreshadowing / StoryTimeTracker / PowerSystem
+   - 纯 DB 查询，目标延迟 <200ms
+   - `format_for_evidence()` 按优先级将快照格式化为 EvidenceItem 列表
+2. `EvidenceRouterService.route_state()` 切换到 `TemporalStateService`
+   - 替代当前散落的单表查询
+   - state_items 增加伏笔紧迫度、因果链、力量格局、故事时间等维度
+3. `diff_between_chapters()` 供 NarrativeVerifierService 做生成后一致性校验
+
+**3.2 mem0 长期记忆蒸馏**
+1. 新增 `MemoryDistillationService`
+   - 触发条件：chapter_number % 10 == 0 或 mem0 事实总数 > 100
+   - 流程：取全量事实 → 规则分组 → LLM 归并蒸馏 → 替换旧事实
+   - 蒸馏目标：200+ 条 → 30-50 条精炼陈述
+   - 使用轻量级模型（共用 `llm_grader.*` 配置通道）
+2. 挂载到 `ChapterPostProcessor` finalize 链路
+   - 位于卷摘要更新之后，异步执行不阻塞主流程
+3. 蒸馏配置项加入 `Settings`（interval、阈值、目标条数）
+4. 蒸馏报告通过 `GenerationTelemetryService` 写入中间产物
 

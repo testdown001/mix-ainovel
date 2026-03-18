@@ -69,7 +69,7 @@ Layered architecture: **Routers → Services → Repositories → Models**
   - `novel_service.py` — novel CRUD and business logic
   - `blueprint_service.py` — chapter outline/blueprint management
   - `chapter_context_service.py` — **active** RAG retrieval entry point (multi-query retrieval)
-  - `vector_store_service.py` — libsql vector DB operations (chunk/summary storage and retrieval)
+  - `vector_store_service.py` — Qdrant vector DB operations (chunk/summary storage and retrieval)
   - `writer_shared.py` — shared utilities (mission generation, guardrail rewriting)
   - `chapter_post_processor.py` — post-selection processing (summary + vector storage)
   - `finalize_service.py` — chapter finalization (memory layer, snapshots)
@@ -104,7 +104,7 @@ Vue 3 + TypeScript + Naive UI + TailwindCSS 4 + Pinia
 
 - **MySQL 8.0+** (default): production-ready, async via `asyncmy`
 - **SQLite**: zero config alternative, file at `storage/arboris.db` (set `DB_PROVIDER=sqlite`)
-- **libsql** (optional): vector DB for RAG at `storage/rag_vectors.db`, stores `rag_chunks` (text embeddings) and `rag_summaries` (chapter summary embeddings)
+- **Qdrant** (optional): vector DB for RAG, stores `rag_chunks` (text embeddings) and `rag_summaries` (chapter summary embeddings); also used by Mem0 for long-term memory
 - All DB access is async (aiosqlite / asyncmy). Session factory: `db/session.py` → `AsyncSessionLocal`
 - No Alembic migrations are actively used; tables are created via `init_db()` at startup
 
@@ -142,7 +142,7 @@ Chapter generation retrieves context from the vector store:
 1. Build multiple query strings from outline_title, outline_summary, writing_notes, character names
 2. `ChapterContextService` → `VectorStoreService` → vector similarity search: top-K chunks (default 5) + top-K summaries (default 3)
 3. Retrieved content injected into LLM prompt alongside blueprint + previous chapter summaries
-4. After chapter finalization: text split (LangChain `RecursiveCharacterTextSplitter`, 480 chars/120 overlap) → embed → store in libsql
+4. After chapter finalization: text split (LangChain `RecursiveCharacterTextSplitter`, 480 chars/120 overlap) → embed → store in Qdrant
 5. Optional hybrid mode: `HybridRetrievalService` (Vector + BM25 + RRF fusion), activated only when `rag_retrieval_mode="hybrid"`
 
 ### Chapter Generation Pipeline (Traditional)
@@ -171,7 +171,7 @@ LLM config: `OPENAI_API_BASE_URL`, `OPENAI_MODEL_NAME`, `WRITER_CHAPTER_VERSION_
 
 Embedding: `EMBEDDING_PROVIDER` (openai|ollama), `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`
 
-Vector DB: `VECTOR_DB_URL`, `VECTOR_TOP_K_CHUNKS`, `VECTOR_TOP_K_SUMMARIES`, `VECTOR_CHUNK_SIZE`
+Vector DB: `QDRANT_HOST`, `QDRANT_PORT`, `VECTOR_TOP_K_CHUNKS`, `VECTOR_TOP_K_SUMMARIES`, `VECTOR_CHUNK_SIZE`
 
 DB: `DB_PROVIDER` (sqlite|mysql), `SQLITE_DB_PATH`, `MYSQL_HOST/PORT/USER/PASSWORD/DATABASE`
 

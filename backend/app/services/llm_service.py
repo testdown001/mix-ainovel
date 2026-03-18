@@ -1,11 +1,13 @@
 # AIMETA P=LLM服务_大模型调用封装|R=API调用_流式生成|NR=不含业务逻辑|E=LLMService|X=internal|A=服务类|D=openai,httpx|S=net|RD=./README.ai
 import asyncio
+import hashlib
 import inspect
 import logging
 import os
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import httpx
+from cachetools import LRUCache
 from fastapi import HTTPException, status
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalServerError, PermissionDeniedError, AuthenticationError, NotFoundError, BadRequestError
 
@@ -30,8 +32,8 @@ except ImportError:  # pragma: no cover - Ollama 为可选依赖
 class LLMService:
     """封装与大模型交互的所有逻辑，包括配额控制与配置选择。"""
 
-    # P2 优化: 进程级 LLM 客户端缓存，避免每次调用重建连接
-    _CLIENT_CACHE: Dict[str, Any] = {}
+    # 进程级 LLM 客户端缓存（LRU 限制大小，避免无限增长）
+    _CLIENT_CACHE: LRUCache = LRUCache(maxsize=32)
 
     def __init__(self, session):
         self.session = session
@@ -46,7 +48,8 @@ class LLMService:
     @classmethod
     def _get_or_create_client(cls, api_format: str, api_key: str, base_url: Optional[str]) -> Any:
         """从缓存获取或创建 LLM 客户端，避免重复 TLS 握手。"""
-        cache_key = f"{api_format}|{base_url or ''}|{api_key[:8]}..."
+        key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+        cache_key = f"{api_format}|{base_url or ''}|{key_hash}"
         if cache_key in cls._CLIENT_CACHE:
             return cls._CLIENT_CACHE[cache_key]
 
@@ -850,6 +853,29 @@ class LLMService:
 
                 return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
 
+    async def _resolve_grader_llm_config(self) -> Optional[Dict[str, Optional[str]]]:
+        """解析证据评分专用 LLM 配置（轻量级小模型）。未配置时返回 None（静默跳过）。"""
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                grader_api_key = await self._get_config_value_for_session(session, "llm_grader.api_key")
+                grader_base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm_grader.base_url"))
+                grader_model = await self._get_config_value_for_session(session, "llm_grader.model")
+                grader_api_format = await self._get_config_value_for_session(session, "llm_grader.api_format")
+
+                has_any = any(v for v in (grader_api_key, grader_base_url, grader_model, grader_api_format))
+                if not has_any:
+                    return None
+
+                api_key = grader_api_key or await self._get_config_value_for_session(session, "llm.api_key")
+                base_url = grader_base_url or self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
+                model = grader_model or await self._get_config_value_for_session(session, "llm.model")
+                api_format = grader_api_format
+
+                if not api_key:
+                    return None
+
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+
     async def _resolve_search_llm_config(self) -> Dict[str, Optional[str]]:
         """解析参考小说搜索专用 LLM 配置；未启用 llm_search.* 时返回未配置错误。"""
         async with self._db_access_lock:
@@ -913,6 +939,31 @@ class LLMService:
     ) -> str:
         """使用搜索专用模型生成响应，不走用户级配置，不扣用户配额。"""
         config = config_override or await self._resolve_search_llm_config()
+        messages = [{"role": "system", "content": system_prompt}, *conversation_history]
+        return await self._stream_and_collect(
+            messages,
+            temperature=temperature,
+            user_id=None,
+            timeout=timeout,
+            config_override=config,
+            response_format=None,
+            max_tokens=max_tokens,
+        )
+
+    async def get_grader_llm_response(
+        self,
+        system_prompt: str,
+        conversation_history: List[Dict[str, str]],
+        *,
+        temperature: float = 0.1,
+        timeout: float = 30.0,
+        max_tokens: Optional[int] = 2000,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
+    ) -> str:
+        """使用证据评分专用模型生成响应（极速小模型），不走用户级配置。"""
+        config = config_override or await self._resolve_grader_llm_config()
+        if config is None:
+            raise ValueError("证据评分模型未配置")
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
         return await self._stream_and_collect(
             messages,
@@ -1022,6 +1073,104 @@ class LLMService:
         if dimension:
             self._embedding_dimensions[target_model] = dimension
         return embedding
+
+    async def get_embeddings_batch(
+        self,
+        texts: List[str],
+        *,
+        user_id: Optional[int] = None,
+        model: Optional[str] = None,
+        batch_size: int = 2048,
+    ) -> List[List[float]]:
+        """批量生成文本向量，单次请求处理多个文本，提升效率。
+
+        Args:
+            texts: 待向量化的文本列表
+            user_id: 用户ID（用于配置解析）
+            model: 指定模型（可选）
+            batch_size: 单次请求最大文本数（OpenAI 限制 2048）
+
+        Returns:
+            向量列表，顺序与输入文本对应；失败的文本返回空列表
+        """
+        if not texts:
+            return []
+
+        provider = await self._get_config_value("embedding.provider") or "openai"
+        default_model = (
+            await self._get_config_value("ollama.embedding_model") or "nomic-embed-text:latest"
+            if provider == "ollama"
+            else await self._get_config_value("embedding.model") or "text-embedding-3-large"
+        )
+        target_model = model or default_model
+
+        # Ollama 不支持批量，回退到逐个调用
+        if provider == "ollama":
+            logger.warning("Ollama 不支持批量 embedding，回退到逐个调用: count=%d", len(texts))
+            results = await asyncio.gather(
+                *[self.get_embedding(text, user_id=user_id, model=model) for text in texts],
+                return_exceptions=True,
+            )
+            return [r if isinstance(r, list) else [] for r in results]
+
+        # OpenAI/Jina 批量处理
+        config = await self._resolve_llm_config(user_id)
+        embedding_api_key = await self._get_config_value("embedding.api_key")
+        embedding_base_url = self._normalize_base_url(await self._get_config_value("embedding.base_url"))
+        api_key = embedding_api_key or config["api_key"]
+        base_url = embedding_base_url or config.get("base_url")
+
+        if not embedding_api_key and not embedding_base_url and base_url:
+            base_lower = str(base_url).lower()
+            if not any(host in base_lower for host in ("api.openai.com", "openai.azure.com", "jina.ai")):
+                logger.warning(
+                    "未配置独立的嵌入模型，且当前地址 %s 可能不支持批量 embeddings",
+                    base_url,
+                )
+                return [[] for _ in texts]
+
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        all_embeddings: List[List[float]] = []
+
+        # 分批处理（OpenAI 限制单次 2048 个文本）
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            try:
+                response = await client.embeddings.create(
+                    input=batch,
+                    model=target_model,
+                )
+                if not response.data:
+                    logger.warning(
+                        "批量 embedding 返回空数据: model=%s batch_size=%d",
+                        target_model,
+                        len(batch),
+                    )
+                    all_embeddings.extend([[] for _ in batch])
+                    continue
+
+                # 按 index 排序确保顺序正确
+                sorted_data = sorted(response.data, key=lambda x: x.index)
+                batch_embeddings = [item.embedding for item in sorted_data]
+                all_embeddings.extend(batch_embeddings)
+
+                # 缓存维度信息
+                if batch_embeddings and batch_embeddings[0]:
+                    dimension = len(batch_embeddings[0])
+                    if dimension:
+                        self._embedding_dimensions[target_model] = dimension
+
+            except Exception as exc:
+                logger.error(
+                    "批量 embedding 请求失败: model=%s batch_size=%d error=%s",
+                    target_model,
+                    len(batch),
+                    exc,
+                    exc_info=True,
+                )
+                all_embeddings.extend([[] for _ in batch])
+
+        return all_embeddings
 
     async def get_embedding_dimension(self, model: Optional[str] = None) -> Optional[int]:
         """获取嵌入向量维度，优先返回缓存结果，其次读取配置。"""

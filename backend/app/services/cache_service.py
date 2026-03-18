@@ -39,6 +39,7 @@ class CacheService:
     PREFIX_LLM_CONFIG = "llm_config"
     PREFIX_CHAPTER_SUMMARY = "chapter_summary"
     PREFIX_PROJECT = "project"
+    PREFIX_PROJECT_SCHEMA = "project_schema"
     PREFIX_CHAPTER_OUTLINE = "chapter_outline"
 
     # TTL 配置（秒）
@@ -48,6 +49,7 @@ class CacheService:
     TTL_LLM_CONFIG = 1800  # 30 分钟
     TTL_CHAPTER_SUMMARY = 7200  # 2 小时
     TTL_PROJECT = 1800  # 30 分钟
+    TTL_PROJECT_SCHEMA = 1800  # 30 分钟
     TTL_CHAPTER_OUTLINE = 3600  # 1 小时
 
     def __init__(self):
@@ -230,6 +232,21 @@ class CacheService:
         key = self._make_key(self.PREFIX_PROJECT, user_id, project_id)
         return await self.delete(key)
 
+    async def get_project_schema(self, project_id: str) -> Optional[Dict]:
+        """获取项目详情序列化缓存"""
+        key = self._make_key(self.PREFIX_PROJECT_SCHEMA, project_id)
+        return await self.get(key)
+
+    async def set_project_schema(self, project_id: str, project: Dict) -> bool:
+        """设置项目详情序列化缓存"""
+        key = self._make_key(self.PREFIX_PROJECT_SCHEMA, project_id)
+        return await self.set(key, project, self.TTL_PROJECT_SCHEMA)
+
+    async def invalidate_project_schema(self, project_id: str) -> bool:
+        """失效项目详情序列化缓存"""
+        key = self._make_key(self.PREFIX_PROJECT_SCHEMA, project_id)
+        return await self.delete(key)
+
     async def invalidate_user_projects(self, user_id: int) -> int:
         """失效用户所有项目缓存"""
         pattern = f"{self.PREFIX_PROJECT}:{user_id}:*"
@@ -254,6 +271,7 @@ class CacheService:
 
         results = await asyncio.gather(
             self.invalidate_project(project_id, user_id),
+            self.invalidate_project_schema(project_id),
             self.invalidate_blueprint(project_id),
             self.invalidate_characters(project_id),
             self.delete_pattern(f"{self.PREFIX_CHAPTER_OUTLINE}:{project_id}:*"),
@@ -262,9 +280,10 @@ class CacheService:
 
         return {
             "project": 1 if results[0] else 0,
-            "blueprint": 1 if results[1] else 0,
-            "characters": 1 if results[2] else 0,
-            "chapter_outlines": results[3] if isinstance(results[3], int) else 0,
+            "project_schema": 1 if results[1] else 0,
+            "blueprint": 1 if results[2] else 0,
+            "characters": 1 if results[3] else 0,
+            "chapter_outlines": results[4] if isinstance(results[4], int) else 0,
         }
 
     async def invalidate_chapter_cascade(self, project_id: str, chapter_number: int, user_id: int) -> Dict[str, int]:
@@ -287,6 +306,7 @@ class CacheService:
             self.delete(outline_key),
             self.delete_pattern(f"{self.PREFIX_CHAPTER_SUMMARY}:*"),
             self.invalidate_project(project_id, user_id),
+            self.invalidate_project_schema(project_id),
             return_exceptions=True,
         )
 
@@ -294,6 +314,7 @@ class CacheService:
             "chapter_outline": 1 if results[0] else 0,
             "chapter_summaries": results[1] if isinstance(results[1], int) else 0,
             "project": 1 if results[2] else 0,
+            "project_schema": 1 if results[3] else 0,
         }
 
     async def invalidate_blueprint_cascade(self, project_id: str, user_id: int) -> Dict[str, int]:
@@ -312,12 +333,14 @@ class CacheService:
         results = await asyncio.gather(
             self.invalidate_blueprint(project_id),
             self.invalidate_project(project_id, user_id),
+            self.invalidate_project_schema(project_id),
             return_exceptions=True,
         )
 
         return {
             "blueprint": 1 if results[0] else 0,
             "project": 1 if results[1] else 0,
+            "project_schema": 1 if results[2] else 0,
         }
 
     async def invalidate_characters_cascade(self, project_id: str, user_id: int) -> Dict[str, int]:
@@ -336,12 +359,14 @@ class CacheService:
         results = await asyncio.gather(
             self.invalidate_characters(project_id),
             self.invalidate_project(project_id, user_id),
+            self.invalidate_project_schema(project_id),
             return_exceptions=True,
         )
 
         return {
             "characters": 1 if results[0] else 0,
             "project": 1 if results[1] else 0,
+            "project_schema": 1 if results[2] else 0,
         }
 
     async def close(self):

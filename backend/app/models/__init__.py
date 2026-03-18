@@ -24,7 +24,7 @@ from .system_config import SystemConfig
 from .reference_novel import ReferenceNovel
 
 # 新增：项目记忆模型
-from .project_memory import ProjectMemory, ChapterSnapshot
+from .project_memory import ProjectMemory, ChapterSnapshot, VolumeSummary
 
 # 新增：章节蓝图模型
 from .chapter_blueprint import (
@@ -92,6 +92,7 @@ __all__ = [
     # 项目记忆模型
     "ProjectMemory",
     "ChapterSnapshot",
+    "VolumeSummary",
     # 章节蓝图模型
     "ChapterBlueprint",
     "BlueprintTemplate",

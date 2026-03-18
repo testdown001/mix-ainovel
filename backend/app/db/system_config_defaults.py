@@ -79,6 +79,11 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="是否启用 Linux.do OAuth 登录。",
     ),
     SystemConfigDefault(
+        key="rate_limit.requests_per_minute",
+        value_getter=lambda config: _to_optional_str(config.api_rate_limit_requests_per_minute),
+        description="普通 API 请求每分钟限流阈值，修改后下一次请求立即生效。",
+    ),
+    SystemConfigDefault(
         key="linuxdo.client_id",
         value_getter=lambda config: config.linuxdo_client_id,
         description="Linux.do OAuth Client ID。",

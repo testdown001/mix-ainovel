@@ -30,14 +30,25 @@ class Settings(BaseSettings):
         env="ENABLE_LINUXDO_LOGIN",
         description="是否启用 Linux.do OAuth 登录",
     )
+    api_rate_limit_requests_per_minute: int = Field(
+        default=200,
+        ge=1,
+        env="API_RATE_LIMIT_REQUESTS_PER_MINUTE",
+        description="普通 API 请求每分钟限流阈值，也是系统配置 rate_limit.requests_per_minute 的默认值。",
+    )
 
     # -------------------- 安全相关配置 --------------------
     secret_key: str = Field(..., env="SECRET_KEY", description="JWT 加密密钥")
     jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM", description="JWT 加密算法")
     access_token_expire_minutes: int = Field(
-        default=60 * 24 * 7,
+        default=60 * 24,
         env="ACCESS_TOKEN_EXPIRE_MINUTES",
-        description="访问令牌过期时间，单位分钟"
+        description="访问令牌过期时间，单位分钟（默认 1 天）"
+    )
+    cors_origins: str = Field(
+        default="http://localhost:5173",
+        env="CORS_ORIGINS",
+        description="CORS 允许的来源，多个用逗号分隔",
     )
 
     # -------------------- 数据库配置 --------------------
@@ -62,14 +73,14 @@ class Settings(BaseSettings):
         description="Redis 连接串（支持 redis://:password@host:port/db 格式）",
     )
 
-    # -------------------- Qdrant 向量数据库配置 (供 Mem0 使用) --------------------
-    qdrant_host: str = Field(default="localhost", env="QDRANT_HOST", description="Qdrant 主机地址")
+    # -------------------- Qdrant 向量数据库配置 (统一向量存储：RAG + Mem0 长期记忆) --------------------
+    qdrant_host: str = Field(default="", env="QDRANT_HOST", description="Qdrant 主机地址（留空则禁用向量库）")
     qdrant_port: int = Field(default=6333, env="QDRANT_PORT", description="Qdrant 端口号")
     qdrant_api_key: Optional[str] = Field(default=None, env="QDRANT_API_KEY", description="Qdrant API Key (若是远程云服务或加了认证需填写)")
 
     # -------------------- 管理员初始化配置 --------------------
     admin_default_username: str = Field(default="admin", env="ADMIN_DEFAULT_USERNAME", description="默认管理员用户名")
-    admin_default_password: str = Field(default="ChangeMe123!", env="ADMIN_DEFAULT_PASSWORD", description="默认管理员密码")
+    admin_default_password: str = Field(..., env="ADMIN_DEFAULT_PASSWORD", description="默认管理员密码（必须通过环境变量配置）")
     admin_default_email: Optional[str] = Field(default=None, env="ADMIN_DEFAULT_EMAIL", description="默认管理员邮箱")
 
     # -------------------- LLM 相关配置 --------------------
@@ -177,16 +188,6 @@ class Settings(BaseSettings):
         default="nomic-embed-text:latest",
         env="OLLAMA_EMBEDDING_MODEL",
         description="Ollama 嵌入模型名称",
-    )
-    vector_db_url: Optional[str] = Field(
-        default=None,
-        env="VECTOR_DB_URL",
-        description="libsql 向量库连接地址",
-    )
-    vector_db_auth_token: Optional[str] = Field(
-        default=None,
-        env="VECTOR_DB_AUTH_TOKEN",
-        description="libsql 访问令牌",
     )
     vector_top_k_chunks: int = Field(
         default=5,
@@ -408,6 +409,11 @@ class Settings(BaseSettings):
         return candidate
 
     @property
+    def cors_origins_list(self) -> list[str]:
+        """将逗号分隔的 CORS_ORIGINS 字符串解析为列表。"""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
     def sqlalchemy_database_uri(self) -> str:
         """生成 SQLAlchemy 兼容的异步连接串，数据库类型由 DB_PROVIDER 控制。"""
         if self.database_url:
@@ -422,7 +428,7 @@ class Settings(BaseSettings):
                 database=database or None,
                 query=url.query,
             )
-            return normalized.render_as_string(hide_password=False)
+            return normalized.render_as_string(hide_password=True)
 
         # MySQL：统一对密码进行 URL 编码，避免特殊字符破坏连接串
         from urllib.parse import quote_plus
@@ -437,7 +443,7 @@ class Settings(BaseSettings):
     @property
     def vector_store_enabled(self) -> bool:
         """是否已经配置向量库，用于在业务逻辑中快速判断。"""
-        return bool(self.vector_db_url)
+        return bool(self.qdrant_host)
 
 
 @lru_cache
