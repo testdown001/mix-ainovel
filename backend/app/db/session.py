@@ -6,31 +6,27 @@ from sqlalchemy.pool import StaticPool
 
 from ..core.config import settings
 
-# 根据数据库类型选择不同的连接池配置
-_is_sqlite = settings.db_provider == "sqlite" or "sqlite" in settings.sqlalchemy_database_uri
+_db_uri = settings.sqlalchemy_database_uri
+_is_sqlite = "sqlite" in _db_uri
 
 if _is_sqlite:
-    # SQLite 不支持并发写入，使用 StaticPool 单连接
     engine = create_async_engine(
-        settings.sqlalchemy_database_uri,
+        _db_uri,
         echo=settings.debug,
         poolclass=StaticPool,
         connect_args={"check_same_thread": False},
     )
 else:
-    # MySQL 连接池参数：优化高并发场景的连接管理
     engine = create_async_engine(
-        settings.sqlalchemy_database_uri,
+        _db_uri,
         echo=settings.debug,
-        pool_size=20,
-        max_overflow=40,
+        pool_size=5,
+        max_overflow=10,
         pool_pre_ping=True,
         pool_recycle=3600,
         pool_timeout=30,
-        pool_use_lifo=True,
     )
 
-# 统一的 Session 工厂，禁用 expire_on_commit 方便返回模型对象
 AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 

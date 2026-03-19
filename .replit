@@ -1,0 +1,74 @@
+modules = ["python-3.12", "vue-node-20", "nodejs-20", "go-1.21", "web"]
+[agent]
+expertMode = true
+
+[nix]
+channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+SECRET_KEY = "arboris-dev-secret-key-replit-2024"
+ADMIN_DEFAULT_PASSWORD = "ChangeMe123!"
+ADMIN_DEFAULT_USERNAME = "admin"
+ADMIN_DEFAULT_EMAIL = "admin@example.com"
+DB_PROVIDER = "sqlite"
+SQLITE_PATH = "/home/runner/workspace/backend/arboris.db"
+CORS_ORIGINS = "*"
+ENVIRONMENT = "development"
+DEBUG = "true"
+REDIS_URL = "redis://localhost:6379/0"
+ALLOW_USER_REGISTRATION = "true"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backend"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Backend"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd backend && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd frontend && npm run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
+exposeLocalhost = true
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd backend && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 & cd frontend && npm run build && npm run preview -- --port 5000 --host 0.0.0.0"]

@@ -105,7 +105,12 @@ async def init_db() -> None:
 
 
 async def _ensure_database_exists() -> None:
-    """在首次连接前确认 MySQL 数据库存在。"""
+    """在首次连接前确认 MySQL 数据库存在。SQLite/PostgreSQL 时跳过。"""
+    if settings.db_provider == "sqlite":
+        return
+    if settings.database_url and ("postgresql" in settings.database_url or "postgres" in settings.database_url):
+        return
+
     url = make_url(settings.sqlalchemy_database_uri)
 
     database = (url.database or "").strip("/")
@@ -133,6 +138,11 @@ async def _ensure_database_exists() -> None:
 
 async def _ensure_schema_updates() -> None:
     """补齐历史版本缺失的列，避免旧库在新版本报错。"""
+    db_uri = settings.sqlalchemy_database_uri
+    if settings.db_provider == "sqlite" or "postgresql" in db_uri or "postgres" in db_uri:
+        # SQLite/PostgreSQL: Base.metadata.create_all already created all columns, skip ALTER TABLE
+        return
+
     async with engine.begin() as conn:
         def _upgrade(sync_conn):
             inspector = inspect(sync_conn)
@@ -153,7 +163,6 @@ async def _ensure_schema_updates() -> None:
                 },
             )
 
-            # writer_personas 表历史版本缺少以下列，导致 ORM refresh 时查询失败。
             _ensure_columns(
                 "writer_personas",
                 {
@@ -162,7 +171,6 @@ async def _ensure_schema_updates() -> None:
                 },
             )
 
-            # novel_blueprints 表新增 golden_finger 列
             _ensure_columns(
                 "novel_blueprints",
                 {
@@ -170,7 +178,6 @@ async def _ensure_schema_updates() -> None:
                 },
             )
 
-            # blueprint_characters 表新增力量体系关联列
             _ensure_columns(
                 "blueprint_characters",
                 {
@@ -186,7 +193,6 @@ async def _ensure_schema_updates() -> None:
                 },
             )
 
-            # chapter_blueprints 表新增 Strand Weave 线团字段
             _ensure_columns(
                 "chapter_blueprints",
                 {

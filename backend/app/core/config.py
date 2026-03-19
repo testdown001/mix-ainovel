@@ -58,9 +58,14 @@ class Settings(BaseSettings):
         description="完整的数据库连接串，填入后覆盖下方数据库配置"
     )
     db_provider: str = Field(
-        default="mysql",
+        default="sqlite",
         env="DB_PROVIDER",
-        description="数据库类型，仅支持 mysql"
+        description="数据库类型，支持 mysql 或 sqlite"
+    )
+    sqlite_path: str = Field(
+        default="./arboris.db",
+        env="SQLITE_PATH",
+        description="SQLite 数据库文件路径（仅 sqlite 驱动使用）",
     )
     mysql_host: str = Field(default="localhost", env="MYSQL_HOST", description="MySQL 主机名")
     mysql_port: int = Field(default=3306, env="MYSQL_PORT", description="MySQL 端口")
@@ -387,9 +392,9 @@ class Settings(BaseSettings):
     @validator("db_provider", pre=True)
     def _normalize_db_provider(cls, value: Optional[str]) -> str:
         """统一数据库类型大小写，并限制为受支持的驱动。"""
-        candidate = (value or "mysql").strip().lower()
-        if candidate not in {"mysql"}:
-            raise ValueError("DB_PROVIDER 仅支持 mysql")
+        candidate = (value or "sqlite").strip().lower()
+        if candidate not in {"mysql", "sqlite"}:
+            raise ValueError("DB_PROVIDER 仅支持 mysql 或 sqlite")
         return candidate
     @validator("embedding_provider", pre=True)
     def _normalize_embedding_provider(cls, value: Optional[str]) -> str:
@@ -418,17 +423,34 @@ class Settings(BaseSettings):
         """生成 SQLAlchemy 兼容的异步连接串，数据库类型由 DB_PROVIDER 控制。"""
         if self.database_url:
             url = make_url(self.database_url)
+            driver = url.drivername
+            is_pg = driver in ("postgresql", "postgres", "postgresql+psycopg2", "postgresql+asyncpg")
+            # Ensure async driver is used
+            if driver in ("postgresql", "postgres", "postgresql+psycopg2"):
+                driver = "postgresql+asyncpg"
+            elif driver == "mysql":
+                driver = "mysql+asyncmy"
             database = (url.database or "").strip("/")
+            # asyncpg uses 'ssl' not 'sslmode', strip incompatible params
+            query = dict(url.query) if url.query else {}
+            if is_pg:
+                sslmode = query.pop("sslmode", None)
+                if sslmode and "ssl" not in query:
+                    if sslmode in ("require", "verify-ca", "verify-full"):
+                        query["ssl"] = "require"
             normalized = URL.create(
-                drivername=url.drivername,
+                drivername=driver,
                 username=url.username,
                 password=url.password,
                 host=url.host,
                 port=url.port,
                 database=database or None,
-                query=url.query,
+                query=query if query else None,
             )
-            return normalized.render_as_string(hide_password=True)
+            return normalized.render_as_string(hide_password=False)
+
+        if self.db_provider == "sqlite":
+            return f"sqlite+aiosqlite:///{self.sqlite_path}"
 
         # MySQL：统一对密码进行 URL 编码，避免特殊字符破坏连接串
         from urllib.parse import quote_plus
