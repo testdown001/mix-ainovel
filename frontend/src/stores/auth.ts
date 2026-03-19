@@ -37,6 +37,7 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
 interface User {
   id: number;
   username: string;
+  email?: string;
   is_admin: boolean;
   must_change_password: boolean;
 }
@@ -137,6 +138,7 @@ export const useAuthStore = defineStore('auth', {
           this.user = {
             id: userData.id,
             username: userData.username,
+            email: userData.email || '',
             is_admin: userData.is_admin || false,
             must_change_password: userData.must_change_password || false,
           };

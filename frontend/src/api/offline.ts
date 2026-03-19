@@ -9,10 +9,11 @@
 export const FORCE_OFFLINE_MODE = false;
 
 // Mock 用户数据库（仅用于开发测试）
-const MOCK_USERS: Record<string, { id: number; username: string; password: string; is_admin: boolean; must_change_password: boolean }> = {
+const MOCK_USERS: Record<string, { id: number; username: string; email: string; password: string; is_admin: boolean; must_change_password: boolean }> = {
   'admin': {
     id: 1,
     username: 'admin',
+    email: 'admin@arborisnovel.local',
     password: 'admin123',
     is_admin: true,
     must_change_password: false,
@@ -20,6 +21,7 @@ const MOCK_USERS: Record<string, { id: number; username: string; password: strin
   'demo': {
     id: 2,
     username: 'demo',
+    email: 'demo@arborisnovel.local',
     password: 'demo123',
     is_admin: false,
     must_change_password: false,
@@ -27,6 +29,7 @@ const MOCK_USERS: Record<string, { id: number; username: string; password: strin
   'writer': {
     id: 3,
     username: 'writer',
+    email: 'writer@arborisnovel.local',
     password: 'writer123',
     is_admin: false,
     must_change_password: false,
@@ -34,7 +37,7 @@ const MOCK_USERS: Record<string, { id: number; username: string; password: strin
 };
 
 // 存储已登录的用户会话
-const MOCK_SESSIONS: Map<string, { userId: number; username: string; is_admin: boolean }> = new Map();
+const MOCK_SESSIONS: Map<string, { userId: number; username: string; email: string; is_admin: boolean }> = new Map();
 
 interface OfflineResponse {
   ok: boolean;
@@ -147,6 +150,7 @@ export async function fetchWithOfflineSupport(
         MOCK_SESSIONS.set(token, {
           userId: user.id,
           username: user.username,
+          email: user.email,
           is_admin: user.is_admin,
         });
         console.log(`[Offline Mode] Login successful for user: ${username}`);
@@ -179,6 +183,7 @@ export async function fetchWithOfflineSupport(
         return createOfflineResponse({
           id: session.userId,
           username: session.username,
+          email: session.email,
           is_admin: session.is_admin,
           must_change_password: false,
         });
