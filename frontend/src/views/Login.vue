@@ -157,6 +157,28 @@
                 立即注册
               </router-link>
             </p>
+
+            <!-- Dev Mode: Test Credentials -->
+            <div v-if="isDevMode" class="mt-8 pt-6 border-t border-border">
+              <div class="bg-bg-elevated rounded-lg p-4 border border-border">
+                <p class="text-xs text-text-muted font-semibold uppercase mb-3">开发模式 - 测试账号</p>
+                <div class="space-y-2">
+                  <button
+                    v-for="cred in testCredentials"
+                    :key="cred.username"
+                    type="button"
+                    @click="fillTestCredentials(cred)"
+                    class="w-full text-left px-3 py-2 rounded-lg bg-bg-base hover:bg-bg-elevated transition-colors text-xs border border-transparent hover:border-border cursor-pointer"
+                  >
+                    <span class="font-mono text-text-primary">{{ cred.username }}</span>
+                    <span class="text-text-muted"> / </span>
+                    <span class="font-mono text-text-muted">{{ cred.password }}</span>
+                    <span v-if="cred.role" class="text-primary ml-2">{{ cred.role }}</span>
+                  </button>
+                </div>
+                <p class="text-xs text-text-muted mt-3">后端不可用时自动启用</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -177,12 +199,24 @@ const router = useRouter();
 const authStore = useAuthStore();
 const allowRegistration = computed(() => authStore.allowRegistration);
 const enableLinuxdoLogin = computed(() => authStore.enableLinuxdoLogin);
+const isDevMode = computed(() => import.meta.env.DEV);
+
+const testCredentials = [
+  { username: 'admin', password: 'admin123', role: '管理员' },
+  { username: 'demo', password: 'demo123', role: '用户' },
+  { username: 'writer', password: 'writer123', role: '用户' },
+];
 
 onMounted(() => {
   authStore.fetchAuthOptions().catch((err) => {
     console.error('初始化认证配置失败', err);
   });
 });
+
+const fillTestCredentials = (cred: typeof testCredentials[0]) => {
+  username.value = cred.username;
+  password.value = cred.password;
+};
 
 const handleLogin = async () => {
   error.value = '';

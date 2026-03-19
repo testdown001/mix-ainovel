@@ -19,14 +19,17 @@ export default defineConfig({
     },
   },
   server: {
-    // 代理配置已被注释以避免连接错误
-    // 在生产环境或本地后端运行时，可以取消注释以下配置
-    // proxy: {
-    //   '/api': {
-    //     target: 'http://127.0.0.1:8000',
-    //     changeOrigin: true,
-    //     timeout: 1800000, // 30 分钟，蓝图生成等长任务需要
-    //   }
-    // }
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+        timeout: 1800000, // 30 分钟，蓝图生成等长任务需要
+        bypass(req) {
+          // 所有 /api 请求都会被拦截，返回 null 使用真实代理
+          // 如果代理失败，浏览器会看到 ECONNREFUSED 错误，但我们的离线处理会接管
+          return null;
+        }
+      }
+    }
   }
 })

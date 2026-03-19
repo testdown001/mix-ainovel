@@ -7,6 +7,9 @@ import '@fontsource/noto-sans-sc/800.css';
 
 import './assets/main.css'
 
+// 必须在其他所有导入之前激活全局 fetch 拦截器
+import './fetch-interceptor'
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 
