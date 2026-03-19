@@ -776,7 +776,7 @@ const closeSidebar = () => {
 
 const loadProject = async () => {
   try {
-    await novelStore.loadProject(props.id)
+    await novelStore.loadProject(props.id, false, true)
   } catch (error) {
     console.error('加载项目失败:', error)
   }
@@ -1602,47 +1602,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
-
-:global(body.m3-novel) {
-  --md-font-family: 'Manrope', 'Noto Sans SC', 'Noto Sans', 'PingFang SC', sans-serif;
-  --md-primary: #2563eb;
-  --md-primary-light: #4f7bf2;
-  --md-primary-dark: #1d4ed8;
-  --md-on-primary: #ffffff;
-  --md-primary-container: #dbeafe;
-  --md-on-primary-container: #0f172a;
-  --md-secondary: #0f766e;
-  --md-secondary-light: #2dd4bf;
-  --md-secondary-dark: #0f766e;
-  --md-on-secondary: #ffffff;
-  --md-secondary-container: #ccfbf1;
-  --md-on-secondary-container: #0f172a;
-  --md-surface: #ffffff;
-  --md-surface-dim: #f1f5f9;
-  --md-surface-container-lowest: #ffffff;
-  --md-surface-container-low: #f8fafc;
-  --md-surface-container: #f1f5f9;
-  --md-surface-container-high: #e2e8f0;
-  --md-surface-container-highest: #dbe3ef;
-  --md-on-surface: #0f172a;
-  --md-on-surface-variant: #475569;
-  --md-outline: #d7dde5;
-  --md-outline-variant: #e2e8f0;
-  --md-error: #dc2626;
-  --md-error-container: #fee2e2;
-  --md-on-error: #ffffff;
-  --md-on-error-container: #7f1d1d;
-  color: var(--md-on-surface);
-  font-family: var(--md-font-family);
-}
-
 .m3-shell {
-  background: radial-gradient(1200px 600px at 15% -20%, rgba(37, 99, 235, 0.16), transparent 60%),
-    radial-gradient(900px 420px at 85% 0%, rgba(45, 212, 191, 0.12), transparent 55%),
-    linear-gradient(140deg, #f8fafc 0%, #eef2ff 45%, #ecfeff 100%);
-  color: var(--md-on-surface);
-  font-family: var(--md-font-family);
+  background: var(--ar-bg-base);
+  color: var(--ar-text-primary);
+  font-family: var(--ar-font-family);
   animation: m3-fade 0.6s ease-out both;
 }
 
@@ -1652,7 +1615,6 @@ onUnmounted(() => {
   }
 }
 
-/* 自定义样式 */
 .line-clamp-1 {
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -1674,26 +1636,24 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--md-surface-container);
+  background: transparent;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--md-outline);
+  background: #2A2A2A;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--md-on-surface-variant);
+  background: #3A3A3A;
 }
 
-/* 动画效果 */
 @keyframes m3-fade {
   from {
     opacity: 0;

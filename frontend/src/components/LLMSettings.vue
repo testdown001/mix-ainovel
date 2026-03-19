@@ -1,23 +1,23 @@
 <!-- AIMETA P=LLM设置_模型配置界面|R=LLM配置表单|NR=不含模型调用|E=component:LLMSettings|X=internal|A=设置组件|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg p-8">
-    <h2 class="text-2xl font-bold text-gray-800 mb-6">LLM 配置</h2>
-    <h5 class="text-1xl font-bold text-gray-800 mb-6">建议使用自己的中转API和KEY</h5>
+  <div class="bg-bg-surface border border-border rounded-2xl p-8">
+    <h2 class="text-xl font-bold text-text-primary mb-2">核心驱动配置</h2>
+    <p class="text-text-secondary text-sm mb-6">设置 Arboris Novel 使用的大语言模型 API。支持 OpenAI 兼容格式。</p>
     <form @submit.prevent="handleSave" class="space-y-6">
       <div>
-        <label for="url" class="block text-sm font-medium text-gray-700">API URL</label>
-        <div class="relative mt-1">
+        <label for="url" class="block text-sm font-medium text-text-secondary mb-2">API 接口地址</label>
+        <div class="relative">
           <input
             type="text"
             id="url"
             v-model="config.llm_provider_url"
-            class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-            placeholder="https://api.example.com/v1"
+            class="block w-full h-12 px-4 pr-10 bg-bg-elevated border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-3 focus:ring-primary/10 transition-all duration-150 text-sm"
+            placeholder="https://api.openai.com/v1"
           >
           <button
             type="button"
             @click="clearApiUrl"
-            class="absolute inset-y-0 right-2 flex items-center px-2 text-gray-400 hover:text-gray-600"
+            class="absolute inset-y-0 right-2 flex items-center px-2 text-text-muted hover:text-text-secondary cursor-pointer"
             aria-label="清空 API URL"
           >
             <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
@@ -27,19 +27,19 @@
         </div>
       </div>
       <div>
-        <label for="key" class="block text-sm font-medium text-gray-700">API Key</label>
-        <div class="relative mt-1">
+        <label for="key" class="block text-sm font-medium text-text-secondary mb-2">API Key</label>
+        <div class="relative">
           <input
             :type="showApiKey ? 'text' : 'password'"
             id="key"
             v-model="config.llm_provider_api_key"
-            class="block w-full px-3 py-2 pr-24 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+            class="block w-full h-12 px-4 pr-24 bg-bg-elevated border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-3 focus:ring-primary/10 transition-all duration-150 text-sm"
             placeholder="留空则使用默认Key"
           >
           <button
             type="button"
             @click="clearApiKey"
-            class="absolute inset-y-0 right-2 flex items-center px-2 text-gray-400 hover:text-gray-600"
+            class="absolute inset-y-0 right-2 flex items-center px-2 text-text-muted hover:text-text-secondary cursor-pointer"
             aria-label="清空 API Key"
           >
             <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
@@ -49,7 +49,7 @@
           <button
             type="button"
             @click="toggleApiKeyVisibility"
-            class="absolute inset-y-0 right-10 flex items-center px-2 text-gray-400 hover:text-gray-600"
+            class="absolute inset-y-0 right-10 flex items-center px-2 text-text-muted hover:text-text-secondary cursor-pointer"
             :aria-label="showApiKey ? '隐藏 API Key' : '显示 API Key'"
           >
             <svg v-if="showApiKey" class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
@@ -62,10 +62,11 @@
             </svg>
           </button>
         </div>
+        <p class="mt-1.5 text-xs text-text-muted">您的密钥将安全地存储在本地，不会上传至我们的服务器。</p>
       </div>
       <div>
-        <label for="model" class="block text-sm font-medium text-gray-700">Model</label>
-        <div class="flex gap-2 mt-1">
+        <label for="model" class="block text-sm font-medium text-text-secondary mb-2">默认推理模型</label>
+        <div class="flex gap-3">
           <div class="relative flex-1">
             <input
               type="text"
@@ -73,33 +74,32 @@
               v-model="config.llm_provider_model"
               @focus="showModelDropdown = true"
               @blur="hideDropdown"
-              class="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              class="block w-full h-12 px-4 pr-10 bg-bg-elevated border border-border rounded-xl text-text-primary placeholder:text-text-muted focus:border-border-focus focus:outline-none focus:ring-3 focus:ring-primary/10 transition-all duration-150 text-sm"
               placeholder="留空则使用默认模型"
             >
             <button
               type="button"
               @click="clearApiModel"
-              class="absolute inset-y-0 right-2 flex items-center px-2 text-gray-400 hover:text-gray-600"
+              class="absolute inset-y-0 right-2 flex items-center px-2 text-text-muted hover:text-text-secondary cursor-pointer"
               aria-label="清空模型名称"
             >
               <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
               </svg>
             </button>
-            <!-- 下拉选择提示框 -->
             <div
               v-if="showModelDropdown && availableModels.length > 0"
-              class="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto"
+              class="absolute z-10 w-full mt-1 bg-bg-elevated border border-border rounded-xl max-h-60 overflow-auto"
             >
               <div
                 v-for="model in filteredModels"
                 :key="model"
                 @mousedown="selectModel(model)"
-                class="px-3 py-2 cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 text-sm"
+                class="px-4 py-2.5 cursor-pointer hover:bg-primary-muted hover:text-primary text-sm text-text-secondary"
               >
                 {{ model }}
               </div>
-              <div v-if="filteredModels.length === 0" class="px-3 py-2 text-sm text-gray-500">
+              <div v-if="filteredModels.length === 0" class="px-4 py-2.5 text-sm text-text-muted">
                 无匹配的模型
               </div>
             </div>
@@ -108,7 +108,7 @@
             type="button"
             @click="loadModels"
             :disabled="isLoadingModels"
-            class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
+            class="h-12 px-5 bg-bg-elevated border border-border rounded-xl text-text-primary text-sm font-medium hover:border-[rgba(255,255,255,0.2)] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
           >
             <svg v-if="isLoadingModels" class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -119,11 +119,11 @@
         </div>
       </div>
       <div>
-        <label for="api-format" class="block text-sm font-medium text-gray-700">API 类型</label>
+        <label for="api-format" class="block text-sm font-medium text-text-secondary mb-2">API 类型</label>
         <select
           id="api-format"
           v-model="config.llm_provider_api_format"
-          class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white"
+          class="block w-full h-12 px-4 bg-bg-elevated border border-border rounded-xl text-text-primary focus:border-border-focus focus:outline-none focus:ring-3 focus:ring-primary/10 transition-all duration-150 text-sm appearance-none cursor-pointer"
         >
           <option :value="null">auto（自动识别）</option>
           <option value="openai">OpenAI（兼容格式）</option>
@@ -132,11 +132,11 @@
           <option value="gemini">Gemini（Google 原生 API）</option>
           <option value="openai-responses">OpenAI Responses（/v1/responses）</option>
         </select>
-        <p class="mt-1 text-xs text-gray-500">选择 API 请求格式。Google Gemini 选 Gemini，Claude Code 中转站选 AnyRouter，官方 Anthropic API 选 Anthropic，OpenAI Responses API 选 OpenAI Responses，其他选 OpenAI 或 auto。</p>
+        <p class="mt-1.5 text-xs text-text-muted">选择 API 请求格式。Google Gemini 选 Gemini，Claude Code 中转站选 AnyRouter，官方 Anthropic API 选 Anthropic，其他选 OpenAI 或 auto。</p>
       </div>
-      <div class="flex justify-end space-x-4 pt-4">
-        <button type="button" @click="handleDelete" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">删除配置</button>
-        <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">保存</button>
+      <div class="flex justify-end gap-3 pt-4">
+        <button type="button" @click="handleDelete" class="h-10 px-5 bg-bg-elevated border border-border rounded-full text-text-secondary text-sm font-medium hover:border-error hover:text-error transition-all duration-150 cursor-pointer">删除配置</button>
+        <button type="submit" class="h-10 px-6 bg-primary hover:bg-primary-hover text-on-primary rounded-full text-sm font-semibold transition-all duration-150 cursor-pointer">保存配置</button>
       </div>
     </form>
   </div>

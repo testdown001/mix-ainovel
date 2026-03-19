@@ -231,6 +231,10 @@ class NovelService:
         project = await self.ensure_project_owner(project_id, user_id)
         return await self._serialize_project(project)
 
+    async def get_project_schema_fresh(self, project_id: str, user_id: int) -> NovelProjectSchema:
+        project = await self.ensure_project_owner(project_id, user_id)
+        return await self._serialize_project(project, bypass_cache=True)
+
     async def get_section_data(
         self,
         project_id: str,
@@ -1266,11 +1270,16 @@ class NovelService:
     # ------------------------------------------------------------------
     # 序列化辅助
     # ------------------------------------------------------------------
-    async def get_project_schema_for_admin(self, project_id: str) -> NovelProjectSchema:
+    async def get_project_schema_for_admin(
+        self,
+        project_id: str,
+        *,
+        bypass_cache: bool = False,
+    ) -> NovelProjectSchema:
         project = await self.repo.get_by_id(project_id)
         if not project:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
-        return await self._serialize_project(project)
+        return await self._serialize_project(project, bypass_cache=bypass_cache)
 
     async def get_section_data_for_admin(
         self,
@@ -1292,15 +1301,15 @@ class NovelService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
         return self._build_chapter_schema(project, chapter_number)
 
-    async def _serialize_project(self, project: NovelProject) -> NovelProjectSchema:
-        # 尝试从缓存获取
+    async def _serialize_project(self, project: NovelProject, *, bypass_cache: bool = False) -> NovelProjectSchema:
         cache_service = CacheService()
-        cached = await cache_service.get_project_schema(project.id)
-        if cached:
-            try:
-                return NovelProjectSchema(**cached)
-            except Exception as e:
-                logger.warning(f"缓存反序列化失败: {e}")
+        if not bypass_cache:
+            cached = await cache_service.get_project_schema(project.id)
+            if cached:
+                try:
+                    return NovelProjectSchema(**cached)
+                except Exception as e:
+                    logger.warning(f"缓存反序列化失败: {e}")
 
         conversations = [
             {"role": convo.role, "content": convo.content}

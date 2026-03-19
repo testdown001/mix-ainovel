@@ -4,12 +4,12 @@
     <!-- 标题和开关 -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-medium text-gray-700">🎭 情绪节拍控制</span>
-        <span class="text-xs text-gray-400">(控制读者的阅读体验)</span>
+        <span class="text-sm font-medium text-text-secondary">🎭 情绪节拍控制</span>
+        <span class="text-xs text-text-muted">(控制读者的阅读体验)</span>
       </div>
       <label class="relative inline-flex items-center cursor-pointer">
         <input type="checkbox" v-model="enabled" class="sr-only peer">
-        <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500"></div>
+        <div class="w-9 h-5 bg-bg-highlight peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-500"></div>
       </label>
     </div>
 
@@ -27,8 +27,8 @@
               :class="[
                 'px-3 py-2 text-sm rounded-lg border transition-all',
                 localBeat.primary_emotion === emotion.value
-                  ? 'bg-purple-500 text-white border-purple-500 shadow-md'
-                  : 'bg-white text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+                  ?                 'bg-purple-500 text-white border-purple-500'
+                  : 'bg-bg-surface text-text-secondary border-border hover:border-purple-300 hover:bg-purple-50'
               ]"
             >
               {{ emotion.icon }} {{ emotion.label }}
@@ -46,9 +46,9 @@
             v-model.number="localBeat.intensity"
             min="1"
             max="10"
-            class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-500"
+            class="w-full h-2 bg-bg-highlight rounded-lg appearance-none cursor-pointer accent-purple-500"
           />
-          <div class="flex justify-between text-xs text-gray-400 mt-1">
+          <div class="flex justify-between text-xs text-text-muted mt-1">
             <span>平静</span>
             <span>起伏</span>
             <span>高潮</span>
@@ -61,35 +61,35 @@
           <label class="block text-sm font-medium text-purple-700 mb-2">情绪曲线</label>
           <div class="grid grid-cols-3 gap-4">
             <div>
-              <label class="block text-xs text-gray-500 mb-1">开始</label>
+              <label class="block text-xs text-text-muted mb-1">开始</label>
               <select
                 v-model.number="localBeat.curve.start"
-                class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-white"
+                class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-bg-surface"
               >
                 <option v-for="n in 10" :key="n" :value="n">{{ n }}级</option>
               </select>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">高潮</label>
+              <label class="block text-xs text-text-muted mb-1">高潮</label>
               <select
                 v-model.number="localBeat.curve.peak"
-                class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-white"
+                class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-bg-surface"
               >
                 <option v-for="n in 10" :key="n" :value="n">{{ n }}级</option>
               </select>
             </div>
             <div>
-              <label class="block text-xs text-gray-500 mb-1">结束</label>
+              <label class="block text-xs text-text-muted mb-1">结束</label>
               <select
                 v-model.number="localBeat.curve.end"
-                class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-white"
+                class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-bg-surface"
               >
                 <option v-for="n in 10" :key="n" :value="n">{{ n }}级</option>
               </select>
             </div>
           </div>
           <!-- 曲线可视化 -->
-          <div class="mt-3 h-16 bg-white rounded-lg border border-purple-100 relative overflow-hidden">
+          <div class="mt-3 h-16 bg-bg-surface rounded-lg border border-purple-100 relative overflow-hidden">
             <svg class="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
               <path
                 :d="curvePath"
@@ -106,9 +106,9 @@
                 </linearGradient>
               </defs>
             </svg>
-            <div class="absolute bottom-1 left-2 text-xs text-gray-400">开始</div>
-            <div class="absolute bottom-1 left-1/2 -translate-x-1/2 text-xs text-gray-400">高潮</div>
-            <div class="absolute bottom-1 right-2 text-xs text-gray-400">结束</div>
+            <div class="absolute bottom-1 left-2 text-xs text-text-muted">开始</div>
+            <div class="absolute bottom-1 left-1/2 -translate-x-1/2 text-xs text-text-muted">高潮</div>
+            <div class="absolute bottom-1 right-2 text-xs text-text-muted">结束</div>
           </div>
         </div>
 
@@ -118,7 +118,7 @@
           <textarea
             v-model="localBeat.turning_point"
             placeholder="描述情绪发生转折的关键时刻，例如：当主角发现真相时，从震惊转为愤怒"
-            class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-white"
+            class="w-full p-2 text-sm border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none bg-bg-surface"
             rows="2"
           ></textarea>
         </div>
@@ -131,7 +131,7 @@
               v-for="preset in presets"
               :key="preset.name"
               @click="applyPreset(preset)"
-              class="px-3 py-1 text-xs bg-white border border-purple-200 rounded-full hover:bg-purple-100 hover:border-purple-300 transition-colors"
+              class="px-3 py-1 text-xs bg-bg-surface border border-purple-200 rounded-full hover:bg-purple-100 hover:border-purple-300 transition-colors"
             >
               {{ preset.name }}
             </button>
@@ -141,7 +141,7 @@
     </transition>
 
     <!-- 禁用时的提示 -->
-    <div v-if="!enabled" class="text-xs text-gray-400 mt-2">
+    <div v-if="!enabled" class="text-xs text-text-muted mt-2">
       启用后可以精确控制章节的情绪走向，让读者的阅读体验更加沉浸
     </div>
   </div>

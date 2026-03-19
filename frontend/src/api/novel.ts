@@ -1,12 +1,9 @@
 // AIMETA P=小说API客户端_小说和章节接口|R=小说CRUD_章节管理_生成|NR=不含UI逻辑|E=api:novel|X=internal|A=novelApi对象|D=axios|S=net|RD=./README.ai
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
+import { API_BASE_URL, API_PREFIX } from './config'
 
-// API 配置
-// 开发环境使用相对路径，由 Vite 代理转发到后端（vite.config.ts 中配置）
-// 生产环境同样使用相对路径，由反向代理（nginx 等）转发
-export const API_BASE_URL = ''
-export const API_PREFIX = '/api'
+export { API_BASE_URL, API_PREFIX }
 
 // 统一的请求处理函数
 const request = async (url: string, options: RequestInit = {}) => {
@@ -409,8 +406,9 @@ export class NovelAPI {
     })
   }
 
-  static async getNovel(projectId: string): Promise<NovelProject> {
-    return request(`${NOVELS_BASE}/${projectId}`)
+  static async getNovel(projectId: string, options?: { refresh?: boolean }): Promise<NovelProject> {
+    const query = options?.refresh ? '?refresh=true' : ''
+    return request(`${NOVELS_BASE}/${projectId}${query}`)
   }
 
   static async getChapter(projectId: string, chapterNumber: number): Promise<Chapter> {

@@ -11,6 +11,7 @@ from ..services.consistency_service import ConsistencyService, ViolationSeverity
 from ..services.enrichment_service import EnrichmentService
 from ..services.reader_simulator_service import ReaderSimulatorService, ReaderType
 from ..services.self_critique_service import CritiqueDimension, SelfCritiqueService
+from ..services.text_compression_service import TextCompressionService
 from ..utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,18 @@ logger = logging.getLogger(__name__)
 
 class PipelineReviewMixin:
     """流水线审查与优化相关方法。"""
+
+    @staticmethod
+    def _cap_enrichment_output(
+        text: str,
+        *,
+        cap: int,
+        branch: str,
+    ) -> Tuple[str, bool]:
+        if not text or cap <= 0 or len(text) <= cap:
+            return text, False
+        logger.warning("扩写结果超上限，执行硬截断: branch=%s len=%d cap=%d", branch, len(text), cap)
+        return TextCompressionService.hard_trim_to_limit(text, cap), True
 
     async def _run_ai_review(
         self,
@@ -465,6 +478,7 @@ class PipelineReviewMixin:
         service = EnrichmentService(self.session, self.llm_service)
         target_word_count = max(target_word_count, min_word_count)
         curent_word_count = len(chapter_content or "")
+        enrichment_cap = min(max_word_count, 5000) if max_word_count else 5000
 
         # 上限检查：如果当前字数已达到或超过上限，跳过扩写避免进一步膨胀
         if max_word_count and curent_word_count >= max_word_count:
@@ -485,6 +499,11 @@ class PipelineReviewMixin:
                 user_id=user_id,
                 max_iterations=2,
             )
+            enriched_text, capped = self._cap_enrichment_output(
+                enriched_text,
+                cap=enrichment_cap,
+                branch="min_length_recovery",
+            )
             enriched_count = len(enriched_text or "")
             if enriched_text and enriched_count > curent_word_count:
                 return enriched_text, {
@@ -492,6 +511,8 @@ class PipelineReviewMixin:
                     "enriched_word_count": enriched_count,
                     "enrichment_ratio": (enriched_count / curent_word_count) if curent_word_count > 0 else 1.0,
                     "enrichment_type": "min_length_recovery",
+                    "capped_to_limit": capped,
+                    "cap_limit": enrichment_cap if capped else None,
                 }
 
         dynamic_threshold = max(0.82, min(0.95, min_word_count / target_word_count))
@@ -504,11 +525,20 @@ class PipelineReviewMixin:
         if not result:
             return chapter_content, None
 
-        return result.enriched_content, {
+        enriched_text, capped = self._cap_enrichment_output(
+            result.enriched_content,
+            cap=enrichment_cap,
+            branch=result.enrichment_type,
+        )
+        enriched_count = len(enriched_text or "")
+
+        return enriched_text, {
             "original_word_count": result.original_word_count,
-            "enriched_word_count": result.enriched_word_count,
-            "enrichment_ratio": result.enrichment_ratio,
+            "enriched_word_count": enriched_count,
+            "enrichment_ratio": (enriched_count / result.original_word_count) if result.original_word_count > 0 else 1.0,
             "enrichment_type": result.enrichment_type,
+            "capped_to_limit": capped,
+            "cap_limit": enrichment_cap if capped else None,
         }
 
     async def _run_density_compression(self, chapter_content: str, *, user_id: int, max_word_count: int = 0) -> Tuple[str, Dict[str, Any]]:

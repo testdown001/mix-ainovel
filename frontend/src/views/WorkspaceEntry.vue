@@ -1,6 +1,6 @@
 <!-- AIMETA P=工作区入口_应用主入口|R=入口导航|NR=不含具体功能|E=route:/#component:WorkspaceEntry|X=ui|A=入口页|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="flex items-center justify-center min-h-screen p-4 relative md-surface-dim">
+  <div class="flex items-center justify-center min-h-[calc(100vh-64px)] p-4 relative md-surface-dim">
     <!-- Material 3 Update Log Modal -->
     <div v-if="showModal" class="md-dialog-overlay" @click.self="closeModal">
       <div class="md-dialog w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col">
@@ -63,29 +63,6 @@
       </div>
     </div>
 
-    <!-- Top Right Actions -->
-    <div class="absolute top-4 right-4 flex space-x-2">
-      <router-link
-        to="/settings"
-        class="md-btn md-btn-text md-ripple"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-        设置
-      </router-link>
-      <button
-        @click="handleLogout"
-        class="md-btn md-btn-text md-ripple"
-      >
-        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-        </svg>
-        退出登录
-      </button>
-    </div>
-
     <!-- Main Content -->
     <div class="w-full max-w-4xl mx-auto">
       <div class="text-center p-8 fade-in">
@@ -134,12 +111,9 @@
           </div>
         </div>
 
-        <!-- Google Colors Accent Bar -->
         <div class="flex justify-center gap-2 mt-12">
-          <div class="w-12 h-1 rounded-full" style="background-color: var(--md-google-blue);"></div>
-          <div class="w-12 h-1 rounded-full" style="background-color: var(--md-google-red);"></div>
-          <div class="w-12 h-1 rounded-full" style="background-color: var(--md-google-yellow);"></div>
-          <div class="w-12 h-1 rounded-full" style="background-color: var(--md-google-green);"></div>
+          <div class="w-16 h-1 rounded-full bg-primary"></div>
+          <div class="w-8 h-1 rounded-full bg-primary/40"></div>
         </div>
       </div>
     </div>
@@ -150,7 +124,6 @@
 import { ref, onMounted, computed } from 'vue'
 import { marked } from 'marked'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
 import { getLatestUpdates } from '../api/updates'
 import type { UpdateLog } from '../api/updates'
 
@@ -162,7 +135,6 @@ marked.setOptions({
 const renderMarkdown = (md: string) => marked.parse(md)
 
 const router = useRouter()
-const authStore = useAuthStore()
 
 const showModal = ref(false)
 const updateLogs = ref<UpdateLog[]>([])
@@ -201,11 +173,6 @@ const closeModal = () => {
 const hideModalToday = () => {
   localStorage.setItem('hideAnnouncement', new Date().toDateString())
   closeModal()
-}
-
-const handleLogout = () => {
-  authStore.logout()
-  router.push('/login')
 }
 
 const goToInspiration = () => {

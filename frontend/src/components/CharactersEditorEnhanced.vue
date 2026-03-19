@@ -2,16 +2,16 @@
 <template>
   <div class="space-y-4 max-h-[600px] overflow-y-auto p-1">
     <!-- 从章节同步角色按钮 -->
-    <div v-if="projectId" class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+    <div v-if="projectId" class="flex items-center justify-between p-3 bg-primary-muted rounded-lg border border-blue-200">
       <div class="flex items-center gap-2">
         <span class="text-blue-600 text-lg">🔄</span>
         <span class="text-sm text-blue-700 font-medium">从章节同步角色</span>
-        <span class="text-xs text-gray-500">从已生成章节中提取新增人物</span>
+        <span class="text-xs text-text-muted">从已生成章节中提取新增人物</span>
       </div>
       <button
         @click="syncFromChapters"
         :disabled="isSyncing"
-        class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+        class="px-4 py-1.5 text-sm font-medium text-on-primary bg-primary rounded-md hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
       >
         <svg v-if="isSyncing" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -26,7 +26,7 @@
       <div class="flex items-center gap-2">
         <span class="text-purple-600 text-lg">🧬</span>
         <span class="text-sm text-purple-700 font-medium">角色DNA档案</span>
-        <span class="text-xs text-gray-500">基于大纲和剧情自动推演角色心理档案</span>
+        <span class="text-xs text-text-muted">基于大纲和剧情自动推演角色心理档案</span>
       </div>
       <button
         @click="generateAllDNA(false)"
@@ -41,11 +41,11 @@
       </button>
     </div>
     <!-- DNA生成状态提示 -->
-    <div v-if="dnaMessage" class="p-3 rounded-lg text-sm" :class="dnaMessageType === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : dnaMessageType === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'">
+    <div v-if="dnaMessage" class="p-3 rounded-lg text-sm" :class="dnaMessageType === 'success' ? 'bg-success-muted text-success border border-green-200' : dnaMessageType === 'error' ? 'bg-error-muted text-error border border-error/20' : 'bg-primary-muted text-primary border border-blue-200'">
       {{ dnaMessage }}
     </div>
 
-    <div v-for="(character, index) in localCharacters" :key="index" class="p-4 border border-gray-200 rounded-lg bg-gray-50 relative">
+    <div v-for="(character, index) in localCharacters" :key="index" class="p-4 border border-border rounded-lg bg-bg-elevated relative">
       <button @click="removeCharacter(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 transition-colors p-1">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
@@ -55,34 +55,34 @@
       <!-- 基础信息 -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">姓名</label>
-          <input type="text" v-model="character.name" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+          <label class="block text-sm font-medium text-text-secondary mb-1">姓名</label>
+          <input type="text" v-model="character.name" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">身份</label>
-          <input type="text" v-model="character.identity" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+          <label class="block text-sm font-medium text-text-secondary mb-1">身份</label>
+          <input type="text" v-model="character.identity" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">性格</label>
-          <input type="text" v-model="character.personality" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+          <label class="block text-sm font-medium text-text-secondary mb-1">性格</label>
+          <input type="text" v-model="character.personality" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">目标</label>
-          <input type="text" v-model="character.goals" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+          <label class="block text-sm font-medium text-text-secondary mb-1">目标</label>
+          <input type="text" v-model="character.goals" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">能力</label>
-          <input type="text" v-model="character.abilities" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+          <label class="block text-sm font-medium text-text-secondary mb-1">能力</label>
+          <input type="text" v-model="character.abilities" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent" />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">与主角关系</label>
-          <input type="text" v-model="character.relationship_to_protagonist" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+          <label class="block text-sm font-medium text-text-secondary mb-1">与主角关系</label>
+          <input type="text" v-model="character.relationship_to_protagonist" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent" />
         </div>
         
         <!-- 新增：力量体系选择 -->
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">力量体系</label>
-          <select v-model="character.power_system_id" @change="character.current_power_level_id = null" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent h-[34px]">
+          <label class="block text-sm font-medium text-text-secondary mb-1">力量体系</label>
+          <select v-model="character.power_system_id" @change="character.current_power_level_id = null" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent h-[34px]">
             <option :value="null">无</option>
             <option v-for="ps in powerSystems" :key="ps.id" :value="ps.id">{{ ps.name }}</option>
           </select>
@@ -90,8 +90,8 @@
         
         <!-- 新增：当前境界选择 -->
         <div v-if="character.power_system_id">
-          <label class="block text-sm font-medium text-gray-600 mb-1">当前境界</label>
-          <select v-model="character.current_power_level_id" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent h-[34px]">
+          <label class="block text-sm font-medium text-text-secondary mb-1">当前境界</label>
+          <select v-model="character.current_power_level_id" class="w-full p-1 border-b-2 border-border focus:border-border-focus outline-none transition bg-transparent h-[34px]">
             <option :value="null">未知</option>
             <template v-if="powerSystems.find(ps => ps.id === character.power_system_id)">
               <option v-for="lvl in powerSystems.find(ps => ps.id === character.power_system_id)?.levels || []" :key="lvl.id" :value="lvl.id">
@@ -103,7 +103,7 @@
       </div>
 
       <!-- DNA档案展开按钮 -->
-      <div class="mt-4 border-t border-gray-200 pt-3 flex items-center justify-between">
+      <div class="mt-4 border-t border-border pt-3 flex items-center justify-between">
         <button 
           @click="toggleDNA(index)" 
           class="flex items-center gap-2 text-sm font-medium text-purple-600 hover:text-purple-800 transition-colors"
@@ -119,7 +119,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>
           <span>🧬 角色DNA档案</span>
-          <span class="text-xs text-gray-400">(让角色更立体)</span>
+          <span class="text-xs text-text-muted">(让角色更立体)</span>
         </button>
         <button
           v-if="projectId && character.name"
@@ -139,7 +139,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 童年经历/创伤
-                <span class="text-xs text-gray-500 font-normal ml-1">影响角色的防御机制和情感触发点</span>
+                <span class="text-xs text-text-muted font-normal ml-1">影响角色的防御机制和情感触发点</span>
               </label>
               <textarea 
                 v-model="getDNAProfile(character).childhood_trauma" 
@@ -154,7 +154,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 核心恐惧
-                <span class="text-xs text-gray-500 font-normal ml-1">驱动角色行为的深层恐惧</span>
+                <span class="text-xs text-text-muted font-normal ml-1">驱动角色行为的深层恐惧</span>
               </label>
               <input 
                 type="text"
@@ -169,7 +169,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 内心渴望
-                <span class="text-xs text-gray-500 font-normal ml-1">角色真正想要的，可能连自己都不清楚</span>
+                <span class="text-xs text-text-muted font-normal ml-1">角色真正想要的，可能连自己都不清楚</span>
               </label>
               <input 
                 type="text"
@@ -184,7 +184,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 说话习惯
-                <span class="text-xs text-gray-500 font-normal ml-1">口头禅、语气词、紧张时的变化</span>
+                <span class="text-xs text-text-muted font-normal ml-1">口头禅、语气词、紧张时的变化</span>
               </label>
               <textarea 
                 v-model="getDNAProfile(character).speech_habits"
@@ -199,7 +199,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 身体语言
-                <span class="text-xs text-gray-500 font-normal ml-1">紧张时的小动作、特有的姿态</span>
+                <span class="text-xs text-text-muted font-normal ml-1">紧张时的小动作、特有的姿态</span>
               </label>
               <textarea 
                 v-model="getDNAProfile(character).body_language"
@@ -214,7 +214,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 思维模式
-                <span class="text-xs text-gray-500 font-normal ml-1">理性/感性、乐观/悲观</span>
+                <span class="text-xs text-text-muted font-normal ml-1">理性/感性、乐观/悲观</span>
               </label>
               <select 
                 v-model="getDNAProfile(character).thinking_pattern"
@@ -235,7 +235,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 决策方式
-                <span class="text-xs text-gray-500 font-normal ml-1">如何做出选择</span>
+                <span class="text-xs text-text-muted font-normal ml-1">如何做出选择</span>
               </label>
               <select 
                 v-model="getDNAProfile(character).decision_style"
@@ -256,7 +256,7 @@
             <div>
               <label class="block text-sm font-medium text-purple-700 mb-1">
                 隐藏的秘密
-                <span class="text-xs text-gray-500 font-normal ml-1">不愿让人知道的事</span>
+                <span class="text-xs text-text-muted font-normal ml-1">不愿让人知道的事</span>
               </label>
               <textarea 
                 v-model="getDNAProfile(character).hidden_secret"
@@ -270,22 +270,22 @@
 
           <!-- DNA完成度提示 -->
           <div class="mt-4 flex items-center gap-2">
-            <div class="flex-1 bg-gray-200 rounded-full h-2">
+            <div class="flex-1 bg-bg-highlight rounded-full h-2">
               <div 
                 class="bg-purple-500 h-2 rounded-full transition-all duration-300"
                 :style="{ width: getDNACompleteness(character) + '%' }"
               ></div>
             </div>
-            <span class="text-xs text-gray-500">{{ getDNACompleteness(character) }}% 完成</span>
+            <span class="text-xs text-text-muted">{{ getDNACompleteness(character) }}% 完成</span>
           </div>
-          <p class="mt-2 text-xs text-gray-500">
+          <p class="mt-2 text-xs text-text-muted">
             💡 提示：DNA档案越完整，AI生成的角色行为和对话就越真实立体
           </p>
         </div>
       </transition>
     </div>
     
-    <button @click="addCharacter" class="w-full mt-4 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+    <button @click="addCharacter" class="w-full mt-4 px-4 py-2 text-sm font-medium text-primary bg-primary-muted border border-indigo-200 rounded-md hover:bg-primary-muted focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary/10">
       + 添加新角色
     </button>
   </div>

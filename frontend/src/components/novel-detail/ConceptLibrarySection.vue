@@ -20,7 +20,7 @@
     </div>
 
     <!-- 状态消息 -->
-    <div v-if="message" class="p-3 rounded-lg text-sm" :class="messageType === 'success' ? 'bg-green-50 text-green-700' : messageType === 'error' ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700'">
+    <div v-if="message" class="p-3 rounded-lg text-sm" :class="messageType === 'success' ? 'bg-success-muted text-success' : messageType === 'error' ? 'bg-error-muted text-error' : 'bg-primary-muted text-primary'">
       {{ message }}
     </div>
 
@@ -31,8 +31,8 @@
         :key="t.value"
         class="px-3 py-1.5 rounded-full text-sm font-medium transition-all"
         :class="activeType === t.value
-          ? 'text-white shadow-sm'
-          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+          ? 'text-white'
+          : 'bg-bg-elevated text-text-secondary hover:bg-[rgba(255,255,255,0.05)]'"
         :style="activeType === t.value ? `background-color: ${t.color}` : ''"
         @click="activeType = activeType === t.value ? '' : t.value"
       >
@@ -58,7 +58,7 @@
       <div
         v-for="concept in filteredConcepts"
         :key="concept.id"
-        class="p-4 rounded-xl border cursor-pointer hover:shadow-md transition-shadow"
+        class="p-4 rounded-xl border cursor-pointer transition-shadow"
         :style="`border-left: 4px solid ${getTypeColor(concept.entity_type)}`"
         @click="openEdit(concept)"
       >
@@ -75,7 +75,7 @@
               <span
                 v-for="alias in concept.aliases"
                 :key="alias"
-                class="px-2 py-0.5 rounded-full text-xs bg-gray-100"
+                class="px-2 py-0.5 rounded-full text-xs bg-bg-elevated"
                 style="color: var(--md-on-surface-variant);"
               >
                 {{ alias }}
@@ -98,7 +98,7 @@
     <teleport to="body">
       <transition name="fade">
         <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/30" @click.self="showModal = false">
-          <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6 space-y-4">
+          <div class="bg-bg-surface rounded-2xl w-full max-w-lg mx-4 p-6 space-y-4">
             <h3 class="md-title-large" style="color: var(--md-on-surface);">{{ editingId ? '编辑概念' : '新增概念' }}</h3>
 
             <div class="space-y-3">

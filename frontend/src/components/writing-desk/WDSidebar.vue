@@ -90,7 +90,7 @@
               >
                 <div>
                   <p class="text-sm font-medium">{{ novel.title }}</p>
-                  <p class="text-xs text-gray-500">{{ novel.author || '未知作者' }} <span v-if="novel.genre"> · {{ novel.genre }}</span><span v-if="!novel.genre"> · 未设定题材</span></p>
+                  <p class="text-xs text-text-muted">{{ novel.author || '未知作者' }} <span v-if="novel.genre"> · {{ novel.genre }}</span><span v-if="!novel.genre"> · 未设定题材</span></p>
                 </div>
                 <span class="reference-panel-tag" :data-status="novel.status">{{ novel.status }}</span>
               </div>
@@ -762,8 +762,8 @@ const canGenerateChapter = (chapterNumber: number) => {
   margin: 0 1rem 1rem;
   padding: 0.75rem;
   border-radius: 1rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--ar-bg-elevated);
+  border: 1px solid var(--ar-border);
 }
 
 .reference-panel-header {
@@ -777,12 +777,13 @@ const canGenerateChapter = (chapterNumber: number) => {
   margin: 0;
   font-size: 0.95rem;
   font-weight: 600;
+  color: var(--ar-text-primary);
 }
 
 .reference-panel-subtitle {
   margin: 0;
   font-size: 0.7rem;
-  color: #475569;
+  color: var(--ar-text-muted);
 }
 
 .reference-panel-actions {
@@ -794,7 +795,7 @@ const canGenerateChapter = (chapterNumber: number) => {
 .reference-panel-link {
   background: transparent;
   border: none;
-  color: #2563eb;
+  color: var(--ar-primary);
   font-size: 0.75rem;
   cursor: pointer;
   padding: 0.25rem 0.5rem;
@@ -803,7 +804,7 @@ const canGenerateChapter = (chapterNumber: number) => {
 
 .reference-panel-link--primary {
   font-weight: 600;
-  background: #eff6ff;
+  background: var(--ar-primary-muted);
 }
 
 .reference-panel-link:disabled {
@@ -827,8 +828,8 @@ const canGenerateChapter = (chapterNumber: number) => {
   align-items: center;
   padding: 0.55rem 0.75rem;
   border-radius: 0.75rem;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  background: var(--ar-bg-surface);
+  border: 1px solid var(--ar-border);
 }
 
 .reference-panel-tag {
@@ -839,23 +840,23 @@ const canGenerateChapter = (chapterNumber: number) => {
 }
 
 .reference-panel-tag[data-status="ready"] {
-  background: #dcfce7;
-  color: #065f46;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22C55E;
 }
 
 .reference-panel-tag[data-status="analyzing"] {
-  background: #e0f2fe;
-  color: #0c4a6e;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3B82F6;
 }
 
 .reference-panel-tag[data-status="failed"] {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
 }
 
 .reference-panel-empty {
   font-size: 0.75rem;
-  color: #475569;
+  color: var(--ar-text-muted);
 }
 </style>
 

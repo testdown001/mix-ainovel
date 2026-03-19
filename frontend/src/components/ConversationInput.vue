@@ -13,13 +13,13 @@
           v-for="option in uiControl.options"
           :key="option.id"
           @click="handleOptionSelect(option.id, option.label)"
-          class="p-3 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          class="p-3 bg-primary-muted text-primary rounded-lg hover:bg-primary-muted transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary"
         >
           {{ option.label }}
         </button>
         <button
           @click="isManualInput = true"
-          class="p-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          class="p-3 bg-bg-elevated text-text-secondary rounded-lg hover:bg-[rgba(255,255,255,0.05)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary"
         >
           我要输入
         </button>
@@ -28,7 +28,7 @@
         <textarea
           v-model="textInput"
           :placeholder="isManualInput ? '请输入您的想法...' : '选择上方选项或点击“我要输入”'"
-          class="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition-all disabled:bg-gray-100 resize-none overflow-y-auto leading-relaxed"
+          class="w-full px-4 py-3 border border-border rounded-2xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all disabled:bg-bg-highlight resize-none overflow-y-auto leading-relaxed"
           :disabled="!isManualInput"
           rows="5"
           ref="textInputRef"
@@ -36,7 +36,7 @@
         ></textarea>
         <button
           type="submit"
-          class="flex-shrink-0 w-12 h-12 bg-indigo-500 rounded-full flex items-center justify-center hover:bg-indigo-600 transition-all shadow-md disabled:bg-gray-300"
+          class="flex-shrink-0 w-12 h-12 bg-primary rounded-full flex items-center justify-center hover:bg-primary-hover transition-all disabled:bg-bg-highlight"
           :disabled="!isManualInput"
         >
           <svg
@@ -49,7 +49,7 @@
             stroke-width="2"
             stroke-linecap="round"
             stroke-linejoin="round"
-            class="text-white"
+            class="text-on-primary"
           >
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
@@ -63,7 +63,7 @@
       <textarea
         v-model="textInput"
         :placeholder="uiControl.placeholder || '请输入...'"
-        class="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition-all resize-none overflow-y-auto leading-relaxed"
+        class="w-full px-4 py-3 border border-border rounded-2xl focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all resize-none overflow-y-auto leading-relaxed"
         required
         ref="textInputRef"
         rows="5"
@@ -71,7 +71,7 @@
       ></textarea>
       <button
         type="submit"
-        class="flex-shrink-0 w-12 h-12 bg-indigo-500 rounded-full flex items-center justify-center hover:bg-indigo-600 transition-all shadow-md"
+        class="flex-shrink-0 w-12 h-12 bg-primary rounded-full flex items-center justify-center hover:bg-primary-hover transition-all"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -83,7 +83,7 @@
           stroke-width="2"
           stroke-linecap="round"
           stroke-linejoin="round"
-          class="text-white"
+          class="text-on-primary"
         >
           <line x1="22" y1="2" x2="11" y2="13"></line>
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>

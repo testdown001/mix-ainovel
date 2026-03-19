@@ -2,10 +2,10 @@
 <template>
   <div class="space-y-4">
     <!-- AI推演面板 -->
-    <div v-if="props.projectId" class="border border-indigo-200 rounded-lg bg-indigo-50/50">
+    <div v-if="props.projectId" class="border border-border rounded-lg bg-primary-muted/50">
       <button
         type="button"
-        class="flex items-center gap-1.5 w-full px-4 py-2.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100/50 rounded-lg transition-colors"
+        class="flex items-center gap-1.5 w-full px-4 py-2.5 text-sm font-medium text-primary hover:bg-primary-muted/50 rounded-lg transition-colors"
         @click="showInferPanel = !showInferPanel"
       >
         <svg
@@ -25,24 +25,24 @@
       <div v-if="showInferPanel" class="px-4 pb-4 space-y-3">
         <!-- 参数行 -->
         <div class="flex items-center gap-4 flex-wrap">
-          <label class="flex items-center gap-1.5 text-sm text-slate-700">
+          <label class="flex items-center gap-1.5 text-sm text-text-secondary">
             从第
             <input
               v-model.number="inferStartChapter"
               type="number"
               min="1"
-              class="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+              class="w-16 px-2 py-1 border border-border rounded text-center text-sm focus:ring-1 focus:ring-primary/10 focus:border-border-focus"
             />
             章开始
           </label>
-          <label class="flex items-center gap-1.5 text-sm text-slate-700">
+          <label class="flex items-center gap-1.5 text-sm text-text-secondary">
             生成
             <input
               v-model.number="inferNumChapters"
               type="number"
               min="1"
               max="50"
-              class="w-16 px-2 py-1 border border-gray-300 rounded text-center text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
+              class="w-16 px-2 py-1 border border-border rounded text-center text-sm focus:ring-1 focus:ring-primary/10 focus:border-border-focus"
             />
             章
           </label>
@@ -52,7 +52,7 @@
         <div>
           <button
             type="button"
-            class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            class="flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary transition-colors"
             @click="showExclusions = !showExclusions"
           >
             <svg
@@ -70,7 +70,7 @@
             v-model="exclusions"
             placeholder="禁止推演出现的内容，例如：不要后宫、不要重生穿越、禁止无脑打脸升级..."
             rows="2"
-            class="mt-1.5 w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition"
+            class="mt-1.5 w-full p-2 border border-border rounded-md text-sm focus:ring-1 focus:ring-primary/10 focus:border-border-focus transition"
           ></textarea>
         </div>
 
@@ -78,7 +78,7 @@
         <div class="flex items-center gap-3">
           <button
             type="button"
-            class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-on-primary bg-primary hover:bg-primary-hover rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             :disabled="isInferring"
             @click="handleAiInfer"
           >
@@ -90,7 +90,7 @@
             </svg>
             {{ inferButtonText }}
           </button>
-          <span v-if="inferError" class="text-sm text-red-600">{{ inferError }}</span>
+          <span v-if="inferError" class="text-sm text-error">{{ inferError }}</span>
           <span v-if="inferStep === 'done'" class="text-sm text-emerald-600">推演完成，伏笔已同步</span>
         </div>
       </div>
@@ -98,13 +98,13 @@
 
     <!-- 大纲列表 -->
     <div class="max-h-96 overflow-y-auto p-1 space-y-4">
-      <div v-for="(chapter, index) in localOutline" :key="index" class="p-4 border border-gray-200 rounded-lg bg-gray-50">
+      <div v-for="(chapter, index) in localOutline" :key="index" class="p-4 border border-border rounded-lg bg-bg-elevated">
         <div class="flex items-center mb-2">
-          <span class="font-bold text-indigo-600 mr-2">第 {{ chapter.chapter_number }} 章</span>
+          <span class="font-bold text-primary mr-2">第 {{ chapter.chapter_number }} 章</span>
           <input
             type="text"
             v-model="chapter.title"
-            class="flex-grow p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition"
+            class="flex-grow p-1 border-b-2 border-border focus:border-border-focus outline-none transition"
             placeholder="章节标题"
           />
           <button @click="removeChapter(index)" class="ml-2 text-red-400 hover:text-red-600 transition-colors p-1">
@@ -115,7 +115,7 @@
         </div>
         <textarea
           v-model="chapter.summary"
-          class="w-full h-24 p-2 mt-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-sm"
+          class="w-full h-24 p-2 mt-2 border border-border rounded-md focus:ring-1 focus:ring-primary/10 focus:border-border-focus transition text-sm"
           placeholder="章节摘要"
         ></textarea>
       </div>

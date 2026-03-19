@@ -53,7 +53,7 @@ class AuthService:
         *,
         must_change_password: Optional[bool] = None,
     ) -> Token:
-        payload = {"is_admin": user.is_admin}
+        payload = {"is_admin": user.is_admin, "user_id": user.id}
         token = create_access_token(user.username, extra_claims=payload)
         should_change = self.requires_password_reset(user) if must_change_password is None else must_change_password
         return Token(access_token=token, must_change_password=should_change)

@@ -6,11 +6,11 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
+from ...core.security import resolve_user_id_from_token
 from ...db.session import AsyncSessionLocal
 from ...models.novel import NovelProject
 from ...services.writer_progress_service import progress_service
@@ -25,12 +25,8 @@ async def _authenticate_websocket(websocket: WebSocket, project_id: str) -> Opti
     token = websocket.query_params.get("token")
     if not token:
         return None
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-        user_id = int(payload.get("sub", 0))
-        if not user_id:
-            return None
-    except (JWTError, ValueError):
+    user_id = await resolve_user_id_from_token(token)
+    if not user_id:
         return None
 
     # 校验用户是否拥有该项目

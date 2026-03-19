@@ -3,9 +3,9 @@
   <div class="layered-optimizer">
     <!-- 标题 -->
     <div class="flex items-center justify-between mb-4">
-      <h3 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+      <h3 class="text-lg font-semibold text-text-primary flex items-center gap-2">
         <span>✨ 分层优化</span>
-        <span class="text-xs font-normal text-gray-400">(选择一个维度深度优化)</span>
+        <span class="text-xs font-normal text-text-muted">(选择一个维度深度优化)</span>
       </h3>
     </div>
 
@@ -18,22 +18,22 @@
         :class="[
           'p-4 rounded-lg border-2 transition-all text-left',
           selectedDimension === dimension.id
-            ? 'border-indigo-500 bg-indigo-50 shadow-md'
-            : 'border-gray-200 bg-white hover:border-indigo-300 hover:bg-gray-50'
+            ? 'border-primary bg-primary-muted'
+            : 'border-border bg-bg-surface hover:border-indigo-300 hover:bg-[rgba(255,255,255,0.05)]'
         ]"
       >
         <div class="flex items-center gap-2 mb-2">
           <span class="text-2xl">{{ dimension.icon }}</span>
-          <span class="font-medium text-gray-800">{{ dimension.name }}</span>
+          <span class="font-medium text-text-primary">{{ dimension.name }}</span>
         </div>
-        <p class="text-xs text-gray-500">{{ dimension.description }}</p>
+        <p class="text-xs text-text-muted">{{ dimension.description }}</p>
       </button>
     </div>
 
     <!-- 优化说明 -->
-    <div v-if="selectedDimension" class="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+    <div v-if="selectedDimension" class="mb-4 p-4 bg-primary-muted rounded-lg border border-blue-200">
       <h4 class="font-medium text-blue-800 mb-2">{{ currentDimension?.name }}优化要点</h4>
-      <ul class="text-sm text-blue-700 space-y-1">
+      <ul class="text-sm text-primary space-y-1">
         <li v-for="(point, index) in currentDimension?.points" :key="index" class="flex items-start gap-2">
           <span class="text-blue-400">•</span>
           <span>{{ point }}</span>
@@ -43,11 +43,11 @@
 
     <!-- 额外指令 -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-gray-700 mb-2">额外优化指令 (可选)</label>
+      <label class="block text-sm font-medium text-text-secondary mb-2">额外优化指令 (可选)</label>
       <textarea
         v-model="additionalNotes"
         placeholder="例如：加强主角与反派的对话张力，突出两人之间的心理博弈"
-        class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition text-sm"
+        class="w-full p-3 border border-border rounded-lg focus:ring-2 focus:ring-primary/10 focus:border-border-focus outline-none transition text-sm"
         rows="3"
       ></textarea>
     </div>
@@ -60,8 +60,8 @@
         :class="[
           'flex-1 py-3 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2',
           selectedDimension && !isOptimizing
-            ? 'bg-indigo-500 text-white hover:bg-indigo-600 shadow-md'
-            : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+            ? 'bg-primary text-on-primary hover:bg-primary-hover'
+            : 'bg-bg-highlight text-text-muted cursor-not-allowed'
         ]"
       >
         <svg v-if="isOptimizing" class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -72,29 +72,29 @@
       </button>
       <button
         @click="$emit('cancel')"
-        class="px-6 py-3 rounded-lg font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-all"
+        class="px-6 py-3 rounded-lg font-medium border border-border text-text-secondary hover:bg-[rgba(255,255,255,0.05)] transition-all"
       >
         取消
       </button>
     </div>
 
     <!-- 优化历史 -->
-    <div v-if="optimizationHistory.length > 0" class="mt-6 pt-4 border-t border-gray-200">
-      <h4 class="text-sm font-medium text-gray-700 mb-3">优化历史</h4>
+    <div v-if="optimizationHistory.length > 0" class="mt-6 pt-4 border-t border-border">
+      <h4 class="text-sm font-medium text-text-secondary mb-3">优化历史</h4>
       <div class="space-y-2">
         <div
           v-for="(record, index) in optimizationHistory"
           :key="index"
-          class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+          class="flex items-center justify-between p-3 bg-bg-elevated rounded-lg"
         >
           <div class="flex items-center gap-2">
             <span>{{ getDimensionIcon(record.dimension) }}</span>
-            <span class="text-sm text-gray-700">{{ getDimensionName(record.dimension) }}</span>
-            <span class="text-xs text-gray-400">{{ record.timestamp }}</span>
+            <span class="text-sm text-text-secondary">{{ getDimensionName(record.dimension) }}</span>
+            <span class="text-xs text-text-muted">{{ record.timestamp }}</span>
           </div>
           <button
             @click="$emit('revert', record)"
-            class="text-xs text-indigo-600 hover:text-indigo-800"
+            class="text-xs text-primary hover:text-primary"
           >
             回退
           </button>

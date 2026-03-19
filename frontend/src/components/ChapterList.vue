@@ -1,9 +1,9 @@
 <!-- AIMETA P=章节列表_章节目录展示|R=章节列表渲染|NR=不含章节编辑|E=component:ChapterList|X=internal|A=列表组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="bg-white rounded-lg shadow-sm p-6">
-    <h3 class="text-lg font-semibold text-gray-800 mb-4">章节列表</h3>
+  <div class="bg-bg-surface rounded-lg p-6">
+    <h3 class="text-lg font-semibold text-text-primary mb-4">章节列表</h3>
 
-    <div v-if="chapterOutline.length === 0" class="text-gray-500 text-center py-8">
+    <div v-if="chapterOutline.length === 0" class="text-text-muted text-center py-8">
       暂无章节大纲
     </div>
 
@@ -11,14 +11,14 @@
       <div
         v-for="outline in chapterOutline"
         :key="outline.chapter_number"
-        class="border rounded-lg p-3 hover:bg-gray-50 transition-colors"
+        class="border rounded-lg p-3 hover:bg-[rgba(255,255,255,0.05)] transition-colors"
       >
         <div class="flex justify-between items-start">
           <div class="flex-1">
-            <h4 class="font-medium text-gray-800">
+            <h4 class="font-medium text-text-primary">
               第{{ outline.chapter_number }}章: {{ outline.title }}
             </h4>
-            <p class="text-sm text-gray-600 mt-1">{{ outline.summary }}</p>
+            <p class="text-sm text-text-secondary mt-1">{{ outline.summary }}</p>
 
             <!-- 章节状态 -->
             <div class="mt-2">
@@ -36,7 +36,7 @@
             <button
               v-if="isChapterCompleted(outline.chapter_number)"
               @click="$emit('selectChapter', outline.chapter_number)"
-              class="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors text-sm"
+              class="px-3 py-1 bg-primary-muted text-primary rounded hover:bg-primary-muted transition-colors text-sm"
             >
               查看
             </button>
@@ -91,7 +91,7 @@ const getChapterStatusClass = (chapterNumber: number) => {
     case '待选择':
       return 'bg-yellow-100 text-yellow-800'
     default:
-      return 'bg-gray-100 text-gray-800'
+      return 'bg-bg-highlight text-text-primary'
   }
 }
 </script>

@@ -2,7 +2,7 @@
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -166,11 +166,12 @@ async def list_novel_projects(
 @router.get("/novel-projects/{project_id}", response_model=NovelProjectSchema)
 async def get_novel_project(
     project_id: str,
+    refresh: bool = Query(default=False, description="为 true 时跳过 project schema 缓存，返回最新数据"),
     service: NovelService = Depends(get_novel_service),
     _: None = Depends(get_current_admin),
 ) -> NovelProjectSchema:
     logger.info("管理员查看项目详情：%s", project_id)
-    return await service.get_project_schema_for_admin(project_id)
+    return await service.get_project_schema_for_admin(project_id, bypass_cache=refresh)
 
 
 @router.get("/novel-projects/{project_id}/sections/{section}", response_model=NovelSectionResponse)

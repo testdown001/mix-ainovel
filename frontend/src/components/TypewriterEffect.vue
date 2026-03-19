@@ -1,6 +1,6 @@
 <!-- AIMETA P=打字机效果_文字动画组件|R=打字动画|NR=不含业务逻辑|E=component:TypewriterEffect|X=internal|A=动画组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <h1 class="typewriter text-4xl md:text-5xl font-extrabold text-center text-gray-800 tracking-wider" :style="{ '--char-count': fullText.length }">
+  <h1 class="typewriter text-4xl md:text-5xl font-extrabold text-center text-text-primary tracking-wider" :style="{ '--char-count': fullText.length }">
     {{ displayedText }}
   </h1>
 </template>

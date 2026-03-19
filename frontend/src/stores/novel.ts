@@ -60,13 +60,13 @@ export const useNovelStore = defineStore('novel', () => {
     }
   }
 
-  async function loadProject(projectId: string, silent: boolean = false) {
+  async function loadProject(projectId: string, silent: boolean = false, refresh: boolean = false) {
     if (!silent) {
       isLoading.value = true
     }
     error.value = null
     try {
-      currentProject.value = await NovelAPI.getNovel(projectId)
+      currentProject.value = await NovelAPI.getNovel(projectId, { refresh })
     } catch (err) {
       error.value = err instanceof Error ? err.message : '加载项目失败'
     } finally {

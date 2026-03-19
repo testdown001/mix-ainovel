@@ -1,23 +1,23 @@
 <!-- AIMETA P=增强章节工作区_增强版编辑界面|R=增强编辑功能|NR=不含基础功能|E=component:ChapterWorkspaceEnhanced|X=internal|A=增强工作区|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="bg-white rounded-lg shadow-sm p-6">
+  <div class="bg-bg-surface rounded-lg p-6">
     <!-- 章节头部 -->
     <div v-if="chapterOutline" class="mb-6">
-      <h2 class="text-xl font-bold text-gray-800">
+      <h2 class="text-xl font-bold text-text-primary">
         第{{ chapterOutline.chapter_number }}章: {{ chapterOutline.title }}
       </h2>
-      <p class="text-gray-600 mt-2">{{ chapterOutline.summary }}</p>
+      <p class="text-text-secondary mt-2">{{ chapterOutline.summary }}</p>
     </div>
 
     <!-- 无选择状态 -->
-    <div v-if="!chapterOutline" class="text-center py-12 text-gray-500">
+    <div v-if="!chapterOutline" class="text-center py-12 text-text-muted">
       请从左侧选择一个章节开始工作
     </div>
 
     <!-- 已完成的章节 -->
     <div v-else-if="chapter && chapter.content" class="space-y-6">
       <div class="flex justify-between items-center">
-        <h3 class="text-lg font-semibold text-gray-800">已发布内容</h3>
+        <h3 class="text-lg font-semibold text-text-primary">已发布内容</h3>
         <div class="flex gap-2">
           <!-- 分层优化按钮 -->
           <button
@@ -29,7 +29,7 @@
           </button>
           <button
             @click="confirmRegenerate"
-            class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 transition-colors"
+            class="px-4 py-2 bg-primary-muted text-primary rounded hover:bg-primary-muted transition-colors"
           >
             重新生成版本
           </button>
@@ -37,7 +37,7 @@
       </div>
 
       <!-- 内容显示区域 -->
-      <div class="prose max-w-none p-4 bg-gray-50 rounded-lg border relative">
+      <div class="prose max-w-none p-4 bg-bg-elevated rounded-lg border relative">
         <!-- 优化对比视图 -->
         <div v-if="showComparison" class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
           <div class="flex items-center justify-between mb-2">
@@ -51,7 +51,7 @@
               </button>
               <button
                 @click="cancelOptimization"
-                class="px-3 py-1 bg-gray-300 text-gray-700 text-sm rounded hover:bg-gray-400"
+                class="px-3 py-1 bg-bg-highlight text-text-secondary text-sm rounded hover:bg-bg-highlight"
               >
                 取消
               </button>
@@ -65,7 +65,7 @@
       </div>
 
       <!-- 字数统计 -->
-      <div class="text-right text-sm text-gray-500">
+      <div class="text-right text-sm text-text-muted">
         字数：{{ wordCount }}
       </div>
     </div>
@@ -73,19 +73,19 @@
     <!-- 生成结果选择 -->
     <div v-else-if="generationResult" class="space-y-6">
       <div class="flex justify-between items-center">
-        <h3 class="text-lg font-semibold text-gray-800">选择版本</h3>
+        <h3 class="text-lg font-semibold text-text-primary">选择版本</h3>
         <button
           @click="confirmRegenerate"
-          class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
+          class="px-4 py-2 bg-bg-elevated text-text-secondary rounded hover:bg-[rgba(255,255,255,0.05)] transition-colors"
         >
           重新生成
         </button>
       </div>
 
       <!-- AI评估 -->
-      <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+      <div class="bg-primary-muted p-4 rounded-lg border border-blue-200">
         <h4 class="font-medium text-blue-800 mb-2">AI评估建议</h4>
-        <p class="text-blue-700 text-sm">{{ generationResult.evaluation }}</p>
+        <p class="text-primary text-sm">{{ generationResult.evaluation }}</p>
       </div>
 
       <!-- 版本选择 -->
@@ -93,11 +93,11 @@
         <div
           v-for="(version, index) in generationResult.versions"
           :key="index"
-          class="border rounded-lg p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+          class="border rounded-lg p-4 hover:bg-[rgba(255,255,255,0.05)] transition-colors cursor-pointer"
           @click="$emit('selectVersion', index)"
         >
           <div class="flex justify-between items-start mb-3">
-            <h4 class="font-medium text-gray-800">版本 {{ index + 1 }}</h4>
+            <h4 class="font-medium text-text-primary">版本 {{ index + 1 }}</h4>
             <button
               @click.stop="$emit('selectVersion', index)"
               class="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors text-sm"
@@ -105,7 +105,7 @@
               选择此版本
             </button>
           </div>
-          <div class="prose max-w-none text-sm text-gray-700 whitespace-pre-wrap">
+          <div class="prose max-w-none text-sm text-text-secondary whitespace-pre-wrap">
             {{ version }}
           </div>
         </div>
@@ -114,10 +114,10 @@
 
     <!-- 等待生成状态 -->
     <div v-else class="text-center py-12">
-      <div class="text-gray-500 mb-4">点击左侧的"生成"按钮开始创作这一章</div>
+      <div class="text-text-muted mb-4">点击左侧的"生成"按钮开始创作这一章</div>
       <button
         @click="confirmRegenerate"
-        class="px-6 py-3 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
+        class="px-6 py-3 bg-primary text-on-primary rounded-lg hover:bg-primary-hover transition-colors"
       >
         开始生成
       </button>
@@ -130,7 +130,7 @@
         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
         @click.self="showOptimizer = false"
       >
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+        <div class="bg-bg-surface rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
           <div class="p-6">
             <LayeredOptimizer
               ref="optimizerRef"
@@ -151,10 +151,10 @@
         v-if="isOptimizing"
         class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
       >
-        <div class="bg-white rounded-lg p-8 text-center">
+        <div class="bg-bg-surface rounded-lg p-8 text-center">
           <div class="animate-spin w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p class="text-gray-700 font-medium">正在优化中...</p>
-          <p class="text-gray-500 text-sm mt-2">AI正在对{{ currentOptimizeDimension }}进行深度优化</p>
+          <p class="text-text-secondary font-medium">正在优化中...</p>
+          <p class="text-text-muted text-sm mt-2">AI正在对{{ currentOptimizeDimension }}进行深度优化</p>
         </div>
       </div>
     </Teleport>

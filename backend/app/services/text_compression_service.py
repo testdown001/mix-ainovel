@@ -7,6 +7,8 @@ from ..utils.json_utils import remove_think_tags, sanitize_chapter_plain_text, u
 
 logger = logging.getLogger(__name__)
 
+MIN_COMPRESSION_REDUCTION_RATIO = 0.10
+
 
 class TextCompressionService:
     """统一处理章节压缩与硬截断。"""
@@ -131,8 +133,16 @@ class TextCompressionService:
                     "超字数压缩完成 (attempt=%d): %d -> %d 字 (目标 %d~%d)",
                     attempt + 1, len(current_text), len(result), target_min, target_max,
                 )
+                reduction_ratio = (len(current_text) - len(result)) / max(len(current_text), 1)
                 current_text = result
                 if len(current_text) <= target_max:
+                    break
+                if attempt == 0 and reduction_ratio < MIN_COMPRESSION_REDUCTION_RATIO:
+                    logger.warning(
+                        "首轮压缩降幅过小 (attempt=%d reduction=%.2f%%)，停止继续远程压缩并转硬截断",
+                        attempt + 1,
+                        reduction_ratio * 100,
+                    )
                     break
             except Exception as exc:
                 logger.warning("超字数压缩失败 (attempt=%d)，保留当前文本: %s", attempt + 1, exc)

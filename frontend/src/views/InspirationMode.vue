@@ -1,11 +1,11 @@
 <!-- AIMETA P=灵感模式_AI对话创作|R=对话创作界面|NR=不含写作台功能|E=route:/inspiration#component:InspirationMode|X=ui|A=对话界面|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="flex items-center justify-center min-h-screen p-4">
+  <div class="flex items-center justify-center min-h-[calc(100vh-64px)] p-4">
     <div class="w-full max-w-6xl mx-auto">
       <!-- 灵感模式入口界面 -->
-      <div v-if="!conversationStarted" class="text-center p-8 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg fade-in">
-        <h1 class="text-4xl md:text-5xl font-bold text-gray-800">小说家的新篇章</h1>
-        <p class="text-lg text-gray-600 mt-4 mb-8">
+      <div v-if="!conversationStarted" class="text-center p-8 bg-bg-surface rounded-2xl fade-in">
+        <h1 class="text-4xl md:text-5xl font-bold text-text-primary">小说家的新篇章</h1>
+        <p class="text-lg text-text-secondary mt-4 mb-8">
           准备好释放你的创造力了吗？让AI引导你，一步步构建出独一无二的故事世界。
         </p>
         <ReferenceNovelInput
@@ -31,7 +31,7 @@
         <div class="mt-4 mb-6 max-w-xl mx-auto text-left">
           <button
             @click="showExclusions = !showExclusions"
-            class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            class="flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary transition-colors"
           >
             <svg
               class="w-4 h-4 transition-transform duration-200"
@@ -48,21 +48,21 @@
               v-model="exclusions"
               placeholder="例如：不要后宫、不要重生穿越、禁止无脑打脸升级..."
               rows="3"
-              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 resize-none bg-white/80 placeholder-gray-400"
+              class="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-border-focus resize-none bg-bg-surface placeholder:text-text-muted"
             />
-            <p class="mt-1 text-xs text-gray-400">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
+            <p class="mt-1 text-xs text-text-muted">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
           </div>
         </div>
         <button
           @click="startConversation"
           :disabled="novelStore.isLoading || isPreparingConversation"
-          class="bg-indigo-500 text-white font-bold py-3 px-8 rounded-full hover:bg-indigo-600 transition-all duration-300 transform hover:scale-105 shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="bg-primary text-on-primary font-bold py-3 px-8 rounded-full hover:bg-primary-hover transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary/10 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
         </button>
         <button
           @click="goBack"
-          class="mt-4 block mx-auto text-gray-500 hover:text-gray-800 transition-colors"
+          class="mt-4 block mx-auto text-text-muted hover:text-text-primary transition-colors"
         >
           返回
         </button>
@@ -71,26 +71,26 @@
       <!-- 灵感模式交互界面 -->
       <div
         v-else-if="!showBlueprintConfirmation && !showBlueprint"
-        class="h-[90vh] max-h-[950px] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden fade-in"
+        class="h-[90vh] max-h-[950px] flex flex-col bg-bg-surface rounded-2xl shadow-2xl overflow-hidden fade-in"
       >
         <!-- 头部 -->
-        <div class="p-4 border-b border-gray-200">
+        <div class="p-4 border-b border-border">
           <div class="flex justify-between items-center">
             <div class="flex items-center gap-2">
               <span class="relative flex h-3 w-3">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
               </span>
-              <span class="text-sm font-medium text-indigo-600">与“文思”对话中...</span>
+              <span class="text-sm font-medium text-primary">与“文思”对话中...</span>
             </div>
             <div class="flex items-center gap-4">
-              <span v-if="currentTurn > 0" class="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
+              <span v-if="currentTurn > 0" class="text-sm font-medium text-text-muted bg-bg-elevated px-2 py-1 rounded-md">
                 第 {{ currentTurn }} 轮
               </span>
               <button
                 @click="handleRestart"
                 title="重新开始"
-                class="text-gray-400 hover:text-indigo-600 transition-colors"
+                class="text-text-muted hover:text-primary transition-colors"
               >
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
@@ -99,7 +99,7 @@
               <button
                 @click="exitConversation"
                 title="返回首页"
-                class="text-gray-400 hover:text-gray-600 transition-colors"
+                class="text-text-muted hover:text-text-secondary transition-colors"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -130,7 +130,7 @@
         </div>
 
         <!-- 输入区域 -->
-        <div class="p-4 border-t border-gray-200 bg-gray-50">
+        <div class="p-4 border-t border-border bg-bg-elevated">
           <ConversationInput
             :ui-control="currentUIControl"
             :loading="novelStore.isLoading"

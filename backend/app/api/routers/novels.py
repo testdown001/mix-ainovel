@@ -5,7 +5,7 @@ import logging
 import traceback
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -259,11 +259,14 @@ async def list_novels(
 @router.get("/{project_id}", response_model=NovelProjectSchema)
 async def get_novel(
     project_id: str,
+    refresh: bool = Query(default=False, description="为 true 时跳过 project schema 缓存，返回最新数据"),
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> NovelProjectSchema:
     novel_service = NovelService(session)
     logger.info("用户 %s 查询项目 %s", current_user.id, project_id)
+    if refresh:
+        return await novel_service.get_project_schema_fresh(project_id, current_user.id)
     return await novel_service.get_project_schema(project_id, current_user.id)
 
 

@@ -15,10 +15,10 @@ from typing import Any, Dict, Optional, Tuple
 from cachetools import TTLCache
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from jose import JWTError, jwt
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import settings
+from .security import resolve_user_id_from_token
 from ..db.session import AsyncSessionLocal
 from ..repositories.system_config_repository import SystemConfigRepository
 
@@ -37,7 +37,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     API 请求限流中间件
 
     限流策略：
-    - 已认证用户（user_id 维度）: 60 req/min, 10 req/sec
+    - 已认证用户（user_id 维度）: 60 req/min, 30 req/sec
     - 未认证 IP（IP 维度）: 30 req/min, 5 req/sec
     - 敏感端点（IP 维度）: 5 req/min（暴力破解防护）
     """
@@ -52,7 +52,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # 限流配置
         self.general_rpm_default = settings.api_rate_limit_requests_per_minute
-        self.user_rps = 10
+        self.user_rps = 30
         self.ip_rps = 5
         self.auth_rpm = 5  # 敏感端点每分钟最多 5 次
 
@@ -80,17 +80,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
             return self.general_rpm_default
 
-    def _extract_user_id(self, request: Request) -> Optional[int]:
+    async def _extract_user_id(self, request: Request) -> Optional[int]:
         """从 Authorization header 解析 JWT，提取 user_id。失败返回 None。"""
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
             return None
         token = auth_header[7:]
-        try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-            return int(payload.get("sub", 0)) or None
-        except (JWTError, ValueError):
-            return None
+        return await resolve_user_id_from_token(token)
 
     def _get_client_ip(self, request: Request) -> str:
         """获取客户端真实 IP（支持 X-Forwarded-For）。"""
@@ -158,7 +154,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 return rejection
 
         # 尝试提取 user_id
-        user_id = self._extract_user_id(request)
+        user_id = await self._extract_user_id(request)
 
         if user_id:
             # 已认证：用户级限流

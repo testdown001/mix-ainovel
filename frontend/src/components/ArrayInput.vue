@@ -5,13 +5,13 @@
       <span
         v-for="(item, index) in localList"
         :key="index"
-        class="inline-flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 text-gray-700 text-xs rounded-full shadow-sm"
+        class="inline-flex items-center gap-1 px-2 py-1 bg-bg-surface border border-border text-text-secondary text-xs rounded-full"
       >
         {{ item }}
         <button
           type="button"
           @click="removeItem(index)"
-          class="text-gray-400 hover:text-red-500 transition-colors"
+          class="text-text-muted hover:text-error transition-colors"
         >
           <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -27,7 +27,7 @@
       @compositionend="isComposing = false"
       @blur="addItem"
       :placeholder="placeholder"
-      class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border bg-white/50"
+      class="block w-full rounded-lg border-border focus:border-border-focus focus:ring-primary/10 sm:text-sm px-3 py-2 border bg-bg-surface"
     />
   </div>
 </template>

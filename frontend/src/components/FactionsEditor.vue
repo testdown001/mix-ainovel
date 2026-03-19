@@ -1,31 +1,31 @@
 <!-- AIMETA P=势力编辑器_势力信息编辑|R=势力CRUD|NR=不含角色编辑|E=component:FactionsEditor|X=internal|A=编辑器|D=vue|S=dom|RD=./README.ai -->
 <template>
   <div class="space-y-4 max-h-96 overflow-y-auto p-1">
-    <div v-for="(faction, index) in localFactions" :key="index" class="p-4 border border-gray-200 rounded-lg bg-gray-50 relative">
+    <div v-for="(faction, index) in localFactions" :key="index" class="p-4 border border-border rounded-lg bg-bg-elevated relative">
       <button @click="removeFaction(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 transition-colors p-1">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
         </svg>
       </button>
       <div class="mb-2">
-        <label class="block text-sm font-medium text-gray-600 mb-1">阵营名称</label>
+        <label class="block text-sm font-medium text-text-secondary mb-1">阵营名称</label>
         <input 
           type="text" 
           v-model="faction.name" 
-          class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent"
+          class="w-full p-1 border-b border-border focus:border-border-focus outline-none transition bg-transparent"
           placeholder="例如：幽灵侦探林远"
         />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-600 mb-1">描述</label>
+        <label class="block text-sm font-medium text-text-secondary mb-1">描述</label>
         <textarea 
           v-model="faction.description" 
-          class="w-full h-20 p-2 mt-1 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-sm"
+          class="w-full h-20 p-2 mt-1 border border-border rounded-md focus:ring-1 focus:ring-primary/10 focus:border-border-focus transition text-sm"
           placeholder="关于这个阵营的详细描述..."
         ></textarea>
       </div>
     </div>
-    <button @click="addFaction" class="w-full mt-4 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+    <button @click="addFaction" class="w-full mt-4 px-4 py-2 text-sm font-medium text-primary bg-primary-muted border border-primary/20 rounded-md hover:bg-[rgba(255,255,255,0.05)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary/10">
       + 添加新阵营
     </button>
   </div>

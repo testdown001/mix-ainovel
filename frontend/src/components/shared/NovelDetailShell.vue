@@ -1,6 +1,6 @@
 <!-- AIMETA P=小说详情壳_详情页布局容器|R=详情页布局_导航|NR=不含具体内容|E=component:NovelDetailShell|X=internal|A=布局组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="h-screen flex flex-col overflow-hidden md-surface">
+  <div class="h-[calc(100vh-64px)] flex flex-col overflow-hidden md-surface">
     <!-- Material 3 Top App Bar -->
     <header class="md-top-app-bar sticky top-0 z-40">
       <div class="max-w-[1800px] mx-auto w-full flex items-center px-4 h-16">
@@ -56,7 +56,7 @@
     <div class="flex max-w-[1800px] mx-auto w-full flex-1 min-h-0 overflow-hidden">
       <!-- Material 3 Navigation Drawer -->
       <aside
-        class="fixed left-0 top-16 bottom-0 z-30 w-80 md-surface transform transition-transform duration-300 lg:translate-x-0"
+        class="fixed left-0 top-32 bottom-0 z-30 w-80 md-surface transform transition-transform duration-300 lg:translate-x-0"
         :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'"
         style="border-right: 1px solid var(--md-outline-variant);"
       >
@@ -791,10 +791,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* Material 3 Transition Classes */
 .md-scale-enter-active,
 .md-scale-leave-active {
-  transition: all 250ms cubic-bezier(0.2, 0, 0, 1);
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .md-scale-enter-from,
@@ -803,7 +802,6 @@ onBeforeUnmount(() => {
   transform: scale(0.95);
 }
 
-/* Smooth scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -814,11 +812,11 @@ onBeforeUnmount(() => {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--md-outline);
+  background: #2A2A2A;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--md-on-surface-variant);
+  background: #3A3A3A;
 }
 </style>

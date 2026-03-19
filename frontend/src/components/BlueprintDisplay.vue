@@ -1,14 +1,14 @@
 <!-- AIMETA P=蓝图展示_蓝图详细信息|R=蓝图详情展示|NR=不含编辑功能|E=component:BlueprintDisplay|X=internal|A=展示组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="p-8 bg-white rounded-2xl shadow-2xl fade-in">
-    <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">你的故事蓝图已生成！</h2>
+  <div class="p-8 bg-bg-surface rounded-2xl fade-in">
+    <h2 class="text-3xl font-bold text-center text-text-primary mb-6">你的故事蓝图已生成！</h2>
 
     <!-- AI消息 -->
-    <div v-if="aiMessage" class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-      <p class="text-blue-800">{{ aiMessage }}</p>
+    <div v-if="aiMessage" class="mb-6 p-4 bg-primary-muted rounded-lg border border-border">
+      <p class="text-primary">{{ aiMessage }}</p>
     </div>
 
-    <div class="prose max-w-none p-6 bg-gray-50 rounded-lg border border-gray-200" v-html="formattedBlueprint"></div>
+    <div class="prose max-w-none p-6 bg-bg-elevated rounded-lg border border-border" v-html="formattedBlueprint"></div>
 
     <!-- 加载状态 -->
     <div v-if="isSaving" class="text-center py-8">
@@ -18,7 +18,7 @@
         <div class="absolute inset-0 border-4 border-green-100 rounded-full"></div>
         <div class="absolute inset-0 border-4 border-transparent border-t-green-500 rounded-full animate-spin"></div>
         <!-- 中心保存图标 -->
-        <div class="absolute inset-2 bg-green-500 rounded-full flex items-center justify-center">
+        <div class="absolute inset-2 bg-success rounded-full flex items-center justify-center">
           <svg class="w-6 h-6 text-white animate-pulse" fill="currentColor" viewBox="0 0 20 20">
             <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6a1 1 0 10-2 0v5.586l-1.293-1.293z"></path>
             <path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v1a1 1 0 11-2 0V4H7v1a1 1 0 11-2 0V4z"></path>
@@ -26,12 +26,12 @@
         </div>
       </div>
 
-      <h3 class="text-lg font-semibold text-gray-800 mb-2 animate-pulse">正在保存蓝图...</h3>
-      <p class="text-gray-600">即将跳转到写作工作台，开始您的创作之旅</p>
+      <h3 class="text-lg font-semibold text-text-primary mb-2 animate-pulse">正在保存蓝图...</h3>
+      <p class="text-text-secondary">即将跳转到写作工作台，开始您的创作之旅</p>
 
       <!-- 保存进度指示 -->
       <div class="mt-4 w-32 mx-auto">
-        <div class="w-full bg-gray-200 rounded-full h-1">
+        <div class="w-full bg-bg-highlight rounded-full h-1">
           <div class="h-1 bg-gradient-to-r from-green-400 to-green-600 rounded-full animate-pulse" style="width: 100%"></div>
         </div>
       </div>
@@ -40,7 +40,7 @@
     <div v-else class="text-center mt-8 space-x-4">
       <button
         @click="confirmRegenerate"
-        class="bg-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full hover:bg-gray-300 transition-all duration-300 transform hover:scale-105"
+        class="bg-bg-highlight text-text-secondary font-bold py-3 px-8 rounded-full hover:bg-[rgba(255,255,255,0.05)] transition-all duration-300 transform hover:scale-105"
       >
         <span class="flex items-center justify-center">
           <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -52,7 +52,7 @@
       <button
         @click="confirmBlueprint"
         :disabled="isSaving"
-        class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-8 rounded-full hover:from-green-600 hover:to-emerald-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+        class="bg-gradient-to-r from-green-500 to-emerald-600 text-white font-bold py-3 px-8 rounded-full hover:from-green-600 hover:to-emerald-700 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
       >
         <span class="flex items-center justify-center">
           <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
@@ -120,14 +120,14 @@ const formattedBlueprint = computed(() => {
 
   // Create section with icon and styling
   const createSection = (title: string, content: string, icon: string) => `
-    <div class="mb-8 bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-300">
+    <div class="mb-8 bg-bg-surface rounded-xl border border-border p-6 transition-shadow duration-300">
       <div class="flex items-center mb-4">
-        <div class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center mr-3">
+        <div class="w-8 h-8 bg-primary-muted rounded-lg flex items-center justify-center mr-3">
           ${icon}
         </div>
-        <h3 class="text-xl font-bold text-gray-800">${title}</h3>
+        <h3 class="text-xl font-bold text-text-primary">${title}</h3>
       </div>
-      <div class="prose max-w-none text-gray-700">
+      <div class="prose max-w-none text-text-secondary">
         ${content}
       </div>
     </div>
@@ -135,17 +135,17 @@ const formattedBlueprint = computed(() => {
 
   // Icons
   const icons = {
-    summary: '<svg class="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
-    story: '<svg class="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>',
-    world: '<svg class="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.332 8.027a6.012 6.012 0 011.912-2.706C6.512 5.73 6.974 6 7.5 6A1.5 1.5 0 019 7.5V8a2 2 0 004 0 2 2 0 011.523-1.943A5.977 5.977 0 0116 10c0 .34-.028.675-.083 1H15a2 2 0 00-2 2v2.197A5.973 5.973 0 0110 16v-2a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 00-1.668-1.973z" clip-rule="evenodd"></path></svg>',
-    characters: '<svg class="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"></path></svg>',
-    relationships: '<svg class="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"></path></svg>',
-    chapters: '<svg class="w-5 h-5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zM18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z"></path></svg>'
+    summary: '<svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
+    story: '<svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>',
+    world: '<svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM4.332 8.027a6.012 6.012 0 011.912-2.706C6.512 5.73 6.974 6 7.5 6A1.5 1.5 0 019 7.5V8a2 2 0 004 0 2 2 0 011.523-1.943A5.977 5.977 0 0116 10c0 .34-.028.675-.083 1H15a2 2 0 00-2 2v2.197A5.973 5.973 0 0110 16v-2a2 2 0 00-2-2 2 2 0 01-2-2 2 2 0 00-1.668-1.973z" clip-rule="evenodd"></path></svg>',
+    characters: '<svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"></path></svg>',
+    relationships: '<svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"></path></svg>',
+    chapters: '<svg class="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zM18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z"></path></svg>'
   }
 
   // Format characters with enhanced styling - 动态兼容所有字段
   const formatCharacters = (characters: any[]) => {
-    if (!characters || characters.length === 0) return '<p class="text-gray-500 italic">暂无角色信息</p>'
+    if (!characters || characters.length === 0) return '<p class="text-text-muted italic">暂无角色信息</p>'
 
     return characters.map(char => {
       if (typeof char === 'object' && char.name) {
@@ -234,9 +234,9 @@ const formattedBlueprint = computed(() => {
           }
 
           fieldsHTML += `
-            <div class="bg-white/70 rounded-lg p-3">
-              <span class="font-medium text-gray-700 block mb-1">${field.label}：</span>
-              <span class="text-gray-800">${field.value}</span>
+            <div class="bg-bg-surface/70 rounded-lg p-3">
+              <span class="font-medium text-text-secondary block mb-1">${field.label}：</span>
+              <span class="text-text-primary">${field.value}</span>
             </div>
           `
         })
@@ -244,13 +244,13 @@ const formattedBlueprint = computed(() => {
         const roleField = extractedFields.role
 
         return `
-          <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-indigo-400 rounded-lg p-5 mb-4">
+          <div class="bg-gradient-to-r from-primary-muted to-primary-muted border-l-4 border-primary rounded-lg p-5 mb-4">
             <div class="flex items-center justify-between mb-3">
-              <h4 class="text-lg font-bold text-indigo-800 flex items-center">
-                <span class="w-2 h-2 bg-indigo-500 rounded-full mr-2"></span>
+              <h4 class="text-lg font-bold text-primary flex items-center">
+                <span class="w-2 h-2 bg-primary rounded-full mr-2"></span>
                 ${name}
               </h4>
-              ${roleField ? `<span class="bg-indigo-100 text-indigo-700 px-2 py-1 rounded-full text-xs font-medium">${roleField.value}</span>` : ''}
+              ${roleField ? `<span class="bg-primary-muted text-primary px-2 py-1 rounded-full text-xs font-medium">${roleField.value}</span>` : ''}
             </div>
             <div class="space-y-3 text-sm">
               ${fieldsHTML}
@@ -266,15 +266,15 @@ const formattedBlueprint = computed(() => {
         const relationship = desc.relationship_to_protagonist || ''
 
         return `
-          <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-indigo-400 rounded-lg p-5 mb-4">
-            <h4 class="text-lg font-bold text-indigo-800 mb-3 flex items-center">
-              <span class="w-2 h-2 bg-indigo-500 rounded-full mr-2"></span>
+          <div class="bg-gradient-to-r from-primary-muted to-primary-muted border-l-4 border-primary rounded-lg p-5 mb-4">
+            <h4 class="text-lg font-bold text-primary mb-3 flex items-center">
+              <span class="w-2 h-2 bg-primary rounded-full mr-2"></span>
               ${char.name}
             </h4>
             <div class="space-y-2 text-sm">
-              ${identity ? `<div class="flex items-start"><span class="font-medium text-gray-600 min-w-16">身份：</span><span class="text-gray-800">${identity}</span></div>` : ''}
-              ${personality ? `<div class="flex items-start"><span class="font-medium text-gray-600 min-w-16">性格：</span><span class="text-gray-800">${personality}</span></div>` : ''}
-              ${relationship ? `<div class="flex items-start"><span class="font-medium text-gray-600 min-w-16">关系：</span><span class="text-gray-800">${relationship}</span></div>` : ''}
+              ${identity ? `<div class="flex items-start"><span class="font-medium text-text-secondary min-w-16">身份：</span><span class="text-text-primary">${identity}</span></div>` : ''}
+              ${personality ? `<div class="flex items-start"><span class="font-medium text-text-secondary min-w-16">性格：</span><span class="text-text-primary">${personality}</span></div>` : ''}
+              ${relationship ? `<div class="flex items-start"><span class="font-medium text-text-secondary min-w-16">关系：</span><span class="text-text-primary">${relationship}</span></div>` : ''}
             </div>
           </div>
         `
@@ -282,9 +282,9 @@ const formattedBlueprint = computed(() => {
       // 处理最简单的结构
       else {
         return `
-          <div class="bg-gray-50 border-l-4 border-gray-300 rounded-lg p-4 mb-3">
-            <h4 class="font-semibold text-gray-800">${char.name || '未知角色'}</h4>
-            <p class="text-gray-600 text-sm mt-1">${char.description || '无描述'}</p>
+          <div class="bg-bg-highlight border-l-4 border-border rounded-lg p-4 mb-3">
+            <h4 class="font-semibold text-text-primary">${char.name || '未知角色'}</h4>
+            <p class="text-text-secondary text-sm mt-1">${char.description || '无描述'}</p>
           </div>
         `
       }
@@ -293,7 +293,7 @@ const formattedBlueprint = computed(() => {
 
   // Format world setting with enhanced styling
   const formatWorldSetting = (worldSetting: any) => {
-    if (!worldSetting || typeof worldSetting !== 'object') return '<p class="text-gray-500 italic">暂无世界设定信息</p>'
+    if (!worldSetting || typeof worldSetting !== 'object') return '<p class="text-text-muted italic">暂无世界设定信息</p>'
 
     let html = ''
 
@@ -312,7 +312,7 @@ const formattedBlueprint = computed(() => {
     if (worldSetting.key_locations && worldSetting.key_locations.length > 0) {
       html += `
         <div class="mb-4">
-          <h4 class="font-semibold text-gray-800 mb-3 flex items-center">
+          <h4 class="font-semibold text-text-primary mb-3 flex items-center">
             <svg class="w-4 h-4 mr-2 text-teal-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"></path></svg>
             关键地点
           </h4>
@@ -331,7 +331,7 @@ const formattedBlueprint = computed(() => {
     if (worldSetting.factions && worldSetting.factions.length > 0) {
       html += `
         <div>
-          <h4 class="font-semibold text-gray-800 mb-3 flex items-center">
+          <h4 class="font-semibold text-text-primary mb-3 flex items-center">
             <svg class="w-4 h-4 mr-2 text-purple-600" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"></path></svg>
             主要势力
           </h4>
@@ -347,12 +347,12 @@ const formattedBlueprint = computed(() => {
       `
     }
 
-    return html || '<p class="text-gray-500 italic">暂无世界设定详细信息</p>'
+    return html || '<p class="text-text-muted italic">暂无世界设定详细信息</p>'
   }
 
   // Format relationships with enhanced styling - 支持新的数据结构
   const formatRelationships = (relationships: any[]) => {
-    if (!relationships || relationships.length === 0) return '<p class="text-gray-500 italic">暂无关系设定</p>'
+    if (!relationships || relationships.length === 0) return '<p class="text-text-muted italic">暂无关系设定</p>'
 
     return `
       <div class="space-y-3">
@@ -366,14 +366,14 @@ const formattedBlueprint = computed(() => {
             <div class="bg-rose-50 border border-rose-200 rounded-lg p-4">
               <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center">
-                  <span class="font-medium text-rose-800 bg-white px-3 py-1 rounded-full text-sm shadow-sm">${fromChar}</span>
+                  <span class="font-medium text-rose-800 bg-bg-surface px-3 py-1 rounded-full text-sm">${fromChar}</span>
                   <svg class="w-5 h-5 mx-3 text-rose-400" fill="currentColor" viewBox="0 0 20 20">
                     <path fill-rule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z" clip-rule="evenodd"></path>
                   </svg>
-                  <span class="font-medium text-rose-800 bg-white px-3 py-1 rounded-full text-sm shadow-sm">${toChar}</span>
+                  <span class="font-medium text-rose-800 bg-bg-surface px-3 py-1 rounded-full text-sm">${toChar}</span>
                 </div>
               </div>
-              <div class="text-sm text-rose-700 bg-white/50 rounded-lg p-3">
+              <div class="text-sm text-rose-700 bg-bg-surface/50 rounded-lg p-3">
                 <span class="font-medium">关系描述：</span>${description}
               </div>
             </div>
@@ -385,13 +385,13 @@ const formattedBlueprint = computed(() => {
 
   // Header with title and badges
   const headerHTML = `
-    <div class="text-center mb-8 p-6 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl text-white">
+    <div class="text-center mb-8 p-6 bg-gradient-to-r from-primary to-purple-600 rounded-xl text-white">
       <h1 class="text-4xl font-bold mb-4">${safe(blueprint.title, '未知标题')}</h1>
       <div class="flex flex-wrap justify-center gap-3 mb-4">
-        <span class="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.genre, '未指定')}</span>
-        <span class="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.style, '未指定')}</span>
-        <span class="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.tone, '未指定')}</span>
-        <span class="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.target_audience, '未指定')}</span>
+        <span class="bg-bg-surface/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.genre, '未指定')}</span>
+        <span class="bg-bg-surface/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.style, '未指定')}</span>
+        <span class="bg-bg-surface/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.tone, '未指定')}</span>
+        <span class="bg-bg-surface/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm font-medium">${safe(blueprint.target_audience, '未指定')}</span>
       </div>
     </div>
   `
@@ -400,13 +400,13 @@ const formattedBlueprint = computed(() => {
   const summaryHTML = createSection(
     '故事梗概',
     `
-    <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-5 mb-4">
-      <h4 class="font-semibold text-blue-800 mb-2">一句话总结</h4>
-      <p class="text-lg italic text-blue-700">"${safe(blueprint.one_sentence_summary)}"</p>
+    <div class="bg-gradient-to-r from-primary-muted to-primary-muted border border-border rounded-lg p-5 mb-4">
+      <h4 class="font-semibold text-primary mb-2">一句话总结</h4>
+      <p class="text-lg italic text-primary">"${safe(blueprint.one_sentence_summary)}"</p>
     </div>
     <div class="prose max-w-none">
-      <h4 class="font-semibold text-gray-800 mb-3">完整简介</h4>
-      <p class="text-gray-700 leading-relaxed">${safe(blueprint.full_synopsis)}</p>
+      <h4 class="font-semibold text-text-primary mb-3">完整简介</h4>
+      <p class="text-text-secondary leading-relaxed">${safe(blueprint.full_synopsis)}</p>
     </div>
     `,
     icons.summary
@@ -416,15 +416,15 @@ const formattedBlueprint = computed(() => {
   const chaptersHTML = `
     <div class="space-y-4">
       ${(blueprint.chapter_outline || []).map((ch, index) => `
-        <div class="group relative overflow-hidden bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition-all duration-300">
+        <div class="group relative overflow-hidden bg-gradient-to-r from-bg-highlight to-bg-surface border border-border rounded-lg p-5 transition-all duration-300">
           <div class="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-indigo-500 to-purple-600 transform origin-top group-hover:scale-y-110 transition-transform duration-300"></div>
           <div class="flex items-start">
-            <div class="flex-shrink-0 w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center mr-4">
-              <span class="text-indigo-600 font-bold text-sm">${ch.chapter_number}</span>
+            <div class="flex-shrink-0 w-10 h-10 bg-primary-muted rounded-lg flex items-center justify-center mr-4">
+              <span class="text-primary font-bold text-sm">${ch.chapter_number}</span>
             </div>
             <div class="flex-1">
-              <h4 class="text-lg font-bold text-gray-800 mb-2 group-hover:text-indigo-600 transition-colors duration-300">第 ${ch.chapter_number} 章: ${ch.title}</h4>
-              <p class="text-gray-600 leading-relaxed">${ch.summary}</p>
+              <h4 class="text-lg font-bold text-text-primary mb-2 group-hover:text-primary transition-colors duration-300">第 ${ch.chapter_number} 章: ${ch.title}</h4>
+              <p class="text-text-secondary leading-relaxed">${ch.summary}</p>
             </div>
           </div>
         </div>
