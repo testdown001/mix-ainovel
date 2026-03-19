@@ -19,17 +19,14 @@ export default defineConfig({
     },
   },
   server: {
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-        timeout: 1800000, // 30 分钟，蓝图生成等长任务需要
-        bypass(req) {
-          // 所有 /api 请求都会被拦截，返回 null 使用真实代理
-          // 如果代理失败，浏览器会看到 ECONNREFUSED 错误，但我们的离线处理会接管
-          return null;
-        }
-      }
-    }
+    // 禁用 Vite 代理，改用全局 fetch 拦截器处理 /api 请求
+    // 后端启动时，取消注释下方配置
+    // proxy: {
+    //   '/api': {
+    //     target: 'http://127.0.0.1:8000',
+    //     changeOrigin: true,
+    //     timeout: 1800000,
+    //   }
+    // }
   }
 })

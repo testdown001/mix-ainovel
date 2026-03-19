@@ -115,7 +115,29 @@
 
       <!-- Main Content Area -->
       <div class="flex-1 lg:ml-80 min-h-0 flex flex-col h-full">
-        <div class="flex-1 min-h-0 h-full p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden box-border">
+        <div class="flex-1 min-h-0 h-full p-4 sm:p-6 lg:p-8 flex flex-col overflow-y-auto box-border gap-6">
+          <!-- Hero Section (显示在Overview时) -->
+          <div v-if="activeSection === 'overview' && !isSectionLoading && overviewMeta.title" class="flex-shrink-0">
+            <NovelHero
+              :title="overviewMeta.title"
+              :author="sectionData.overview?.author || 'Unknown'"
+              :created-date="formatDate(sectionData.overview?.created_at || '')"
+              :last-updated="formatDate(overviewMeta.updated_at || '')"
+              :tags="sectionData.overview?.tags || []"
+              :status="sectionData.overview?.status || '連載中'"
+              :progress="Math.round((sectionData.chapters?.chapters?.length || 0) / (sectionData.overview?.total_chapters || 1) * 100)"
+              progress-text="18 / 30 章"
+              action-label="继续写作"
+              @action="goToWritingDesk"
+            />
+          </div>
+
+          <!-- Statistics Section (显示在Overview时) -->
+          <div v-if="activeSection === 'overview' && !isSectionLoading && overviewMeta.title" class="flex-shrink-0">
+            <StatisticsCard :statistics="novelStatistics" />
+          </div>
+
+          <!-- Main Content Card -->
           <div class="flex-1 flex flex-col min-h-0 h-full">
             <!-- Material 3 Card -->
             <div 
@@ -259,6 +281,8 @@ import EmotionCurveSection from '@/components/novel-detail/EmotionCurveSection.v
 import ForeshadowingSection from '@/components/novel-detail/ForeshadowingSection.vue'
 import WriterPersonaPanel from '@/components/WriterPersonaPanel.vue'
 import ConceptLibrarySection from '@/components/novel-detail/ConceptLibrarySection.vue'
+import NovelHero from '@/components/novel-detail/NovelHero.vue'
+import StatisticsCard from '@/components/novel-detail/StatisticsCard.vue'
 
 // Import PowerSystem related types and api
 // Note: We need a generic api fetcher for /api/power-systems
@@ -425,6 +449,24 @@ const originalBodyOverflow = ref('')
 const novel = computed(() => !props.isAdmin ? novelStore.currentProject as NovelProject | null : null)
 
 const sectionRef = ref<any>(null)
+
+const formatDate = (dateString: string | null) => {
+  if (!dateString) return '未知'
+  const date = new Date(dateString)
+  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
+}
+
+const novelStatistics = computed(() => {
+  const overview = sectionData.overview || {}
+  const chapters = sectionData.chapters?.chapters || []
+  
+  return [
+    { key: 'words', label: '总字数', value: `${Math.round((overview.total_words || 0) / 1000)}k`, color: '#3B82F6' },
+    { key: 'chapters', label: '已完成章', value: `${chapters.length} / ${overview.total_chapters || 0}`, color: '#10B981' },
+    { key: 'quality', label: 'AI质量', value: `${overview.ai_quality || 92}%`, color: '#FACC15' },
+    { key: 'rating', label: '评分', value: `${overview.rating || 8.5}`, color: '#00D084' }
+  ]
+})
 
 const formattedTitle = computed(() => {
   const title = overviewMeta.title || '加载中...'
