@@ -1,6 +1,7 @@
 // AIMETA P=认证状态_用户登录状态管理|R=token_user_login_logout|NR=不含API调用|E=store:auth|X=internal|A=useAuthStore|D=pinia|S=storage|RD=./README.ai
 import { defineStore } from 'pinia';
 import { API_BASE_URL } from '@/api/config';
+import { fetchWithOfflineSupport } from '@/api/offline';
 
 const API_URL = `${API_BASE_URL}/api/auth`;
 
@@ -21,7 +22,8 @@ async function fetchWithAuth(url: string, options: RequestInit = {}) {
   }
 
   options.headers = headers;
-  const response = await fetch(url, options);
+  // 使用离线支持的 fetch，当后端不可用时提供降级处理
+  const response = await fetchWithOfflineSupport(url, options);
 
   const refreshedToken = response.headers.get('X-Token-Refresh');
   if (refreshedToken) {
@@ -59,14 +61,16 @@ export const useAuthStore = defineStore('auth', {
         return;
       }
       try {
-        const response = await fetch(`${API_URL}/options`);
+        const response = await fetchWithOfflineSupport(`${API_URL}/options`);
+        
         if (!response.ok) {
           throw new Error('读取认证开关失败');
         }
         const data = await response.json() as AuthOptions;
         this.authOptions = data;
       } catch (error) {
-        console.error('获取认证配置失败，将使用默认值', error);
+        console.warn('获取认证配置失败，将使用默认值', error);
+        // 离线模式：使用默认配置
         this.authOptions = {
           allow_registration: true,
           enable_linuxdo_login: false,
@@ -86,7 +90,8 @@ export const useAuthStore = defineStore('auth', {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to login');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to login');
       }
 
       const data = await response.json();
@@ -122,7 +127,7 @@ export const useAuthStore = defineStore('auth', {
     async fetchUser() {
       if (this.token) {
         try {
-          const response = await fetchWithAuth(`${API_URL}/users/me`);
+          const response = await fetchWithOfflineSupport(`${API_URL}/users/me`);
 
           if (!response.ok) {
             throw new Error('Failed to fetch user');
@@ -136,7 +141,8 @@ export const useAuthStore = defineStore('auth', {
             must_change_password: userData.must_change_password || false,
           };
         } catch (error) {
-          this.logout();
+          console.warn('Failed to fetch user information:', error);
+          // 在离线模式下不立即登出，而是保持登录状态
         }
       }
     },

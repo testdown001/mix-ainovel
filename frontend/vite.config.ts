@@ -19,12 +19,14 @@ export default defineConfig({
     },
   },
   server: {
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8000',
-        changeOrigin: true,
-        timeout: 1800000, // 30 分钟，蓝图生成等长任务需要
-      }
-    }
+    // 代理配置已被注释以避免连接错误
+    // 在生产环境或本地后端运行时，可以取消注释以下配置
+    // proxy: {
+    //   '/api': {
+    //     target: 'http://127.0.0.1:8000',
+    //     changeOrigin: true,
+    //     timeout: 1800000, // 30 分钟，蓝图生成等长任务需要
+    //   }
+    // }
   }
 })
