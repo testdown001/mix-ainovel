@@ -1,11 +1,11 @@
 <!-- AIMETA P=设置管理_系统设置界面|R=系统配置表单|NR=不含用户设置|E=component:SettingsManagement|X=ui|A=设置组件|D=vue|S=dom,net|RD=./README.ai -->
 <template>
   <n-space vertical size="large" class="admin-settings">
-    <n-card :bordered="false">
+    <n-card :bordered="false" class="settings-card">
       <template #header>
         <div class="card-header">
           <span class="card-title">每日请求额度</span>
-          <n-button quaternary size="small" @click="fetchDailyLimit" :loading="dailyLimitLoading">
+          <n-button quaternary size="small" class="refresh-btn" @click="fetchDailyLimit" :loading="dailyLimitLoading">
             刷新
           </n-button>
         </div>
@@ -24,15 +24,15 @@
             />
           </n-form-item>
           <n-space justify="end">
-            <n-button type="primary" :loading="dailyLimitSaving" @click="saveDailyLimit">
-              保存设置
-            </n-button>
+            <button class="save-btn" :disabled="dailyLimitSaving" @click="saveDailyLimit">
+              {{ dailyLimitSaving ? '保存中...' : '保存设置' }}
+            </button>
           </n-space>
         </n-form>
       </n-spin>
     </n-card>
 
-    <n-card :bordered="false">
+    <n-card :bordered="false" class="settings-card">
       <template #header>
         <div class="card-header">
           <span class="card-title">润色优化模型配置</span>
@@ -42,9 +42,9 @@
         <n-alert v-if="polishError" type="error" closable @close="polishError = null">
           {{ polishError }}
         </n-alert>
-        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+        <div class="info-banner">
           配置独立的润色优化模型（如擅长角色扮演的微调模型）。留空则自动使用默认 LLM 配置。
-        </n-alert>
+        </div>
         <n-form label-placement="top" class="polish-form">
           <n-form-item label="API Key">
             <n-input
@@ -69,15 +69,15 @@
             />
           </n-form-item>
           <n-space justify="end">
-            <n-button type="primary" :loading="polishSaving" @click="savePolishConfig">
-              保存设置
-            </n-button>
+            <button class="save-btn" :disabled="polishSaving" @click="savePolishConfig">
+              {{ polishSaving ? '保存中...' : '保存设置' }}
+            </button>
           </n-space>
         </n-form>
       </n-spin>
     </n-card>
 
-    <n-card :bordered="false">
+    <n-card :bordered="false" class="settings-card">
       <template #header>
         <div class="card-header">
           <span class="card-title">参考小说搜索模型配置</span>
@@ -87,9 +87,9 @@
         <n-alert v-if="searchModelError" type="error" closable @close="searchModelError = null">
           {{ searchModelError }}
         </n-alert>
-        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+        <div class="info-banner">
           配置灵感模式的联网搜索模型。全部留空表示关闭参考小说网络搜索。
-        </n-alert>
+        </div>
         <n-form label-placement="top" class="search-form">
           <n-form-item label="API Key">
             <n-input
@@ -114,15 +114,15 @@
             />
           </n-form-item>
           <n-space justify="end">
-            <n-button type="primary" :loading="searchModelSaving" @click="saveSearchModelConfig">
-              保存设置
-            </n-button>
+            <button class="save-btn" :disabled="searchModelSaving" @click="saveSearchModelConfig">
+              {{ searchModelSaving ? '保存中...' : '保存设置' }}
+            </button>
           </n-space>
         </n-form>
       </n-spin>
     </n-card>
 
-    <n-card :bordered="false">
+    <n-card :bordered="false" class="settings-card">
       <template #header>
         <div class="card-header">
           <span class="card-title">三省六部 Agent 系统</span>
@@ -132,9 +132,9 @@
         <n-alert v-if="agentError" type="error" closable @close="agentError = null">
           {{ agentError }}
         </n-alert>
-        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+        <div class="info-banner">
           启用后，章节生成将使用三省六部多 Agent 协作系统（太子省 → 中书省 → 尚书省 → 兵部 → 门下省），替代传统单流水线生成。
-        </n-alert>
+        </div>
         <n-form label-placement="left" class="agent-form">
           <n-form-item label="启用 Agent 系统">
             <n-switch
@@ -147,13 +147,13 @@
       </n-spin>
     </n-card>
 
-    <n-card :bordered="false">
+    <n-card :bordered="false" class="settings-card">
       <template #header>
         <div class="card-header">
           <span class="card-title">系统配置</span>
-          <n-button type="primary" size="small" @click="openCreateModal">
+          <button class="create-btn" @click="openCreateModal">
             新增配置
-          </n-button>
+          </button>
         </div>
       </template>
 
@@ -396,7 +396,6 @@ const saveAgentSetting = async (val: boolean) => {
     })
     showAlert(val ? '已启用三省六部 Agent 系统' : '已关闭三省六部 Agent 系统', 'success')
   } catch (err) {
-    // 保存失败时回滚开关状态
     agentEnabled.value = !val
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
   } finally {
@@ -602,6 +601,12 @@ onMounted(() => {
   width: 100%;
 }
 
+.settings-card {
+  background: #0f1419;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -611,9 +616,72 @@ onMounted(() => {
 }
 
 .card-title {
+  font-family: var(--ar-font-display);
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #FACC15;
+}
+
+.refresh-btn {
+  color: #8b929a !important;
+}
+
+.refresh-btn:hover {
+  color: #FACC15 !important;
+}
+
+.create-btn {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #000;
+  background: #FACC15;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.create-btn:hover {
+  background: #eab308;
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.2);
+}
+
+.save-btn {
+  font-family: var(--ar-font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #000;
+  background: #FACC15;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #eab308;
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.2);
+}
+
+.save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.info-banner {
+  font-family: var(--ar-font-ui);
+  font-size: 0.85rem;
+  color: #8b929a;
+  background: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-left: 2px solid #4ADE80;
+  border-radius: 4px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  line-height: 1.6;
 }
 
 .limit-form {
@@ -634,6 +702,121 @@ onMounted(() => {
 
 .config-modal {
   max-width: min(640px, 92vw);
+}
+
+:deep(.n-card > .n-card-header) {
+  border-bottom: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+:deep(.n-card) {
+  --n-color: #0f1419;
+  --n-color-embedded: #171c22;
+  --n-text-color: #dee3eb;
+  --n-title-text-color: #dee3eb;
+  border-radius: 4px;
+}
+
+:deep(.n-form-item .n-form-item-label) {
+  color: #8b929a;
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+:deep(.n-input) {
+  --n-color: #252a30;
+  --n-color-focus: #252a30;
+  --n-color-disabled: #171c22;
+  --n-border: 1px solid rgba(77, 70, 50, 0.15);
+  --n-border-focus: 1px solid rgba(250, 204, 21, 0.4);
+  --n-border-disabled: 1px solid rgba(77, 70, 50, 0.1);
+  --n-text-color: #dee3eb;
+  --n-text-color-disabled: #545d68;
+  --n-placeholder-color: #545d68;
+  --n-caret-color: #FACC15;
+  border-radius: 4px;
+}
+
+:deep(.n-input-number) {
+  --n-color: #252a30;
+  --n-color-focus: #252a30;
+  --n-border: 1px solid rgba(77, 70, 50, 0.15);
+  --n-border-focus: 1px solid rgba(250, 204, 21, 0.4);
+  --n-text-color: #dee3eb;
+  --n-placeholder-color: #545d68;
+  border-radius: 4px;
+}
+
+:deep(.n-select) {
+  --n-border: 1px solid rgba(77, 70, 50, 0.15);
+  --n-border-focus: 1px solid rgba(250, 204, 21, 0.4);
+  --n-border-active: 1px solid rgba(250, 204, 21, 0.4);
+  --n-color: #252a30;
+  --n-color-active: #252a30;
+  --n-text-color: #dee3eb;
+  --n-placeholder-color: #545d68;
+  border-radius: 4px;
+}
+
+:deep(.n-switch.n-switch--active) {
+  --n-rail-color-active: #FACC15;
+}
+
+:deep(.n-button--primary-type) {
+  --n-color: #FACC15;
+  --n-text-color: #000;
+  --n-color-hover: #eab308;
+  --n-text-color-hover: #000;
+  --n-border: 1px solid #FACC15;
+  --n-border-hover: 1px solid #eab308;
+}
+
+:deep(.n-data-table .n-data-table-thead) {
+  background: #171c22;
+}
+
+:deep(.n-data-table .n-data-table-th) {
+  color: #8b929a;
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(77, 70, 50, 0.15) !important;
+  background: transparent;
+}
+
+:deep(.n-data-table .n-data-table-td) {
+  color: #dee3eb;
+  border-bottom: 1px solid rgba(77, 70, 50, 0.1) !important;
+  background: transparent;
+}
+
+:deep(.n-data-table .n-data-table-tr:hover .n-data-table-td) {
+  background: #171c22 !important;
+}
+
+:deep(.n-data-table) {
+  --n-td-color: transparent;
+  --n-th-color: transparent;
+  --n-border-color: rgba(77, 70, 50, 0.15);
+  --n-td-color-hover: #171c22;
+}
+
+:deep(.n-alert) {
+  border-radius: 4px;
+}
+
+:deep(.n-modal .n-card) {
+  background: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.25);
+  border-radius: 4px;
+}
+
+:deep(.n-modal .n-card-header__main) {
+  font-family: var(--ar-font-display);
+  color: #FACC15;
 }
 
 @media (max-width: 767px) {

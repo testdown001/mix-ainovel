@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>PLOT_LAB_V1 - Arboris Novel AI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-primary-container": "#6c5700",
+                        "surface-container-highest": "#30353b",
+                        "on-tertiary-container": "#006828",
+                        "inverse-on-surface": "#2c3137",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "primary-fixed": "#ffe083",
+                        "outline": "#9a9078",
+                        "secondary-fixed-dim": "#4de082",
+                        "secondary": "#4de082",
+                        "on-background": "#dee3eb",
+                        "outline-variant": "#4d4632",
+                        "surface-variant": "#30353b",
+                        "error": "#ffb4ab",
+                        "tertiary-fixed": "#94f99f",
+                        "inverse-primary": "#735c00",
+                        "on-secondary-fixed-variant": "#005227",
+                        "on-primary": "#3c2f00",
+                        "on-primary-fixed": "#231b00",
+                        "primary-fixed-dim": "#eec200",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "surface-tint": "#eec200",
+                        "primary-container": "#facc15",
+                        "surface-dim": "#0f1419",
+                        "on-tertiary": "#003913",
+                        "tertiary-container": "#82e68f",
+                        "surface-bright": "#353a40",
+                        "surface-container-high": "#252a30",
+                        "surface": "#0f1419",
+                        "secondary-fixed": "#6dfe9c",
+                        "background": "#000000",
+                        "primary": "#ffecb9",
+                        "on-secondary-fixed": "#00210c",
+                        "on-surface": "#dee3eb",
+                        "secondary-container": "#00b55d",
+                        "on-tertiary-fixed": "#002108",
+                        "inverse-surface": "#dee3eb",
+                        "on-secondary-container": "#003e1c",
+                        "tertiary": "#b2ffb7",
+                        "on-surface-variant": "#d1c6ab",
+                        "on-secondary": "#003919",
+                        "surface-container-lowest": "#0a0f14",
+                        "on-primary-fixed-variant": "#574500",
+                        "error-container": "#93000a",
+                        "surface-container-low": "#171c22",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1b2026",
+                        "on-error": "#690005"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.15);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 20px rgba(74, 222, 128, 0.15);
+        }
+        .radar-grid {
+            background-image: radial-gradient(circle, rgba(77, 224, 130, 0.1) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #30353b; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_0_20px_rgba(250,204,21,0.05)] flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold uppercase tracking-widest text-yellow-400 font-['Space_Grotesk']">PLOT_LAB_V1</span>
+<nav class="hidden md:flex gap-6">
+<a class="text-yellow-400 font-bold font-['Space_Grotesk'] tracking-tight hover:text-yellow-300 transition-colors" href="#">Simulation</a>
+<a class="text-zinc-500 font-['Space_Grotesk'] tracking-tight hover:text-yellow-300 transition-colors" href="#">Branches</a>
+<a class="text-zinc-500 font-['Space_Grotesk'] tracking-tight hover:text-yellow-300 transition-colors" href="#">Flowchart</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-4 px-4 py-1.5 bg-zinc-900/50 border border-zinc-800 rounded-lg">
+<span class="material-symbols-outlined text-zinc-500 text-sm cursor-pointer hover:text-yellow-400 transition-colors">account_tree</span>
+<span class="material-symbols-outlined text-zinc-500 text-sm cursor-pointer hover:text-yellow-400 transition-colors">terminal</span>
+<span class="material-symbols-outlined text-zinc-500 text-sm cursor-pointer hover:text-yellow-400 transition-colors">settings</span>
+</div>
+<button class="bg-primary-container text-on-primary-container px-4 py-1.5 text-xs font-bold uppercase tracking-widest rounded-sm hover:scale-95 duration-150 transition-transform">
+                SYNC_TO_OUTLINE
+            </button>
+</div>
+</header>
+<!-- SideNavBar (Left) -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-zinc-950 border-r border-zinc-900 flex flex-col pt-20 pb-6 hidden lg:flex">
+<div class="px-6 mb-8">
+<h2 class="text-yellow-400 font-black font-['Inter'] text-xs uppercase tracking-tighter">NEON_MANUSCRIPT</h2>
+<p class="text-zinc-500 text-[10px] tracking-[0.2em]">AI_CORE_ACTIVE</p>
+</div>
+<nav class="flex-1">
+<a class="bg-yellow-400/10 text-yellow-400 border-r-2 border-yellow-400 px-6 py-3 flex items-center gap-3 font-['Inter'] text-xs uppercase tracking-tighter transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">biotech</span>
+<span>Simulation</span>
+</a>
+<a class="text-zinc-500 px-6 py-3 flex items-center gap-3 font-['Inter'] text-xs uppercase tracking-tighter hover:bg-zinc-900 hover:text-zinc-300 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">call_split</span>
+<span>Branches</span>
+</a>
+<a class="text-zinc-500 px-6 py-3 flex items-center gap-3 font-['Inter'] text-xs uppercase tracking-tighter hover:bg-zinc-900 hover:text-zinc-300 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">account_tree</span>
+<span>Flowchart</span>
+</a>
+<a class="text-zinc-500 px-6 py-3 flex items-center gap-3 font-['Inter'] text-xs uppercase tracking-tighter hover:bg-zinc-900 hover:text-zinc-300 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">fact_check</span>
+<span>Audit</span>
+</a>
+<a class="text-zinc-500 px-6 py-3 flex items-center gap-3 font-['Inter'] text-xs uppercase tracking-tighter hover:bg-zinc-900 hover:text-zinc-300 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined text-lg">inventory_2</span>
+<span>Archive</span>
+</a>
+</nav>
+<div class="px-4">
+<button class="w-full border border-yellow-400/30 text-yellow-400 py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-yellow-400/5 transition-colors">
+                NEW_TIMELINE
+            </button>
+</div>
+</aside>
+<!-- Main Workspace -->
+<main class="lg:ml-64 pt-20 pb-16 lg:pb-6 px-6 grid grid-cols-12 gap-6 min-h-screen">
+<!-- Center Canvas: Plot Branching -->
+<section class="col-span-12 lg:col-span-8 flex flex-col gap-6">
+<div class="flex justify-between items-end mb-2">
+<div>
+<h1 class="font-headline text-3xl font-bold text-primary tracking-tight">Timeline Core_</h1>
+<p class="text-zinc-500 font-body text-sm mt-1">Exploring narrative divergence in Chapter 24: "The Silicon Fall"</p>
+</div>
+<div class="flex gap-2">
+<span class="px-3 py-1 bg-surface-container-high text-secondary text-[10px] uppercase font-bold tracking-tighter rounded-sm flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>
+                        Simulation Active
+                    </span>
+</div>
+</div>
+<!-- Branching Visualizer -->
+<div class="flex-1 bg-surface-container-low rounded-xl relative overflow-hidden p-8 border border-zinc-900">
+<div class="absolute inset-0 radar-grid opacity-20"></div>
+<!-- Connector SVGs (Static representation) -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" xmlns="http://www.w3.org/2000/svg">
+<path d="M 100 250 Q 200 250 300 150" fill="none" stroke="#facc15" stroke-dasharray="4 4 opacity-50" stroke-width="1"></path>
+<path d="M 100 250 Q 200 250 300 350" fill="none" stroke="#4ade80" stroke-dasharray="4 4 opacity-50" stroke-width="1"></path>
+<path d="M 300 150 L 500 150" fill="none" stroke="#facc15" stroke-width="1"></path>
+</svg>
+<div class="relative z-10 grid grid-cols-3 h-full items-center gap-12">
+<!-- Origin -->
+<div class="flex flex-col items-center">
+<div class="w-40 p-4 bg-zinc-950 border-2 border-yellow-400/50 rounded-lg neon-glow-primary">
+<p class="text-[10px] text-yellow-400 font-bold uppercase tracking-widest mb-2">Root Event</p>
+<p class="font-body text-xs leading-relaxed text-on-surface">Arboris finds the corrupted memory core in the waste heaps.</p>
+</div>
+</div>
+<!-- Divergence -->
+<div class="flex flex-col gap-24 items-center">
+<!-- Path A -->
+<div class="w-44 p-4 glass-panel border border-yellow-400/20 rounded-lg transform hover:scale-105 transition-transform cursor-pointer">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] text-yellow-400 font-bold uppercase tracking-widest">Path A_ Betrayal</span>
+<span class="material-symbols-outlined text-yellow-400 text-xs">bolt</span>
+</div>
+<p class="font-body text-xs leading-relaxed text-zinc-300">She sells the core to the Syndicate to save her brother.</p>
+</div>
+<!-- Path B -->
+<div class="w-44 p-4 glass-panel border border-secondary/20 rounded-lg transform hover:scale-105 transition-transform cursor-pointer">
+<div class="flex justify-between items-center mb-2">
+<span class="text-[10px] text-secondary font-bold uppercase tracking-widest">Path B_ Resilience</span>
+<span class="material-symbols-outlined text-secondary text-xs">shield</span>
+</div>
+<p class="font-body text-xs leading-relaxed text-zinc-300">She decodes it herself, discovering her own origins.</p>
+</div>
+</div>
+<!-- Impact -->
+<div class="flex flex-col items-center">
+<div class="w-40 p-4 bg-surface-container-high border border-zinc-800 rounded-lg opacity-60">
+<p class="text-[10px] text-zinc-500 font-bold uppercase tracking-widest mb-2">Result_ Omega</p>
+<p class="font-body text-xs leading-relaxed text-zinc-500">The city's power grid collapses as a result of the decoded signal.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Multi-dimensional Comparison Cards -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="bg-surface-container-low p-5 rounded-lg border border-zinc-900">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-xs font-bold text-yellow-400 uppercase tracking-widest">Metrics_ Path Alpha</h3>
+<span class="text-[10px] text-zinc-500 uppercase">Logic Index: 0.92</span>
+</div>
+<div class="flex gap-6 items-center">
+<div class="w-24 h-24 relative flex items-center justify-center">
+<div class="absolute inset-0 rounded-full border border-yellow-400/10"></div>
+<div class="absolute inset-2 rounded-full border border-yellow-400/20"></div>
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-zinc-800" cx="48" cy="48" fill="transparent" r="40" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-yellow-400" cx="48" cy="48" fill="transparent" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="60" stroke-width="4"></circle>
+</svg>
+<span class="absolute text-yellow-400 text-xs font-bold">78%</span>
+</div>
+<div class="flex-1 space-y-3">
+<div class="flex justify-between text-[10px] uppercase font-bold">
+<span class="text-zinc-500">Conflict Intensity</span>
+<span class="text-yellow-400">High</span>
+</div>
+<div class="w-full bg-zinc-900 h-1 rounded-full">
+<div class="bg-yellow-400 h-full w-[85%] shadow-[0_0_8px_#facc15]"></div>
+</div>
+<div class="flex justify-between text-[10px] uppercase font-bold">
+<span class="text-zinc-500">Character Growth</span>
+<span class="text-yellow-400">Medium</span>
+</div>
+<div class="w-full bg-zinc-900 h-1 rounded-full">
+<div class="bg-yellow-400 h-full w-[45%] shadow-[0_0_8px_#facc15]"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low p-5 rounded-lg border border-zinc-900">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-xs font-bold text-secondary uppercase tracking-widest">Metrics_ Path Beta</h3>
+<span class="text-[10px] text-zinc-500 uppercase">Logic Index: 0.88</span>
+</div>
+<div class="flex gap-6 items-center">
+<div class="w-24 h-24 relative flex items-center justify-center">
+<div class="absolute inset-0 rounded-full border border-secondary/10"></div>
+<div class="absolute inset-2 rounded-full border border-secondary/20"></div>
+<svg class="w-full h-full transform -rotate-90">
+<circle class="text-zinc-800" cx="48" cy="48" fill="transparent" r="40" stroke="currentColor" stroke-width="4"></circle>
+<circle class="text-secondary" cx="48" cy="48" fill="transparent" r="40" stroke="currentColor" stroke-dasharray="251.2" stroke-dashoffset="100" stroke-width="4"></circle>
+</svg>
+<span class="absolute text-secondary text-xs font-bold">62%</span>
+</div>
+<div class="flex-1 space-y-3">
+<div class="flex justify-between text-[10px] uppercase font-bold">
+<span class="text-zinc-500">Emotional Impact</span>
+<span class="text-secondary">Ultra</span>
+</div>
+<div class="w-full bg-zinc-900 h-1 rounded-full">
+<div class="bg-secondary h-full w-[95%] shadow-[0_0_8px_#4ade80]"></div>
+</div>
+<div class="flex justify-between text-[10px] uppercase font-bold">
+<span class="text-zinc-500">World Stability</span>
+<span class="text-secondary">Low</span>
+</div>
+<div class="w-full bg-zinc-900 h-1 rounded-full">
+<div class="bg-secondary h-full w-[25%] shadow-[0_0_8px_#4ade80]"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Side: Controls & Audit -->
+<aside class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<!-- Ending Simulation Controls -->
+<div class="bg-surface-container-high p-6 rounded-xl border border-zinc-800 neon-glow-primary">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-yellow-400">tune</span>
+<h3 class="text-xs font-black text-yellow-400 uppercase tracking-widest">Simulation_Control</h3>
+</div>
+<div class="space-y-6">
+<div>
+<div class="flex justify-between mb-2">
+<label class="text-[10px] text-zinc-400 uppercase tracking-widest">Chaos Factor</label>
+<span class="text-[10px] text-yellow-400">42%</span>
+</div>
+<input class="w-full accent-yellow-400 bg-zinc-900 h-1 rounded-none appearance-none cursor-pointer" type="range"/>
+</div>
+<div>
+<div class="flex justify-between mb-2">
+<label class="text-[10px] text-zinc-400 uppercase tracking-widest">Timeline Length</label>
+<span class="text-[10px] text-yellow-400">Short</span>
+</div>
+<div class="grid grid-cols-3 gap-2">
+<button class="bg-yellow-400 text-on-primary-container text-[10px] font-bold py-2 rounded-sm uppercase tracking-tighter">Short</button>
+<button class="bg-zinc-900 text-zinc-500 text-[10px] font-bold py-2 rounded-sm uppercase tracking-tighter hover:bg-zinc-800">Mid</button>
+<button class="bg-zinc-900 text-zinc-500 text-[10px] font-bold py-2 rounded-sm uppercase tracking-tighter hover:bg-zinc-800">Long</button>
+</div>
+</div>
+<div>
+<div class="flex justify-between mb-2">
+<label class="text-[10px] text-zinc-400 uppercase tracking-widest">Core Character Focus</label>
+</div>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1 bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 text-[10px] font-bold uppercase tracking-tighter rounded-sm">Arboris</span>
+<span class="px-3 py-1 bg-zinc-900 text-zinc-500 text-[10px] font-bold uppercase tracking-tighter rounded-sm">The Architect</span>
+<span class="px-3 py-1 bg-zinc-900 text-zinc-500 text-[10px] font-bold uppercase tracking-tighter rounded-sm">Syndicate</span>
+</div>
+</div>
+<button class="w-full bg-yellow-400 text-on-primary-container font-black py-4 text-xs uppercase tracking-[0.3em] hover:brightness-110 transition-all">
+                        RUN_SIMULATION
+                    </button>
+</div>
+</div>
+<!-- Real-time Logic Audit -->
+<div class="flex-1 bg-zinc-950 border border-zinc-900 rounded-xl overflow-hidden flex flex-col">
+<div class="p-4 border-b border-zinc-900 flex justify-between items-center bg-zinc-950">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">fact_check</span>
+<h3 class="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Chronicle_Log</h3>
+</div>
+<span class="text-[10px] text-secondary">3 Warnings Found</span>
+</div>
+<div class="p-4 space-y-4 overflow-y-auto max-h-[400px]">
+<!-- Log Item 1 -->
+<div class="p-3 bg-zinc-900/50 border-l-2 border-red-500 rounded-sm">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[9px] font-bold text-red-500 uppercase">Critical Inconsistency</span>
+<span class="text-[8px] text-zinc-600">CH_24_V1.0</span>
+</div>
+<p class="font-body text-[11px] leading-snug text-zinc-400 mb-3">Arboris previously destroyed the decoder in Ch. 12. Path B requires a functioning unit.</p>
+<div class="flex items-center gap-2 bg-zinc-950 p-2 rounded border border-zinc-800">
+<span class="material-symbols-outlined text-secondary text-xs">auto_awesome</span>
+<span class="text-[10px] text-secondary font-bold uppercase tracking-tighter">Fix Suggestion: Hidden Reserve</span>
+</div>
+</div>
+<!-- Log Item 2 -->
+<div class="p-3 bg-zinc-900/50 border-l-2 border-yellow-500 rounded-sm">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[9px] font-bold text-yellow-500 uppercase">Causality Gap</span>
+<span class="text-[8px] text-zinc-600">CH_24_V1.2</span>
+</div>
+<p class="font-body text-[11px] leading-snug text-zinc-400 mb-2">The Syndicate's sudden appearance in Path A lacks motivation.</p>
+<button class="text-[9px] text-zinc-500 uppercase underline decoration-zinc-700 hover:text-zinc-300">Insert Bridge Scene</button>
+</div>
+<!-- Log Item 3 -->
+<div class="p-3 bg-zinc-900/50 border-l-2 border-secondary rounded-sm">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[9px] font-bold text-secondary uppercase">Logic Verified</span>
+<span class="text-[8px] text-zinc-600">CH_24_V1.5</span>
+</div>
+<p class="font-body text-[11px] leading-snug text-zinc-400">Path Alpha emotional arc aligns with established personality traits.</p>
+</div>
+</div>
+<div class="p-4 bg-zinc-900/20 mt-auto">
+<div class="flex items-center gap-2">
+<div class="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse"></div>
+<span class="text-[9px] text-zinc-500 uppercase tracking-widest font-bold">Scanning for plot holes...</span>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="fixed bottom-0 w-full z-50 bg-black border-t border-green-900/30 flex justify-around items-center h-14 md:hidden">
+<a class="flex flex-col items-center text-zinc-600 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="font-['Space_Grotesk'] text-[10px]">Console</span>
+</a>
+<a class="flex flex-col items-center text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.5)] active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">query_stats</span>
+<span class="font-['Space_Grotesk'] text-[10px]">Metrics</span>
+</a>
+<a class="flex flex-col items-center text-zinc-600 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-['Space_Grotesk'] text-[10px]">Nodes</span>
+</a>
+<a class="flex flex-col items-center text-zinc-600 active:scale-90 transition-transform" href="#">
+<span class="material-symbols-outlined">list_alt</span>
+<span class="font-['Space_Grotesk'] text-[10px]">Logs</span>
+</a>
+</nav>
+</body></html>

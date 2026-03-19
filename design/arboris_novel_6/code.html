@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Novel - 数据统计中心</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-primary-container": "#6c5700",
+                        "surface-bright": "#353a40",
+                        "on-tertiary-fixed": "#002108",
+                        "on-primary": "#3c2f00",
+                        "on-error-container": "#ffdad6",
+                        "on-surface": "#dee3eb",
+                        "surface-container-high": "#252a30",
+                        "primary-fixed": "#ffe083",
+                        "surface-container-lowest": "#0a0f14",
+                        "error-container": "#93000a",
+                        "background": "#0f1419",
+                        "secondary-fixed": "#6dfe9c",
+                        "outline": "#9a9078",
+                        "surface-container": "#1b2026",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "secondary-fixed-dim": "#4de082",
+                        "surface-tint": "#eec200",
+                        "on-secondary-fixed": "#00210c",
+                        "on-error": "#690005",
+                        "on-primary-fixed-variant": "#574500",
+                        "tertiary-fixed": "#94f99f",
+                        "inverse-surface": "#dee3eb",
+                        "surface-dim": "#0f1419",
+                        "on-tertiary-container": "#006828",
+                        "on-secondary-fixed-variant": "#005227",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "on-primary-fixed": "#231b00",
+                        "inverse-on-surface": "#2c3137",
+                        "outline-variant": "#4d4632",
+                        "surface-variant": "#30353b",
+                        "error": "#ffb4ab",
+                        "surface-container-highest": "#30353b",
+                        "tertiary": "#b2ffb7",
+                        "inverse-primary": "#735c00",
+                        "primary": "#ffecb9",
+                        "secondary-container": "#00b55d",
+                        "primary-container": "#facc15",
+                        "on-surface-variant": "#d1c6ab",
+                        "on-secondary": "#003919",
+                        "on-tertiary": "#003913",
+                        "surface-container-low": "#171c22",
+                        "surface": "#0f1419",
+                        "tertiary-container": "#82e68f",
+                        "secondary": "#4de082",
+                        "on-secondary-container": "#003e1c",
+                        "primary-fixed-dim": "#eec200",
+                        "on-background": "#dee3eb"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #000000;
+            color: #dee3eb;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neo-glow-primary {
+            box-shadow: 0 0 15px rgba(250, 204, 21, 0.1);
+        }
+        .neo-glow-secondary {
+            box-shadow: 0 0 20px rgba(74, 222, 128, 0.15);
+        }
+        .ai-pulse {
+            width: 8px;
+            height: 8px;
+            background-color: #4de082;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 10px #4de082;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-black/60 backdrop-blur-xl border-b border-yellow-900/15 shadow-[0_0_15px_rgba(250,204,21,0.05)] flex justify-between items-center px-8 h-16 w-full">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold tracking-tighter text-yellow-400 uppercase font-['Space_Grotesk']">Neon Manuscript</span>
+<nav class="hidden md:flex gap-6 font-['Space_Grotesk'] tracking-tight">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Library</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Write</a>
+<a class="text-yellow-400 border-b-2 border-yellow-400 pb-1" href="#">Analytics</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Simulation Lab</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="bg-surface-container-low px-3 py-1.5 flex items-center gap-2 rounded-lg border border-outline-variant/20">
+<span class="material-symbols-outlined text-sm text-yellow-400">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm text-on-surface w-48" placeholder="搜索稿件..." type="text"/>
+</div>
+<button class="p-2 text-slate-400 hover:text-yellow-400 transition-all duration-300">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-slate-400 hover:text-yellow-400 transition-all duration-300">
+<span class="material-symbols-outlined">bolt</span>
+</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-yellow-400/30">
+<img alt="User Avatar" data-alt="Cyberpunk style user profile avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA33PDMqsqk6DtRgq_gGZV0Cqm42kR50xqW0LyYYC-n7lOpKBMDUJ8MZRgry7T2f5-KpYSNITRO0GcX8vMSTKJ1oHLJTozPOES0jPLkcVN4PHRCHxa-3qI5U_9BygCz3gwl_5FE0KVONediQReQRotkMteLaKJ7Q2OaOD-pmugMggxYGp30pbGjprU3Sxce3h_oSS-7eRaFj5V_egmWHJJAaCB4XnAJraRsXfWEWYDxd-rxuOvMMdaADkelqnom0gn7RZmg4_Jz6B3T"/>
+</div>
+</div>
+</header>
+<!-- Side Navigation -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-[#0f1419] flex flex-col py-6 gap-2 border-r border-outline-variant/10">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-surface-container-high rounded flex items-center justify-center">
+<span class="material-symbols-outlined text-yellow-400">auto_stories</span>
+</div>
+<div>
+<h3 class="text-lg font-black text-white font-['Inter']">Project Void</h3>
+<p class="text-xs text-secondary tracking-widest uppercase">AI-Enhanced Mode</p>
+</div>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-6 py-3 text-slate-500 hover:text-green-400 transition-transform scale-95 active:scale-100 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined">dashboard</span> Dashboard
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-slate-500 hover:text-green-400 transition-transform scale-95 active:scale-100 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined">edit_note</span> Manuscript
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 bg-yellow-400/10 text-yellow-400 border-r-2 border-yellow-400 transition-transform scale-95 active:scale-100 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined">analytics</span> 数据统计中心
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-slate-500 hover:text-green-400 transition-transform scale-95 active:scale-100 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined">account_tree</span> Plot Lab
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-slate-500 hover:text-green-400 transition-transform scale-95 active:scale-100 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined">public</span> World Building
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-slate-500 hover:text-green-400 transition-transform scale-95 active:scale-100 font-['Inter'] text-sm font-medium" href="#">
+<span class="material-symbols-outlined">payments</span> Monetization
+            </a>
+</nav>
+<div class="px-6 mt-auto space-y-1 border-t border-outline-variant/10 pt-4">
+<a class="flex items-center gap-3 py-2 text-slate-500 hover:text-green-400 text-sm" href="#">
+<span class="material-symbols-outlined text-lg">settings</span> Settings
+            </a>
+<a class="flex items-center gap-3 py-2 text-slate-500 hover:text-green-400 text-sm" href="#">
+<span class="material-symbols-outlined text-lg">help</span> Support
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-8 min-h-screen">
+<!-- Header -->
+<div class="flex justify-between items-end mb-10">
+<div>
+<h1 class="text-4xl font-headline font-bold text-primary tracking-tight mb-2">数据统计中心</h1>
+<p class="text-on-surface-variant font-label text-sm uppercase tracking-widest">Real-time Literary Performance Analytics</p>
+</div>
+<div class="flex gap-4">
+<div class="text-right">
+<p class="text-[10px] text-secondary font-bold uppercase tracking-tighter mb-1">AI Engine Status</p>
+<div class="flex items-center gap-2">
+<span class="ai-pulse"></span>
+<span class="text-sm font-headline text-white">Neural Analysis Active</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Dashboard Bento Grid -->
+<div class="grid grid-cols-12 gap-6">
+<!-- 1. Reader Portrait (Bento Grid) -->
+<section class="col-span-12 lg:col-span-7 grid grid-cols-2 gap-4">
+<div class="col-span-2 glass-panel p-6 rounded-lg border border-outline-variant/10 neo-glow-primary">
+<h2 class="text-lg font-headline font-medium text-primary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">face</span> 读者画像 (Reader Portrait)
+                    </h2>
+<div class="grid grid-cols-3 gap-8">
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase mb-4">年龄分布 Age</p>
+<div class="space-y-3">
+<div class="w-full h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[65%] shadow-[0_0_8px_rgba(250,204,21,0.4)]"></div>
+</div>
+<div class="flex justify-between text-[11px] font-label">
+<span>18-25</span>
+<span class="text-primary">65%</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary/40 w-[25%]"></div>
+</div>
+<div class="flex justify-between text-[11px] font-label">
+<span>26-35</span>
+<span>25%</span>
+</div>
+</div>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase mb-4">性别比例 Gender</p>
+<div class="relative h-24 flex items-center justify-center">
+<svg class="w-20 h-20 -rotate-90">
+<circle class="text-surface-container-highest" cx="40" cy="40" fill="none" r="35" stroke="currentColor" stroke-width="8"></circle>
+<circle class="text-secondary" cx="40" cy="40" fill="none" r="35" stroke="currentColor" stroke-dasharray="219.9" stroke-dashoffset="65.9" stroke-width="8"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center">
+<span class="text-xs font-bold text-secondary">70%</span>
+<span class="text-[8px] text-on-surface-variant uppercase">Female</span>
+</div>
+</div>
+</div>
+<div>
+<p class="text-[10px] text-on-surface-variant uppercase mb-4">核心兴趣 Interests</p>
+<div class="flex flex-wrap gap-2">
+<span class="px-2 py-1 bg-surface-container-highest text-[10px] rounded border border-outline-variant/20">赛博朋克</span>
+<span class="px-2 py-1 bg-secondary/10 text-secondary text-[10px] rounded border border-secondary/20">硬核科幻</span>
+<span class="px-2 py-1 bg-surface-container-highest text-[10px] rounded border border-outline-variant/20">反乌托邦</span>
+<span class="px-2 py-1 bg-surface-container-highest text-[10px] rounded border border-outline-variant/20">社会心理</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Retention Analysis Card -->
+<div class="col-span-2 bg-surface-container-low p-6 rounded-lg border border-outline-variant/5">
+<div class="flex justify-between items-center mb-6">
+<h2 class="text-lg font-headline font-medium text-secondary flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">query_stats</span> 留存率分析 (Retention Analysis)
+                        </h2>
+<span class="text-[10px] bg-secondary/20 text-secondary px-2 py-0.5 rounded uppercase">Live Data</span>
+</div>
+<div class="h-48 flex items-end gap-3 px-2">
+<!-- Chart Bars -->
+<div class="flex-1 group relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] text-secondary">98%</div>
+<div class="bg-secondary/40 w-full h-full rounded-t-sm transition-all duration-300 group-hover:bg-secondary"></div>
+<p class="text-[9px] text-center mt-2 text-on-surface-variant">Ch 1</p>
+</div>
+<div class="flex-1 group relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] text-secondary">85%</div>
+<div class="bg-secondary/40 w-full h-[85%] rounded-t-sm transition-all duration-300 group-hover:bg-secondary"></div>
+<p class="text-[9px] text-center mt-2 text-on-surface-variant">Ch 5</p>
+</div>
+<div class="flex-1 group relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] text-secondary">72%</div>
+<div class="bg-secondary/40 w-full h-[72%] rounded-t-sm transition-all duration-300 group-hover:bg-secondary"></div>
+<p class="text-[9px] text-center mt-2 text-on-surface-variant">Ch 10</p>
+</div>
+<div class="flex-1 group relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] text-secondary">68%</div>
+<div class="bg-secondary/40 w-full h-[68%] rounded-t-sm transition-all duration-300 group-hover:bg-secondary"></div>
+<p class="text-[9px] text-center mt-2 text-on-surface-variant">Ch 15</p>
+</div>
+<div class="flex-1 group relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] text-secondary">62%</div>
+<div class="bg-secondary/40 w-full h-[62%] rounded-t-sm transition-all duration-300 group-hover:bg-secondary"></div>
+<p class="text-[9px] text-center mt-2 text-on-surface-variant">Ch 20</p>
+</div>
+<div class="flex-1 group relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 text-[10px] text-secondary">59%</div>
+<div class="bg-secondary/40 w-full h-[59%] rounded-t-sm transition-all duration-300 group-hover:bg-secondary"></div>
+<p class="text-[9px] text-center mt-2 text-on-surface-variant">Ch 25</p>
+</div>
+</div>
+</div>
+</section>
+<!-- 2. Revenue Forecast (Predictive AI) -->
+<section class="col-span-12 lg:col-span-5 flex flex-col gap-6">
+<div class="flex-1 glass-panel p-6 rounded-lg border border-outline-variant/10 neo-glow-secondary relative overflow-hidden">
+<div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-secondary/30 to-transparent"></div>
+<div class="flex justify-between items-start mb-8">
+<div>
+<h2 class="text-lg font-headline font-medium text-white mb-1">预计收益 (Revenue Forecast)</h2>
+<p class="text-xs text-secondary/70">Next 30 Days • AI Simulation</p>
+</div>
+<div class="bg-secondary/10 border border-secondary/30 rounded p-2 flex flex-col items-end">
+<span class="text-[10px] text-secondary font-bold">PREDICTED TOTAL</span>
+<span class="text-xl font-headline font-bold text-secondary">¥12,450.00</span>
+</div>
+</div>
+<div class="space-y-6">
+<div class="flex items-center gap-4">
+<span class="text-[10px] text-on-surface-variant font-label w-12">订阅收入</span>
+<div class="flex-1 h-3 bg-surface-container-highest rounded-sm relative">
+<div class="absolute top-0 left-0 h-full bg-secondary w-[85%] rounded-sm"></div>
+</div>
+<span class="text-xs font-bold w-10 text-right">85%</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-[10px] text-on-surface-variant font-label w-12">打赏收入</span>
+<div class="flex-1 h-3 bg-surface-container-highest rounded-sm relative">
+<div class="absolute top-0 left-0 h-full bg-secondary/40 w-[12%] rounded-sm"></div>
+</div>
+<span class="text-xs font-bold w-10 text-right">12%</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-[10px] text-on-surface-variant font-label w-12">版权衍生</span>
+<div class="flex-1 h-3 bg-surface-container-highest rounded-sm relative">
+<div class="absolute top-0 left-0 h-full bg-secondary/20 w-[3%] rounded-sm"></div>
+</div>
+<span class="text-xs font-bold w-10 text-right">3%</span>
+</div>
+</div>
+<div class="mt-8 pt-6 border-t border-outline-variant/10">
+<div class="flex items-center justify-between text-[11px] mb-4">
+<span class="text-on-surface-variant">增长趋势分析 Confidence Interval</span>
+<span class="text-secondary">High Accuracy (94%)</span>
+</div>
+<div class="h-20 flex items-center justify-center">
+<svg class="w-full h-full text-secondary opacity-30" viewbox="0 0 400 100">
+<path d="M0,80 Q50,70 100,50 T200,60 T300,20 T400,10" fill="none" stroke="currentColor" stroke-width="2"></path>
+<circle cx="300" cy="20" fill="currentColor" r="3"></circle>
+</svg>
+</div>
+</div>
+</div>
+<!-- Keyword Cloud -->
+<div class="bg-surface-container p-6 rounded-lg border border-outline-variant/10">
+<h2 class="text-sm font-headline font-medium text-primary mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">cloud</span> 评论词云 (Keyword Cloud)
+                    </h2>
+<div class="flex flex-wrap gap-x-4 gap-y-3 items-center justify-center py-4">
+<span class="text-2xl font-bold text-white tracking-tight hover:text-primary transition-colors cursor-default">反转</span>
+<span class="text-lg font-medium text-on-surface-variant hover:text-secondary transition-colors cursor-default">黑科技</span>
+<span class="text-sm font-label text-slate-500 hover:text-white transition-colors cursor-default">义体改造</span>
+<span class="text-3xl font-black text-secondary tracking-tighter hover:scale-110 transition-transform cursor-default">刀片</span>
+<span class="text-xl font-headline text-primary/80 hover:text-primary transition-colors cursor-default">赛博精神病</span>
+<span class="text-base font-label text-slate-400 hover:text-white transition-colors cursor-default">霓虹都市</span>
+<span class="text-xs font-label text-slate-600 hover:text-secondary transition-colors cursor-default">硬核推理</span>
+<span class="text-lg font-medium text-on-surface hover:text-primary transition-colors cursor-default">爽快感</span>
+</div>
+</div>
+</section>
+</div>
+<!-- AI Insights Footer -->
+<div class="mt-10 p-6 glass-panel rounded-lg border-l-4 border-secondary flex items-start gap-6">
+<div class="w-12 h-12 rounded bg-secondary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">psychology</span>
+</div>
+<div>
+<h4 class="text-secondary font-headline font-bold mb-2">AI 战略建议 (AI Strategic Insight)</h4>
+<p class="text-sm text-on-surface font-body leading-relaxed max-w-4xl">
+                    根据当前数据模型，第 10 章的留存率出现明显拐点（-13%）。词云显示“叙事节奏”相关负向词汇有所增加。建议在后续更新中加入更多动作冲突以平滑过渡，预计可提升次日留存约 5.2%。读者画像显示高价值用户对“黑科技”细节敏感，建议在第 32 章强化设定深度。
+                </p>
+</div>
+<button class="ml-auto px-6 py-2 bg-secondary text-on-secondary font-bold text-xs uppercase tracking-widest hover:shadow-[0_0_15px_rgba(74,222,128,0.4)] transition-all">
+                应用建议
+            </button>
+</div>
+</main>
+<!-- Floating Action Button - Contextual -->
+<div class="fixed bottom-8 right-8 flex flex-col items-center gap-4">
+<div class="bg-surface-container-high glass-panel px-4 py-2 rounded border border-outline-variant/10 text-[10px] text-primary uppercase font-bold hidden lg:block">
+            Generate Report
+        </div>
+<button class="w-14 h-14 bg-primary-container text-on-primary-container rounded flex items-center justify-center shadow-[0_0_20px_rgba(250,204,21,0.3)] hover:scale-110 active:scale-95 transition-all">
+<span class="material-symbols-outlined">download</span>
+</button>
+</div>
+</body></html>

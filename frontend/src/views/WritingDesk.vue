@@ -23,13 +23,13 @@
 
       <!-- 错误状态 -->
       <div v-else-if="novelStore.error" class="text-center py-20">
-        <div class="md-card md-card-outlined p-8 max-w-md mx-auto" style="border-radius: var(--md-radius-xl);">
-          <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center" style="background-color: var(--md-error-container);">
+        <div class="md-card md-card-outlined p-8 max-w-md mx-auto neon-glow" style="border-radius: var(--ar-radius-sm);">
+          <div class="w-12 h-12 mx-auto mb-4 flex items-center justify-center" style="background-color: var(--md-error-container); border-radius: var(--ar-radius-sm);">
             <svg class="w-6 h-6" style="color: var(--md-error);" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
             </svg>
           </div>
-          <h3 class="md-title-large mb-2" style="color: var(--md-on-surface);">加载失败</h3>
+          <h3 class="md-title-large font-display mb-2" style="color: var(--md-on-surface);">加载失败</h3>
           <p class="md-body-medium mb-4" style="color: var(--md-error);">{{ novelStore.error }}</p>
           <button @click="loadProject" class="md-btn md-btn-tonal md-ripple">重新加载</button>
         </div>
@@ -154,19 +154,19 @@
 
     <n-modal v-model:show="showPredictionRequestModal" preset="card" title="剧情推演设置" style="width: 640px; max-width: 92vw;">
       <div class="space-y-4">
-        <div class="text-sm text-[var(--md-on-surface-variant)]">
-          <span class="font-medium text-[var(--md-on-surface)]">目标章节：</span>
+        <div class="text-sm text-[var(--ar-text-secondary)]">
+          <span class="font-medium font-display text-[var(--ar-text-primary)]">目标章节：</span>
           第 {{ predictionTargetChapter || '-' }} 章
         </div>
         <div>
-          <label class="mb-2 block text-sm font-medium text-[var(--md-on-surface)]">排除内容 / 创作禁区（可选）</label>
+          <label class="mb-2 block text-sm font-medium font-display text-[var(--ar-text-primary)]">排除内容 / 创作禁区（可选）</label>
           <textarea
             v-model="predictionExclusions"
             rows="5"
             class="md-textarea w-full resize-none"
             placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
           ></textarea>
-          <p class="mt-2 text-xs text-[var(--md-on-surface-variant)]">
+          <p class="mt-2 text-xs text-[var(--ar-text-muted)]">
             这些内容会作为 exclusions 一起传给后端剧情推演接口。
           </p>
         </div>
@@ -217,48 +217,47 @@
 
     <n-modal v-model:show="showSkillPreviewModal" preset="card" title="技能应用对比预览" style="width: 1100px; max-width: 96vw;">
       <div v-if="skillApplyPreview" class="space-y-4">
-        <div class="flex flex-wrap items-center gap-2 text-sm text-[var(--md-on-surface-variant)]">
-          <span class="font-medium text-[var(--md-on-surface)]">已应用技能：</span>
+        <div class="flex flex-wrap items-center gap-2 text-sm text-[var(--ar-text-secondary)]">
+          <span class="font-medium font-display text-[var(--ar-text-primary)]">已应用技能：</span>
           <span
             v-for="skillName in skillApplyPreview.skillNames"
             :key="skillName"
-            class="inline-flex items-center rounded-full px-3 py-1 text-xs"
-            style="background-color: var(--md-secondary-container); color: var(--md-on-secondary-container);"
+            class="neon-skill-badge"
           >
             {{ skillName }}
           </span>
         </div>
 
         <div class="grid gap-3 md:grid-cols-3">
-          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
-            <div class="text-xs text-[var(--md-on-surface-variant)]">原文字数</div>
-            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.originalLength }}</div>
+          <div class="neon-stat-card">
+            <div class="neon-stat-label">原文字数</div>
+            <div class="neon-stat-value">{{ skillPreviewStats.originalLength }}</div>
           </div>
-          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
-            <div class="text-xs text-[var(--md-on-surface-variant)]">技能结果字数</div>
-            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.transformedLength }}</div>
+          <div class="neon-stat-card">
+            <div class="neon-stat-label">技能结果字数</div>
+            <div class="neon-stat-value">{{ skillPreviewStats.transformedLength }}</div>
           </div>
-          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
-            <div class="text-xs text-[var(--md-on-surface-variant)]">变化段落</div>
-            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.changedParagraphs }}</div>
+          <div class="neon-stat-card">
+            <div class="neon-stat-label">变化段落</div>
+            <div class="neon-stat-value">{{ skillPreviewStats.changedParagraphs }}</div>
           </div>
         </div>
 
         <div class="grid gap-4 lg:grid-cols-2">
-          <div class="rounded-xl border" style="border-color: var(--md-outline-variant);">
-            <div class="border-b px-4 py-3 text-sm font-medium" style="border-bottom-color: var(--md-outline-variant); background-color: var(--md-surface-container-low); color: var(--md-on-surface);">
+          <div class="neon-comparison-panel">
+            <div class="neon-comparison-header neon-comparison-header--original">
               原文
             </div>
-            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7" style="color: var(--md-on-surface);">
+            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 font-manuscript" style="color: var(--ar-text-primary);">
               {{ skillApplyPreview.originalContent }}
             </div>
           </div>
 
-          <div class="rounded-xl border" style="border-color: var(--md-outline-variant);">
-            <div class="border-b px-4 py-3 text-sm font-medium" style="border-bottom-color: var(--md-outline-variant); background-color: var(--md-secondary-container); color: var(--md-on-secondary-container);">
-              技能结果
+          <div class="neon-comparison-panel">
+            <div class="neon-comparison-header neon-comparison-header--transformed">
+              <span class="neon-pulse mr-2"></span>技能结果
             </div>
-            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7" style="color: var(--md-on-surface);">
+            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 font-manuscript" style="color: var(--ar-text-primary);">
               {{ skillApplyPreview.transformedContent }}
             </div>
           </div>
@@ -1605,14 +1604,93 @@ onUnmounted(() => {
 .m3-shell {
   background: var(--ar-bg-base);
   color: var(--ar-text-primary);
-  font-family: var(--ar-font-family);
-  animation: m3-fade 0.6s ease-out both;
+  font-family: var(--ar-font-ui);
+  animation: m3-fade 0.6s var(--ar-easing-decelerate) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .m3-shell {
     animation: none;
   }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(77, 70, 50, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(77, 70, 50, 0.5);
+}
+
+.neon-skill-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--ar-radius-xs);
+  padding: 4px 12px;
+  font-size: var(--ar-text-label);
+  font-weight: 600;
+  font-family: var(--ar-font-ui);
+  background-color: var(--ar-secondary-muted);
+  color: var(--ar-secondary);
+  letter-spacing: 0.02em;
+}
+
+.neon-stat-card {
+  padding: 12px 16px;
+  border-radius: var(--ar-radius-sm);
+  background-color: var(--ar-bg-elevated);
+}
+
+.neon-stat-label {
+  font-size: var(--ar-text-label);
+  font-family: var(--ar-font-ui);
+  color: var(--ar-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.neon-stat-value {
+  margin-top: 4px;
+  font-size: var(--ar-text-h3);
+  font-weight: 600;
+  font-family: var(--ar-font-display);
+  color: var(--ar-text-primary);
+}
+
+.neon-comparison-panel {
+  border-radius: var(--ar-radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--ar-border);
+  background-color: var(--ar-bg-surface);
+}
+
+.neon-comparison-header {
+  padding: 12px 16px;
+  font-size: var(--ar-text-body);
+  font-weight: 600;
+  font-family: var(--ar-font-ui);
+  letter-spacing: 0.02em;
+}
+
+.neon-comparison-header--original {
+  background-color: var(--ar-bg-elevated);
+  color: var(--ar-text-primary);
+}
+
+.neon-comparison-header--transformed {
+  background-color: var(--ar-secondary-muted);
+  color: var(--ar-secondary);
+  display: flex;
+  align-items: center;
 }
 
 .line-clamp-1 {
@@ -1634,24 +1712,6 @@ onUnmounted(() => {
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #2A2A2A;
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #3A3A3A;
 }
 
 @keyframes m3-fade {

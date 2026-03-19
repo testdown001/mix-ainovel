@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>THE NEON MANUSCRIPT - 个人中心设置</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container-lowest": "#0a0f14",
+              "on-secondary-fixed": "#00210c",
+              "on-primary-fixed-variant": "#574500",
+              "on-background": "#dee3eb",
+              "surface-bright": "#353a40",
+              "tertiary": "#b2ffb7",
+              "secondary-fixed-dim": "#4de082",
+              "outline": "#9a9078",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-surface": "#dee3eb",
+              "tertiary-fixed-dim": "#78dc86",
+              "primary": "#ffecb9",
+              "on-primary-fixed": "#231b00",
+              "on-error": "#690005",
+              "tertiary-fixed": "#94f99f",
+              "on-secondary-container": "#003e1c",
+              "on-secondary": "#003919",
+              "inverse-primary": "#735c00",
+              "secondary-container": "#00b55d",
+              "on-secondary-fixed-variant": "#005227",
+              "background": "#0f1419",
+              "surface-dim": "#0f1419",
+              "surface-container-low": "#171c22",
+              "surface": "#0f1419",
+              "inverse-surface": "#dee3eb",
+              "primary-fixed": "#ffe083",
+              "surface-container-high": "#252a30",
+              "on-tertiary-fixed": "#002108",
+              "on-primary": "#3c2f00",
+              "error": "#ffb4ab",
+              "on-error-container": "#ffdad6",
+              "primary-container": "#facc15",
+              "surface-variant": "#30353b",
+              "on-primary-container": "#6c5700",
+              "tertiary-container": "#82e68f",
+              "secondary": "#4de082",
+              "secondary-fixed": "#6dfe9c",
+              "on-tertiary-container": "#006828",
+              "on-surface-variant": "#d1c6ab",
+              "error-container": "#93000a",
+              "surface-tint": "#eec200",
+              "inverse-on-surface": "#2c3137",
+              "surface-container-highest": "#30353b",
+              "outline-variant": "#4d4632",
+              "on-tertiary": "#003913",
+              "surface-container": "#1b2026",
+              "primary-fixed-dim": "#eec200"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { background-color: #000000; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel { background: rgba(48, 53, 59, 0.6); backdrop-filter: blur(12px); }
+        .neon-glow:hover { box-shadow: 0 0 15px rgba(250, 204, 21, 0.2); }
+    </style>
+</head>
+<body class="font-label text-on-surface">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl flex justify-between items-center px-8 h-16 tonal-shift bg-neutral-900/50 shadow-[0_0_15px_rgba(250,204,21,0.1)]">
+<div class="text-2xl font-bold tracking-tighter text-yellow-400 italic font-['Space_Grotesk']">THE NEON MANUSCRIPT</div>
+<div class="hidden md:flex items-center gap-8 font-['Space_Grotesk'] tracking-tight">
+<a class="text-neutral-400 hover:text-yellow-200 transition-colors" href="#">Dashboard</a>
+<a class="text-neutral-400 hover:text-yellow-200 transition-colors" href="#">Manuscripts</a>
+<a class="text-yellow-400 border-b-2 border-yellow-400 transition-colors" href="#">Settings</a>
+</div>
+<div class="flex items-center gap-4 text-yellow-400">
+<button class="material-symbols-outlined scale-95 duration-150 hover:text-yellow-200" data-icon="notifications">notifications</button>
+<button class="material-symbols-outlined scale-95 duration-150 hover:text-yellow-200" data-icon="settings_suggest">settings_suggest</button>
+<button class="material-symbols-outlined scale-95 duration-150 hover:text-yellow-200" data-icon="account_circle">account_circle</button>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-[#0f1419] hidden md:flex flex-col py-6 gap-2 tonal-shift bg-[#171c22] flat no-border z-40 pt-20">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-surface-container-highest rounded flex items-center justify-center overflow-hidden">
+<img alt="ARCHITECT_01" data-alt="Cyberpunk profile avatar with yellow highlights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBq96HnKdxf389MWBV_UpIsUXwmxVA_BFH0vUVoVHri9PA9He6J9j89pz1eXvzen_XgvrQfHNhccrMSxrd3_-9dsbKF6H3mqAHiPvhOCMXFoRap-4mjqkrRaxL9JZJYLbbfcLB4B6EVfj5oXT_fXGmjCe2YZmQQ1rj7kpj7AxJfyGNnsLgAaY5qLqS4NSch75EoDJvV4x9_J_TF4sllobvAxiBHypxvhQ5QKjPE6snI5JegNZrxbFQtf1G8-q30TiuesRscEUmxMNBe"/>
+</div>
+<div>
+<div class="font-['Space_Grotesk'] uppercase text-xs tracking-widest text-yellow-400">ARCHITECT_01</div>
+<div class="text-[10px] text-neutral-500 tracking-widest uppercase">Premium Tier</div>
+</div>
+</div>
+</div>
+<nav class="flex flex-col">
+<a class="flex items-center gap-4 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all translate-x-1 duration-200 font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span> Dashboard
+            </a>
+<a class="flex items-center gap-4 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all translate-x-1 duration-200 font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined" data-icon="auto_stories">auto_stories</span> Manuscripts
+            </a>
+<a class="flex items-center gap-4 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all translate-x-1 duration-200 font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span> Analytics
+            </a>
+<a class="flex items-center gap-4 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all translate-x-1 duration-200 font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined" data-icon="library_books">library_books</span> Resources
+            </a>
+<a class="flex items-center gap-4 px-6 py-3 bg-yellow-400/10 text-yellow-400 border-r-4 border-yellow-400 shadow-[inset_0_0_10px_rgba(250,204,21,0.2)] font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span> Settings
+            </a>
+</nav>
+<div class="mt-auto px-6">
+<button class="w-full py-3 bg-primary-container text-on-primary-container font-bold text-xs tracking-widest flex items-center justify-center gap-2 hover:brightness-110 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span> NEW MANUSCRIPT
+            </button>
+<a class="flex items-center gap-4 py-6 text-neutral-500 hover:text-neutral-200 transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined" data-icon="logout">logout</span> Logout
+            </a>
+</div>
+</aside>
+<!-- Main Content -->
+<main class="md:ml-64 pt-24 px-6 pb-12 min-h-screen bg-black">
+<div class="max-w-5xl mx-auto">
+<header class="mb-10">
+<h1 class="font-headline text-4xl font-extrabold tracking-tighter text-on-surface mb-2">个人中心设置</h1>
+<p class="text-neutral-500 font-label tracking-wide uppercase text-xs">Configure your neural link and editorial environment</p>
+</header>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+<!-- Left Column: Navigation Quick Links -->
+<div class="lg:col-span-3 space-y-4">
+<nav class="flex flex-col gap-1">
+<a class="px-4 py-2 bg-surface-container-low text-primary border-l-2 border-primary text-sm font-medium" href="#account">账户信息</a>
+<a class="px-4 py-2 text-neutral-500 hover:text-on-surface hover:bg-surface-container-low text-sm transition-colors" href="#security">安全隐私</a>
+<a class="px-4 py-2 text-neutral-500 hover:text-on-surface hover:bg-surface-container-low text-sm transition-colors" href="#writing">写作偏好</a>
+<a class="px-4 py-2 text-neutral-500 hover:text-on-surface hover:bg-surface-container-low text-sm transition-colors" href="#billing">订阅计划</a>
+</nav>
+</div>
+<!-- Right Column: Form Sections -->
+<div class="lg:col-span-9 space-y-12">
+<!-- 1. Account Info -->
+<section class="bg-surface-container-low p-8 rounded shadow-2xl relative overflow-hidden" id="account">
+<div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 blur-3xl -mr-16 -mt-16 rounded-full"></div>
+<h2 class="font-headline text-xl font-bold text-primary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="person">person</span> 账户信息
+                        </h2>
+<div class="space-y-8">
+<div class="flex flex-col md:flex-row gap-8 items-start">
+<div class="relative group">
+<div class="w-24 h-24 rounded bg-surface-container-highest flex items-center justify-center overflow-hidden outline outline-2 outline-outline-variant/30">
+<img alt="Avatar" data-alt="Cyberpunk character portrait with glowing eyes" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDXJ2bccv_-4HPyK8IcPHsX1XRlSmImFH4UclcVDPz7WM0i2f0Cxa2rX3FbnTXbDqKLXGa2zzFF_snRtaSasBH1qq0lCbn2ryL_x32GVRNSdk1YCe2e0IeLvch_MZmyMchbQ1Zl3_988w_yCJKS5FmghDwQrkw3LLts2P9DiTIcDq921n8k_cw0JexG7KGR6F-yNmHI8rlULT_uC7rxWMZEF5g_QKE2rthNgxaMQAejAAFP5JhPu-EnEdvXlpJiP_nqAuQFlsOroMqf"/>
+</div>
+<button class="absolute -bottom-2 -right-2 bg-primary-container text-on-primary-container p-1.5 rounded-full shadow-lg scale-90 hover:scale-100 transition-transform">
+<span class="material-symbols-outlined text-sm" data-icon="edit">edit</span>
+</button>
+</div>
+<div class="flex-1 w-full space-y-4">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="space-y-1.5">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">昵称</label>
+<input class="w-full bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary text-on-surface text-sm p-3 rounded-sm transition-all" type="text" value="ARCHITECT_01"/>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">电子邮件</label>
+<input class="w-full bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary text-on-surface text-sm p-3 rounded-sm opacity-60 cursor-not-allowed" type="email" value="architect@neon-manuscript.io"/>
+</div>
+</div>
+<div class="space-y-1.5">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">个人简介</label>
+<textarea class="w-full bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary text-on-surface text-sm p-3 rounded-sm resize-none" rows="3">正在构建一个关于霓虹与阴影的世界。专注于赛博朋克文学创作与AI协同演化。</textarea>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 2. Security -->
+<section class="bg-surface-container-low p-8 rounded shadow-2xl" id="security">
+<h2 class="font-headline text-xl font-bold text-primary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="security">security</span> 安全与密钥
+                        </h2>
+<div class="space-y-6">
+<div class="p-4 bg-surface-container-lowest rounded flex justify-between items-center group">
+<div>
+<div class="text-sm font-bold text-on-surface mb-1">修改密码</div>
+<div class="text-xs text-neutral-500">上次更改于 32天前</div>
+</div>
+<button class="text-xs font-bold text-secondary border border-secondary/20 px-4 py-2 hover:bg-secondary/10 transition-colors">更新</button>
+</div>
+<div class="space-y-3">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">API 访问令牌</label>
+<div class="relative">
+<input class="w-full bg-surface-container-lowest border-none text-on-surface text-sm p-3 rounded-sm pr-12 font-mono" type="password" value="sk-neon-••••••••••••••••"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="visibility">visibility</span>
+</button>
+</div>
+<div class="flex justify-between items-center">
+<p class="text-[10px] text-neutral-500 italic">用于同步第三方编辑器 (如 Obsidian, VSCode)</p>
+<button class="text-[10px] font-bold text-primary underline">重新生成</button>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. Writing Preferences -->
+<section class="bg-surface-container-low p-8 rounded shadow-2xl border-l-4 border-secondary/20" id="writing">
+<h2 class="font-headline text-xl font-bold text-secondary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="edit_note">edit_note</span> 写作偏好
+                        </h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<div class="space-y-4">
+<div class="space-y-2">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">默认字体</label>
+<div class="grid grid-cols-2 gap-2">
+<button class="p-3 bg-secondary text-on-secondary text-xs font-bold rounded flex items-center justify-center gap-2">
+                                            Noto Serif SC
+                                        </button>
+<button class="p-3 bg-surface-container-lowest text-on-surface text-xs font-medium rounded flex items-center justify-center gap-2 hover:bg-surface-variant transition-colors">
+                                            Inter UI
+                                        </button>
+</div>
+</div>
+<div class="space-y-2">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">字号控制 (18px)</label>
+<input class="w-full h-1 bg-surface-container-lowest rounded-lg appearance-none cursor-pointer accent-secondary" type="range"/>
+</div>
+</div>
+<div class="space-y-4">
+<label class="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">编辑器主题</label>
+<div class="flex gap-3">
+<div class="w-12 h-12 rounded-full border-2 border-secondary p-1">
+<div class="w-full h-full rounded-full bg-black"></div>
+</div>
+<div class="w-12 h-12 rounded-full border-2 border-transparent p-1 hover:border-outline-variant transition-all">
+<div class="w-full h-full rounded-full bg-[#1e1e1e]"></div>
+</div>
+<div class="w-12 h-12 rounded-full border-2 border-transparent p-1 hover:border-outline-variant transition-all">
+<div class="w-full h-full rounded-full bg-[#0f172a]"></div>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<input checked="" class="w-4 h-4 bg-surface-container-lowest border-none rounded text-secondary focus:ring-0" type="checkbox"/>
+<span class="text-xs text-on-surface">启用 AI 实时纠错与润色脉冲</span>
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_#4de082]"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- 4. Billing -->
+<section class="glass-panel p-8 rounded shadow-2xl relative" id="billing">
+<div class="absolute top-0 right-0 bg-secondary/10 text-secondary text-[10px] font-bold px-3 py-1 uppercase tracking-widest">Active Plan</div>
+<h2 class="font-headline text-xl font-bold text-primary mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="payments">payments</span> 订阅管理
+                        </h2>
+<div class="flex flex-col md:flex-row justify-between items-center gap-8 bg-surface-container-lowest/50 p-6 rounded">
+<div class="flex items-center gap-6">
+<div class="text-center">
+<div class="text-[10px] text-neutral-500 uppercase tracking-tighter">当前等级</div>
+<div class="text-3xl font-headline font-bold text-secondary">PREMIUM</div>
+</div>
+<div class="h-10 w-[1px] bg-outline-variant/30"></div>
+<div>
+<div class="text-xs font-medium text-on-surface">¥99.00 / 月</div>
+<div class="text-[10px] text-neutral-500">下次账单日期: 2024-06-12</div>
+</div>
+</div>
+<div class="flex gap-3">
+<button class="px-6 py-2 bg-surface-variant text-on-surface text-xs font-bold hover:bg-surface-bright transition-colors">管理账单</button>
+<button class="px-6 py-2 bg-primary-container text-on-primary-container text-xs font-bold hover:brightness-110 transition-all neon-glow">升级计划</button>
+</div>
+</div>
+</section>
+<!-- Action Footer -->
+<footer class="flex justify-end gap-4 pt-4">
+<button class="px-8 py-3 text-neutral-500 font-bold text-xs tracking-widest hover:text-on-surface transition-colors">取消修改</button>
+<button class="px-10 py-3 bg-primary-container text-on-primary-container font-bold text-xs tracking-widest shadow-[0_0_20px_rgba(250,204,21,0.3)] hover:scale-105 transition-all">保存所有更改</button>
+</footer>
+</div>
+</div>
+</div>
+</main>
+<!-- Mobile Bottom Nav -->
+<nav class="md:hidden fixed bottom-0 w-full bg-black/90 backdrop-blur-lg grid grid-cols-4 h-16 items-center text-center z-50">
+<a class="flex flex-col items-center gap-1 text-neutral-400" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-[10px] font-headline">DASH</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-neutral-400" href="#">
+<span class="material-symbols-outlined" data-icon="auto_stories">auto_stories</span>
+<span class="text-[10px] font-headline">WORK</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-neutral-400" href="#">
+<span class="material-symbols-outlined" data-icon="monitoring">monitoring</span>
+<span class="text-[10px] font-headline">DATA</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-yellow-400 border-t-2 border-yellow-400" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-[10px] font-headline">SET</span>
+</a>
+</nav>
+</body></html>

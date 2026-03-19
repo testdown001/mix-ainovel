@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-container-lowest": "#0a0f14",
+              "on-secondary-fixed": "#00210c",
+              "on-primary-fixed-variant": "#574500",
+              "on-background": "#dee3eb",
+              "surface-bright": "#353a40",
+              "tertiary": "#b2ffb7",
+              "secondary-fixed-dim": "#4de082",
+              "outline": "#9a9078",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-surface": "#dee3eb",
+              "tertiary-fixed-dim": "#78dc86",
+              "primary": "#ffecb9",
+              "on-primary-fixed": "#231b00",
+              "on-error": "#690005",
+              "tertiary-fixed": "#94f99f",
+              "on-secondary-container": "#003e1c",
+              "on-secondary": "#003919",
+              "inverse-primary": "#735c00",
+              "secondary-container": "#00b55d",
+              "on-secondary-fixed-variant": "#005227",
+              "background": "#0f1419",
+              "surface-dim": "#0f1419",
+              "surface-container-low": "#171c22",
+              "surface": "#0f1419",
+              "inverse-surface": "#dee3eb",
+              "primary-fixed": "#ffe083",
+              "surface-container-high": "#252a30",
+              "on-tertiary-fixed": "#002108",
+              "on-primary": "#3c2f00",
+              "error": "#ffb4ab",
+              "on-error-container": "#ffdad6",
+              "primary-container": "#facc15",
+              "surface-variant": "#30353b",
+              "on-primary-container": "#6c5700",
+              "tertiary-container": "#82e68f",
+              "secondary": "#4de082",
+              "secondary-fixed": "#6dfe9c",
+              "on-tertiary-container": "#006828",
+              "on-surface-variant": "#d1c6ab",
+              "error-container": "#93000a",
+              "surface-tint": "#eec200",
+              "inverse-on-surface": "#2c3137",
+              "surface-container-highest": "#30353b",
+              "outline-variant": "#4d4632",
+              "on-tertiary": "#003913",
+              "surface-container": "#1b2026",
+              "primary-fixed-dim": "#eec200"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .glass-panel {
+        background: rgba(48, 53, 59, 0.6);
+        backdrop-filter: blur(12px);
+      }
+      .neon-glow-primary:hover {
+        box-shadow: 0 0 15px rgba(250, 204, 21, 0.4);
+      }
+      .manuscript-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 1.5rem;
+      }
+      body {
+        background-color: #000000;
+        color: #dee3eb;
+      }
+    </style>
+</head>
+<body class="font-label">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl tonal-shift bg-neutral-900/50 shadow-[0_0_15px_rgba(250,204,21,0.1)] flex justify-between items-center px-8 h-16">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold tracking-tighter text-yellow-400 italic font-['Space_Grotesk']">THE NEON MANUSCRIPT</span>
+<div class="hidden md:flex gap-6 font-['Space_Grotesk'] tracking-tight">
+<a class="text-neutral-400 hover:text-yellow-200 transition-colors" href="#">Dashboard</a>
+<a class="text-yellow-400 border-b-2 border-yellow-400 hover:text-yellow-200 transition-colors" href="#">Manuscripts</a>
+<a class="text-neutral-400 hover:text-yellow-200 transition-colors" href="#">Analytics</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative flex items-center bg-surface-container-low px-3 py-1.5 rounded-sm outline-variant/10 outline outline-1">
+<span class="material-symbols-outlined text-neutral-400 text-sm">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm text-on-surface ml-2 w-48" placeholder="搜索作品..." type="text"/>
+</div>
+<div class="flex items-center gap-3">
+<button class="material-symbols-outlined text-neutral-400 hover:text-yellow-400 transition-colors">notifications</button>
+<button class="material-symbols-outlined text-neutral-400 hover:text-yellow-400 transition-colors">settings_suggest</button>
+<button class="material-symbols-outlined text-yellow-400">account_circle</button>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 bg-[#0f1419] tonal-shift bg-[#171c22] flat no-border flex flex-col py-6 gap-2 z-40 mt-16">
+<div class="px-6 mb-8">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-sm bg-primary-container flex items-center justify-center text-on-primary-container font-bold">A1</div>
+<div>
+<div class="font-['Space_Grotesk'] uppercase text-xs tracking-widest text-yellow-400">ARCHITECT_01</div>
+<div class="text-[10px] text-neutral-500 uppercase tracking-tighter">Premium Tier</div>
+</div>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span> Dashboard
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 bg-yellow-400/10 text-yellow-400 border-r-4 border-yellow-400 shadow-[inset_0_0_10px_rgba(250,204,21,0.2)] font-['Space_Grotesk'] uppercase text-xs tracking-widest translate-x-1 duration-200" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="auto_stories">auto_stories</span> Manuscripts
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="monitoring">monitoring</span> Analytics
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="library_books">library_books</span> Resources
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="health_and_safety">health_and_safety</span> System Health
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-neutral-500 hover:text-neutral-200 hover:bg-white/5 transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="settings">settings</span> Settings
+            </a>
+</nav>
+<div class="px-6 py-4">
+<button class="w-full py-3 bg-primary-container text-on-primary-container font-bold text-xs tracking-widest uppercase rounded-sm neon-glow-primary transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">add</span> NEW MANUSCRIPT
+            </button>
+</div>
+<div class="mt-auto px-6">
+<a class="flex items-center gap-3 py-3 text-neutral-500 hover:text-error transition-all font-['Space_Grotesk'] uppercase text-xs tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="logout">logout</span> Logout
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-8 min-h-screen">
+<!-- Header Section -->
+<header class="flex justify-between items-end mb-10">
+<div>
+<h1 class="font-headline text-4xl font-bold tracking-tight text-on-background mb-2">作品管理 <span class="text-primary-container">/</span> MANUSCRIPTS</h1>
+<p class="text-neutral-500 font-label text-sm uppercase tracking-widest">Total 12 Active Projects | Last update 2 mins ago</p>
+</div>
+<div class="flex gap-4">
+<div class="flex items-center gap-2 bg-surface-container-low px-4 py-2 rounded-sm border border-outline-variant/20">
+<span class="text-xs text-neutral-500 uppercase font-headline">Sort by:</span>
+<select class="bg-transparent border-none text-xs font-bold text-primary focus:ring-0 cursor-pointer p-0">
+<option>UPDATE TIME</option>
+<option>QUALITY SCORE</option>
+<option>WORD COUNT</option>
+</select>
+</div>
+<div class="flex items-center gap-2 bg-surface-container-low px-4 py-2 rounded-sm border border-outline-variant/20">
+<span class="text-xs text-neutral-500 uppercase font-headline">Genre:</span>
+<select class="bg-transparent border-none text-xs font-bold text-primary focus:ring-0 cursor-pointer p-0">
+<option>ALL GENRES</option>
+<option>CYBERPUNK</option>
+<option>TECH-NOIR</option>
+<option>WUXIA</option>
+</select>
+</div>
+</div>
+</header>
+<!-- Manuscripts Grid -->
+<div class="manuscript-grid">
+<!-- Book Card 1 -->
+<div class="group relative bg-surface-container-low p-5 rounded-sm transition-all hover:bg-surface-container border-l-2 border-primary-container">
+<div class="flex gap-4">
+<div class="relative w-32 h-44 flex-shrink-0 shadow-2xl overflow-hidden rounded-sm">
+<img class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" data-alt="Cyberpunk city street neon book cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCiTyxXVFuM3mJkPSp_DZD55-PFhUkoDSH8F0dD7sd6r7MtqZ63xsEAzAx0VBHzaA1AP7lvD56eFKd1BJbC0nJDoowLbREwe7KjJpaOqGwi3o27B10l5cBEo0tVVjoasEdgWfbv_uOz9gf2a2ggEJHXrFOrZz0X7nt3ZUxK9cWkozHHobFt6IgYprOgBcpduLfMf1oYPE9gsJkTtUkGCFv7884VOV5tV38zRTr6wHbhB8Q4lmv9j_gjaMXQ1L-gXtdP6vP6x4cWbmrJ"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+<div class="absolute bottom-2 left-2 px-1.5 py-0.5 bg-secondary-container/90 text-[10px] font-bold text-on-secondary-container uppercase tracking-widest">Published</div>
+</div>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<h3 class="font-body text-xl font-bold text-on-background group-hover:text-primary transition-colors mb-1">Neon Shadows</h3>
+<p class="text-[10px] font-headline text-neutral-500 tracking-widest mb-4">CYBERPUNK / TECH-NOIR</p>
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-[10px] text-neutral-400 uppercase">Word Count</span>
+<span class="font-headline font-medium text-sm">142,500</span>
+</div>
+<div class="flex justify-between items-end">
+<span class="text-[10px] text-neutral-400 uppercase">AI Completion</span>
+<span class="font-headline font-medium text-sm text-secondary">82%</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="h-full bg-secondary shadow-[0_0_8px_#4de082]" style="width: 82%"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-4">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-headline text-lg font-bold">9.2</span>
+<span class="text-[10px] text-neutral-500 uppercase">Score</span>
+</div>
+<button class="material-symbols-outlined text-neutral-500 hover:text-primary-container transition-colors">edit_square</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Book Card 2 -->
+<div class="group relative bg-surface-container-low p-5 rounded-sm transition-all hover:bg-surface-container border-l-2 border-neutral-700">
+<div class="flex gap-4">
+<div class="relative w-32 h-44 flex-shrink-0 shadow-2xl overflow-hidden rounded-sm">
+<img class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" data-alt="Abstract neural network matrix book cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCA5behSYoV7DD00XyKl84bUUvuKluEfggdv8FHtfiKBe4_0aIrbnzNbSGUECsSwrzYIrlnxdbrE2-U1hdBjMfifRVtDR-jOk91lEud42swqlFhVcWW5OSVVJMz5umw4itBqyzFFilqy8O5Q444QlZBJk3oOFPvIq0uUrGnt400SHQOjWA-oaV-eExlVxw-uMrb2Me5rc__jOWIrv5vofbie00fiFa4pigwvlpvrQGbGL9nOd1Jqg1jcRVfv3T69bBAn869MzN2-MZh"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+<div class="absolute bottom-2 left-2 px-1.5 py-0.5 bg-surface-variant text-[10px] font-bold text-on-surface uppercase tracking-widest">Draft</div>
+</div>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<h3 class="font-body text-xl font-bold text-on-background group-hover:text-primary transition-colors mb-1">Neural Breach</h3>
+<p class="text-[10px] font-headline text-neutral-500 tracking-widest mb-4">HARD SCI-FI / THRILLER</p>
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-[10px] text-neutral-400 uppercase">Word Count</span>
+<span class="font-headline font-medium text-sm">34,200</span>
+</div>
+<div class="flex justify-between items-end">
+<span class="text-[10px] text-neutral-400 uppercase">AI Completion</span>
+<span class="font-headline font-medium text-sm text-secondary">15%</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="h-full bg-secondary shadow-[0_0_8px_#4de082]" style="width: 15%"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-4">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-headline text-lg font-bold">7.5</span>
+<span class="text-[10px] text-neutral-500 uppercase">Score</span>
+</div>
+<button class="material-symbols-outlined text-neutral-500 hover:text-primary-container transition-colors">edit_square</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Book Card 3 -->
+<div class="group relative bg-surface-container-low p-5 rounded-sm transition-all hover:bg-surface-container border-l-2 border-primary">
+<div class="flex gap-4">
+<div class="relative w-32 h-44 flex-shrink-0 shadow-2xl overflow-hidden rounded-sm">
+<img class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500" data-alt="Dystopian landscape with orange haze book cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB0HUecjU_etZ93bbdlItYY2QKN6Uqu1gNxePOKKaPgEzQTpPCkMRqLg3tXKu9g7ZGJuXMM8oPnZkFRuglRoBRf--DScnymgCrVuCWve3ml955TRrMz5jzpnkEIKU_PcIeBf_k9PtZgy0IF7o18L7czTLqiEzVAmxvDxvdty6bN5bTcRL2LUWwNJEOfMmv7Iy3Yrq6pgBTvTZespIcEuLLK0vTpuZD-U0ae7-O4pD-Q1j5NZcQYGNozdP9LGuS2g4Jnn5zBXUIdV4gq"/>
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent"></div>
+<div class="absolute bottom-2 left-2 px-1.5 py-0.5 bg-primary-container text-[10px] font-bold text-on-primary-container uppercase tracking-widest">Scheduled</div>
+</div>
+<div class="flex-1 flex flex-col justify-between">
+<div>
+<h3 class="font-body text-xl font-bold text-on-background group-hover:text-primary transition-colors mb-1">Titan's Fall</h3>
+<p class="text-[10px] font-headline text-neutral-500 tracking-widest mb-4">SPACE OPERA</p>
+<div class="space-y-3">
+<div class="flex justify-between items-end">
+<span class="text-[10px] text-neutral-400 uppercase">Word Count</span>
+<span class="font-headline font-medium text-sm">88,000</span>
+</div>
+<div class="flex justify-between items-end">
+<span class="text-[10px] text-neutral-400 uppercase">AI Completion</span>
+<span class="font-headline font-medium text-sm text-secondary">100%</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="h-full bg-secondary shadow-[0_0_8px_#4de082]" style="width: 100%"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between pt-4">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+<span class="font-headline text-lg font-bold">8.9</span>
+<span class="text-[10px] text-neutral-500 uppercase">Score</span>
+</div>
+<button class="material-symbols-outlined text-neutral-500 hover:text-primary-container transition-colors">edit_square</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Book Card 4 (Empty State Placeholder Style) -->
+<button class="group relative flex flex-col items-center justify-center p-8 rounded-sm border-2 border-dashed border-outline-variant/30 hover:border-primary-container transition-all hover:bg-surface-container-low min-h-[220px]">
+<span class="material-symbols-outlined text-4xl text-neutral-600 group-hover:text-primary-container mb-3 transition-colors">add_circle</span>
+<span class="font-headline text-xs font-bold tracking-widest text-neutral-500 group-hover:text-neutral-200">START NEW ARCHIVE</span>
+</button>
+</div>
+<!-- AI Insights Dashboard (Bento Grid Section) -->
+<section class="mt-16">
+<h2 class="font-headline text-xl font-bold text-primary mb-6 tracking-widest">SYSTEM INSIGHTS</h2>
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="md:col-span-2 glass-panel p-6 rounded-sm border border-outline-variant/10">
+<div class="flex items-center justify-between mb-4">
+<span class="text-[10px] text-neutral-400 uppercase font-headline tracking-widest">Market Trend Analysis</span>
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_#4de082]"></div>
+</div>
+<p class="font-body text-lg text-on-background leading-relaxed">
+                        Cyberpunk genre visibility increased by <span class="text-secondary font-bold">14.2%</span> this month. Readers are favoring <span class="text-primary italic">Neon Shadows</span> narrative pacing.
+                    </p>
+<div class="mt-6 flex items-center gap-2">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full border border-background bg-surface-variant flex items-center justify-center text-[8px]">AI</div>
+<div class="w-6 h-6 rounded-full border border-background bg-primary-container flex items-center justify-center text-[8px] text-on-primary-container">SYS</div>
+</div>
+<span class="text-[10px] text-neutral-500">Live AI Pulse active</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-sm border-b-2 border-primary">
+<span class="text-[10px] text-neutral-400 uppercase font-headline tracking-widest block mb-6">Total Words</span>
+<div class="flex items-end gap-2">
+<span class="font-headline text-4xl font-bold text-on-background">264.7k</span>
+<span class="text-secondary text-xs font-bold mb-1">+12%</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-sm">
+<span class="text-[10px] text-neutral-400 uppercase font-headline tracking-widest block mb-6">Avg. Quality</span>
+<div class="flex items-end gap-2">
+<span class="font-headline text-4xl font-bold text-on-background">8.5</span>
+<span class="text-primary text-xs font-bold mb-1">HIGH</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating Action Button (FAB) -->
+<!-- Suppressed on Manuscripts screen per UI rules as the main CTA is in the sidebar/header -->
+</body></html>

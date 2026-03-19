@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Admin - Novel Projects</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "outline-variant": "#4d4632",
+                        "on-surface": "#dee3eb",
+                        "on-secondary": "#003919",
+                        "on-primary-fixed-variant": "#574500",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1b2026",
+                        "secondary": "#4de082",
+                        "surface-container-highest": "#30353b",
+                        "on-secondary-fixed-variant": "#005227",
+                        "on-secondary-container": "#003e1c",
+                        "on-primary": "#3c2f00",
+                        "surface-dim": "#0f1419",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "error-container": "#93000a",
+                        "surface-container-low": "#171c22",
+                        "primary-container": "#facc15",
+                        "surface-container-high": "#252a30",
+                        "inverse-surface": "#dee3eb",
+                        "tertiary-fixed": "#94f99f",
+                        "on-primary-fixed": "#231b00",
+                        "inverse-primary": "#735c00",
+                        "tertiary-container": "#82e68f",
+                        "on-secondary-fixed": "#00210c",
+                        "on-tertiary-fixed": "#002108",
+                        "on-tertiary-container": "#006828",
+                        "inverse-on-surface": "#2c3137",
+                        "background": "#0f1419",
+                        "secondary-fixed": "#6dfe9c",
+                        "secondary-container": "#00b55d",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "error": "#ffb4ab",
+                        "surface-tint": "#eec200",
+                        "on-tertiary": "#003913",
+                        "primary": "#ffecb9",
+                        "on-primary-container": "#6c5700",
+                        "on-background": "#dee3eb",
+                        "primary-fixed-dim": "#eec200",
+                        "on-surface-variant": "#d1c6ab",
+                        "outline": "#9a9078",
+                        "surface": "#0f1419",
+                        "primary-fixed": "#ffe083",
+                        "surface-variant": "#30353b",
+                        "surface-container-lowest": "#0a0f14",
+                        "surface-bright": "#353a40",
+                        "tertiary": "#b2ffb7",
+                        "secondary-fixed-dim": "#4de082",
+                        "on-error": "#690005"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #000000;
+            color: #dee3eb;
+        }
+        .tonal-shift { background-color: #171c22; }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow {
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.05);
+        }
+        .ai-pulse {
+            box-shadow: 0 0 10px #4de082;
+        }
+    </style>
+</head>
+<body class="font-label overflow-x-hidden">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full z-50 flex flex-col h-full w-64 border-r border-[#4d4632]/15 bg-[#171c22]">
+<div class="p-6">
+<h1 class="text-2xl font-bold tracking-tighter text-[#FACC15] uppercase font-headline">Arboris Admin</h1>
+<p class="text-[10px] text-gray-500 uppercase tracking-widest mt-1">System Oversight</p>
+</div>
+<nav class="flex-1 px-3 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="text-sm">User Management</span>
+</a>
+<!-- Active Tab: Novel Projects -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#FACC15] bg-[#30353b]/60 backdrop-blur-md rounded-sm border-l-4 border-[#FACC15]" href="#">
+<span class="material-symbols-outlined">book_2</span>
+<span class="text-sm font-medium">Novel Projects</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="text-sm">Prompt Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="text-sm">System Logs</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">health_metrics</span>
+<span class="text-sm">System Health</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">shield_lock</span>
+<span class="text-sm">Security Center</span>
+</a>
+</nav>
+<div class="p-4 border-t border-[#4d4632]/10 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-[#FACC15] transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-sm">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-[#FACC15] transition-colors" href="#">
+<span class="material-symbols-outlined">help_center</span>
+<span class="text-sm">Support</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-64 h-16 flex justify-between items-center px-8 z-40 bg-black/80 backdrop-blur-xl border-b border-[#4d4632]/15 shadow-[0_0_20px_rgba(250,204,21,0.05)]">
+<div class="flex items-center gap-8">
+<div class="flex items-center gap-6">
+<span class="text-xs font-medium text-gray-500 font-label">CPU: <span class="text-[#FACC15]">24%</span></span>
+<span class="text-xs font-medium text-gray-500 font-label">RAM: <span class="text-[#FACC15]">12GB</span></span>
+<span class="text-xs font-medium text-gray-500 font-label">Latency: <span class="text-[#FACC15]">15ms</span></span>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="bg-[#FACC15] text-[#3c2f00] px-4 py-1.5 rounded-sm text-xs font-bold uppercase tracking-tight hover:brightness-110 transition-all">
+                Deploy Update
+            </button>
+<div class="flex items-center gap-4 text-gray-400">
+<span class="material-symbols-outlined cursor-pointer hover:text-[#FACC15]">notifications_active</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-[#FACC15]">settings_suggest</span>
+<div class="w-8 h-8 rounded-full bg-[#30353b] flex items-center justify-center border border-[#FACC15]/20 overflow-hidden">
+<img alt="Admin Avatar" class="w-full h-full object-cover" data-alt="Admin user profile photograph portrait" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAb3LGOCetqZbvisFsiF9FYqErwc01vMLms1PiG7Kr-q6qHsdA3IWAHvMgGHpucemnKTY-0CTP9IjvIWfT6F_Y1HWOYtQeWqfaqhDT8LfJLHUV8MkmEICW0p43F3h_mYqWz6p2jTidEx-nBmFji34nCNBAPesPzQeiQsKDP_Mhea2_ouw9nDpoKGGHAcEV57SwQph2tbZwqYGuj2YACCImS2FkCIxt3j3ZKwmBVnGEBgjq4TZbyUBZRXssLrRVDRMg5gIz2sHqSanMe"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-64 pt-24 px-8 pb-12 min-h-screen bg-black">
+<!-- Quick Stats Bento Grid -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+<div class="bg-[#171c22] p-6 rounded-sm border-l-2 border-[#FACC15] relative overflow-hidden group">
+<div class="relative z-10">
+<p class="text-[10px] text-gray-500 font-label uppercase tracking-widest mb-1">Total Novels / 全部作品</p>
+<h3 class="text-3xl font-bold font-headline text-[#FACC15]">14,282</h3>
+</div>
+<div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-8xl">library_books</span>
+</div>
+</div>
+<div class="bg-[#171c22] p-6 rounded-sm border-l-2 border-secondary relative overflow-hidden group">
+<div class="relative z-10">
+<p class="text-[10px] text-gray-500 font-label uppercase tracking-widest mb-1">AI Tokens / 耗能总计</p>
+<h3 class="text-3xl font-bold font-headline text-secondary">8.4M</h3>
+</div>
+<div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-8xl">bolt</span>
+</div>
+</div>
+<div class="bg-[#171c22] p-6 rounded-sm border-l-2 border-error relative overflow-hidden group">
+<div class="relative z-10">
+<p class="text-[10px] text-gray-500 font-label uppercase tracking-widest mb-1">Flagged / 违规预警</p>
+<h3 class="text-3xl font-bold font-headline text-error">124</h3>
+</div>
+<div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-8xl">gpp_maybe</span>
+</div>
+</div>
+<div class="bg-[#171c22] p-6 rounded-sm border-l-2 border-primary relative overflow-hidden group">
+<div class="relative z-10">
+<p class="text-[10px] text-gray-500 font-label uppercase tracking-widest mb-1">New Chapters / 今日更新</p>
+<h3 class="text-3xl font-bold font-headline text-on-surface">3,891</h3>
+</div>
+<div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+<span class="material-symbols-outlined text-8xl">history_edu</span>
+</div>
+</div>
+</section>
+<!-- Global Novel Monitor Section -->
+<section class="mb-8">
+<div class="flex justify-between items-end mb-6">
+<div>
+<h2 class="text-xl font-bold font-headline text-[#FACC15] flex items-center gap-2">
+<span class="material-symbols-outlined">analytics</span>
+                        GLOBAL NOVEL MONITOR / 全局项目监控
+                    </h2>
+<p class="text-xs text-gray-500 mt-1">Real-time tracking of AI augmentation and manuscript compliance.</p>
+</div>
+<div class="flex gap-4">
+<div class="bg-[#171c22] px-4 py-2 rounded-sm border border-[#4d4632]/20 flex items-center gap-3">
+<span class="material-symbols-outlined text-sm text-[#FACC15]">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm text-on-surface placeholder-gray-600 w-48" placeholder="Search by book or author..." type="text"/>
+</div>
+<button class="bg-[#30353b] text-on-surface px-4 py-2 rounded-sm text-xs font-bold hover:bg-[#252a30] transition-colors border border-outline-variant/20">
+                        FILTERS
+                    </button>
+</div>
+</div>
+<!-- Novel Data Table -->
+<div class="bg-[#171c22] rounded-sm overflow-hidden border border-[#4d4632]/10">
+<table class="w-full text-left border-collapse">
+<thead class="bg-[#0a0f14] border-b border-[#4d4632]/20">
+<tr>
+<th class="px-6 py-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest">Book Title &amp; Author</th>
+<th class="px-6 py-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-center">Word Count</th>
+<th class="px-6 py-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-center">AI Ratio</th>
+<th class="px-6 py-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-center">Compliance</th>
+<th class="px-6 py-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-center">Status</th>
+<th class="px-6 py-4 text-[10px] font-bold text-gray-500 uppercase tracking-widest text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#4d4632]/10">
+<!-- Row 1 -->
+<tr class="hover:bg-[#30353b]/20 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-10 h-14 bg-black border border-[#4d4632]/30 flex-shrink-0 relative">
+<img alt="Book Cover" class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="Old book cover with aesthetic design" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCBwgs85jPfQ5BPf0MzDjpVCOr8Kcu4CmiooIdDqkAgR_g4ZsWYwyqeP_KyZ91aWZffm_75BawiUDOBwsFG9o1zrSlKWr18UoX1wVapaTfK-j-0tBubZjtaS1VEVDqiAC4YAY9OhU8PQ1H0lK7XUe2WHY6pAYNnDX48JYv48xiLt-5BPAMsmucaz93gU0FioR8pdgtj57gTRY6Aq3KuqMTv4CqPRMne08M5N112hyjlOnfylJy5R9S78CI6C971PvbR-sBGQjv_9xte"/>
+</div>
+<div>
+<h4 class="font-body text-on-surface font-bold">霓虹废土中的古诗 / Neon Wasteland Poetry</h4>
+<p class="text-xs text-gray-500 font-label">墨影 (Ink Shadow)</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center font-headline text-sm text-gray-300">124,502</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="text-xs font-headline text-secondary">64%</span>
+<div class="w-16 h-1.5 bg-[#0a0f14] rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 64%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center">
+<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter rounded-sm">98/100</span>
+</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary ai-pulse"></span>
+<span class="text-xs text-gray-300">Serializing</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-[10px] font-bold text-[#FACC15] hover:underline uppercase tracking-tight">Review AI Content</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-[#30353b]/20 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-10 h-14 bg-black border border-[#4d4632]/30 flex-shrink-0 relative">
+<img alt="Book Cover" class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="Cyberpunk style glowing book cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAtfgnVZciatAAX38tqgTWj6xbly26wIoKypePXgYR1L8qfmjKXI_oCDA54cHD_Yg3n87UGG5kK12WC1oZ0PwBbb_0r8FsdhLodzRe7hz2JP5LexPpS5qEmyUvE_qNerWT6an-hQWU_LM3AqvhxRz9sUe7y8NMh_kGvBdu0IcBes3XrsswZRWAhjXVX_3Xq1z9coFSPbZXB87xucCNAySdtkwADBx-K9rVMFdqCuyTD6MBr0UYW8qjCYLltuHAUzREIeylVh8Ev9Bqc"/>
+</div>
+<div>
+<h4 class="font-body text-on-surface font-bold">量子意识转移 / Quantum Consciousness Transfer</h4>
+<p class="text-xs text-gray-500 font-label">路人甲 (Stranger A)</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center font-headline text-sm text-gray-300">45,000</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="text-xs font-headline text-[#FACC15]">12%</span>
+<div class="w-16 h-1.5 bg-[#0a0f14] rounded-full overflow-hidden">
+<div class="bg-[#FACC15] h-full" style="width: 12%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center">
+<span class="bg-error/10 text-error border border-error/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter rounded-sm">42/100</span>
+</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="w-2 h-2 rounded-full bg-error ai-pulse"></span>
+<span class="text-xs text-gray-300">Under Review</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-[10px] font-bold text-error hover:underline uppercase tracking-tight">Resolve Violations</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-[#30353b]/20 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-10 h-14 bg-black border border-[#4d4632]/30 flex-shrink-0 relative">
+<img alt="Book Cover" class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all" data-alt="Traditional novel book cover illustration" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAn8JlW5RRkMX_FmQB4XcZCR5xeC0wRNJDdCiJ3Zi0hX0gw_7vNt1NPFY6gBRj_XvkcbF-Su214D1Td1BZj1DM4Co4Atccn5xQXb_s-UitvlkRHHysKsUpMM0VaJ2KzqcImpS8FrD1ajec6IH39Zwm-uw8FzmBeErm-TbZzWzGzCeembqdm8RgNQDfyd-xWr_bYKEid41Bw06UjtheyeMI4acyhvQNIm-ljs9fhVqW1vIdsf0uFOukEcf8qx_zSLWNpc8LYTwcMyfig"/>
+</div>
+<div>
+<h4 class="font-body text-on-surface font-bold">剑与数字长河 / Sword &amp; Digital River</h4>
+<p class="text-xs text-gray-500 font-label">风之子 (Child of Wind)</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center font-headline text-sm text-gray-300">892,110</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="text-xs font-headline text-on-surface">0%</span>
+<div class="w-16 h-1.5 bg-[#0a0f14] rounded-full overflow-hidden">
+<div class="bg-gray-700 h-full" style="width: 0%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center">
+<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter rounded-sm">100/100</span>
+</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="w-2 h-2 rounded-full bg-blue-500"></span>
+<span class="text-xs text-gray-300">Published</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-[10px] font-bold text-[#FACC15] hover:underline uppercase tracking-tight">View Details</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-[#30353b]/20 transition-colors group">
+<td class="px-6 py-5">
+<div class="flex items-center gap-4">
+<div class="w-10 h-14 bg-black border border-[#4d4632]/30 flex-shrink-0 relative">
+<div class="w-full h-full flex items-center justify-center bg-[#30353b]">
+<span class="material-symbols-outlined text-gray-600">edit_note</span>
+</div>
+</div>
+<div>
+<h4 class="font-body text-on-surface font-bold">零号档案 / File Zero</h4>
+<p class="text-xs text-gray-500 font-label">无名氏 (Anonymous)</p>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center font-headline text-sm text-gray-300">12,300</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="text-xs font-headline text-secondary">92%</span>
+<div class="w-16 h-1.5 bg-[#0a0f14] rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 92%"></div>
+</div>
+</div>
+</td>
+<td class="px-6 py-5 text-center">
+<span class="bg-secondary/10 text-secondary border border-secondary/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tighter rounded-sm">85/100</span>
+</td>
+<td class="px-6 py-5 text-center">
+<div class="flex items-center justify-center gap-2">
+<span class="w-2 h-2 rounded-full bg-gray-500"></span>
+<span class="text-xs text-gray-300">Draft</span>
+</div>
+</td>
+<td class="px-6 py-5 text-right">
+<button class="text-[10px] font-bold text-[#FACC15] hover:underline uppercase tracking-tight">Review AI Content</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="mt-6 flex justify-between items-center">
+<p class="text-[10px] text-gray-500 uppercase tracking-widest font-label">Showing 4 of 14,282 projects</p>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center border border-[#4d4632]/20 text-gray-500 hover:text-[#FACC15] hover:border-[#FACC15] transition-all">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center border border-[#FACC15] text-[#FACC15] bg-[#FACC15]/10 font-headline text-xs">1</button>
+<button class="w-8 h-8 flex items-center justify-center border border-[#4d4632]/20 text-gray-500 hover:text-[#FACC15] hover:border-[#FACC15] transition-all font-headline text-xs">2</button>
+<button class="w-8 h-8 flex items-center justify-center border border-[#4d4632]/20 text-gray-500 hover:text-[#FACC15] hover:border-[#FACC15] transition-all font-headline text-xs">3</button>
+<button class="w-8 h-8 flex items-center justify-center border border-[#4d4632]/20 text-gray-500 hover:text-[#FACC15] hover:border-[#FACC15] transition-all">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Compliance & AI Insights Panel -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="md:col-span-2 glass-panel p-6 rounded-sm border border-[#FACC15]/10">
+<div class="flex justify-between items-start mb-6">
+<div>
+<h3 class="font-headline font-bold text-lg text-on-surface">Content Compliance Trend</h3>
+<p class="text-xs text-gray-500">Global health score over the last 30 days.</p>
+</div>
+<span class="text-secondary text-xs font-bold">+4.2% Optimization</span>
+</div>
+<!-- Abstract Graph Placeholder -->
+<div class="h-48 w-full flex items-end gap-1 overflow-hidden relative">
+<div class="flex-1 bg-secondary/10 h-[60%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[70%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[65%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[80%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-[#FACC15]/10 h-[90%] hover:bg-[#FACC15]/40 transition-all rounded-t-sm border-t border-[#FACC15]/30"></div>
+<div class="flex-1 bg-secondary/10 h-[75%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[85%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[60%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[70%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-error/20 h-[30%] hover:bg-error/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[65%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[80%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[90%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+<div class="flex-1 bg-secondary/10 h-[75%] hover:bg-secondary/40 transition-all rounded-t-sm"></div>
+</div>
+</div>
+<div class="bg-[#171c22] p-6 rounded-sm border border-[#4d4632]/15">
+<h3 class="font-headline font-bold text-lg text-[#FACC15] mb-4">Critical Alerts</h3>
+<div class="space-y-4">
+<div class="flex gap-3 items-start pb-4 border-b border-[#4d4632]/10">
+<span class="material-symbols-outlined text-error text-sm">warning</span>
+<div>
+<p class="text-xs text-on-surface font-medium leading-tight">High Similarity Detected in "量子意识转移"</p>
+<p class="text-[10px] text-gray-500 mt-1">2 hours ago • System Audit</p>
+</div>
+</div>
+<div class="flex gap-3 items-start pb-4 border-b border-[#4d4632]/10">
+<span class="material-symbols-outlined text-[#FACC15] text-sm">bolt</span>
+<div>
+<p class="text-xs text-on-surface font-medium leading-tight">AI Token Spikes in Genre: Fantasy</p>
+<p class="text-[10px] text-gray-500 mt-1">5 hours ago • Resource Monitor</p>
+</div>
+</div>
+<div class="flex gap-3 items-start">
+<span class="material-symbols-outlined text-secondary text-sm">verified_user</span>
+<div>
+<p class="text-xs text-on-surface font-medium leading-tight">Compliance Update Patch 4.2 Applied</p>
+<p class="text-[10px] text-gray-500 mt-1">Yesterday • Security</p>
+</div>
+</div>
+</div>
+<button class="w-full mt-6 py-2 border border-[#4d4632]/30 text-[10px] font-bold text-gray-500 hover:text-on-surface transition-all uppercase tracking-widest">
+                    View All Activity
+                </button>
+</div>
+</section>
+</main>
+<!-- Style Implementation Logic from JSON -->
+<div class="hidden">
+<!-- These tags are for internal mapping to ensure JSON style keys are executed -->
+<div class="tonal-shift bg-[#171c22]"></div>
+<div class="flat-no-shadows"></div>
+<div class="scale-98-on-click"></div>
+<div class="glow-on-hover"></div>
+</div>
+</body></html>

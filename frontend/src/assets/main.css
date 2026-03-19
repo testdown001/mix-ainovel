@@ -4,78 +4,105 @@
 @plugin "@tailwindcss/typography";
 
 /* ============================================
-   Arboris Novel Dark Theme Design System
+   Neon Manuscript Design System
+   "The Neon Manuscript" — Cyberpunk Editorial
    ============================================ */
 
 @theme {
-  --color-bg-base: #0A0A0A;
-  --color-bg-surface: #141414;
-  --color-bg-elevated: #1C1C1C;
-  --color-bg-highlight: #262626;
+  /* The Void */
+  --color-bg-base: #000000;
+  --color-bg-surface: #0f1419;
+  --color-bg-elevated: #171c22;
+  --color-bg-highlight: #252a30;
 
+  /* Neon Pulse (Primary) */
   --color-primary: #FACC15;
-  --color-primary-hover: #EAB308;
+  --color-primary-hover: #eec200;
   --color-primary-muted: rgba(250, 204, 21, 0.15);
-  --color-on-primary: #0A0A0A;
+  --color-on-primary: #000000;
 
-  --color-text-primary: #F5F5F5;
-  --color-text-secondary: #A1A1AA;
-  --color-text-muted: #71717A;
+  /* Electric Vitality (Secondary) */
+  --color-secondary: #4ADE80;
+  --color-secondary-hover: #22C55E;
+  --color-secondary-muted: rgba(74, 222, 128, 0.15);
+
+  /* Text — never pure white */
+  --color-text-primary: #dee3eb;
+  --color-text-secondary: #8b929a;
+  --color-text-muted: #545d68;
   --color-text-link: #FACC15;
 
-  --color-border: rgba(255, 255, 255, 0.08);
-  --color-border-subtle: rgba(255, 255, 255, 0.05);
-  --color-border-focus: #FACC15;
+  /* Borders — ghost borders only */
+  --color-border: rgba(77, 70, 50, 0.15);
+  --color-border-subtle: rgba(77, 70, 50, 0.08);
+  --color-border-focus: #4ADE80;
 
-  --color-success: #22C55E;
+  /* Semantic */
+  --color-success: #4ADE80;
   --color-error: #EF4444;
   --color-warning: #F59E0B;
   --color-info: #3B82F6;
 
-  --color-success-muted: rgba(34, 197, 94, 0.15);
+  --color-success-muted: rgba(74, 222, 128, 0.15);
   --color-error-muted: rgba(239, 68, 68, 0.15);
   --color-warning-muted: rgba(245, 158, 11, 0.15);
   --color-info-muted: rgba(59, 130, 246, 0.15);
+
+  /* Surface variants for glassmorphism */
+  --color-surface-variant: rgba(48, 53, 59, 0.6);
 }
 
 /* ============================================
    CSS Custom Properties (Design Tokens)
    ============================================ */
 :root {
-  /* Background */
-  --ar-bg-base: #0A0A0A;
-  --ar-bg-surface: #141414;
-  --ar-bg-elevated: #1C1C1C;
-  --ar-bg-highlight: #262626;
+  /* Background — The Void + Layered Surfaces */
+  --ar-bg-base: #000000;
+  --ar-bg-surface: #0f1419;
+  --ar-bg-elevated: #171c22;
+  --ar-bg-highlight: #252a30;
+  --ar-bg-surface-variant: #30353b;
 
-  /* Primary */
+  /* Primary — Neon Pulse */
   --ar-primary: #FACC15;
-  --ar-primary-hover: #EAB308;
+  --ar-primary-hover: #eec200;
+  --ar-primary-dim: #eec200;
   --ar-primary-muted: rgba(250, 204, 21, 0.15);
-  --ar-on-primary: #0A0A0A;
+  --ar-on-primary: #000000;
 
-  /* Text */
-  --ar-text-primary: #F5F5F5;
-  --ar-text-secondary: #A1A1AA;
-  --ar-text-muted: #71717A;
+  /* Secondary — Electric Vitality */
+  --ar-secondary: #4ADE80;
+  --ar-secondary-hover: #22C55E;
+  --ar-secondary-muted: rgba(74, 222, 128, 0.15);
+  --ar-on-secondary: #000000;
+
+  /* Text — No pure white */
+  --ar-text-primary: #dee3eb;
+  --ar-text-secondary: #8b929a;
+  --ar-text-muted: #545d68;
   --ar-text-link: #FACC15;
 
-  /* Border */
-  --ar-border: rgba(255, 255, 255, 0.08);
-  --ar-border-subtle: rgba(255, 255, 255, 0.05);
-  --ar-border-focus: #FACC15;
+  /* Ghost Borders */
+  --ar-border: rgba(77, 70, 50, 0.15);
+  --ar-border-subtle: rgba(77, 70, 50, 0.08);
+  --ar-border-focus: #4ADE80;
+  --ar-outline-variant: #4d4632;
 
   /* Semantic */
-  --ar-success: #22C55E;
+  --ar-success: #4ADE80;
   --ar-error: #EF4444;
   --ar-warning: #F59E0B;
   --ar-info: #3B82F6;
 
-  /* Typography */
-  --ar-font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Typography — Triple Font System */
+  --ar-font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+  --ar-font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ar-font-manuscript: 'Noto Serif SC', Georgia, 'Times New Roman', serif;
+  --ar-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --ar-font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
 
   /* Type Scale */
+  --ar-text-display-lg: 56px;
   --ar-text-display: 48px;
   --ar-text-h1: 30px;
   --ar-text-h2: 24px;
@@ -84,16 +111,18 @@
   --ar-text-body-lg: 16px;
   --ar-text-body: 14px;
   --ar-text-body-sm: 12px;
-  --ar-text-label: 14px;
+  --ar-text-label-lg: 14px;
+  --ar-text-label: 12px;
+  --ar-text-label-sm: 11px;
   --ar-text-stat: 36px;
 
-  /* Radius */
+  /* Radius — Sharp, architectural 4px */
   --ar-radius-none: 0;
-  --ar-radius-xs: 4px;
-  --ar-radius-sm: 8px;
-  --ar-radius-md: 12px;
-  --ar-radius-lg: 16px;
-  --ar-radius-xl: 24px;
+  --ar-radius-xs: 2px;
+  --ar-radius-sm: 4px;
+  --ar-radius-md: 4px;
+  --ar-radius-lg: 4px;
+  --ar-radius-xl: 8px;
   --ar-radius-full: 9999px;
 
   /* Spacing */
@@ -108,12 +137,14 @@
   --ar-spacing-12: 48px;
   --ar-spacing-16: 64px;
 
-  /* Elevation (dark mode: borders, not shadows) */
+  /* Elevation — Ambient Glows, not shadows */
   --ar-elevation-0: none;
-  --ar-elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --ar-elevation-2: 0 0 0 1px rgba(255, 255, 255, 0.1);
-  --ar-elevation-3: 0 0 0 1px rgba(255, 255, 255, 0.15);
-  --ar-elevation-glow: 0 0 30px rgba(250, 204, 21, 0.1);
+  --ar-elevation-1: 0 0 0 1px rgba(77, 70, 50, 0.15);
+  --ar-elevation-2: 0 0 0 1px rgba(77, 70, 50, 0.25);
+  --ar-elevation-3: 0 0 0 1px rgba(77, 70, 50, 0.35);
+  --ar-elevation-glow: 0 0 40px rgba(255, 236, 185, 0.06);
+  --ar-elevation-glow-strong: 0 0 60px rgba(255, 236, 185, 0.1);
+  --ar-elevation-glow-green: 0 0 30px rgba(74, 222, 128, 0.08);
 
   /* Transitions */
   --ar-duration-short: 150ms;
@@ -123,58 +154,58 @@
   --ar-easing-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --ar-easing-accelerate: cubic-bezier(0.4, 0, 1, 1);
 
-  /* Legacy MD3 variable aliases for backward compatibility */
+  /* Legacy MD3 variable aliases */
   --md-primary: #FACC15;
   --md-primary-light: #FDE047;
-  --md-primary-dark: #EAB308;
-  --md-on-primary: #0A0A0A;
+  --md-primary-dark: #eec200;
+  --md-on-primary: #000000;
   --md-primary-container: rgba(250, 204, 21, 0.15);
   --md-on-primary-container: #FACC15;
 
-  --md-secondary: #A1A1AA;
-  --md-secondary-light: #D4D4D8;
-  --md-secondary-dark: #71717A;
-  --md-on-secondary: #0A0A0A;
-  --md-secondary-container: #262626;
-  --md-on-secondary-container: #F5F5F5;
+  --md-secondary: #4ADE80;
+  --md-secondary-light: #86efac;
+  --md-secondary-dark: #22C55E;
+  --md-on-secondary: #000000;
+  --md-secondary-container: rgba(74, 222, 128, 0.15);
+  --md-on-secondary-container: #4ADE80;
 
-  --md-surface: #141414;
-  --md-surface-dim: #0A0A0A;
-  --md-surface-bright: #1C1C1C;
-  --md-surface-container-lowest: #0A0A0A;
-  --md-surface-container-low: #141414;
-  --md-surface-container: #1C1C1C;
-  --md-surface-container-high: #262626;
-  --md-surface-container-highest: #333333;
-  --md-on-surface: #F5F5F5;
-  --md-on-surface-variant: #A1A1AA;
+  --md-surface: #0f1419;
+  --md-surface-dim: #000000;
+  --md-surface-bright: #171c22;
+  --md-surface-container-lowest: #000000;
+  --md-surface-container-low: #0f1419;
+  --md-surface-container: #171c22;
+  --md-surface-container-high: #252a30;
+  --md-surface-container-highest: #30353b;
+  --md-on-surface: #dee3eb;
+  --md-on-surface-variant: #8b929a;
 
-  --md-background: #0A0A0A;
-  --md-on-background: #F5F5F5;
+  --md-background: #000000;
+  --md-on-background: #dee3eb;
 
-  --md-outline: rgba(255, 255, 255, 0.12);
-  --md-outline-variant: rgba(255, 255, 255, 0.06);
+  --md-outline: rgba(77, 70, 50, 0.25);
+  --md-outline-variant: rgba(77, 70, 50, 0.15);
 
   --md-error: #EF4444;
   --md-error-container: rgba(239, 68, 68, 0.15);
   --md-on-error: #FFFFFF;
   --md-on-error-container: #EF4444;
 
-  --md-success: #22C55E;
-  --md-success-container: rgba(34, 197, 94, 0.15);
-  --md-on-success: #FFFFFF;
-  --md-on-success-container: #22C55E;
+  --md-success: #4ADE80;
+  --md-success-container: rgba(74, 222, 128, 0.15);
+  --md-on-success: #000000;
+  --md-on-success-container: #4ADE80;
 
   --md-warning: #F59E0B;
   --md-warning-container: rgba(245, 158, 11, 0.15);
-  --md-on-warning: #0A0A0A;
+  --md-on-warning: #000000;
   --md-on-warning-container: #F59E0B;
 
-  --md-font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --md-font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --md-font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
 
-  --md-display-large: 48px;
-  --md-display-medium: 36px;
+  --md-display-large: 56px;
+  --md-display-medium: 48px;
   --md-display-small: 30px;
   --md-headline-large: 30px;
   --md-headline-medium: 24px;
@@ -190,18 +221,18 @@
   --md-label-small: 11px;
 
   --md-elevation-0: none;
-  --md-elevation-1: 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --md-elevation-2: 0 0 0 1px rgba(255, 255, 255, 0.1);
-  --md-elevation-3: 0 0 0 1px rgba(255, 255, 255, 0.15);
-  --md-elevation-4: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 0 20px rgba(0, 0, 0, 0.3);
-  --md-elevation-5: 0 0 0 1px rgba(255, 255, 255, 0.15), 0 0 30px rgba(0, 0, 0, 0.4);
+  --md-elevation-1: 0 0 0 1px rgba(77, 70, 50, 0.15);
+  --md-elevation-2: 0 0 0 1px rgba(77, 70, 50, 0.25);
+  --md-elevation-3: 0 0 0 1px rgba(77, 70, 50, 0.35);
+  --md-elevation-4: 0 0 40px rgba(255, 236, 185, 0.06);
+  --md-elevation-5: 0 0 60px rgba(255, 236, 185, 0.1);
 
   --md-radius-none: 0;
-  --md-radius-xs: 4px;
-  --md-radius-sm: 8px;
-  --md-radius-md: 12px;
-  --md-radius-lg: 16px;
-  --md-radius-xl: 24px;
+  --md-radius-xs: 2px;
+  --md-radius-sm: 4px;
+  --md-radius-md: 4px;
+  --md-radius-lg: 4px;
+  --md-radius-xl: 8px;
   --md-radius-full: 9999px;
 
   --md-spacing-0: 0;
@@ -226,7 +257,7 @@
 }
 
 /* ============================================
-   Base Styles
+   Base Styles — The Void
    ============================================ */
 * {
   box-sizing: border-box;
@@ -240,7 +271,7 @@ html {
 }
 
 body {
-  font-family: var(--ar-font-family);
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-body);
   line-height: 1.5;
   color: var(--ar-text-primary);
@@ -255,114 +286,173 @@ body {
 }
 
 /* ============================================
-   Typography Classes
+   Typography — Triple Font System
+   Display & Headlines: Space Grotesk
+   UI Labels & Body: Inter
+   Manuscript & Prose: Noto Serif SC
    ============================================ */
+
+/* Space Grotesk — Display & Headlines */
 .ar-display {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-display);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
 
+.ar-display-lg {
+  font-family: var(--ar-font-display);
+  font-size: var(--ar-text-display-lg);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
 .ar-h1 {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-h1);
   font-weight: 700;
   line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
 .ar-h2 {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-h2);
   font-weight: 700;
   line-height: 1.3;
 }
 
 .ar-h3 {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-h3);
   font-weight: 600;
   line-height: 1.4;
 }
 
 .ar-h4 {
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-h4);
   font-weight: 600;
   line-height: 1.5;
 }
 
+/* Inter — Body & Labels */
 .ar-body-lg {
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-body-lg);
   font-weight: 400;
   line-height: 1.6;
 }
 
 .ar-body {
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-body);
   font-weight: 400;
   line-height: 1.5;
 }
 
 .ar-body-sm {
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-body-sm);
   font-weight: 400;
   line-height: 1.4;
 }
 
 .ar-label {
-  font-size: var(--ar-text-label);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-label-lg);
   font-weight: 500;
   line-height: 1.4;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ar-label-sm {
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-label);
+  font-weight: 500;
+  line-height: 1.33;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .ar-stat {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-stat);
   font-weight: 700;
   line-height: 1.1;
 }
 
+/* Noto Serif SC — Manuscript */
+.ar-manuscript {
+  font-family: var(--ar-font-manuscript);
+  font-size: var(--ar-text-body-lg);
+  font-weight: 400;
+  line-height: 1.8;
+}
+
+.ar-manuscript-title {
+  font-family: var(--ar-font-manuscript);
+  font-size: var(--ar-text-h2);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
 /* Legacy MD3 typography classes */
 .md-display-large {
+  font-family: var(--ar-font-display);
   font-size: var(--md-display-large);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.1;
   letter-spacing: -0.02em;
 }
 
 .md-display-medium {
+  font-family: var(--ar-font-display);
   font-size: var(--md-display-medium);
   font-weight: 700;
   line-height: 1.16;
 }
 
 .md-display-small {
+  font-family: var(--ar-font-display);
   font-size: var(--md-display-small);
   font-weight: 700;
   line-height: 1.22;
 }
 
 .md-headline-large {
+  font-family: var(--ar-font-display);
   font-size: var(--md-headline-large);
   font-weight: 700;
   line-height: 1.2;
 }
 
 .md-headline-medium {
+  font-family: var(--ar-font-display);
   font-size: var(--md-headline-medium);
   font-weight: 700;
   line-height: 1.3;
 }
 
 .md-headline-small {
+  font-family: var(--ar-font-display);
   font-size: var(--md-headline-small);
   font-weight: 600;
   line-height: 1.4;
 }
 
 .md-title-large {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-title-large);
   font-weight: 600;
   line-height: 1.4;
 }
 
 .md-title-medium {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-title-medium);
   font-weight: 600;
   line-height: 1.5;
@@ -370,6 +460,7 @@ body {
 }
 
 .md-title-small {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-title-small);
   font-weight: 500;
   line-height: 1.43;
@@ -377,43 +468,52 @@ body {
 }
 
 .md-body-large {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-body-large);
   font-weight: 400;
   line-height: 1.6;
 }
 
 .md-body-medium {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-body-medium);
   font-weight: 400;
   line-height: 1.5;
 }
 
 .md-body-small {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-body-small);
   font-weight: 400;
   line-height: 1.4;
 }
 
 .md-label-large {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-label-large);
   font-weight: 500;
   line-height: 1.43;
+  letter-spacing: 0.02em;
 }
 
 .md-label-medium {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-label-medium);
   font-weight: 500;
   line-height: 1.33;
+  letter-spacing: 0.04em;
 }
 
 .md-label-small {
+  font-family: var(--ar-font-ui);
   font-size: var(--md-label-small);
   font-weight: 500;
   line-height: 1.45;
+  letter-spacing: 0.05em;
 }
 
 /* ============================================
-   Button Styles
+   Button Styles — Sharp, Neon
    ============================================ */
 .md-btn {
   display: inline-flex;
@@ -423,9 +523,9 @@ body {
   min-height: 44px;
   padding: 0 24px;
   border: none;
-  border-radius: var(--ar-radius-full);
-  font-family: var(--ar-font-family);
-  font-size: var(--ar-text-label);
+  border-radius: var(--ar-radius-sm);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-label-lg);
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
@@ -446,48 +546,60 @@ body {
   cursor: not-allowed;
 }
 
+/* Primary — Gradient neon */
 .md-btn-filled {
-  background-color: var(--ar-primary);
+  background: linear-gradient(135deg, var(--ar-primary-dim), var(--ar-primary));
   color: var(--ar-on-primary);
   box-shadow: none;
 }
 
 .md-btn-filled:hover:not(:disabled) {
-  background-color: var(--ar-primary-hover);
-  box-shadow: 0 0 20px rgba(250, 204, 21, 0.3);
+  background: linear-gradient(135deg, var(--ar-primary), #FDE047);
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.4);
 }
 
 .md-btn-filled:active:not(:disabled) {
   box-shadow: none;
 }
 
+/* Secondary — Ghost style */
 .md-btn-outlined {
   background-color: transparent;
   color: var(--ar-text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(77, 70, 50, 0.4);
 }
 
 .md-btn-outlined:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.05);
-  border-color: rgba(255, 255, 255, 0.25);
+  background-color: rgba(255, 255, 255, 0.04);
+  border-color: rgba(77, 70, 50, 0.6);
 }
 
 .md-btn-outlined:active:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
+/* Tertiary — Text with underline */
 .md-btn-text {
   background-color: transparent;
   color: var(--ar-primary);
   padding: 0 12px;
+  position: relative;
 }
 
-.md-btn-text:hover:not(:disabled) {
-  background-color: rgba(250, 204, 21, 0.1);
+.md-btn-text::after {
+  content: '';
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  height: 1px;
+  background: var(--ar-primary);
+  transform: scaleX(0);
+  transition: transform var(--ar-duration-medium) var(--ar-easing-standard);
 }
 
-.md-btn-text:active:not(:disabled) {
-  background-color: rgba(250, 204, 21, 0.15);
+.md-btn-text:hover:not(:disabled)::after {
+  transform: scaleX(1);
 }
 
 .md-btn-tonal {
@@ -506,7 +618,17 @@ body {
 }
 
 .md-btn-elevated:hover:not(:disabled) {
-  box-shadow: var(--ar-elevation-2);
+  box-shadow: var(--ar-elevation-glow);
+}
+
+/* Green accent button */
+.md-btn-secondary {
+  background: linear-gradient(135deg, #22C55E, #4ADE80);
+  color: #000000;
+}
+
+.md-btn-secondary:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(74, 222, 128, 0.4);
 }
 
 .md-icon-btn {
@@ -517,7 +639,7 @@ body {
   height: 40px;
   padding: 8px;
   border: none;
-  border-radius: var(--ar-radius-full);
+  border-radius: var(--ar-radius-sm);
   background-color: transparent;
   color: var(--ar-text-secondary);
   cursor: pointer;
@@ -525,12 +647,12 @@ body {
 }
 
 .md-icon-btn:hover:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.06);
   color: var(--ar-text-primary);
 }
 
 .md-icon-btn:active:not(:disabled) {
-  background-color: rgba(255, 255, 255, 0.12);
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
 .md-fab {
@@ -540,46 +662,44 @@ body {
   width: 56px;
   height: 56px;
   border: none;
-  border-radius: var(--ar-radius-lg);
+  border-radius: var(--ar-radius-sm);
   background-color: var(--ar-primary-muted);
   color: var(--ar-primary);
-  box-shadow: var(--ar-elevation-2);
+  box-shadow: var(--ar-elevation-glow);
   cursor: pointer;
   transition: all var(--ar-duration-medium) var(--ar-easing-standard);
 }
 
 .md-fab:hover:not(:disabled) {
-  box-shadow: var(--ar-elevation-3);
+  box-shadow: var(--ar-elevation-glow-strong);
   background-color: rgba(250, 204, 21, 0.25);
 }
 
 .md-fab-small {
   width: 40px;
   height: 40px;
-  border-radius: var(--ar-radius-md);
 }
 
 .md-fab-large {
   width: 96px;
   height: 96px;
-  border-radius: var(--ar-radius-xl);
 }
 
 .md-fab-extended {
   width: auto;
   padding: 0 20px;
   gap: 12px;
-  font-size: var(--ar-text-label);
+  font-size: var(--ar-text-label-lg);
   font-weight: 500;
 }
 
 /* ============================================
-   Card Styles
+   Card Styles — Tonal Shifts, No Lines
    ============================================ */
 .md-card {
   background-color: var(--ar-bg-surface);
-  border-radius: var(--ar-radius-lg);
-  border: 1px solid var(--ar-border);
+  border-radius: var(--ar-radius-sm);
+  border: none;
   overflow: hidden;
   transition: all var(--ar-duration-medium) var(--ar-easing-standard);
 }
@@ -590,7 +710,7 @@ body {
 
 .md-card-elevated:hover {
   background-color: var(--ar-bg-elevated);
-  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: var(--ar-elevation-glow);
 }
 
 .md-card-filled {
@@ -607,7 +727,6 @@ body {
 
 .md-card-header {
   padding: var(--ar-spacing-6);
-  border-bottom: 1px solid var(--ar-border);
 }
 
 .md-card-actions {
@@ -629,20 +748,23 @@ body {
 }
 
 .md-text-field-label {
-  font-size: var(--ar-text-body);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-label);
   font-weight: 500;
   color: var(--ar-text-secondary);
   margin-bottom: 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .md-text-field-input {
   width: 100%;
   height: 48px;
   padding: 12px 16px;
-  border: 1px solid var(--ar-border);
-  border-radius: var(--ar-radius-md);
+  border: none;
+  border-radius: var(--ar-radius-sm);
   background-color: var(--ar-bg-elevated);
-  font-family: var(--ar-font-family);
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-body-lg);
   color: var(--ar-text-primary);
   transition: all var(--ar-duration-short) var(--ar-easing-standard);
@@ -650,12 +772,12 @@ body {
 }
 
 .md-text-field-input:hover:not(:disabled):not(:focus) {
-  border-color: rgba(255, 255, 255, 0.15);
+  background-color: var(--ar-bg-highlight);
 }
 
 .md-text-field-input:focus {
-  border-color: var(--ar-border-focus);
-  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.1);
+  border-bottom: 2px solid var(--ar-secondary);
+  box-shadow: var(--ar-elevation-glow-green);
 }
 
 .md-text-field-input::placeholder {
@@ -676,17 +798,17 @@ body {
 }
 
 .md-text-field-filled .md-text-field-input:focus {
-  border-bottom: 2px solid var(--ar-primary);
+  border-bottom: 2px solid var(--ar-secondary);
 }
 
 .md-textarea {
   min-height: 120px;
   resize: vertical;
   padding: 16px;
-  border: 1px solid var(--ar-border);
-  border-radius: var(--ar-radius-md);
+  border: none;
+  border-radius: var(--ar-radius-sm);
   background-color: var(--ar-bg-elevated);
-  font-family: var(--ar-font-family);
+  font-family: var(--ar-font-ui);
   font-size: var(--ar-text-body-lg);
   color: var(--ar-text-primary);
   transition: all var(--ar-duration-short) var(--ar-easing-standard);
@@ -694,8 +816,8 @@ body {
 }
 
 .md-textarea:focus {
-  border-color: var(--ar-border-focus);
-  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.1);
+  box-shadow: var(--ar-elevation-glow-green);
+  border-bottom: 2px solid var(--ar-secondary);
 }
 
 /* ============================================
@@ -708,7 +830,6 @@ body {
   width: 80px;
   padding: 12px 0;
   background-color: var(--ar-bg-surface);
-  border-right: 1px solid var(--ar-border);
 }
 
 .md-nav-rail-item {
@@ -720,7 +841,7 @@ body {
   height: 56px;
   padding: 12px 0 4px;
   border: none;
-  border-radius: var(--ar-radius-lg);
+  border-radius: var(--ar-radius-sm);
   background-color: transparent;
   color: var(--ar-text-secondary);
   cursor: pointer;
@@ -729,7 +850,7 @@ body {
 }
 
 .md-nav-rail-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.04);
   color: var(--ar-text-primary);
 }
 
@@ -744,10 +865,9 @@ body {
 }
 
 .md-nav-drawer {
-  width: 240px;
+  width: 200px;
   height: 100%;
   background-color: var(--ar-bg-surface);
-  border-right: 1px solid var(--ar-border);
   padding: 12px;
 }
 
@@ -756,22 +876,24 @@ body {
   align-items: center;
   gap: 12px;
   width: 100%;
-  height: 48px;
+  height: 44px;
   padding: 0 16px;
   border: none;
-  border-radius: var(--ar-radius-md);
+  border-radius: var(--ar-radius-sm);
   background-color: transparent;
   color: var(--ar-text-secondary);
-  font-size: var(--ar-text-label);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-body);
   font-weight: 500;
   cursor: pointer;
   transition: all var(--ar-duration-short) var(--ar-easing-standard);
   text-decoration: none;
   text-align: left;
+  position: relative;
 }
 
 .md-nav-drawer-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.04);
   color: var(--ar-text-primary);
 }
 
@@ -780,16 +902,27 @@ body {
   color: var(--ar-primary);
 }
 
+.md-nav-drawer-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  background: var(--ar-primary);
+  border-radius: 0 2px 2px 0;
+}
+
 .md-top-app-bar {
   display: flex;
   align-items: center;
-  height: 64px;
+  height: 56px;
   padding: 0 16px;
   background-color: var(--ar-bg-base);
-  border-bottom: 1px solid var(--ar-border);
 }
 
 .md-top-app-bar-title {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-h3);
   font-weight: 600;
   color: var(--ar-text-primary);
@@ -799,7 +932,6 @@ body {
 
 .md-tabs {
   display: flex;
-  border-bottom: 1px solid var(--ar-border);
   background-color: transparent;
 }
 
@@ -814,15 +946,16 @@ body {
   border: none;
   background-color: transparent;
   color: var(--ar-text-muted);
-  font-size: var(--ar-text-label);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-body);
   font-weight: 500;
   cursor: pointer;
   position: relative;
   transition: all var(--ar-duration-short) var(--ar-easing-standard);
+  letter-spacing: 0.02em;
 }
 
 .md-tab:hover {
-  background-color: rgba(255, 255, 255, 0.05);
   color: var(--ar-text-primary);
 }
 
@@ -838,46 +971,47 @@ body {
   right: 0;
   height: 2px;
   background-color: var(--ar-primary);
-  border-radius: 2px 2px 0 0;
 }
 
 /* ============================================
-   Chips
+   Chips — Compact, 2px radius
    ============================================ */
 .md-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 16px;
-  border-radius: var(--ar-radius-full);
-  font-size: var(--ar-text-body-sm);
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--ar-radius-xs);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-label);
   font-weight: 600;
   cursor: pointer;
   transition: all var(--ar-duration-short) var(--ar-easing-standard);
   user-select: none;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .md-chip-assist {
-  background-color: transparent;
-  border: 1px solid var(--ar-border);
+  background-color: var(--ar-bg-highlight);
+  border: none;
   color: var(--ar-text-primary);
 }
 
 .md-chip-assist:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--ar-bg-surface-variant);
 }
 
 .md-chip-filter {
-  background-color: transparent;
-  border: 1px solid var(--ar-border);
+  background-color: var(--ar-bg-highlight);
+  border: none;
   color: var(--ar-text-secondary);
 }
 
 .md-chip-filter.selected {
-  background-color: var(--ar-primary-muted);
-  border-color: transparent;
-  color: var(--ar-primary);
+  background-color: var(--ar-secondary);
+  color: var(--ar-on-secondary);
 }
 
 .md-chip-input {
@@ -888,28 +1022,29 @@ body {
 
 .md-chip-suggestion {
   background-color: var(--ar-bg-surface);
-  border: 1px solid var(--ar-border);
+  border: none;
   color: var(--ar-text-secondary);
 }
 
 /* ============================================
-   Dialog/Modal
+   Dialog/Modal — Ambient Glow
    ============================================ */
 .md-dialog-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.6);
+  background-color: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
 }
 
 .md-dialog {
   background-color: var(--ar-bg-elevated);
-  border-radius: var(--ar-radius-xl);
-  border: 1px solid var(--ar-border);
-  box-shadow: var(--ar-elevation-3);
+  border-radius: var(--ar-radius-sm);
+  border: none;
+  box-shadow: var(--ar-elevation-glow);
   min-width: 280px;
   max-width: 560px;
   max-height: calc(100vh - 96px);
@@ -923,6 +1058,7 @@ body {
 }
 
 .md-dialog-title {
+  font-family: var(--ar-font-display);
   font-size: var(--ar-text-h3);
   font-weight: 600;
   color: var(--ar-text-primary);
@@ -963,7 +1099,7 @@ body {
 }
 
 .md-list-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(255, 255, 255, 0.04);
 }
 
 .md-list-item-leading {
@@ -972,7 +1108,7 @@ body {
   justify-content: center;
   width: 40px;
   height: 40px;
-  border-radius: var(--ar-radius-full);
+  border-radius: var(--ar-radius-sm);
   background-color: var(--ar-primary-muted);
   color: var(--ar-primary);
 }
@@ -1003,11 +1139,13 @@ body {
 }
 
 /* ============================================
-   Divider
+   Divider — The No-Line Rule
+   Prefer spacing gaps. Use only when necessary
+   with faded opacity.
    ============================================ */
 .md-divider {
   height: 1px;
-  background-color: var(--ar-border);
+  background: linear-gradient(90deg, transparent, rgba(77, 70, 50, 0.15), transparent);
   border: none;
   margin: 0;
 }
@@ -1022,14 +1160,14 @@ body {
 .md-progress-linear {
   width: 100%;
   height: 4px;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.06);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .md-progress-linear-bar {
   height: 100%;
-  background-color: var(--ar-primary);
+  background: linear-gradient(90deg, var(--ar-secondary), #86efac);
   border-radius: 2px;
   transition: width var(--ar-duration-medium) var(--ar-easing-standard);
 }
@@ -1082,8 +1220,8 @@ body {
   background-color: var(--ar-bg-highlight);
   color: var(--ar-text-primary);
   border-radius: var(--ar-radius-sm);
-  border: 1px solid var(--ar-border);
-  box-shadow: var(--ar-elevation-3);
+  border: none;
+  box-shadow: var(--ar-elevation-glow);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1099,7 +1237,7 @@ body {
   color: var(--ar-primary);
   background: none;
   border: none;
-  font-size: var(--ar-text-label);
+  font-size: var(--ar-text-label-lg);
   font-weight: 500;
   cursor: pointer;
   padding: 0 8px;
@@ -1115,11 +1253,12 @@ body {
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
-  border-radius: var(--ar-radius-full);
+  border-radius: var(--ar-radius-xs);
   background-color: var(--ar-error);
   color: #FFFFFF;
+  font-family: var(--ar-font-ui);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .md-badge-large {
@@ -1146,7 +1285,7 @@ body {
   height: 100%;
   border-radius: var(--ar-radius-full);
   background-color: var(--ar-bg-highlight);
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(77, 70, 50, 0.25);
   transition: all var(--ar-duration-short) var(--ar-easing-standard);
 }
 
@@ -1161,8 +1300,8 @@ body {
 }
 
 .md-switch.checked .md-switch-track {
-  background-color: var(--ar-primary);
-  border-color: var(--ar-primary);
+  background-color: var(--ar-secondary);
+  border-color: var(--ar-secondary);
 }
 
 .md-switch.checked .md-switch-thumb {
@@ -1171,7 +1310,7 @@ body {
   height: 24px;
   top: 50%;
   transform: translateY(-50%);
-  background-color: var(--ar-on-primary);
+  background-color: var(--ar-on-secondary);
 }
 
 /* ============================================
@@ -1196,8 +1335,8 @@ body {
 }
 
 .md-checkbox.checked .md-checkbox-box {
-  background-color: var(--ar-primary);
-  border-color: var(--ar-primary);
+  background-color: var(--ar-secondary);
+  border-color: var(--ar-secondary);
 }
 
 .md-checkbox-label {
@@ -1230,7 +1369,63 @@ body {
 .md-ripple:active::after {
   width: 200%;
   height: 200%;
-  opacity: 0.08;
+  opacity: 0.06;
+}
+
+/* ============================================
+   Glassmorphism & Neon Utilities
+   ============================================ */
+.neon-glass {
+  background: rgba(48, 53, 59, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.neon-glow {
+  box-shadow: 0 0 40px rgba(255, 236, 185, 0.06);
+}
+
+.neon-glow-strong {
+  box-shadow: 0 0 60px rgba(255, 236, 185, 0.1);
+}
+
+.neon-glow-green {
+  box-shadow: 0 0 30px rgba(74, 222, 128, 0.08);
+}
+
+.neon-glow-hover:hover {
+  box-shadow: 0 0 40px rgba(255, 236, 185, 0.08);
+}
+
+.ghost-border {
+  border: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+/* AI Pulse — glowing orb indicator */
+.neon-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--ar-secondary);
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.6);
+  animation: neon-pulse-anim 2s ease-in-out infinite;
+}
+
+.neon-pulse-primary {
+  background-color: var(--ar-primary);
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.6);
+  animation: neon-pulse-primary-anim 2s ease-in-out infinite;
+}
+
+@keyframes neon-pulse-anim {
+  0%, 100% { box-shadow: 0 0 10px rgba(74, 222, 128, 0.6); }
+  50% { box-shadow: 0 0 20px rgba(74, 222, 128, 0.9); }
+}
+
+@keyframes neon-pulse-primary-anim {
+  0%, 100% { box-shadow: 0 0 10px rgba(250, 204, 21, 0.6); }
+  50% { box-shadow: 0 0 20px rgba(250, 204, 21, 0.9); }
 }
 
 /* ============================================
@@ -1240,11 +1435,12 @@ body {
 .md-surface-dim { background-color: var(--ar-bg-base); }
 .md-surface-container { background-color: var(--ar-bg-elevated); }
 .md-surface-container-high { background-color: var(--ar-bg-highlight); }
-.md-surface-container-highest { background-color: #333333; }
+.md-surface-container-highest { background-color: var(--ar-bg-surface-variant); }
 
 .md-on-surface { color: var(--ar-text-primary); }
 .md-on-surface-variant { color: var(--ar-text-secondary); }
 .md-primary-text { color: var(--ar-primary); }
+.md-secondary-text { color: var(--ar-secondary); }
 .md-error-text { color: var(--ar-error); }
 .md-success-text { color: var(--ar-success); }
 
@@ -1255,12 +1451,17 @@ body {
 .md-elevation-4 { box-shadow: var(--md-elevation-4); }
 .md-elevation-5 { box-shadow: var(--md-elevation-5); }
 
+.font-display { font-family: var(--ar-font-display); }
+.font-ui { font-family: var(--ar-font-ui); }
+.font-manuscript { font-family: var(--ar-font-manuscript); }
+.font-mono { font-family: var(--ar-font-mono); }
+
 /* ============================================
-   Custom Scrollbar
+   Custom Scrollbar — Minimal
    ============================================ */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -1268,12 +1469,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A2A2A;
-  border-radius: 4px;
+  background: rgba(77, 70, 50, 0.3);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3A3A3A;
+  background: rgba(77, 70, 50, 0.5);
 }
 
 /* ============================================
@@ -1320,16 +1521,17 @@ body {
 }
 
 /* ============================================
-   Prose Overrides
+   Prose Overrides — Manuscript style
    ============================================ */
 .prose {
   max-width: none;
   color: var(--ar-text-primary);
+  font-family: var(--ar-font-manuscript);
 }
 
 .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
   color: var(--ar-text-primary);
-  font-family: var(--ar-font-family);
+  font-family: var(--ar-font-manuscript);
 }
 
 .prose a {
@@ -1354,7 +1556,7 @@ body {
 }
 
 .prose blockquote {
-  border-left: 4px solid var(--ar-primary);
+  border-left: 3px solid var(--ar-primary);
   color: var(--ar-text-secondary);
 }
 
@@ -1364,7 +1566,7 @@ body {
 .md-spinner {
   width: 48px;
   height: 48px;
-  border: 4px solid var(--ar-bg-highlight);
+  border: 3px solid var(--ar-bg-highlight);
   border-top-color: var(--ar-primary);
   border-radius: 50%;
   animation: ar-spin 0.8s linear infinite;
@@ -1380,21 +1582,21 @@ body {
 .chat-bubble-ai {
   background-color: var(--ar-bg-elevated);
   color: var(--ar-text-primary);
-  border-radius: var(--ar-radius-lg) var(--ar-radius-lg) var(--ar-radius-lg) var(--ar-radius-xs);
+  border-radius: var(--ar-radius-sm) var(--ar-radius-sm) var(--ar-radius-sm) 0;
 }
 
 .chat-bubble-user {
-  background-color: var(--ar-primary);
+  background: linear-gradient(135deg, var(--ar-primary-dim), var(--ar-primary));
   color: var(--ar-on-primary);
-  border-radius: var(--ar-radius-lg) var(--ar-radius-lg) var(--ar-radius-xs) var(--ar-radius-lg);
+  border-radius: var(--ar-radius-sm) var(--ar-radius-sm) 0 var(--ar-radius-sm);
 }
 
 /* ============================================
    Legacy Compatibility
    ============================================ */
 .loader {
-  border: 4px solid var(--ar-bg-highlight);
-  border-top: 4px solid var(--ar-primary);
+  border: 3px solid var(--ar-bg-highlight);
+  border-top: 3px solid var(--ar-primary);
   border-radius: 50%;
   width: 40px;
   height: 40px;
@@ -1411,6 +1613,104 @@ body {
 }
 
 /* ============================================
+   Staggered Card Reveal Animation
+   ============================================ */
+.stagger-reveal > * {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: stagger-in 0.4s var(--ar-easing-decelerate) forwards;
+}
+
+.stagger-reveal > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-reveal > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-reveal > *:nth-child(3) { animation-delay: 120ms; }
+.stagger-reveal > *:nth-child(4) { animation-delay: 180ms; }
+.stagger-reveal > *:nth-child(5) { animation-delay: 240ms; }
+.stagger-reveal > *:nth-child(6) { animation-delay: 300ms; }
+.stagger-reveal > *:nth-child(7) { animation-delay: 360ms; }
+.stagger-reveal > *:nth-child(8) { animation-delay: 420ms; }
+
+@keyframes stagger-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Hover Glow Effect
+   ============================================ */
+.glow-hover {
+  transition: box-shadow var(--ar-duration-medium) var(--ar-easing-standard),
+              transform var(--ar-duration-medium) var(--ar-easing-standard);
+}
+
+.glow-hover:hover {
+  box-shadow: 0 0 30px rgba(255, 236, 185, 0.06);
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   Page Entrance Animation
+   ============================================ */
+.page-enter {
+  animation: page-in 0.5s var(--ar-easing-decelerate);
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================
+   Responsive Utilities
+   ============================================ */
+@media (max-width: 768px) {
+  .stats-row,
+  .an-stats,
+  .sec-stats,
+  .fl-stats {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .content-grid,
+  .plotlab-body,
+  .cg-body,
+  .tl-body,
+  .cat-body,
+  .rc-body,
+  .res-body,
+  .an-charts,
+  .sec-grid,
+  .tm-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .sh-nodes {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .rc-packages {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-row,
+  .an-stats,
+  .sec-stats,
+  .fl-stats {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ============================================
    Layer Base Overrides
    ============================================ */
 @layer base {
@@ -1420,6 +1720,6 @@ body {
   }
 
   input, textarea, select {
-    font-family: var(--ar-font-family);
+    font-family: var(--ar-font-ui);
   }
 }

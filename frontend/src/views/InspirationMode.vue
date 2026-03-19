@@ -1,11 +1,11 @@
 <!-- AIMETA P=灵感模式_AI对话创作|R=对话创作界面|NR=不含写作台功能|E=route:/inspiration#component:InspirationMode|X=ui|A=对话界面|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="flex items-center justify-center min-h-[calc(100vh-64px)] p-4">
+  <div class="im-root">
     <div class="w-full max-w-6xl mx-auto">
-      <!-- 灵感模式入口界面 -->
-      <div v-if="!conversationStarted" class="text-center p-8 bg-bg-surface rounded-2xl fade-in">
-        <h1 class="text-4xl md:text-5xl font-bold text-text-primary">小说家的新篇章</h1>
-        <p class="text-lg text-text-secondary mt-4 mb-8">
+      <!-- Landing / Entry -->
+      <div v-if="!conversationStarted" class="im-landing im-fade-in">
+        <h1 class="im-hero-title">小说家的新篇章</h1>
+        <p class="im-hero-sub">
           准备好释放你的创造力了吗？让AI引导你，一步步构建出独一无二的故事世界。
         </p>
         <ReferenceNovelInput
@@ -14,24 +14,24 @@
           :status-message="referenceSearchMessage"
           @library-selection-change="handleLibrarySelectionChange"
         />
-        <div v-if="librarySelectionsWithNames.length" class="reference-selection-hint">
+        <div v-if="librarySelectionsWithNames.length" class="im-ref-hint">
           已从库中选择参考小说：
           <strong>{{ librarySelectionsWithNames.join(' / ') }}</strong>
         </div>
-        <div v-if="boundReferenceNovels.length" class="reference-bound-panel">
+        <div v-if="boundReferenceNovels.length" class="im-bound-panel">
           <p>当前项目已绑定的参考小说：</p>
-          <div class="reference-bound-list">
-            <span v-for="novel in boundReferenceNovels" :key="novel.id" class="reference-chip">
-              <span class="reference-chip-title">{{ novel.title }}</span>
-              <span class="reference-chip-status">{{ novel.status }}</span>
+          <div class="im-bound-list">
+            <span v-for="novel in boundReferenceNovels" :key="novel.id" class="im-ref-chip">
+              <span class="im-ref-chip-title">{{ novel.title }}</span>
+              <span class="im-ref-chip-status">{{ novel.status }}</span>
             </span>
           </div>
         </div>
-        <!-- 创作禁区（可折叠） -->
+        <!-- Exclusions (collapsible) -->
         <div class="mt-4 mb-6 max-w-xl mx-auto text-left">
           <button
             @click="showExclusions = !showExclusions"
-            class="flex items-center gap-1 text-sm text-text-muted hover:text-text-secondary transition-colors"
+            class="im-exclusion-toggle"
           >
             <svg
               class="w-4 h-4 transition-transform duration-200"
@@ -48,49 +48,49 @@
               v-model="exclusions"
               placeholder="例如：不要后宫、不要重生穿越、禁止无脑打脸升级..."
               rows="3"
-              class="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-border-focus resize-none bg-bg-surface placeholder:text-text-muted"
+              class="im-textarea"
             />
-            <p class="mt-1 text-xs text-text-muted">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
+            <p class="im-hint-text">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
           </div>
         </div>
         <button
           @click="startConversation"
           :disabled="novelStore.isLoading || isPreparingConversation"
-          class="bg-primary text-on-primary font-bold py-3 px-8 rounded-full hover:bg-primary-hover transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-primary/10 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="im-btn-start"
         >
           {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
         </button>
         <button
           @click="goBack"
-          class="mt-4 block mx-auto text-text-muted hover:text-text-primary transition-colors"
+          class="im-btn-back"
         >
           返回
         </button>
       </div>
 
-      <!-- 灵感模式交互界面 -->
+      <!-- Conversation Interface -->
       <div
         v-else-if="!showBlueprintConfirmation && !showBlueprint"
-        class="h-[90vh] max-h-[950px] flex flex-col bg-bg-surface rounded-2xl shadow-2xl overflow-hidden fade-in"
+        class="im-chat-shell im-fade-in"
       >
-        <!-- 头部 -->
-        <div class="p-4 border-b border-border">
+        <!-- Header -->
+        <div class="im-chat-header">
           <div class="flex justify-between items-center">
             <div class="flex items-center gap-2">
-              <span class="relative flex h-3 w-3">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+              <span class="im-pulse-indicator">
+                <span class="im-pulse-ring"></span>
+                <span class="im-pulse-core"></span>
               </span>
-              <span class="text-sm font-medium text-primary">与“文思”对话中...</span>
+              <span class="im-chat-status">与"文思"对话中...</span>
             </div>
             <div class="flex items-center gap-4">
-              <span v-if="currentTurn > 0" class="text-sm font-medium text-text-muted bg-bg-elevated px-2 py-1 rounded-md">
+              <span v-if="currentTurn > 0" class="im-turn-badge">
                 第 {{ currentTurn }} 轮
               </span>
               <button
                 @click="handleRestart"
                 title="重新开始"
-                class="text-text-muted hover:text-primary transition-colors"
+                class="im-header-btn"
               >
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
@@ -99,7 +99,7 @@
               <button
                 @click="exitConversation"
                 title="返回首页"
-                class="text-text-muted hover:text-text-secondary transition-colors"
+                class="im-header-btn"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -116,8 +116,8 @@
           </div>
         </div>
 
-        <!-- 聊天区域 -->
-        <div class="flex-1 p-6 overflow-y-auto space-y-6 relative" ref="chatArea">
+        <!-- Chat Area -->
+        <div class="im-chat-area" ref="chatArea">
           <transition name="fade">
             <InspirationLoading v-if="isInitialLoading" />
           </transition>
@@ -129,8 +129,8 @@
           />
         </div>
 
-        <!-- 输入区域 -->
-        <div class="p-4 border-t border-border bg-bg-elevated">
+        <!-- Input Area -->
+        <div class="im-chat-input">
           <ConversationInput
             :ui-control="currentUIControl"
             :loading="novelStore.isLoading"
@@ -139,7 +139,7 @@
         </div>
       </div>
 
-      <!-- 蓝图确认界面 -->
+      <!-- Blueprint Confirmation -->
       <BlueprintConfirmation
         v-if="showBlueprintConfirmation"
         :ai-message="confirmationMessage"
@@ -147,7 +147,7 @@
         @back="backToConversation"
       />
 
-      <!-- 大纲展示界面 -->
+      <!-- Blueprint Display -->
       <BlueprintDisplay
         v-if="showBlueprint"
         :blueprint="completedBlueprint"
@@ -543,58 +543,314 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.reference-selection-hint {
+/* Root */
+.im-root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 64px);
+  padding: 1rem;
+  font-family: var(--ar-font-ui);
+}
+
+/* Landing */
+.im-landing {
+  text-align: center;
+  padding: 2rem;
+  background-color: #0f1419;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+.im-hero-title {
+  font-family: var(--ar-font-display);
+  font-size: clamp(2rem, 5vw, 3rem);
+  font-weight: 700;
+  color: #dee3eb;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.im-hero-sub {
+  font-family: var(--ar-font-ui);
+  font-size: 1.05rem;
+  color: #8b929a;
+  margin-top: 1rem;
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+/* Reference hints */
+.im-ref-hint {
   margin-top: 0.5rem;
   font-size: 0.85rem;
-  color: #475569;
+  color: #8b929a;
 }
 
-.reference-selection-hint strong {
-  color: #0f172a;
+.im-ref-hint strong {
+  color: #FACC15;
 }
 
-.reference-bound-panel {
+.im-bound-panel {
   margin-top: 0.75rem;
-  background: #f8fafc;
-  border: 1px dashed #cbd5f5;
+  background: #171c22;
+  border: 1px dashed rgba(77, 70, 50, 0.25);
   padding: 0.75rem;
-  border-radius: 0.75rem;
+  border-radius: 4px;
 }
 
-.reference-bound-panel p {
+.im-bound-panel p {
   margin: 0 0 0.25rem;
   font-size: 0.75rem;
-  color: #475569;
+  color: #8b929a;
 }
 
-.reference-bound-list {
+.im-bound-list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
 
-.reference-chip {
+.im-ref-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
+  border-radius: 4px;
+  background: #252a30;
+  border: 1px solid rgba(77, 70, 50, 0.15);
   font-size: 0.8rem;
-  color: #0f172a;
+  color: #dee3eb;
 }
 
-.reference-chip-title {
+.im-ref-chip-title {
   font-weight: 600;
 }
 
-.reference-chip-status {
+.im-ref-chip-status {
   font-size: 0.7rem;
   padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
+  border-radius: 4px;
+  background: rgba(74, 222, 128, 0.1);
+  color: #4ADE80;
   text-transform: capitalize;
+}
+
+/* Exclusions */
+.im-exclusion-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  color: #545d68;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.im-exclusion-toggle:hover {
+  color: #8b929a;
+}
+
+.im-textarea {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--ar-font-ui);
+  font-size: 0.875rem;
+  color: #dee3eb;
+  background-color: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-radius: 4px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.im-textarea::placeholder {
+  color: #545d68;
+}
+
+.im-textarea:focus {
+  border-color: rgba(250, 204, 21, 0.4);
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.08);
+}
+
+.im-hint-text {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #545d68;
+}
+
+/* CTA buttons */
+.im-btn-start {
+  font-family: var(--ar-font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 0.75rem 2rem;
+  border-radius: 4px;
+  border: 1px solid rgba(250, 204, 21, 0.5);
+  background-color: rgba(250, 204, 21, 0.12);
+  color: #FACC15;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, box-shadow 0.3s, transform 0.15s;
+  letter-spacing: 0.02em;
+}
+
+.im-btn-start:hover:not(:disabled) {
+  background-color: rgba(250, 204, 21, 0.2);
+  border-color: rgba(250, 204, 21, 0.7);
+  box-shadow: 0 0 24px rgba(250, 204, 21, 0.12);
+  transform: translateY(-1px);
+}
+
+.im-btn-start:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.im-btn-back {
+  display: block;
+  margin: 1rem auto 0;
+  font-family: var(--ar-font-ui);
+  font-size: 0.875rem;
+  color: #545d68;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.im-btn-back:hover {
+  color: #dee3eb;
+}
+
+/* Chat shell */
+.im-chat-shell {
+  height: 90vh;
+  max-height: 950px;
+  display: flex;
+  flex-direction: column;
+  background-color: #0f1419;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  overflow: hidden;
+}
+
+.im-chat-header {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+/* Pulse indicator */
+.im-pulse-indicator {
+  position: relative;
+  display: inline-flex;
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.im-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: #4ADE80;
+  animation: im-pulse-anim 2s ease-in-out infinite;
+}
+
+.im-pulse-core {
+  position: relative;
+  display: inline-flex;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  background-color: #4ADE80;
+}
+
+@keyframes im-pulse-anim {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 0; transform: scale(2); }
+}
+
+.im-chat-status {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #4ADE80;
+}
+
+.im-turn-badge {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #545d68;
+  background-color: #171c22;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+.im-header-btn {
+  color: #545d68;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.im-header-btn:hover {
+  color: #FACC15;
+}
+
+/* Chat area */
+.im-chat-area {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: relative;
+}
+
+.im-chat-area::-webkit-scrollbar {
+  width: 4px;
+}
+
+.im-chat-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.im-chat-area::-webkit-scrollbar-thumb {
+  background-color: rgba(77, 70, 50, 0.3);
+  border-radius: 4px;
+}
+
+/* Input area */
+.im-chat-input {
+  padding: 1rem;
+  border-top: 1px solid rgba(77, 70, 50, 0.15);
+  background-color: #171c22;
+}
+
+/* Fade animation */
+.im-fade-in {
+  animation: im-fade 0.4s ease-out;
+}
+
+@keyframes im-fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

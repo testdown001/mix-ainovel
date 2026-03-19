@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Novel - 创作空间 v2</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-tint": "#eec200",
+              "on-secondary-fixed-variant": "#005227",
+              "secondary": "#4de082",
+              "inverse-surface": "#dee3eb",
+              "surface-dim": "#0f1419",
+              "surface-container": "#1b2026",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-secondary": "#003919",
+              "on-secondary-fixed": "#00210c",
+              "on-secondary-container": "#003e1c",
+              "surface-container-highest": "#30353b",
+              "inverse-on-surface": "#2c3137",
+              "on-primary": "#3c2f00",
+              "tertiary-container": "#82e68f",
+              "surface-variant": "#30353b",
+              "surface-container-lowest": "#0a0f14",
+              "surface-container-low": "#171c22",
+              "surface": "#0f1419",
+              "on-surface": "#dee3eb",
+              "on-tertiary-fixed": "#002108",
+              "primary-container": "#facc15",
+              "on-tertiary-container": "#006828",
+              "tertiary-fixed-dim": "#78dc86",
+              "on-tertiary": "#003913",
+              "primary": "#ffecb9",
+              "tertiary-fixed": "#94f99f",
+              "surface-container-high": "#252a30",
+              "primary-fixed-dim": "#eec200",
+              "secondary-container": "#00b55d",
+              "outline-variant": "#4d4632",
+              "on-error-container": "#ffdad6",
+              "error-container": "#93000a",
+              "error": "#ffb4ab",
+              "surface-bright": "#353a40",
+              "primary-fixed": "#ffe083",
+              "on-surface-variant": "#d1c6ab",
+              "secondary-fixed-dim": "#4de082",
+              "on-primary-container": "#6c5700",
+              "background": "#0f1419",
+              "tertiary": "#b2ffb7",
+              "outline": "#9a9078",
+              "on-primary-fixed-variant": "#574500",
+              "on-primary-fixed": "#231b00",
+              "on-background": "#dee3eb",
+              "inverse-primary": "#735c00",
+              "on-error": "#690005",
+              "secondary-fixed": "#6dfe9c"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.15);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 15px rgba(74, 222, 128, 0.1);
+        }
+        .manuscript-gradient {
+            background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(15, 20, 25, 0.05) 100%);
+        }
+    </style>
+</head>
+<body class="bg-[#000000] text-on-surface font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_0_20px_rgba(250,204,21,0.08)] flex justify-between items-center px-8 h-16">
+<div class="text-2xl font-black text-yellow-400 italic font-headline uppercase tracking-widest">Neon Manuscript</div>
+<nav class="hidden md:flex items-center gap-8 font-headline font-bold uppercase tracking-widest text-sm">
+<a class="text-yellow-400 border-b-2 border-yellow-400 pb-1" href="#">Write</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Analyze</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Lab</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Settings</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-yellow-400 hover:bg-yellow-400/10 p-2 rounded-lg transition-all scale-95 duration-200">bolt</button>
+<button class="material-symbols-outlined text-yellow-400 hover:bg-yellow-400/10 p-2 rounded-lg transition-all scale-95 duration-200">account_circle</button>
+</div>
+</header>
+<!-- SideNavBar (Left) -->
+<aside class="h-screen w-64 fixed left-0 top-0 pt-20 bg-[#0f1419] flex flex-col border-r border-white/5 z-40 transition-all duration-300 ease-in-out">
+<div class="px-6 mb-8">
+<h2 class="text-green-400 font-headline font-bold text-xs uppercase tracking-widest">Project Alpha</h2>
+<p class="text-slate-500 text-[10px] uppercase font-medium">Cyberpunk Anthology</p>
+</div>
+<nav class="flex-1 space-y-1 px-3">
+<a class="flex items-center gap-3 px-3 py-2 bg-green-400/10 text-green-400 border-r-2 border-green-400 font-medium text-sm transition-all duration-300" href="#">
+<span class="material-symbols-outlined text-[20px]">edit_note</span>
+<span>Manuscript</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 text-sm transition-all duration-300" href="#">
+<span class="material-symbols-outlined text-[20px]">groups</span>
+<span>Characters</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 text-sm transition-all duration-300" href="#">
+<span class="material-symbols-outlined text-[20px]">public</span>
+<span>Worldview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 text-sm transition-all duration-300" href="#">
+<span class="material-symbols-outlined text-[20px]">biotech</span>
+<span>Plot Lab</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 text-sm transition-all duration-300" href="#">
+<span class="material-symbols-outlined text-[20px]">psychology</span>
+<span>AI Settings</span>
+</a>
+</nav>
+<div class="p-4 border-t border-white/5 space-y-4">
+<button class="w-full py-2 bg-green-400/10 border border-green-400/30 text-green-400 text-xs font-bold uppercase tracking-tighter hover:bg-green-400/20 transition-all">
+                Sync Knowledge Base
+            </button>
+<div class="flex justify-between px-2">
+<button class="material-symbols-outlined text-slate-500 hover:text-slate-200">inventory_2</button>
+<button class="material-symbols-outlined text-slate-500 hover:text-slate-200">help</button>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mr-[380px] pt-24 pb-12 min-h-screen flex justify-center">
+<div class="w-full max-w-[800px] flex flex-col gap-12">
+<!-- Reference Section (Bento Style) -->
+<section class="grid grid-cols-3 gap-4">
+<div class="col-span-2 bg-surface-container-low p-6 rounded-lg border-l-2 border-secondary/30 relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-32 h-32 bg-secondary/5 blur-3xl rounded-full"></div>
+<div class="flex justify-between items-start mb-4">
+<h3 class="text-secondary font-headline font-bold text-xs uppercase tracking-widest">Reference Mimicry</h3>
+<span class="material-symbols-outlined text-secondary text-lg">auto_awesome</span>
+</div>
+<div class="flex gap-4 overflow-x-auto no-scrollbar pb-2">
+<div class="min-w-[140px] bg-surface-container-high p-3 rounded border border-outline-variant/20 hover:border-secondary/50 transition-colors cursor-pointer group/card">
+<div class="h-20 bg-black/40 mb-2 flex items-center justify-center overflow-hidden grayscale group-hover/card:grayscale-0 transition-all">
+<img class="w-full h-full object-cover opacity-50" data-alt="Cyberpunk futuristic book cover design" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCEVY5lp1dwTMvlegEAr0unLCdwdIJemLaksFmU8KgQNl9xdWJBQnKdFYpSjdUtMatJh4rgv9a_ML4KqaBB9OB1F95TLQlKjXZJLQoFBAJ06MTH3azOO85K7Zad-FLyPN0TMBujiHLrhaZ_LW2VUrbKLv__hmUWxGJUJDrdYXhXuh15Uf7e_883SKG6MPykrQfxqRqslNOKujkrIGYzxPBfJByTFcP1ZSxkAWV0BKCAMn1Veodc1HUuC11WVI-x7pMbkVvoCwCw_M2"/>
+</div>
+<p class="text-[10px] text-on-surface truncate">Neuromancer.txt</p>
+<span class="text-[8px] text-slate-500">Style: Gritty/Noir</span>
+</div>
+<div class="min-w-[140px] bg-surface-container-high p-3 rounded border border-outline-variant/20 hover:border-secondary/50 transition-colors cursor-pointer group/card">
+<div class="h-20 bg-black/40 mb-2 flex items-center justify-center overflow-hidden grayscale group-hover/card:grayscale-0 transition-all">
+<img class="w-full h-full object-cover opacity-50" data-alt="Abstract green neon data stream" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC9GqHF32OxNZOu2yJx4agG6VUQi090QvY8SXRDhEoOSGAna8NAcXcmbGeAOj99hx2FoEL5zw7qBeVrKHvbFMvEcXjU6Mr-ZoWYS6KdPL9xvQeXtpm5ZhtFgWVmWhZoHiq2PL470lH6B1jzGeSuA-rVFKksUjlbMtQdjnOQLMpvVC1IjDR61ewNosccQPc8p-XyY85Fm_2BryiqcFi3wXzgw2LsSa-icSy8Mb3RqdpRqOeCHeeQclSzDEZroOAlVxNmTOL1hfHqZj6D"/>
+</div>
+<p class="text-[10px] text-on-surface truncate">AlterCarbon_Core.md</p>
+<span class="text-[8px] text-slate-500">Style: High-Tech</span>
+</div>
+<button class="min-w-[140px] border-2 border-dashed border-outline-variant/20 rounded flex flex-col items-center justify-center text-slate-500 hover:border-secondary/30 hover:text-secondary transition-all">
+<span class="material-symbols-outlined">add</span>
+<span class="text-[10px] mt-1">Upload New</span>
+</button>
+</div>
+</div>
+<div class="col-span-1 bg-surface-container-low p-6 rounded-lg border-l-2 border-primary/30 flex flex-col justify-between">
+<div>
+<h3 class="text-primary font-headline font-bold text-xs uppercase tracking-widest mb-1">Context Sync</h3>
+<div class="flex items-center gap-2 mb-4">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+<span class="text-[10px] text-secondary font-bold uppercase">Linked to Project Alpha</span>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-500">Characters</span>
+<span class="text-on-surface">12 Found</span>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-500">Worldview</span>
+<span class="text-on-surface">86% Mapped</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Text Editor Container -->
+<article class="bg-background min-h-[800px] manuscript-gradient relative">
+<!-- Floating Toolbar -->
+<div class="sticky top-20 z-10 w-full mb-8 flex justify-center">
+<div class="glass-panel px-4 py-2 rounded-lg border border-outline-variant/20 flex gap-6 items-center shadow-2xl">
+<button class="flex items-center gap-2 group">
+<span class="material-symbols-outlined text-secondary text-sm">magic_button</span>
+<span class="text-xs font-bold text-slate-300 group-hover:text-secondary transition-colors uppercase tracking-widest">章节优化</span>
+</button>
+<div class="h-4 w-[1px] bg-outline-variant/30"></div>
+<button class="flex items-center gap-2 group">
+<span class="material-symbols-outlined text-primary text-sm">visibility</span>
+<span class="text-xs font-bold text-slate-300 group-hover:text-primary transition-colors uppercase tracking-widest">伏笔管理</span>
+</button>
+<div class="h-4 w-[1px] bg-outline-variant/30"></div>
+<div class="flex gap-2">
+<button class="material-symbols-outlined text-slate-400 hover:text-white text-lg">format_align_left</button>
+<button class="material-symbols-outlined text-slate-400 hover:text-white text-lg">format_italic</button>
+<button class="material-symbols-outlined text-slate-400 hover:text-white text-lg">history</button>
+</div>
+</div>
+</div>
+<!-- Manuscript Text -->
+<div class="px-12 pb-32">
+<h1 class="font-headline font-black text-4xl text-primary mb-12 tracking-tighter opacity-90">第十二章：霓虹尽头的低语</h1>
+<div class="font-body text-xl leading-[1.8] text-on-surface/90 space-y-8">
+<p class="relative group">
+<span class="inline-block relative">
+                                雨水顺着破碎的LED招牌滴落，
+                                <span class="absolute -bottom-1 left-0 w-full h-[1px] bg-secondary/30"></span>
+</span>
+                            在积水的街道上溅起一圈圈带着五彩油光的涟漪。林墨紧了紧领口，电子义眼的传感器在寒风中发出一声细微的蜂鸣，将眼前的画面转换成高饱和度的热感图像。
+                            <span class="absolute -left-8 top-1 opacity-0 group-hover:opacity-100 transition-opacity">
+<span class="material-symbols-outlined text-secondary text-sm" style="font-variation-settings: 'FILL' 1;">spark</span>
+</span>
+</p>
+<p>
+                            “这里不再是你的领地了，墨。” 某种沙哑的声音从街角深处传来。那是赛格，那个早在三年前就该死在南湾港火灾里的黑客。
+                        </p>
+<div class="py-4 px-6 my-8 border-l-4 border-primary/40 bg-primary/5 rounded">
+<p class="text-lg italic text-primary/80">
+                                “如果你还记得那个深蓝色的公文包，” 赛格的身影逐渐从阴影中浮现，半张脸已经被劣质的人造皮肤所取代，“你就该明白，有些债，是刻在芯片里的。”
+                            </p>
+<div class="mt-2 flex items-center gap-2">
+<span class="bg-primary/20 text-primary text-[10px] px-2 py-0.5 font-bold uppercase">伏笔提示</span>
+<span class="text-[10px] text-primary/60">关联章节：第3章, 第7章 - 未完成的交易</span>
+</div>
+</div>
+<p>
+                            墨没有回答，他只是静静地摩挲着袖口里的单分子切线。空气中弥漫着臭氧和廉价合成肉的气味，这是一个典型的、令人作呕的下城区夜晚。
+                        </p>
+<p class="text-slate-500 animate-pulse">
+                            点击开始创作...
+                        </p>
+</div>
+</div>
+</article>
+</div>
+</main>
+<!-- AI Inspiration Panel (Right Drawer) -->
+<aside class="fixed right-0 top-0 h-screen w-[380px] bg-surface-container-low border-l border-white/5 pt-20 z-40 overflow-y-auto no-scrollbar">
+<div class="px-8 flex flex-col h-full">
+<div class="flex items-center justify-between mb-8">
+<h2 class="text-secondary font-headline font-bold text-sm uppercase tracking-widest">AI 灵感面板</h2>
+<button class="group flex items-center gap-2 text-[10px] text-slate-500 hover:text-secondary transition-colors uppercase font-bold">
+<span>刷新知识库</span>
+<span class="material-symbols-outlined text-sm group-hover:rotate-180 transition-transform duration-500">refresh</span>
+</button>
+</div>
+<!-- Generation Modes -->
+<div class="mb-10">
+<label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest block mb-4">选择生成模式</label>
+<div class="grid grid-cols-1 gap-3">
+<button class="flex items-center justify-between p-4 bg-surface-container-high border border-outline-variant/20 rounded-lg hover:border-secondary transition-all text-left group">
+<div>
+<p class="text-xs font-bold text-on-surface uppercase mb-1">Continuous</p>
+<p class="text-[10px] text-slate-500">顺接当前语境，维持叙事连贯性</p>
+</div>
+<span class="material-symbols-outlined text-slate-600 group-hover:text-secondary">trending_flat</span>
+</button>
+<button class="flex items-center justify-between p-4 bg-secondary/10 border border-secondary/50 rounded-lg text-left group">
+<div>
+<p class="text-xs font-bold text-secondary uppercase mb-1">Creative</p>
+<p class="text-[10px] text-secondary/70">打破常规，提供意想不到的剧情转折</p>
+</div>
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</button>
+<button class="flex items-center justify-between p-4 bg-surface-container-high border border-outline-variant/20 rounded-lg hover:border-secondary transition-all text-left group">
+<div>
+<p class="text-xs font-bold text-on-surface uppercase mb-1">Precise</p>
+<p class="text-[10px] text-slate-500">严格遵守大纲与设定集限制</p>
+</div>
+<span class="material-symbols-outlined text-slate-600 group-hover:text-secondary">target</span>
+</button>
+</div>
+</div>
+<!-- Writing Settings -->
+<div class="mb-10">
+<label class="text-[10px] text-slate-500 uppercase font-bold tracking-widest block mb-4">写作设定 (Writing Settings)</label>
+<div class="space-y-6">
+<div>
+<div class="flex justify-between text-[10px] mb-2 uppercase font-bold">
+<span>Tone / 语调</span>
+<span class="text-primary">Gritty / 铁血冷硬</span>
+</div>
+<div class="h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[85%] neon-glow-primary"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between text-[10px] mb-2 uppercase font-bold">
+<span>Pace / 节奏</span>
+<span class="text-secondary">Moderate / 适中</span>
+</div>
+<div class="h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[50%] neon-glow-secondary"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Thought Stream -->
+<div class="flex-1 bg-black/40 rounded-t-xl p-6 border-x border-t border-outline-variant/10">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary shadow-[0_0_8px_#4ade80]"></div>
+<span class="text-[10px] font-bold text-secondary uppercase tracking-[0.2em]">Neural Processing</span>
+</div>
+<div class="space-y-4">
+<div class="p-3 bg-surface-container/50 border border-outline-variant/10 rounded">
+<p class="text-[11px] text-slate-400 leading-relaxed italic">
+                            检测到环境描述：雨夜、霓虹。建议加入电子设备受潮引起的“故障视觉”描写，增强赛博朋克氛围。
+                        </p>
+</div>
+<div class="p-3 bg-surface-container/50 border border-outline-variant/10 rounded">
+<p class="text-[11px] text-slate-400 leading-relaxed italic">
+                            剧情预测：赛格的出现可能与“林墨失踪的妹妹”主线任务有关。是否生成相关对话分支？
+                        </p>
+</div>
+</div>
+</div>
+<div class="py-6 mt-auto">
+<button class="w-full py-4 bg-primary-container text-on-primary-container font-headline font-black uppercase tracking-widest text-sm rounded shadow-[0_0_30px_rgba(250,204,21,0.2)] hover:scale-[1.02] active:scale-95 transition-all">
+                    Generate Inspiration
+                </button>
+</div>
+</div>
+</aside>
+</body></html>

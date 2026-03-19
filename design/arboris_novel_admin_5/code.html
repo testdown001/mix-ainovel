@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Admin - 提示词与设定管理</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              colors: {
+                "outline-variant": "#4d4632",
+                "on-surface": "#dee3eb",
+                "on-secondary": "#003919",
+                "on-primary-fixed-variant": "#574500",
+                "on-error-container": "#ffdad6",
+                "surface-container": "#1b2026",
+                "secondary": "#4de082",
+                "surface-container-highest": "#30353b",
+                "on-secondary-fixed-variant": "#005227",
+                "on-secondary-container": "#003e1c",
+                "on-primary": "#3c2f00",
+                "surface-dim": "#0f1419",
+                "tertiary-fixed-dim": "#78dc86",
+                "error-container": "#93000a",
+                "surface-container-low": "#171c22",
+                "primary-container": "#facc15",
+                "surface-container-high": "#252a30",
+                "inverse-surface": "#dee3eb",
+                "tertiary-fixed": "#94f99f",
+                "on-primary-fixed": "#231b00",
+                "inverse-primary": "#735c00",
+                "tertiary-container": "#82e68f",
+                "on-secondary-fixed": "#00210c",
+                "on-tertiary-fixed": "#002108",
+                "on-tertiary-container": "#006828",
+                "inverse-on-surface": "#2c3137",
+                "background": "#0f1419",
+                "secondary-fixed": "#6dfe9c",
+                "secondary-container": "#00b55d",
+                "on-tertiary-fixed-variant": "#00531e",
+                "error": "#ffb4ab",
+                "surface-tint": "#eec200",
+                "on-tertiary": "#003913",
+                "primary": "#ffecb9",
+                "on-primary-container": "#6c5700",
+                "on-background": "#dee3eb",
+                "primary-fixed-dim": "#eec200",
+                "on-surface-variant": "#d1c6ab",
+                "outline": "#9a9078",
+                "surface": "#0f1419",
+                "primary-fixed": "#ffe083",
+                "surface-variant": "#30353b",
+                "surface-container-lowest": "#0a0f14",
+                "surface-bright": "#353a40",
+                "tertiary": "#b2ffb7",
+                "secondary-fixed-dim": "#4de082",
+                "on-error": "#690005"
+              },
+              fontFamily: {
+                "headline": ["Space Grotesk"],
+                "body": ["Noto Serif SC"],
+                "label": ["Inter"]
+              },
+              borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+            },
+          },
+        }
+    </script>
+<style>
+        body { background-color: #000000; color: #dee3eb; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel { background: rgba(48, 53, 59, 0.6); backdrop-filter: blur(12px); }
+        .neon-glow:hover { box-shadow: 0 0 15px rgba(250, 204, 21, 0.3); }
+        .syntax-keyword { color: #facc15; }
+        .syntax-variable { color: #4de082; }
+        .syntax-string { color: #ffecb9; opacity: 0.8; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #30353b; border-radius: 2px; }
+    </style>
+</head>
+<body class="font-label overflow-hidden">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full z-50 flex flex-col h-full w-64 border-r border-[#4d4632]/15 bg-[#171c22]">
+<div class="p-6">
+<h1 class="text-2xl font-bold tracking-tighter text-[#FACC15] uppercase font-headline">Arboris Admin</h1>
+<p class="text-[10px] text-gray-500 font-medium tracking-widest mt-1 opacity-70">SYSTEM OVERSIGHT</p>
+</div>
+<nav class="flex-1 px-4 space-y-1 mt-4">
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="text-sm">User Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">book_2</span>
+<span class="text-sm">Novel Projects</span>
+</a>
+<!-- Active State: Prompt Management -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#FACC15] bg-[#30353b]/60 backdrop-blur-md rounded-sm border-l-4 border-[#FACC15]" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">terminal</span>
+<span class="text-sm font-semibold">Prompt Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="text-sm">System Logs</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">health_metrics</span>
+<span class="text-sm">System Health</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined">shield_lock</span>
+<span class="text-sm">Security Center</span>
+</a>
+</nav>
+<div class="px-4 py-6 border-t border-[#4d4632]/10 space-y-1">
+<button class="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-[#FACC15] bg-[#FACC15]/5 rounded-sm border border-[#FACC15]/20 hover:bg-[#FACC15]/10 transition-all mb-4">
+<span class="material-symbols-outlined text-sm">notifications_active</span>
+                New System Alert
+            </button>
+<a class="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">settings</span>
+<span class="text-xs">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-white transition-colors" href="#">
+<span class="material-symbols-outlined text-xl">help_center</span>
+<span class="text-xs">Support</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-64 h-16 flex justify-between items-center px-8 z-40 bg-black/80 backdrop-blur-xl border-b border-[#4d4632]/15 shadow-[0_0_20px_rgba(250,204,21,0.05)]">
+<div class="flex items-center gap-8">
+<span class="text-xl font-black text-[#FACC15] italic font-headline">Arboris Console</span>
+<div class="hidden lg:flex items-center gap-6">
+<div class="flex flex-col">
+<span class="text-[10px] text-gray-500 uppercase tracking-tighter leading-none">CPU Load</span>
+<span class="text-xs font-mono text-secondary">24%</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-gray-500 uppercase tracking-tighter leading-none">RAM Usage</span>
+<span class="text-xs font-mono text-secondary">12GB</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-gray-500 uppercase tracking-tighter leading-none">Latency</span>
+<span class="text-xs font-mono text-secondary">15ms</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex gap-2 mr-4">
+<button class="p-2 text-gray-400 hover:text-[#FACC15] transition-colors"><span class="material-symbols-outlined">notifications_active</span></button>
+<button class="p-2 text-gray-400 hover:text-[#FACC15] transition-colors"><span class="material-symbols-outlined">settings_suggest</span></button>
+</div>
+<button class="bg-[#facc15] text-[#6c5700] px-4 py-1.5 text-xs font-bold rounded-sm hover:brightness-110 transition-all neon-glow">
+                Deploy Update
+            </button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-[#FACC15]/30">
+<img class="w-full h-full object-cover" data-alt="Admin User Profile Avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDzXzzifqXp3pMEosTnNsQs4IfYmkM-PC4QjIFhaAoHVngihmI5U2PIfIWVjtZANgqD0nZQf2JYNBTTEiiB3IjIB4kTh4KFXUrMYMe0gX6EhQnY03WxGCT7YBLnF5WHTd4HzaOEQ92PdU5CKT2_jkAxp6s6SGCSD-9I3GEEtq7B62iZ87DZmdYnFwH-u045qaqvYh6Ka-9Nhv3JILfs1J5IjGZ_GqH1t3FsEm2NJZ9_Inc3DMG3VYpzmPnxNB0vXqA7sGjLF53c9-CC"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-8 h-[calc(100vh-64px)] overflow-y-auto custom-scrollbar bg-black">
+<div class="max-w-7xl mx-auto space-y-8">
+<!-- Header Section -->
+<div class="flex justify-between items-end">
+<div>
+<h2 class="text-3xl font-headline font-bold text-white tracking-tight">提示词与设定管理</h2>
+<p class="text-gray-500 mt-1 font-label text-sm uppercase tracking-widest">Prompt &amp; Environment Control Center</p>
+</div>
+<div class="flex gap-4">
+<button class="flex items-center gap-2 px-4 py-2 border border-outline-variant/30 text-xs font-medium text-on-surface hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-sm">history</span> 操作历史
+                    </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-secondary text-on-secondary text-xs font-bold rounded-sm shadow-[0_0_10px_rgba(77,224,130,0.2)]">
+<span class="material-symbols-outlined text-sm">save</span> 保存全局更改
+                    </button>
+</div>
+</div>
+<!-- Bento Layout Grid -->
+<div class="grid grid-cols-12 gap-6">
+<!-- System Prompt Templates -->
+<section class="col-span-12 lg:col-span-7 bg-surface-container-low/40 p-6 border-l border-[#FACC15]/20">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline text-lg font-semibold text-white flex items-center gap-2">
+<span class="w-2 h-2 bg-[#FACC15] block"></span> 系统提示词模板
+                        </h3>
+<button class="text-[#FACC15] text-xs flex items-center gap-1 hover:underline">
+<span class="material-symbols-outlined text-sm">add_circle</span> 新增模板
+                        </button>
+</div>
+<div class="space-y-3">
+<!-- Row: Cyberpunk -->
+<div class="group flex items-center justify-between p-4 bg-surface-container-high/30 hover:bg-surface-container-high/60 transition-all border-b border-outline-variant/10">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 flex items-center justify-center bg-black/40 text-[#FACC15] font-mono text-xs border border-outline-variant/20">CP</div>
+<div>
+<h4 class="text-sm font-bold text-on-surface">赛博朋克 (Cyberpunk)</h4>
+<p class="text-[10px] text-gray-500 font-label">v2.4.1 • 最后修改: 2小时前</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 text-[10px] font-bold border border-outline-variant/40 hover:border-[#FACC15] text-on-surface transition-colors">版本控制</button>
+<button class="px-3 py-1.5 text-[10px] font-bold bg-[#FACC15] text-black">编辑模板</button>
+</div>
+</div>
+<!-- Row: Xianxia -->
+<div class="group flex items-center justify-between p-4 bg-surface-container-high/30 hover:bg-surface-container-high/60 transition-all border-b border-outline-variant/10">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 flex items-center justify-center bg-black/40 text-secondary font-mono text-xs border border-outline-variant/20">XX</div>
+<div>
+<h4 class="text-sm font-bold text-on-surface">仙侠玄幻 (Xianxia)</h4>
+<p class="text-[10px] text-gray-500 font-label">v1.8.0 • 最后修改: 昨日</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 text-[10px] font-bold border border-outline-variant/40 hover:border-[#FACC15] text-on-surface transition-colors">版本控制</button>
+<button class="px-3 py-1.5 text-[10px] font-bold bg-[#FACC15] text-black">编辑模板</button>
+</div>
+</div>
+<!-- Row: Sci-Fi -->
+<div class="group flex items-center justify-between p-4 bg-surface-container-high/30 hover:bg-surface-container-high/60 transition-all border-b border-outline-variant/10">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 flex items-center justify-center bg-black/40 text-primary font-mono text-xs border border-outline-variant/20">SF</div>
+<div>
+<h4 class="text-sm font-bold text-on-surface">硬核科幻 (Sci-Fi)</h4>
+<p class="text-[10px] text-gray-500 font-label">v3.0.2 • 最后修改: 3天前</p>
+</div>
+</div>
+<div class="flex gap-2">
+<button class="px-3 py-1.5 text-[10px] font-bold border border-outline-variant/40 hover:border-[#FACC15] text-on-surface transition-colors">版本控制</button>
+<button class="px-3 py-1.5 text-[10px] font-bold bg-[#FACC15] text-black">编辑模板</button>
+</div>
+</div>
+</div>
+</section>
+<!-- Global Writing Settings -->
+<section class="col-span-12 lg:col-span-5 glass-panel p-6 border-t border-[#FACC15]/10">
+<h3 class="font-headline text-lg font-semibold text-white mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-[#FACC15]">tune</span> 全局写作参数
+                    </h3>
+<div class="space-y-6">
+<div class="space-y-3">
+<div class="flex justify-between text-xs font-mono">
+<span class="text-gray-400">TEMPERATURE (生成随机性)</span>
+<span class="text-[#FACC15]">0.85</span>
+</div>
+<input class="w-full h-1 bg-surface-container-highest appearance-none rounded-full accent-[#FACC15]" max="2" min="0" step="0.05" type="range" value="0.85"/>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between text-xs font-mono">
+<span class="text-gray-400">TOP-P (核采样)</span>
+<span class="text-[#FACC15]">0.92</span>
+</div>
+<input class="w-full h-1 bg-surface-container-highest appearance-none rounded-full accent-[#FACC15]" max="1" min="0" step="0.01" type="range" value="0.92"/>
+</div>
+<div class="space-y-3">
+<div class="flex justify-between text-xs font-mono">
+<span class="text-gray-400">CONTEXT WINDOW (上下文窗口)</span>
+<span class="text-[#FACC15]">32,768 Tokens</span>
+</div>
+<select class="w-full bg-surface-container-lowest border border-outline-variant/30 text-on-surface text-xs py-2 px-3 focus:border-secondary outline-none rounded-sm">
+<option>8,192 Tokens</option>
+<option>16,384 Tokens</option>
+<option selected="">32,768 Tokens</option>
+<option>65,536 Tokens</option>
+</select>
+</div>
+</div>
+</section>
+<!-- AI Lore Base Management -->
+<section class="col-span-12 lg:col-span-4 bg-surface-container-low/40 p-6">
+<h3 class="font-headline text-lg font-semibold text-white mb-6 flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary">database</span> 知识库/设定管理
+                    </h3>
+<div class="space-y-4">
+<div class="p-4 border border-outline-variant/20 bg-black/40 rounded-sm group hover:border-secondary/50 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<span class="text-xs font-bold text-on-surface">通用小说套路库</span>
+<span class="bg-secondary/10 text-secondary text-[8px] px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Active</span>
+</div>
+<p class="text-[10px] text-gray-500 line-clamp-2 font-label">包含10,000+常用网文梗、升级体系及经典冲突模式映射。</p>
+</div>
+<div class="p-4 border border-outline-variant/20 bg-black/40 rounded-sm group hover:border-error/50 transition-colors">
+<div class="flex justify-between items-start mb-2">
+<span class="text-xs font-bold text-on-surface">敏感/违禁词库</span>
+<span class="bg-error/10 text-error text-[8px] px-1.5 py-0.5 rounded-sm uppercase tracking-tighter">Security</span>
+</div>
+<p class="text-[10px] text-gray-500 line-clamp-2 font-label">同步最新监管条例，实时拦截并修改不合规生成内容。</p>
+</div>
+<button class="w-full py-3 border-2 border-dashed border-outline-variant/20 text-gray-500 text-xs font-bold hover:text-white hover:border-[#FACC15]/40 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">upload_file</span> 上传新数据集 (.jsonl / .csv)
+                        </button>
+</div>
+</section>
+<!-- Editor with Syntax Highlighting -->
+<section class="col-span-12 lg:col-span-8 bg-surface-container-lowest p-0 overflow-hidden flex flex-col min-h-[400px]">
+<div class="bg-surface-container-high/50 px-6 py-3 flex justify-between items-center border-b border-outline-variant/10">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[#FACC15] text-lg">code</span>
+<span class="text-xs font-mono text-gray-400">PROMPT_DEBUGGER.exe</span>
+</div>
+<div class="flex gap-4">
+<button class="text-xs text-gray-500 hover:text-white">重置代码</button>
+<button class="text-xs text-secondary font-bold flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">play_arrow</span> 运行测试
+                            </button>
+</div>
+</div>
+<div class="flex-1 p-6 font-mono text-sm leading-relaxed custom-scrollbar overflow-y-auto">
+<div class="text-gray-500 mb-2">// 提示词测试沙盒</div>
+<div>
+<span class="syntax-keyword">SYSTEM:</span> <span class="syntax-string">"你是一位精通新黑色电影风格的赛博朋克作家。"</span><br/>
+<span class="syntax-keyword">CONTEXT:</span> {<br/>
+                                  <span class="syntax-variable">world_setting</span>: <span class="syntax-string">"Neo-Shanghai, 2077"</span>,<br/>
+                                  <span class="syntax-variable">tone</span>: <span class="syntax-string">"Cynical, Gritty"</span>,<br/>
+                                  <span class="syntax-variable">ban_words</span>: [<span class="syntax-string">"happy"</span>, <span class="syntax-string">"sunshine"</span>]<br/>
+                            }<br/>
+<span class="syntax-keyword">USER_INPUT:</span> <span class="syntax-string">"描述主角走进雨中的面馆。"</span><br/>
+<span class="syntax-keyword">AI_PULSE:</span> <span class="relative inline-flex h-2 w-2 rounded-full bg-secondary ml-1"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75"></span></span>
+</div>
+<div class="mt-6 border-t border-outline-variant/10 pt-6 font-body text-on-surface/80">
+                            霓虹灯的残影在油腻的积水中破碎。陈默拉低了风帽，任由冰冷的酸雨打在防弹纤维上。
+                            面馆的招牌在雾气中闪烁着病态的紫光，“老王合成碳水”几个字已经掉了一半。
+                            推门而入，合成油脂的味道混合着廉价香烟的辛辣扑面而来...
+                        </div>
+</div>
+<div class="bg-surface-container-low px-4 py-2 flex items-center justify-between">
+<div class="flex items-center gap-4 text-[10px] text-gray-500 font-mono">
+<span>LNS: 42</span>
+<span>COLS: 120</span>
+<span>UTF-8</span>
+</div>
+<div class="text-[10px] text-secondary font-mono">
+                            Tokens: 142 / 32,768
+                        </div>
+</div>
+</section>
+</div>
+</div>
+</main>
+<!-- Visual Accents -->
+<div class="fixed bottom-0 right-0 p-4 pointer-events-none opacity-20">
+<span class="text-[8rem] font-black font-headline text-[#FACC15]/5 select-none tracking-tighter">PROMPT</span>
+</div>
+</body></html>

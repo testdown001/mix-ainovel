@@ -1,13 +1,13 @@
 <!-- AIMETA P=写作台工作区_主编辑区域|R=章节编辑_生成|NR=不含侧边栏|E=component:WDWorkspace|X=ui|A=工作区|D=vue|S=dom,net|RD=./README.ai -->
 <template>
   <div class="flex-1 min-w-0 h-full">
-    <div class="md-card md-card-elevated h-full flex flex-col" style="border-radius: var(--md-radius-xl);">
+    <div class="md-card md-card-elevated h-full flex flex-col" style="border-radius: var(--ar-radius-sm);">
       <!-- 章节工作区头部 -->
       <div v-if="selectedChapterNumber" class="md-card-header flex-shrink-0">
         <div class="flex items-center justify-between">
           <div>
             <div class="flex items-center gap-3 mb-2">
-              <h2 class="md-title-large font-semibold">第{{ selectedChapterNumber }}章</h2>
+              <h2 class="md-title-large font-display font-semibold">第{{ selectedChapterNumber }}章</h2>
               <span
                 :class="[
                   'md-chip',
@@ -107,7 +107,7 @@
       <div class="md-card-content flex-1 overflow-y-auto">
         <!-- 推演详情面板（在内容区域内，可跟随滚动） -->
         <div v-if="showPrediction && outlinePrediction && canShowPredictionPanel" ref="predictionPanelRef" class="m3-prediction-panel mb-4">
-          <div class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-xl);">
+            <div class="md-card md-card-outlined p-4" style="border-radius: var(--ar-radius-sm);">
             <div class="flex items-center justify-between mb-3">
               <h4 class="md-title-small font-semibold flex items-center gap-2">
                 <svg class="w-4 h-4" style="color: var(--md-primary);" fill="currentColor" viewBox="0 0 20 20">
@@ -177,8 +177,8 @@
     <div v-if="showEditModal" class="md-dialog-overlay">
       <div class="md-dialog w-full h-full max-w-5xl m3-editor-dialog">
         <!-- 模态框头部 -->
-        <div class="flex items-center justify-between p-6 border-b" style="border-bottom-color: var(--md-outline-variant);">
-          <h3 class="md-title-large font-semibold">
+        <div class="flex items-center justify-between p-6" style="background-color: var(--ar-bg-surface);">
+          <h3 class="md-title-large font-display font-semibold">
             编辑第{{ selectedChapterNumber }}章内容
           </h3>
           <button
@@ -210,7 +210,7 @@
         </div>
 
         <!-- 模态框底部 -->
-        <div class="flex items-center justify-end gap-3 p-6 border-t" style="border-top-color: var(--md-outline-variant);">
+        <div class="flex items-center justify-end gap-3 p-6" style="background-color: var(--ar-bg-surface);">
           <button
             @click="closeEditModal"
             :disabled="isSaving"
@@ -653,7 +653,7 @@ const currentComponentProps = computed(() => {
 .m3-editor-dialog {
   max-width: min(1200px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
-  border-radius: var(--md-radius-xl);
+  border-radius: var(--ar-radius-sm);
 }
 
 .m3-prediction-panel {
@@ -674,7 +674,8 @@ const currentComponentProps = computed(() => {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -684,14 +685,14 @@ const currentComponentProps = computed(() => {
 }
 
 .modal-content {
-  background: white;
-  border-radius: 12px;
+  background: var(--ar-bg-elevated);
+  border-radius: var(--ar-radius-sm);
   width: 100%;
   max-width: 900px;
   max-height: 90vh;
   overflow-x: hidden;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--ar-elevation-glow);
   margin: auto;
   flex-shrink: 0;
 }

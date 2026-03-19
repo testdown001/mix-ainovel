@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "outline-variant": "#4d4632",
+                        "on-secondary": "#003919",
+                        "error": "#ffb4ab",
+                        "tertiary-fixed": "#94f99f",
+                        "surface-container-high": "#252a30",
+                        "tertiary": "#b2ffb7",
+                        "primary": "#ffecb9",
+                        "inverse-primary": "#735c00",
+                        "on-tertiary-fixed": "#002108",
+                        "surface-container-highest": "#30353b",
+                        "secondary-container": "#00b55d",
+                        "background": "#0f1419",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "primary-fixed-dim": "#eec200",
+                        "outline": "#9a9078",
+                        "on-primary-fixed": "#231b00",
+                        "secondary-fixed-dim": "#4de082",
+                        "on-secondary-fixed-variant": "#005227",
+                        "tertiary-container": "#82e68f",
+                        "on-primary-fixed-variant": "#574500",
+                        "surface-container-low": "#171c22",
+                        "surface-container": "#1b2026",
+                        "surface-bright": "#353a40",
+                        "surface": "#0f1419",
+                        "on-secondary-fixed": "#00210c",
+                        "on-secondary-container": "#003e1c",
+                        "on-primary": "#3c2f00",
+                        "on-surface-variant": "#d1c6ab",
+                        "surface-dim": "#0f1419",
+                        "primary-container": "#facc15",
+                        "on-tertiary-container": "#006828",
+                        "inverse-on-surface": "#2c3137",
+                        "surface-tint": "#eec200",
+                        "surface-container-lowest": "#0a0f14",
+                        "on-surface": "#dee3eb",
+                        "error-container": "#93000a",
+                        "on-tertiary": "#003913",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "surface-variant": "#30353b",
+                        "on-error-container": "#ffdad6",
+                        "on-primary-container": "#6c5700",
+                        "inverse-surface": "#dee3eb",
+                        "secondary": "#4de082",
+                        "on-background": "#dee3eb",
+                        "secondary-fixed": "#6dfe9c",
+                        "primary-fixed": "#ffe083",
+                        "on-error": "#690005"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .writing-cursor {
+            display: inline-block;
+            width: 8px;
+            height: 1.2em;
+            background-color: #facc15;
+            margin-left: 4px;
+            vertical-align: middle;
+            box-shadow: 0 0 8px #facc15;
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 15px rgba(250, 204, 21, 0.2);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 15px rgba(77, 224, 130, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-black text-on-surface font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_4px_20px_rgba(0,0,0,0.9)] flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)] font-headline tracking-tight">Arboris Novel</span>
+<div class="hidden md:flex gap-6">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline" href="#">Write</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline" href="#">Analyze</a>
+<a class="text-yellow-400 border-b-2 border-yellow-400 pb-1 font-headline" href="#">Lab</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline" href="#">Settings</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<span class="material-symbols-outlined text-slate-400 cursor-pointer group-hover:text-yellow-400">search</span>
+</div>
+<span class="material-symbols-outlined text-yellow-400 cursor-pointer" data-icon="account_circle">account_circle</span>
+</div>
+</nav>
+<!-- SideNavBar (Suppressed for Hub Context as per rule if needed, but included here as project anchor) -->
+<aside class="fixed left-0 h-full w-64 pt-16 bg-[#0f1419] flex flex-col border-r border-white/5 z-40 hidden xl:flex">
+<div class="p-6">
+<h2 class="text-lg font-bold text-yellow-400 font-headline">Project Alpha</h2>
+<p class="text-xs text-slate-500 font-label">Cyberpunk Noir</p>
+</div>
+<nav class="flex-1">
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="description">description</span>
+<span class="font-medium">Manuscript</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-medium">Characters</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="public">public</span>
+<span class="font-medium">Worldview</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:bg-white/5 transition-all" href="#">
+<span class="material-symbols-outlined" data-icon="auto_stories">auto_stories</span>
+<span class="font-medium">Timeline</span>
+</a>
+</nav>
+<div class="p-4 mt-auto border-t border-white/5">
+<button class="w-full bg-yellow-400 text-black font-bold py-2 rounded-sm hover:shadow-[0_0_10px_rgba(250,204,21,0.5)] transition-all">New Chapter</button>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="pt-20 xl:pl-64 min-h-screen flex flex-col gap-6 p-6 bg-black">
+<!-- Header Section -->
+<header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
+<div>
+<h1 class="text-3xl font-bold font-headline tracking-tighter text-on-surface">AI 连续生成中心</h1>
+<div class="flex items-center gap-2 mt-1">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-secondary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-secondary"></span>
+</span>
+<span class="text-xs font-label text-secondary tracking-widest uppercase">System Online / Neural Link Stable</span>
+</div>
+</div>
+<div class="flex gap-4">
+<div class="bg-surface-container px-4 py-2 border-l-2 border-secondary">
+<p class="text-[10px] text-slate-500 uppercase">Current Progress</p>
+<p class="text-lg font-headline font-bold text-secondary">42 / 120 Chapters</p>
+</div>
+<div class="bg-surface-container px-4 py-2 border-l-2 border-primary-container">
+<p class="text-[10px] text-slate-500 uppercase">Words per/min</p>
+<p class="text-lg font-headline font-bold text-primary-container">1,240 WPM</p>
+</div>
+</div>
+</header>
+<!-- Center Grid Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
+<!-- Current Generating View (Center Left) -->
+<section class="lg:col-span-8 flex flex-col gap-4">
+<div class="bg-surface-container-low p-1 rounded-sm border border-primary-container/20 neon-glow-primary relative overflow-hidden group">
+<div class="flex justify-between items-center px-4 py-2 bg-surface-container-highest/50">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary-container text-sm" data-icon="edit_note">edit_note</span>
+<span class="font-headline text-sm font-bold text-primary-container">STREAMING OUTPUT: CHAPTER 43</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-[10px] text-slate-400 uppercase font-label">Tokens: 14,021</span>
+<span class="text-[10px] text-slate-400 uppercase font-label">Status: Active</span>
+</div>
+</div>
+<div class="p-8 min-h-[500px] bg-black/40 backdrop-blur-sm">
+<div class="max-w-2xl mx-auto font-body text-lg leading-relaxed text-on-surface/90 space-y-6">
+<p>雨水冲刷着新东京的铬合金表面，霓虹灯的倒影在积水中破碎成无数色块。凯伦·沃克斯紧了紧他的战术风衣，感应器正在他的脊椎根部嗡嗡作响——这是威胁临近的信号。</p>
+<p>“我们还没到那儿，”他在通讯频道里低声说道，声音沙哑得像是在砂纸上磨过。虚拟屏幕在他的视网膜上弹开，显示出目标大楼的结构图。在这座森林般的巨型建筑中，每一个阴影都可能藏着夺命的黑客或是企业杀手。</p>
+<p>他穿过熙熙攘攘的底层市场，这里的空气弥漫着廉价机油和合成香料的味道。人群中，几个植入人正用贪婪的目光盯着他腰间的旧型号脉冲枪。凯伦没有理会，他的目标是顶层的神经网络核心。背叛的真相就藏在那里，就在那片被称为“阿尔伯里斯”的虚拟数据森林深处<span class="writing-cursor"></span></p>
+</div>
+</div>
+<!-- Decorative scanline effect -->
+<div class="absolute inset-0 pointer-events-none bg-gradient-to-b from-primary-container/5 via-transparent to-transparent opacity-20 h-1/2"></div>
+</div>
+</section>
+<!-- Right Column (Context + Controls) -->
+<aside class="lg:col-span-4 flex flex-col gap-6">
+<!-- Context Monitor -->
+<div class="bg-surface-container-low p-6 border-t-2 border-secondary neon-glow-secondary">
+<div class="flex items-center gap-2 mb-6">
+<span class="material-symbols-outlined text-secondary" data-icon="psychology">psychology</span>
+<h3 class="font-headline font-bold text-on-surface">CONTEXT INJECTOR</h3>
+</div>
+<div class="space-y-4">
+<div class="bg-surface-container-highest/40 p-3 flex items-center gap-4 rounded-sm transition-all hover:bg-surface-container-highest">
+<div class="w-10 h-10 bg-secondary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary" data-icon="person">person</span>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-label">Character Profile</p>
+<p class="text-sm font-bold text-on-surface">Kaelen Vox</p>
+</div>
+</div>
+<div class="bg-surface-container-highest/40 p-3 flex items-center gap-4 rounded-sm transition-all hover:bg-surface-container-highest">
+<div class="w-10 h-10 bg-secondary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary" data-icon="location_city">location_city</span>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-label">Setting / Worldview</p>
+<p class="text-sm font-bold text-on-surface">Neo-Tokyo (Sector 7)</p>
+</div>
+</div>
+<div class="bg-surface-container-highest/40 p-3 flex items-center gap-4 rounded-sm transition-all hover:bg-surface-container-highest">
+<div class="w-10 h-10 bg-secondary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary" data-icon="schema">schema</span>
+</div>
+<div>
+<p class="text-xs text-slate-500 uppercase font-label">Current Beat</p>
+<p class="text-sm font-bold text-on-surface">The Betrayal (Segment 3)</p>
+</div>
+</div>
+</div>
+<div class="mt-6 pt-4 border-t border-white/5">
+<div class="flex justify-between items-center">
+<span class="text-xs text-slate-500 font-label">Context Weight</span>
+<span class="text-xs font-bold text-secondary">85% Match</span>
+</div>
+<div class="w-full bg-surface-container h-1 mt-2">
+<div class="bg-secondary h-full shadow-[0_0_8px_#4ade80]" style="width: 85%"></div>
+</div>
+</div>
+</div>
+<!-- Control Panel -->
+<div class="bg-surface-container-low p-6 flex flex-col gap-3 border border-white/5">
+<h3 class="font-headline font-bold text-on-surface mb-2 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="settings_input_component">settings_input_component</span>
+                        OPERATIONS
+                    </h3>
+<button class="flex items-center justify-between w-full bg-surface-container-highest hover:bg-error-container/20 group px-4 py-3 transition-all border-l-2 border-transparent hover:border-error">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-error" data-icon="pause">pause</span>
+<span class="font-label font-medium group-hover:text-error">Pause Generation</span>
+</span>
+<kbd class="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-sm opacity-50">ESC</kbd>
+</button>
+<button class="flex items-center justify-between w-full bg-surface-container-highest hover:bg-primary-container/10 group px-4 py-3 transition-all border-l-2 border-transparent hover:border-primary-container">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary-container" data-icon="skip_next">skip_next</span>
+<span class="font-label font-medium group-hover:text-primary-container">Skip Chapter</span>
+</span>
+<kbd class="text-[10px] bg-black/40 px-1.5 py-0.5 rounded-sm opacity-50">ALT+N</kbd>
+</button>
+<button class="flex items-center justify-between w-full bg-surface-container-highest hover:bg-primary-container/10 group px-4 py-3 transition-all border-l-2 border-transparent hover:border-primary-container">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-primary-container" data-icon="tune">tune</span>
+<span class="font-label font-medium group-hover:text-primary-container">Adjust Prompt</span>
+</span>
+</button>
+<button class="flex items-center justify-between w-full bg-primary-container text-on-primary-container px-4 py-3 transition-all active:scale-[0.98]">
+<span class="flex items-center gap-3">
+<span class="material-symbols-outlined" data-icon="pan_tool_alt">pan_tool_alt</span>
+<span class="font-label font-bold">Manual Intervention</span>
+</span>
+</button>
+</div>
+</aside>
+</div>
+<!-- Generation Queue (Bottom) -->
+<section class="mt-4">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-headline font-bold text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined" data-icon="format_list_numbered">format_list_numbered</span>
+                    UPCOMING QUEUE
+                </h3>
+<span class="text-[10px] text-slate-500 font-label tracking-widest uppercase">7 Chapters Pending</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<!-- Queue Item 1 -->
+<div class="bg-surface-container-low p-4 border border-white/5 relative group hover:border-secondary/30 transition-all">
+<div class="flex justify-between items-start mb-3">
+<span class="text-xs font-headline font-bold text-slate-400">CH 44</span>
+<span class="bg-secondary/10 text-secondary text-[10px] px-2 py-0.5 font-bold uppercase tracking-tight">Analyzing Context</span>
+</div>
+<p class="text-sm font-medium text-on-surface mb-2 truncate">The Glass Spire Heist</p>
+<div class="flex items-center gap-2">
+<div class="flex -space-x-1">
+<div class="w-5 h-5 bg-surface-variant flex items-center justify-center rounded-full border border-black text-[8px]" title="Kaelen Vox">K</div>
+<div class="w-5 h-5 bg-surface-variant flex items-center justify-center rounded-full border border-black text-[8px]" title="Maya">M</div>
+</div>
+<span class="text-[10px] text-slate-500">2 Entities Loaded</span>
+</div>
+</div>
+<!-- Queue Item 2 -->
+<div class="bg-surface-container-low p-4 border border-white/5 relative group opacity-60">
+<div class="flex justify-between items-start mb-3">
+<span class="text-xs font-headline font-bold text-slate-400">CH 45</span>
+<span class="bg-white/5 text-slate-400 text-[10px] px-2 py-0.5 font-bold uppercase tracking-tight">Queueing</span>
+</div>
+<p class="text-sm font-medium text-on-surface mb-2 truncate">Neon Confession</p>
+<div class="w-full bg-surface-container h-0.5 mt-4 opacity-50"></div>
+</div>
+<!-- Queue Item 3 -->
+<div class="bg-surface-container-low p-4 border border-white/5 relative group opacity-60">
+<div class="flex justify-between items-start mb-3">
+<span class="text-xs font-headline font-bold text-slate-400">CH 46</span>
+<span class="bg-white/5 text-slate-400 text-[10px] px-2 py-0.5 font-bold uppercase tracking-tight">Queueing</span>
+</div>
+<p class="text-sm font-medium text-on-surface mb-2 truncate">The Deep Network</p>
+<div class="w-full bg-surface-container h-0.5 mt-4 opacity-50"></div>
+</div>
+<!-- Add More Queue Item -->
+<div class="border border-dashed border-white/10 flex flex-col items-center justify-center p-4 hover:bg-white/5 cursor-pointer transition-all group">
+<span class="material-symbols-outlined text-slate-600 group-hover:text-primary-container" data-icon="add_circle">add_circle</span>
+<span class="text-[10px] text-slate-500 mt-2 font-label group-hover:text-primary-container">BATCH GENERATE</span>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating AI Pulse Decorative Element -->
+<div class="fixed bottom-8 right-8 pointer-events-none z-50">
+<div class="relative">
+<div class="absolute inset-0 bg-secondary rounded-full animate-ping opacity-20 scale-150"></div>
+<div class="w-4 h-4 bg-secondary rounded-full neon-glow-secondary shadow-[0_0_12px_#4ade80]"></div>
+</div>
+</div>
+</body></html>

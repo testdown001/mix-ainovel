@@ -4,14 +4,14 @@
     <template #header>
       <div class="card-header">
         <span class="card-title">提示词管理</span>
-        <n-space :size="12">
-          <n-button quaternary size="small" @click="fetchPrompts" :loading="loading">
+        <div class="header-actions">
+          <n-button quaternary size="small" class="refresh-btn" @click="fetchPrompts" :loading="loading">
             刷新
           </n-button>
-          <n-button type="primary" size="small" @click="openCreateModal">
+          <button class="create-btn" @click="openCreateModal">
             新建 Prompt
-          </n-button>
-        </n-space>
+          </button>
+        </div>
       </div>
     </template>
 
@@ -25,24 +25,17 @@
           <div class="prompt-sidebar">
             <n-scrollbar class="prompt-scroll">
               <n-empty v-if="!prompts.length && !loading" description="暂无提示词" />
-              <n-space v-else vertical size="small">
-                <n-button
+              <div v-else class="prompt-list">
+                <button
                   v-for="prompt in prompts"
                   :key="prompt.id"
-                  type="primary"
-                  :ghost="selectedPrompt?.id !== prompt.id"
-                  quaternary
-                  block
+                  :class="['prompt-list-item', { active: selectedPrompt?.id === prompt.id }]"
                   @click="selectPrompt(prompt)"
                 >
-                  <div class="prompt-item">
-                    <span class="prompt-name">{{ prompt.title || prompt.name }}</span>
-                    <n-tag v-if="prompt.tags?.length" size="tiny" type="info">
-                      {{ prompt.tags.length }}
-                    </n-tag>
-                  </div>
-                </n-button>
-              </n-space>
+                  <span class="prompt-name">{{ prompt.title || prompt.name }}</span>
+                  <span v-if="prompt.tags?.length" class="prompt-tag-count">{{ prompt.tags.length }}</span>
+                </button>
+              </div>
             </n-scrollbar>
           </div>
 
@@ -78,7 +71,7 @@
                   />
                 </n-form-item>
               </n-form>
-              <n-space justify="end">
+              <div class="editor-actions">
                 <n-popconfirm
                   v-if="selectedPrompt"
                   placement="bottom"
@@ -94,10 +87,10 @@
                   </template>
                   确认删除该 Prompt？
                 </n-popconfirm>
-                <n-button type="primary" :loading="saving" @click="savePrompt">
-                  保存修改
-                </n-button>
-              </n-space>
+                <button class="save-btn" :disabled="saving" @click="savePrompt">
+                  {{ saving ? '保存中...' : '保存修改' }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -319,6 +312,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .admin-card {
   width: 100%;
+  background: #0f1419;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
 }
 
 .card-header {
@@ -330,9 +326,42 @@ onBeforeUnmount(() => {
 }
 
 .card-title {
+  font-family: var(--ar-font-display);
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #FACC15;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refresh-btn {
+  color: #8b929a !important;
+}
+
+.refresh-btn:hover {
+  color: #FACC15 !important;
+}
+
+.create-btn {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #000;
+  background: #FACC15;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.create-btn:hover {
+  background: #eab308;
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.2);
 }
 
 .prompt-layout {
@@ -349,6 +378,10 @@ onBeforeUnmount(() => {
 .prompt-sidebar {
   width: 260px;
   flex-shrink: 0;
+  background: #171c22;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  padding: 4px;
 }
 
 .prompt-layout.mobile .prompt-sidebar {
@@ -364,12 +397,39 @@ onBeforeUnmount(() => {
   max-height: 200px;
 }
 
-.prompt-item {
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.prompt-list-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  padding: 8px 12px;
+  font-family: var(--ar-font-ui);
+  font-size: 0.85rem;
   font-weight: 500;
+  color: #dee3eb;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+
+.prompt-list-item:hover {
+  background: #252a30;
+  color: #FACC15;
+}
+
+.prompt-list-item.active {
+  background: rgba(250, 204, 21, 0.1);
+  color: #FACC15;
+  border-left: 2px solid #FACC15;
 }
 
 .prompt-name {
@@ -377,6 +437,15 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   text-overflow: ellipsis;
   margin-right: 8px;
+}
+
+.prompt-tag-count {
+  font-size: 0.7rem;
+  color: #4ADE80;
+  background: rgba(74, 222, 128, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .prompt-editor {
@@ -398,14 +467,119 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
+.editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.save-btn {
+  font-family: var(--ar-font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #000;
+  background: #FACC15;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #eab308;
+  box-shadow: 0 0 14px rgba(250, 204, 21, 0.2);
+}
+
+.save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .prompt-textarea :deep(textarea) {
   font-family: 'Fira Code', 'JetBrains Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, monospace;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.6;
+  color: #4ADE80;
+  background: #0f1419;
+}
+
+:deep(.n-card > .n-card-header) {
+  border-bottom: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+:deep(.n-card) {
+  --n-color: #0f1419;
+  --n-color-embedded: #171c22;
+  --n-text-color: #dee3eb;
+  --n-title-text-color: #dee3eb;
+  border-radius: 4px;
+}
+
+:deep(.n-form-item .n-form-item-label) {
+  color: #8b929a;
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+:deep(.n-input) {
+  --n-color: #252a30;
+  --n-color-focus: #252a30;
+  --n-color-disabled: #171c22;
+  --n-border: 1px solid rgba(77, 70, 50, 0.15);
+  --n-border-focus: 1px solid rgba(250, 204, 21, 0.4);
+  --n-border-disabled: 1px solid rgba(77, 70, 50, 0.1);
+  --n-text-color: #dee3eb;
+  --n-text-color-disabled: #545d68;
+  --n-placeholder-color: #545d68;
+  --n-caret-color: #FACC15;
+  border-radius: 4px;
+}
+
+:deep(.n-dynamic-tags .n-tag) {
+  background: rgba(74, 222, 128, 0.1);
+  color: #4ADE80;
+  border: 1px solid rgba(74, 222, 128, 0.15);
+  border-radius: 4px;
+}
+
+:deep(.n-button--primary-type) {
+  --n-color: #FACC15;
+  --n-text-color: #000;
+  --n-color-hover: #eab308;
+  --n-text-color-hover: #000;
+  --n-border: 1px solid #FACC15;
+  --n-border-hover: 1px solid #eab308;
+}
+
+:deep(.n-alert) {
+  border-radius: 4px;
+}
+
+:deep(.n-empty .n-empty__description) {
+  color: #545d68;
+}
+
+:deep(.n-scrollbar) {
+  --n-scrollbar-color: rgba(250, 204, 21, 0.15);
+  --n-scrollbar-color-hover: rgba(250, 204, 21, 0.3);
 }
 
 .prompt-modal {
   max-width: min(720px, 90vw);
+}
+
+:deep(.n-modal .n-card) {
+  background: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.25);
+}
+
+:deep(.n-modal .n-card-header__main) {
+  font-family: var(--ar-font-display);
+  color: #FACC15;
 }
 
 @media (max-width: 1023px) {

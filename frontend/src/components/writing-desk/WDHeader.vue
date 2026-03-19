@@ -11,7 +11,7 @@
             </svg>
           </button>
           <div class="min-w-0">
-            <h1 class="md-title-large font-semibold truncate">{{ project?.title || '加载中...' }}</h1>
+            <h1 class="md-title-large font-display font-semibold truncate">{{ project?.title || '加载中...' }}</h1>
             <div class="hidden sm:flex items-center gap-2 md:gap-4 md-body-small md-on-surface-variant">
               <span>{{ project?.blueprint?.genre || '--' }}</span>
               <span class="hidden md:inline">•</span>
@@ -31,7 +31,7 @@
             </svg>
             <span class="hidden md:inline">项目详情</span>
           </button>
-          <div class="w-px h-6 hidden sm:block" style="background-color: var(--md-outline-variant);"></div>
+          <div class="w-px h-6 hidden sm:block" style="background: linear-gradient(180deg, transparent, rgba(77, 70, 50, 0.25), transparent);"></div>
           <button @click="handleLogout" class="md-btn md-btn-text md-ripple flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

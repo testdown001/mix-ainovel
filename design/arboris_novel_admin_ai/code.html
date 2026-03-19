@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "on-primary-fixed": "#231b00",
+            "surface-container-high": "#252a30",
+            "on-tertiary": "#003913",
+            "on-tertiary-fixed": "#002108",
+            "surface-container-highest": "#30353b",
+            "tertiary-container": "#82e68f",
+            "outline": "#9a9078",
+            "surface-variant": "#30353b",
+            "on-surface-variant": "#d1c6ab",
+            "on-error-container": "#ffdad6",
+            "tertiary-fixed": "#94f99f",
+            "surface-container-lowest": "#0a0f14",
+            "surface-bright": "#353a40",
+            "surface-tint": "#eec200",
+            "on-primary": "#3c2f00",
+            "error": "#ffb4ab",
+            "secondary": "#4de082",
+            "primary": "#ffecb9",
+            "background": "#0f1419",
+            "outline-variant": "#4d4632",
+            "on-error": "#690005",
+            "inverse-surface": "#dee3eb",
+            "inverse-primary": "#735c00",
+            "on-secondary-fixed": "#00210c",
+            "primary-fixed": "#ffe083",
+            "on-primary-fixed-variant": "#574500",
+            "on-secondary": "#003919",
+            "on-surface": "#dee3eb",
+            "tertiary": "#b2ffb7",
+            "on-secondary-fixed-variant": "#005227",
+            "surface-container-low": "#171c22",
+            "on-tertiary-container": "#006828",
+            "secondary-container": "#00b55d",
+            "primary-fixed-dim": "#eec200",
+            "on-background": "#dee3eb",
+            "primary-container": "#facc15",
+            "on-tertiary-fixed-variant": "#00531e",
+            "surface-dim": "#0f1419",
+            "secondary-fixed-dim": "#4de082",
+            "secondary-fixed": "#6dfe9c",
+            "surface-container": "#1b2026",
+            "on-primary-container": "#6c5700",
+            "inverse-on-surface": "#2c3137",
+            "surface": "#0f1419",
+            "on-secondary-container": "#003e1c",
+            "tertiary-fixed-dim": "#78dc86",
+            "error-container": "#93000a"
+          },
+          fontFamily: {
+            "headline": ["Space Grotesk"],
+            "body": ["Noto Serif SC"],
+            "label": ["Inter"]
+          },
+          borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    .neon-glow-yellow {
+      box-shadow: 0 0 15px rgba(250, 204, 21, 0.15);
+    }
+    .neon-glow-green {
+      box-shadow: 0 0 15px rgba(77, 224, 130, 0.15);
+    }
+    .glass-panel {
+      background: rgba(48, 53, 59, 0.6);
+      backdrop-filter: blur(12px);
+    }
+    body {
+      background-color: #000000;
+    }
+  </style>
+</head>
+<body class="font-label text-on-surface antialiased overflow-x-hidden">
+<!-- Side Navigation Bar -->
+<aside class="fixed left-0 top-0 h-full w-64 z-40 bg-[#0f1419] flex flex-col h-full pt-20 pb-8">
+<div class="px-6 mb-10">
+<div class="flex items-center space-x-3">
+<div class="w-10 h-10 bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary-container">shield_person</span>
+</div>
+<div>
+<p class="font-headline text-sm font-bold tracking-wider text-on-surface">System Architect</p>
+<p class="text-[10px] text-slate-500 uppercase tracking-tighter">Level 0 Access</p>
+</div>
+</div>
+</div>
+<nav class="flex-grow">
+<a class="flex items-center space-x-3 text-slate-500 px-6 py-4 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label text-sm font-medium">Dashboard</span>
+</a>
+<a class="flex items-center space-x-3 bg-yellow-400/10 text-yellow-400 border-r-4 border-yellow-400 px-6 py-4 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label text-sm font-medium">Transactions</span>
+</a>
+<a class="flex items-center space-x-3 text-slate-500 px-6 py-4 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">account_balance_wallet</span>
+<span class="font-label text-sm font-medium">User Quotas</span>
+</a>
+<a class="flex items-center space-x-3 text-slate-500 px-6 py-4 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">memory</span>
+<span class="font-label text-sm font-medium">AI Nodes</span>
+</a>
+<a class="flex items-center space-x-3 text-slate-500 px-6 py-4 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">shield_person</span>
+<span class="font-label text-sm font-medium">Security</span>
+</a>
+</nav>
+<div class="px-6 mt-auto space-y-2">
+<button class="w-full bg-primary-container text-on-primary-container font-headline font-bold py-3 text-xs uppercase tracking-widest active:scale-95 transition-all">
+        Recharge System
+      </button>
+<div class="pt-6 border-t border-outline-variant/10">
+<a class="flex items-center space-x-3 text-slate-500 px-2 py-2 hover:text-on-surface" href="#">
+<span class="material-symbols-outlined text-sm">description</span>
+<span class="text-xs">Docs</span>
+</a>
+<a class="flex items-center space-x-3 text-slate-500 px-2 py-2 hover:text-error" href="#">
+<span class="material-symbols-outlined text-sm">logout</span>
+<span class="text-xs">Logout</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-black/60 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_0_20px_rgba(250,204,21,0.05)] flex justify-between items-center px-8 h-16">
+<div class="flex items-center space-x-12">
+<div class="text-2xl font-bold text-yellow-400 uppercase tracking-widest font-headline">
+        Neon Manuscript Admin
+      </div>
+<nav class="hidden md:flex items-center space-x-8">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline tracking-tight text-sm" href="#">Analytics</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline tracking-tight text-sm" href="#">System Log</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline tracking-tight text-sm" href="#">Support</a>
+</nav>
+</div>
+<div class="flex items-center space-x-6">
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-slate-500 text-sm">search</span>
+<input class="bg-surface-container-lowest border-none text-xs text-on-surface pl-10 pr-4 py-2 w-64 focus:ring-1 focus:ring-secondary/50 rounded-none" placeholder="Search orders..." type="text"/>
+</div>
+<div class="flex items-center space-x-4">
+<button class="text-slate-400 hover:text-primary-container transition-all">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-slate-400 hover:text-primary-container transition-all">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="w-8 h-8 rounded-none border border-primary-container/30 overflow-hidden">
+<img alt="Admin Avatar" class="w-full h-full object-cover" data-alt="Cyberpunk style admin portrait avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAHdykpxLdKUlAepLECab1Pl05YtOldBa7vCqHcnQupGF0GbHFLFH77XiTERPyZjJ9E6ElpD_jIkOm_8hbR_JIeG7hQ3l6Af8YYmCJEmr7pi7lFZIJG57SSeyxIngpGIxu6nUr-GALeSNHNQrGeYcDa3r1_CL40NuyasmPBCGgHAuB3IDS43Rk0ruud8id79_vHJDiUo7holwYBjIhP2C4imYmzHBpf0YQ_oHTtedQBQ5makbwLRCqAsfav9sXQujeB2rJtfmOpnDVc"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-64 pt-24 px-8 pb-12 min-h-screen">
+<!-- Recharge Statistics Hub -->
+<section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+<div class="bg-surface-container-low p-6 relative overflow-hidden group border-l-4 border-primary-container neon-glow-yellow">
+<div class="relative z-10">
+<p class="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">Total Revenue</p>
+<p class="text-[10px] text-slate-600 mb-4 tracking-tighter">今日充值总额</p>
+<div class="flex items-baseline space-x-2">
+<span class="text-3xl font-headline font-bold text-primary-container">¥142,805.50</span>
+<span class="text-xs text-secondary">+12.4%</span>
+</div>
+</div>
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-primary-container">account_balance</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 relative overflow-hidden group border-l-4 border-secondary neon-glow-green">
+<div class="relative z-10">
+<p class="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">New Orders</p>
+<p class="text-[10px] text-slate-600 mb-4 tracking-tighter">今日新增订单</p>
+<div class="flex items-baseline space-x-2">
+<span class="text-3xl font-headline font-bold text-secondary">1,284</span>
+<span class="text-xs text-secondary">+5.2%</span>
+</div>
+</div>
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-secondary">shopping_cart</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 relative overflow-hidden group border-l-4 border-primary-container neon-glow-yellow">
+<div class="relative z-10">
+<p class="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-1">Active Subscriptions</p>
+<p class="text-[10px] text-slate-600 mb-4 tracking-tighter">活跃订阅数</p>
+<div class="flex items-baseline space-x-2">
+<span class="text-3xl font-headline font-bold text-primary-container">12,402</span>
+<span class="text-xs text-slate-500">stable</span>
+</div>
+</div>
+<div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-6xl text-primary-container">verified_user</span>
+</div>
+</div>
+</section>
+<!-- Mid Section: Quota & Subscription -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
+<!-- User Quota Control (LHS) -->
+<section class="lg:col-span-4 bg-surface-container-low p-6 border border-outline-variant/10">
+<h2 class="font-headline text-lg font-bold text-on-surface mb-6 flex items-center uppercase tracking-widest">
+<span class="w-2 h-4 bg-secondary mr-3"></span>
+          User Quota Control
+        </h2>
+<div class="space-y-6">
+<div>
+<label class="block text-[10px] uppercase text-slate-500 mb-2">Target User ID</label>
+<div class="flex">
+<input class="flex-grow bg-surface-container-lowest border-none text-sm p-3 focus:ring-1 focus:ring-secondary/50" placeholder="e.g. USER-9921" type="text"/>
+<button class="bg-surface-container-highest px-4 hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-sm">search</span>
+</button>
+</div>
+</div>
+<div class="p-4 bg-background border border-outline-variant/5">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-sm font-bold text-primary">Alex Chen</p>
+<p class="text-[10px] text-slate-500">ID: 8829-XQ</p>
+</div>
+<span class="text-[10px] px-2 py-0.5 bg-secondary/10 text-secondary border border-secondary/20">ELITE</span>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px]">
+<span class="text-slate-500 uppercase">Current Balance</span>
+<span class="text-on-surface">45,200 Tokens</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1">
+<div class="bg-secondary h-full w-[45%]"></div>
+</div>
+</div>
+</div>
+<div>
+<label class="block text-[10px] uppercase text-slate-500 mb-2">Adjust Token Balance (调整额度)</label>
+<div class="grid grid-cols-2 gap-2">
+<button class="py-2 text-xs border border-outline-variant/30 hover:border-secondary transition-colors">+ 50k Tokens</button>
+<button class="py-2 text-xs border border-outline-variant/30 hover:border-secondary transition-colors">+ 200k Tokens</button>
+</div>
+<button class="w-full mt-4 bg-white/5 hover:bg-white/10 text-xs py-3 border border-white/10 uppercase tracking-widest transition-all">Manual Override</button>
+</div>
+</div>
+</section>
+<!-- Subscription Plan Manager (RHS) -->
+<section class="lg:col-span-8 bg-surface-container-low p-6 border border-outline-variant/10">
+<div class="flex justify-between items-center mb-6">
+<h2 class="font-headline text-lg font-bold text-on-surface flex items-center uppercase tracking-widest">
+<span class="w-2 h-4 bg-primary-container mr-3"></span>
+            Subscription Plan Manager
+          </h2>
+<button class="text-[10px] text-primary-container uppercase tracking-widest hover:underline">Add New Plan</button>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+<!-- Free Plan -->
+<div class="bg-surface-container-lowest p-5 border border-outline-variant/10 flex flex-col group hover:border-primary-container/30 transition-all">
+<div class="mb-4">
+<h3 class="font-headline font-bold text-slate-400">Free</h3>
+<p class="text-2xl font-bold">¥0<span class="text-[10px] text-slate-500 font-normal">/mo</span></p>
+</div>
+<ul class="text-[10px] text-slate-400 space-y-2 mb-8 flex-grow">
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> 10,000 Tokens/mo</li>
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> Basic AI Models</li>
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-slate-600">close</span> High-Speed Priority</li>
+</ul>
+<button class="text-[10px] font-bold uppercase py-2 bg-surface-container-high border border-outline-variant/20 hover:bg-primary-container hover:text-on-primary-container transition-all">编辑 (Edit)</button>
+</div>
+<!-- Pro Plan -->
+<div class="bg-surface-container-lowest p-5 border-2 border-primary-container relative flex flex-col group neon-glow-yellow">
+<div class="absolute -top-3 right-4 bg-primary-container text-on-primary-container text-[8px] font-bold px-2 py-0.5 uppercase">Most Popular</div>
+<div class="mb-4">
+<h3 class="font-headline font-bold text-primary-container">Pro</h3>
+<p class="text-2xl font-bold">¥99<span class="text-[10px] text-slate-500 font-normal">/mo</span></p>
+</div>
+<ul class="text-[10px] text-slate-300 space-y-2 mb-8 flex-grow">
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> 200,000 Tokens/mo</li>
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> Advanced AI Models</li>
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> Priority Queue</li>
+</ul>
+<button class="text-[10px] font-bold uppercase py-2 bg-primary-container text-on-primary-container transition-all">编辑 (Edit)</button>
+</div>
+<!-- Elite Plan -->
+<div class="bg-surface-container-lowest p-5 border border-outline-variant/10 flex flex-col group hover:border-secondary/30 transition-all">
+<div class="mb-4">
+<h3 class="font-headline font-bold text-secondary">Elite</h3>
+<p class="text-2xl font-bold">¥299<span class="text-[10px] text-slate-500 font-normal">/mo</span></p>
+</div>
+<ul class="text-[10px] text-slate-300 space-y-2 mb-8 flex-grow">
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> 1M Tokens/mo</li>
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> Custom AI Fine-tuning</li>
+<li class="flex items-center"><span class="material-symbols-outlined text-[14px] mr-2 text-secondary">check</span> 24/7 Priority Support</li>
+</ul>
+<button class="text-[10px] font-bold uppercase py-2 bg-surface-container-high border border-outline-variant/20 hover:bg-secondary hover:text-on-secondary transition-all">编辑 (Edit)</button>
+</div>
+</div>
+</section>
+</div>
+<!-- Transaction Records Table -->
+<section class="bg-surface-container-low border border-outline-variant/10 overflow-hidden">
+<div class="px-6 py-4 border-b border-outline-variant/10 flex justify-between items-center">
+<h2 class="font-headline text-lg font-bold uppercase tracking-widest flex items-center">
+<span class="w-2 h-4 bg-primary-fixed-dim mr-3"></span>
+          Transaction Records
+        </h2>
+<div class="flex space-x-2">
+<button class="bg-surface-container-highest p-2 border border-outline-variant/20 hover:text-primary-container">
+<span class="material-symbols-outlined text-sm">filter_list</span>
+</button>
+<button class="bg-surface-container-highest p-2 border border-outline-variant/20 hover:text-primary-container">
+<span class="material-symbols-outlined text-sm">download</span>
+</button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead class="bg-surface-container-highest/50">
+<tr>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">Order ID</th>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">User ID</th>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">Amount (CNY)</th>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">AI Tokens</th>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">Payment Method</th>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">Status</th>
+<th class="px-6 py-3 text-[10px] uppercase font-bold text-slate-500">Timestamp</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/5">
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-primary-container">#NEON-9821-XA</td>
+<td class="px-6 py-4 text-xs">USER_4402</td>
+<td class="px-6 py-4 text-xs font-bold">¥ 99.00</td>
+<td class="px-6 py-4 text-xs">200,000</td>
+<td class="px-6 py-4 text-xs flex items-center">
+<span class="w-2 h-2 rounded-full bg-blue-500 mr-2"></span> Alipay
+              </td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] bg-secondary/10 text-secondary border border-secondary/20 font-bold uppercase">Success</span>
+</td>
+<td class="px-6 py-4 text-[10px] text-slate-500">2023-11-24 14:22:10</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-primary-container">#NEON-9821-XB</td>
+<td class="px-6 py-4 text-xs">USER_1109</td>
+<td class="px-6 py-4 text-xs font-bold">¥ 299.00</td>
+<td class="px-6 py-4 text-xs">1,000,000</td>
+<td class="px-6 py-4 text-xs flex items-center">
+<span class="w-2 h-2 rounded-full bg-green-500 mr-2"></span> WeChat
+              </td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] bg-secondary/10 text-secondary border border-secondary/20 font-bold uppercase">Success</span>
+</td>
+<td class="px-6 py-4 text-[10px] text-slate-500">2023-11-24 14:15:05</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-primary-container">#NEON-9821-XC</td>
+<td class="px-6 py-4 text-xs">USER_5563</td>
+<td class="px-6 py-4 text-xs font-bold">¥ 99.00</td>
+<td class="px-6 py-4 text-xs">200,000</td>
+<td class="px-6 py-4 text-xs flex items-center">
+<span class="w-2 h-2 rounded-full bg-blue-500 mr-2"></span> Alipay
+              </td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] bg-primary-container/10 text-primary-container border border-primary-container/20 font-bold uppercase">Pending</span>
+</td>
+<td class="px-6 py-4 text-[10px] text-slate-500">2023-11-24 14:10:33</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-primary-container">#NEON-9821-XD</td>
+<td class="px-6 py-4 text-xs">USER_0029</td>
+<td class="px-6 py-4 text-xs font-bold">¥ 15.00</td>
+<td class="px-6 py-4 text-xs">30,000</td>
+<td class="px-6 py-4 text-xs flex items-center">
+<span class="w-2 h-2 rounded-full bg-green-500 mr-2"></span> WeChat
+              </td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] bg-secondary/10 text-secondary border border-secondary/20 font-bold uppercase">Success</span>
+</td>
+<td class="px-6 py-4 text-[10px] text-slate-500">2023-11-24 13:55:12</td>
+</tr>
+<tr class="hover:bg-white/5 transition-colors group">
+<td class="px-6 py-4 text-xs font-mono text-primary-container">#NEON-9821-XE</td>
+<td class="px-6 py-4 text-xs">USER_8871</td>
+<td class="px-6 py-4 text-xs font-bold">¥ 299.00</td>
+<td class="px-6 py-4 text-xs">1,000,000</td>
+<td class="px-6 py-4 text-xs flex items-center">
+<span class="w-2 h-2 rounded-full bg-blue-500 mr-2"></span> Alipay
+              </td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] bg-error/10 text-error border border-error/20 font-bold uppercase">Failed</span>
+</td>
+<td class="px-6 py-4 text-[10px] text-slate-500">2023-11-24 13:42:59</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="px-6 py-4 border-t border-outline-variant/10 flex justify-between items-center bg-surface-container-highest/20">
+<p class="text-[10px] text-slate-500">Showing 1-10 of 2,492 transactions</p>
+<div class="flex space-x-1">
+<button class="px-3 py-1 bg-surface-container-highest text-[10px] hover:bg-primary-container hover:text-on-primary-container transition-all">Prev</button>
+<button class="px-3 py-1 bg-primary-container text-on-primary-container text-[10px] font-bold">1</button>
+<button class="px-3 py-1 bg-surface-container-highest text-[10px] hover:bg-primary-container hover:text-on-primary-container transition-all">2</button>
+<button class="px-3 py-1 bg-surface-container-highest text-[10px] hover:bg-primary-container hover:text-on-primary-container transition-all">3</button>
+<button class="px-3 py-1 bg-surface-container-highest text-[10px] hover:bg-primary-container hover:text-on-primary-container transition-all">Next</button>
+</div>
+</div>
+</section>
+</main>
+<!-- Ambient Glow Background Element -->
+<div class="fixed bottom-0 right-0 w-[500px] h-[500px] bg-primary-fixed-dim/5 blur-[120px] -z-10 rounded-full"></div>
+<div class="fixed top-1/4 -left-20 w-[300px] h-[300px] bg-secondary/5 blur-[100px] -z-10 rounded-full"></div>
+</body></html>

@@ -1,167 +1,130 @@
 <!-- AIMETA P=小说详情壳_详情页布局容器|R=详情页布局_导航|NR=不含具体内容|E=component:NovelDetailShell|X=internal|A=布局组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="h-[calc(100vh-64px)] flex flex-col overflow-hidden md-surface">
-    <!-- Material 3 Top App Bar -->
-    <header class="md-top-app-bar sticky top-0 z-40">
-      <div class="max-w-[1800px] mx-auto w-full flex items-center px-4 h-16">
-        <!-- Leading: Menu Button (Mobile) -->
+  <div class="nd-shell h-screen flex overflow-hidden" style="background-color: var(--ar-bg-base);">
+    <!-- Sidebar -->
+    <aside
+      class="nd-sidebar fixed left-0 top-0 bottom-0 z-30 w-56 transform transition-transform duration-300 lg:translate-x-0"
+      :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+    >
+      <!-- Project Info Header -->
+      <div class="nd-sidebar-header">
+        <div class="nd-project-title font-display">{{ overviewMeta.title || '加载中...' }}</div>
+        <div class="nd-project-sub">{{ overviewMeta.genre || '小说项目' }}</div>
+      </div>
+
+      <!-- Primary Navigation -->
+      <nav class="nd-sidebar-nav">
         <button
-          class="md-icon-btn lg:hidden mr-2"
-          @click="toggleSidebar"
-          aria-label="Toggle sidebar"
+          v-for="section in primarySections"
+          :key="section.key"
+          type="button"
+          @click="switchSection(section.key)"
+          class="nd-nav-item w-full"
+          :class="{ 'active': activeSection === section.key }"
         >
-          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          <component :is="getSectionIcon(section.key)" class="nd-nav-icon w-[18px] h-[18px] flex-shrink-0" />
+          <span class="nd-nav-label">{{ section.label }}</span>
         </button>
 
-        <!-- Title -->
-        <div class="flex-1 min-w-0">
-          <h1 class="md-title-large truncate" style="color: var(--md-on-surface);">
-            {{ formattedTitle }}
-          </h1>
-          <p v-if="overviewMeta.updated_at" class="md-body-small" style="color: var(--md-on-surface-variant);">
-            最近更新：{{ formatDateTime(overviewMeta.updated_at) }}
-          </p>
-        </div>
+        <!-- Divider -->
+        <div class="nd-nav-divider"></div>
 
-        <!-- Trailing: Actions -->
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <button
-            class="md-btn md-btn-outlined md-ripple"
-            @click="goBack"
-          >
-            <svg class="w-5 h-5 hidden sm:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            <span class="hidden sm:inline">返回列表</span>
-            <span class="sm:hidden">返回</span>
-          </button>
-          <button
-            v-if="!isAdmin"
-            class="md-btn md-btn-filled md-ripple"
-            @click="goToWritingDesk"
-          >
-            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            <span class="hidden sm:inline">开始创作</span>
-            <span class="sm:hidden">创作</span>
-          </button>
-        </div>
+        <!-- Analysis / Tools -->
+        <button
+          v-for="section in analysisSections"
+          :key="section.key"
+          type="button"
+          @click="switchSection(section.key)"
+          class="nd-nav-item w-full"
+          :class="{ 'active': activeSection === section.key }"
+        >
+          <component :is="getSectionIcon(section.key)" class="nd-nav-icon w-[18px] h-[18px] flex-shrink-0" />
+          <span class="nd-nav-label">{{ section.label }}</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="nd-sidebar-footer">
+        <button
+          v-if="!isAdmin"
+          class="nd-sidebar-cta w-full"
+          @click="goToWritingDesk"
+        >
+          开始创作
+        </button>
+        <button class="nd-sidebar-link w-full" @click="goBack">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+          返回列表
+        </button>
       </div>
-    </header>
+    </aside>
 
-    <!-- Main Content -->
-    <div class="flex max-w-[1800px] mx-auto w-full flex-1 min-h-0 overflow-hidden">
-      <!-- Material 3 Navigation Drawer -->
-      <aside
-        class="fixed left-0 top-32 bottom-0 z-30 w-80 md-surface transform transition-transform duration-300 lg:translate-x-0"
-        :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-        style="border-right: 1px solid var(--md-outline-variant);"
-      >
-        <!-- Drawer Header -->
-        <div class="flex items-center gap-3 px-6 py-4" style="border-bottom: 1px solid var(--md-outline-variant);">
-          <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--md-primary-container);">
-            <svg class="w-5 h-5" style="color: var(--md-on-primary-container);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+    <!-- Sidebar Overlay (Mobile) -->
+    <transition
+      enter-active-class="transition-opacity duration-300"
+      leave-active-class="transition-opacity duration-300"
+      enter-from-class="opacity-0"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="isSidebarOpen"
+        class="fixed inset-0 z-20 lg:hidden"
+        style="background-color: rgba(0, 0, 0, 0.5);"
+        @click="toggleSidebar"
+      ></div>
+    </transition>
+
+    <!-- Main Content Area -->
+    <div class="nd-main flex-1 lg:ml-56 min-h-0 flex flex-col h-full overflow-hidden">
+      <!-- Mobile menu button -->
+      <div class="lg:hidden flex items-center px-4 h-12 flex-shrink-0" style="border-bottom: 1px solid rgba(250,204,21,0.06);">
+        <button class="md-icon-btn" @click="toggleSidebar" aria-label="Toggle sidebar">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+        <span class="ml-2 text-sm truncate" style="color: var(--ar-text-muted);">{{ overviewMeta.title }}</span>
+      </div>
+
+      <!-- Scrollable content -->
+      <div class="flex-1 min-h-0 overflow-y-auto" :class="contentScrollClass">
+        <!-- Section Header -->
+        <div class="nd-section-header">
+          <div class="flex-1">
+            <h1 class="nd-section-title font-display">{{ sectionTitle }}</h1>
+            <p class="nd-section-sub">{{ sectionSubtitle }}</p>
+          </div>
+        </div>
+
+        <!-- Loading State -->
+        <div v-if="isSectionLoading" class="flex flex-col items-center justify-center py-20 sm:py-28">
+          <div class="md-spinner"></div>
+          <p class="mt-4 ar-body" style="color: var(--ar-text-muted);">加载中...</p>
+        </div>
+
+        <!-- Error State -->
+        <div v-else-if="currentError" class="flex flex-col items-center justify-center py-20 sm:py-28 space-y-4">
+          <div class="w-16 h-16 rounded-[4px] flex items-center justify-center" style="background-color: var(--color-error-muted);">
+            <svg class="w-8 h-8" style="color: var(--ar-error);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <span class="md-title-medium" style="color: var(--md-on-surface);">
-            {{ isAdmin ? '内容视图' : '蓝图导航' }}
-          </span>
+          <p class="ar-body-lg text-center" style="color: var(--ar-text-primary);">{{ currentError }}</p>
+          <button class="md-btn md-btn-filled md-ripple" @click="reloadSection(activeSection, true)">重试</button>
         </div>
 
-        <!-- Navigation Items -->
-        <nav class="px-3 py-4 space-y-1 overflow-y-auto h-[calc(100%-5rem)]">
-          <button
-            v-for="section in sections"
-            :key="section.key"
-            type="button"
-            @click="switchSection(section.key)"
-            class="md-nav-drawer-item w-full md-ripple"
-            :class="{ 'active': activeSection === section.key }"
-          >
-            <span
-              class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition-all duration-200"
-              :style="activeSection === section.key
-                ? 'background-color: var(--md-primary); color: var(--md-on-primary);'
-                : 'background-color: var(--md-surface-container); color: var(--md-on-surface-variant);'"
-            >
-              <component :is="getSectionIcon(section.key)" class="w-5 h-5" />
-            </span>
-            <span class="text-left flex-1">
-              <span class="block md-label-large">{{ section.label }}</span>
-              <span class="md-body-small" style="color: var(--md-on-surface-variant);">{{ section.description }}</span>
-            </span>
-          </button>
-        </nav>
-      </aside>
-
-      <!-- Sidebar Overlay (Mobile) -->
-      <transition
-        enter-active-class="transition-opacity duration-300"
-        leave-active-class="transition-opacity duration-300"
-        enter-from-class="opacity-0"
-        leave-to-class="opacity-0"
-      >
-        <div
-          v-if="isSidebarOpen"
-          class="fixed inset-0 z-20 lg:hidden"
-          style="background-color: rgba(0, 0, 0, 0.32);"
-          @click="toggleSidebar"
-        ></div>
-      </transition>
-
-      <!-- Main Content Area -->
-      <div class="flex-1 lg:ml-80 min-h-0 flex flex-col h-full">
-        <div class="flex-1 min-h-0 h-full p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden box-border">
-          <div class="flex-1 flex flex-col min-h-0 h-full">
-            <!-- Material 3 Card -->
-            <div 
-              class="md-card md-card-elevated flex-1 h-full p-6 sm:p-8 min-h-[20rem] flex flex-col box-border" 
-              :class="contentCardClass"
-              style="border-radius: var(--md-radius-lg);"
-            >
-              <!-- Loading State -->
-              <div v-if="isSectionLoading" class="flex flex-col items-center justify-center py-20 sm:py-28">
-                <div class="md-spinner"></div>
-                <p class="mt-4 md-body-medium" style="color: var(--md-on-surface-variant);">加载中...</p>
-              </div>
-
-              <!-- Error State -->
-              <div v-else-if="currentError" class="flex flex-col items-center justify-center py-20 sm:py-28 space-y-4">
-                <div class="w-16 h-16 rounded-full flex items-center justify-center" style="background-color: var(--md-error-container);">
-                  <svg class="w-8 h-8" style="color: var(--md-error);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p class="md-body-large text-center" style="color: var(--md-on-surface);">{{ currentError }}</p>
-                <button
-                  class="md-btn md-btn-filled md-ripple"
-                  @click="reloadSection(activeSection, true)"
-                >
-                  重试
-                </button>
-              </div>
-
-              <!-- Content -->
-              <component
-                v-else
-                ref="sectionRef"
-                :is="currentComponent"
-                v-bind="componentProps"
-                :class="componentContainerClass"
-                @edit="handleSectionEdit"
-                @add="startAddChapter"
-                @regenerate="handleRegenerate"
-                @delete-outlines="handleDeleteOutlines"
-                @batch-generate="handleBatchGenerate"
-                @batch-predict="handleBatchPredict"
-              />
-            </div>
-          </div>
-        </div>
+        <!-- Content -->
+        <component
+          v-else
+          ref="sectionRef"
+          :is="currentComponent"
+          v-bind="componentProps"
+          :class="componentContainerClass"
+          @edit="handleSectionEdit"
+          @add="startAddChapter"
+          @regenerate="handleRegenerate"
+          @delete-outlines="handleDeleteOutlines"
+          @batch-generate="handleBatchGenerate"
+          @batch-predict="handleBatchPredict"
+        />
       </div>
     </div>
 
@@ -178,7 +141,7 @@
       @save="handleSave"
     />
 
-    <!-- Material 3 Add Chapter Modal -->
+    <!-- Add Chapter Modal -->
     <transition
       enter-active-class="md-scale-enter-active"
       leave-active-class="md-scale-leave-active"
@@ -311,6 +274,33 @@ const sections: Array<{ key: SectionKey; label: string; description: string }> =
   { key: 'concept_library', label: '设定百科', description: '世界观元素管理' }
 ]
 
+const primarySections = computed(() => sections.slice(0, 6))
+const analysisSections = computed(() => sections.slice(6))
+
+const sectionTitleMap: Record<SectionKey, string> = {
+  overview: '项目概览',
+  world_setting: '世界观设定库',
+  characters: '角色管理',
+  relationships: '人物关系图谱',
+  chapter_outline: '章节大纲',
+  chapters: '章节内容',
+  emotion_curve: '情感曲线分析',
+  foreshadowing: '伏笔管理',
+  writer_persona: 'Writer 风格设定',
+  concept_library: '设定百科'
+}
+
+const sectionTitle = computed(() => sectionTitleMap[activeSection.value] || '')
+const sectionSubtitle = computed(() => {
+  const sec = sections.find(s => s.key === activeSection.value)
+  return sec?.description || ''
+})
+
+const contentScrollClass = computed(() => {
+  const fillSections: SectionKey[] = ['chapters']
+  return fillSections.includes(activeSection.value) ? 'nd-content-fill' : 'nd-content-scroll'
+})
+
 const sectionComponents: Record<SectionKey, any> = {
   overview: OverviewSection,
   world_setting: WorldSettingSection,
@@ -400,9 +390,10 @@ const sectionError = reactive<Record<SectionKey, string | null>>({
   concept_library: null
 })
 
-const overviewMeta = reactive<{ title: string; updated_at: string | null }>({
+const overviewMeta = reactive<{ title: string; updated_at: string | null; genre: string }>({
   title: '加载中...',
-  updated_at: null
+  updated_at: null,
+  genre: ''
 })
 
 const activeSection = ref<SectionKey>('overview')
@@ -484,6 +475,7 @@ const loadSection = async (section: SectionKey, force = false) => {
     if (section === 'overview') {
       overviewMeta.title = response.data?.title || overviewMeta.title
       overviewMeta.updated_at = response.data?.updated_at || null
+      overviewMeta.genre = response.data?.genre || response.data?.style || ''
     }
   } catch (error) {
     console.error('加载模块失败:', error)
@@ -791,6 +783,210 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ===== Sidebar ===== */
+.nd-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--ar-bg-surface);
+  border-right: 1px solid rgba(250, 204, 21, 0.08);
+}
+
+.nd-sidebar-header {
+  flex-shrink: 0;
+  padding: 20px 20px 12px;
+}
+
+.nd-project-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ar-primary);
+  font-style: italic;
+  line-height: 1.3;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nd-project-sub {
+  font-family: var(--ar-font-ui);
+  font-size: 11px;
+  color: var(--ar-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.nd-sidebar-nav {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nd-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 38px;
+  padding: 0 14px;
+  border: none;
+  border-radius: var(--ar-radius-sm);
+  background-color: transparent;
+  color: var(--ar-text-secondary);
+  font-family: var(--ar-font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+  text-decoration: none;
+  text-align: left;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.nd-nav-icon {
+  opacity: 0.5;
+  transition: opacity 150ms ease;
+}
+
+.nd-nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--ar-text-primary);
+}
+
+.nd-nav-item:hover .nd-nav-icon {
+  opacity: 0.8;
+}
+
+.nd-nav-item.active {
+  background-color: rgba(74, 222, 128, 0.08);
+  color: var(--ar-secondary);
+}
+
+.nd-nav-item.active .nd-nav-icon {
+  opacity: 1;
+  color: var(--ar-secondary);
+}
+
+.nd-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  background: var(--ar-secondary);
+  border-radius: 0 2px 2px 0;
+}
+
+.nd-nav-divider {
+  height: 1px;
+  margin: 10px 14px;
+  background: linear-gradient(90deg, rgba(250, 204, 21, 0.12) 0%, transparent 100%);
+  flex-shrink: 0;
+}
+
+/* Sidebar Footer */
+.nd-sidebar-footer {
+  flex-shrink: 0;
+  padding: 12px 10px 16px;
+  border-top: 1px solid rgba(250, 204, 21, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nd-sidebar-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  border: none;
+  border-radius: var(--ar-radius-sm);
+  background: var(--ar-primary);
+  color: var(--ar-on-primary);
+  font-family: var(--ar-font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.nd-sidebar-cta:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.25);
+}
+
+.nd-sidebar-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  border: none;
+  border-radius: var(--ar-radius-sm);
+  background: transparent;
+  color: var(--ar-text-muted);
+  font-family: var(--ar-font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.nd-sidebar-link:hover {
+  color: var(--ar-text-secondary);
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* ===== Content ===== */
+.nd-main {
+  background-color: var(--ar-bg-base);
+}
+
+.nd-content-scroll {
+  padding: 24px 32px 40px;
+}
+
+.nd-content-fill {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.nd-section-header {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  padding: 24px 32px 0;
+}
+
+.nd-content-scroll .nd-section-header {
+  padding: 0;
+}
+
+.nd-section-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--ar-text-primary);
+  line-height: 1.2;
+  margin: 0;
+}
+
+.nd-section-sub {
+  font-family: var(--ar-font-ui);
+  font-size: 13px;
+  color: var(--ar-text-muted);
+  margin-top: 4px;
+}
+
+/* Transitions */
 .md-scale-enter-active,
 .md-scale-leave-active {
   transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -802,9 +998,10 @@ onBeforeUnmount(() => {
   transform: scale(0.95);
 }
 
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -812,11 +1009,20 @@ onBeforeUnmount(() => {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A2A2A;
-  border-radius: 4px;
+  background: rgba(250, 204, 21, 0.12);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3A3A3A;
+  background: rgba(250, 204, 21, 0.25);
+}
+
+@media (max-width: 1023px) {
+  .nd-sidebar {
+    width: 240px;
+  }
+  .nd-content-scroll {
+    padding: 16px 20px 32px;
+  }
 }
 </style>

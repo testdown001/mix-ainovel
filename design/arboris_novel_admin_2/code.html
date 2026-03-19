@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Admin - 安全中心</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "outline-variant": "#4d4632",
+              "on-surface": "#dee3eb",
+              "on-secondary": "#003919",
+              "on-primary-fixed-variant": "#574500",
+              "on-error-container": "#ffdad6",
+              "surface-container": "#1b2026",
+              "secondary": "#4de082",
+              "surface-container-highest": "#30353b",
+              "on-secondary-fixed-variant": "#005227",
+              "on-secondary-container": "#003e1c",
+              "on-primary": "#3c2f00",
+              "surface-dim": "#0f1419",
+              "tertiary-fixed-dim": "#78dc86",
+              "error-container": "#93000a",
+              "surface-container-low": "#171c22",
+              "primary-container": "#facc15",
+              "surface-container-high": "#252a30",
+              "inverse-surface": "#dee3eb",
+              "tertiary-fixed": "#94f99f",
+              "on-primary-fixed": "#231b00",
+              "inverse-primary": "#735c00",
+              "tertiary-container": "#82e68f",
+              "on-secondary-fixed": "#00210c",
+              "on-tertiary-fixed": "#002108",
+              "on-tertiary-container": "#006828",
+              "inverse-on-surface": "#2c3137",
+              "background": "#0f1419",
+              "secondary-fixed": "#6dfe9c",
+              "secondary-container": "#00b55d",
+              "on-tertiary-fixed-variant": "#00531e",
+              "error": "#ffb4ab",
+              "surface-tint": "#eec200",
+              "on-tertiary": "#003913",
+              "primary": "#ffecb9",
+              "on-primary-container": "#6c5700",
+              "on-background": "#dee3eb",
+              "primary-fixed-dim": "#eec200",
+              "on-surface-variant": "#d1c6ab",
+              "outline": "#9a9078",
+              "surface": "#0f1419",
+              "primary-fixed": "#ffe083",
+              "surface-variant": "#30353b",
+              "surface-container-lowest": "#0a0f14",
+              "surface-bright": "#353a40",
+              "tertiary": "#b2ffb7",
+              "secondary-fixed-dim": "#4de082",
+              "on-error": "#690005"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { background-color: #000000; color: #dee3eb; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel { background: rgba(48, 53, 59, 0.6); backdrop-filter: blur(12px); }
+        .neon-glow-primary { box-shadow: 0 0 20px rgba(250, 204, 21, 0.1); }
+        .neon-glow-error { box-shadow: 0 0 15px rgba(255, 180, 171, 0.15); }
+        .pulse-red { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+    </style>
+</head>
+<body class="font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar (JSON Derived) -->
+<aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-[#171c22] border-r border-[#4d4632]/15">
+<div class="p-6">
+<h1 class="text-2xl font-bold tracking-tighter text-[#FACC15] uppercase font-headline">Arboris Admin</h1>
+<p class="text-[10px] text-gray-500 mt-1 uppercase tracking-widest">System Oversight</p>
+</div>
+<nav class="flex-1 px-3 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">dashboard</span>
+<span class="text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">group</span>
+<span class="text-sm">User Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">book_2</span>
+<span class="text-sm">Novel Projects</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">terminal</span>
+<span class="text-sm">Prompt Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">receipt_long</span>
+<span class="text-sm">System Logs</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">health_metrics</span>
+<span class="text-sm">System Health</span>
+</a>
+<!-- Active Tab: Security Center -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#FACC15] bg-[#30353b]/60 backdrop-blur-md rounded-sm border-l-4 border-[#FACC15] transition-all duration-200" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">shield_lock</span>
+<span class="text-sm font-semibold">Security Center</span>
+</a>
+</nav>
+<div class="p-4 border-t border-[#4d4632]/10">
+<button class="w-full bg-[#30353b]/40 hover:bg-[#FACC15] hover:text-black transition-all py-2 rounded-sm text-xs font-bold uppercase tracking-tighter flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">notification_important</span>
+                New System Alert
+            </button>
+<div class="mt-4 space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-white text-xs transition-colors" href="#">
+<span class="material-symbols-outlined text-lg">settings</span>
+                    Settings
+                </a>
+<a class="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-white text-xs transition-colors" href="#">
+<span class="material-symbols-outlined text-lg">help_center</span>
+                    Support
+                </a>
+</div>
+</div>
+</aside>
+<!-- TopNavBar (JSON Derived) -->
+<header class="fixed top-0 right-0 left-64 h-16 flex justify-between items-center px-8 z-40 bg-black/80 backdrop-blur-xl border-b border-[#4d4632]/15 shadow-[0_0_20px_rgba(250,204,21,0.05)]">
+<div class="flex items-center gap-8">
+<span class="text-xl font-black text-[#FACC15] italic font-headline">Arboris Console</span>
+<div class="flex items-center gap-6 text-[10px] font-medium text-gray-500 tracking-wider font-label">
+<div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> CPU: 24%</div>
+<div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> RAM: 12GB</div>
+<div class="flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-[#FACC15]"></span> Latency: 15ms</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-4 px-4 border-r border-[#4d4632]/20 mr-2">
+<span class="material-symbols-outlined text-gray-400 hover:text-[#FACC15] cursor-pointer transition-colors">notifications_active</span>
+<span class="material-symbols-outlined text-gray-400 hover:text-[#FACC15] cursor-pointer transition-colors">settings_suggest</span>
+<span class="material-symbols-outlined text-gray-400 hover:text-[#FACC15] cursor-pointer transition-colors">account_circle</span>
+</div>
+<button class="bg-[#FACC15] text-black px-4 py-1.5 text-xs font-bold uppercase tracking-tighter rounded-sm hover:brightness-110 active:scale-95 transition-all">
+                Deploy Update
+            </button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-8 min-h-screen">
+<!-- Header Section -->
+<div class="mb-10 flex justify-between items-end">
+<div>
+<h2 class="text-4xl font-bold font-headline text-white tracking-tight mb-2 uppercase">安全中心 <span class="text-[#FACC15]">/</span> Security</h2>
+<p class="text-on-surface-variant font-body italic text-sm">系统实时防御状态及威胁监控面板</p>
+</div>
+<div class="flex gap-4">
+<div class="glass-panel px-6 py-3 border-l-2 border-secondary neon-glow-primary">
+<p class="text-[10px] text-gray-500 uppercase font-label">系统状态</p>
+<p class="text-secondary font-bold font-headline uppercase">Protected</p>
+</div>
+<div class="glass-panel px-6 py-3 border-l-2 border-error neon-glow-error">
+<p class="text-[10px] text-gray-500 uppercase font-label">未处理威胁</p>
+<p class="text-error font-bold font-headline">02 Critical</p>
+</div>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Real-time Firewall Monitor -->
+<section class="col-span-12 lg:col-span-8 bg-surface-container-low p-6 rounded-sm relative overflow-hidden group">
+<div class="flex justify-between items-center mb-8 relative z-10">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[#FACC15] pulse-red">sensors</span>
+<h3 class="text-lg font-bold font-headline text-white uppercase tracking-tight">实时防火墙监控 / Firewall Monitor</h3>
+</div>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-secondary/10 text-secondary text-[10px] font-bold uppercase border border-secondary/20">Live</span>
+<span class="px-2 py-0.5 bg-white/5 text-gray-400 text-[10px] font-bold uppercase border border-white/10">3.4 GB/s</span>
+</div>
+</div>
+<!-- Traffic Visualization Mockup -->
+<div class="h-64 flex items-end justify-between gap-1 relative border-b border-[#4d4632]/30 pb-4">
+<!-- Bars -->
+<div class="w-full bg-[#FACC15]/10 h-[20%] group-hover:h-[45%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/20 h-[35%] group-hover:h-[60%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/10 h-[25%] group-hover:h-[55%] transition-all duration-700"></div>
+<div class="w-full bg-error/30 h-[80%] group-hover:h-[90%] transition-all duration-700 relative">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] text-error font-bold pulse-red">SPIKE</div>
+</div>
+<div class="w-full bg-[#FACC15]/10 h-[30%] group-hover:h-[50%] transition-all duration-700"></div>
+<div class="w-full bg-secondary/20 h-[45%] group-hover:h-[70%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/10 h-[20%] group-hover:h-[40%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/20 h-[50%] group-hover:h-[65%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/10 h-[30%] group-hover:h-[55%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/20 h-[60%] group-hover:h-[75%] transition-all duration-700"></div>
+<div class="w-full bg-error/30 h-[85%] group-hover:h-[95%] transition-all duration-700"></div>
+<div class="w-full bg-[#FACC15]/10 h-[40%] group-hover:h-[50%] transition-all duration-700"></div>
+<div class="w-full bg-secondary/20 h-[30%] group-hover:h-[45%] transition-all duration-700"></div>
+<!-- Decorative Map Underlay -->
+<div class="absolute inset-0 flex items-center justify-center opacity-5 pointer-events-none">
+<img class="w-full h-full object-cover" data-alt="Abstract global traffic map wireframe" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA4leIKuLMJ9WjTsub9u0uf4XW7fi-44tCejFuUAKWavOhbN9TGSz7mklMVNeHxKvXPtglcDZdNLtDkSPW9GVd7OyJxdcbd40U-1IPM16hEPUHKJnc9aTrn9d3k2eBnoYHVpXPtfMZGDan3tporAi3-_DBbWtdWrM3OScV_53BcQbzxBV6ygJERQ8rmjJXJFnkSkQUVkm0Rgbq_6_uihToPMjCbneKIitjizTT-uaxyy4hv4ADWTVGTVXu9ywAJxBnbsM7EhUsT-IFB"/>
+</div>
+</div>
+<div class="flex justify-between mt-4 text-[9px] text-gray-500 font-mono tracking-widest">
+<span>14:00:00</span>
+<span>14:15:00</span>
+<span>14:30:00</span>
+<span>14:45:00</span>
+<span>NOW</span>
+</div>
+</section>
+<!-- Security Settings Quick Access -->
+<section class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<div class="bg-surface-container p-6 rounded-sm flex-1 border-l-4 border-[#FACC15]">
+<h3 class="text-sm font-bold font-headline text-white mb-6 flex items-center gap-2 uppercase">
+<span class="material-symbols-outlined text-sm">settings_input_component</span> 安全设置 / Settings
+                    </h3>
+<div class="space-y-6">
+<div class="flex items-center justify-between">
+<div>
+<p class="text-sm font-medium text-white">强制 2FA 认证</p>
+<p class="text-[10px] text-on-surface-variant">Enforce Two-Factor Auth</p>
+</div>
+<button class="w-12 h-6 bg-secondary rounded-full relative p-1 transition-all">
+<span class="absolute right-1 top-1 w-4 h-4 bg-white rounded-full"></span>
+</button>
+</div>
+<div class="flex items-center justify-between">
+<div>
+<p class="text-sm font-medium text-white">IP 白名单过滤</p>
+<p class="text-[10px] text-on-surface-variant">IP Whitelisting Active</p>
+</div>
+<button class="w-12 h-6 bg-surface-container-highest rounded-full relative p-1 transition-all">
+<span class="absolute left-1 top-1 w-4 h-4 bg-gray-500 rounded-full"></span>
+</button>
+</div>
+<div class="flex items-center justify-between">
+<div>
+<p class="text-sm font-medium text-white">API 速率限制</p>
+<p class="text-[10px] text-on-surface-variant">Rate Limiting Threshold</p>
+</div>
+<span class="text-[#FACC15] font-mono text-xs font-bold">1,000/min</span>
+</div>
+</div>
+<button class="w-full mt-10 py-3 border border-outline-variant/30 text-xs font-bold uppercase text-[#FACC15] hover:bg-[#FACC15]/5 transition-all tracking-widest">
+                        保存配置 / SAVE
+                    </button>
+</div>
+</section>
+<!-- Threat Detection Log -->
+<section class="col-span-12 lg:col-span-7 bg-surface-container-low p-6 rounded-sm">
+<div class="flex justify-between items-center mb-6">
+<h3 class="text-lg font-bold font-headline text-white uppercase tracking-tight flex items-center gap-2">
+<span class="material-symbols-outlined text-error">gavel</span> 威胁检测日志 / Threat Logs
+                    </h3>
+<button class="text-[10px] font-bold text-gray-500 uppercase hover:text-white transition-colors">导出完整日志 CSV</button>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left text-xs">
+<thead>
+<tr class="text-gray-500 uppercase tracking-widest border-b border-[#4d4632]/20">
+<th class="pb-3 font-medium">来源 IP / Source</th>
+<th class="pb-3 font-medium">时间 / Time</th>
+<th class="pb-3 font-medium">等级 / Level</th>
+<th class="pb-3 font-medium text-right">动作 / Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#4d4632]/10">
+<tr class="group hover:bg-white/5 transition-colors">
+<td class="py-4 font-mono text-on-surface">192.168.1.104 <span class="text-[10px] text-gray-600 ml-2">(Tokyo, JP)</span></td>
+<td class="py-4 text-gray-500">14:48:22</td>
+<td class="py-4">
+<span class="flex items-center gap-1.5 text-error font-bold uppercase tracking-tighter">
+<span class="w-1.5 h-1.5 rounded-full bg-error pulse-red"></span> High
+                                    </span>
+</td>
+<td class="py-4 text-right">
+<span class="px-2 py-1 bg-error/20 text-error rounded-sm font-bold text-[10px] uppercase">Blocked</span>
+</td>
+</tr>
+<tr class="group hover:bg-white/5 transition-colors">
+<td class="py-4 font-mono text-on-surface">45.23.11.89 <span class="text-[10px] text-gray-600 ml-2">(Moscow, RU)</span></td>
+<td class="py-4 text-gray-500">14:45:10</td>
+<td class="py-4">
+<span class="flex items-center gap-1.5 text-[#FACC15] font-bold uppercase tracking-tighter">
+<span class="w-1.5 h-1.5 rounded-full bg-[#FACC15]"></span> Medium
+                                    </span>
+</td>
+<td class="py-4 text-right">
+<span class="px-2 py-1 bg-[#FACC15]/20 text-[#FACC15] rounded-sm font-bold text-[10px] uppercase">Monitored</span>
+</td>
+</tr>
+<tr class="group hover:bg-white/5 transition-colors">
+<td class="py-4 font-mono text-on-surface">112.4.201.3 <span class="text-[10px] text-gray-600 ml-2">(Beijing, CN)</span></td>
+<td class="py-4 text-gray-500">14:42:05</td>
+<td class="py-4">
+<span class="flex items-center gap-1.5 text-secondary font-bold uppercase tracking-tighter">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> Low
+                                    </span>
+</td>
+<td class="py-4 text-right">
+<span class="px-2 py-1 bg-secondary/20 text-secondary rounded-sm font-bold text-[10px] uppercase">Allowed</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- API Abuse Monitor -->
+<section class="col-span-12 lg:col-span-5 bg-surface-container-low p-6 rounded-sm relative">
+<div class="flex items-center gap-3 mb-8">
+<span class="material-symbols-outlined text-[#FACC15]">token</span>
+<h3 class="text-lg font-bold font-headline text-white uppercase tracking-tight">API 异常监控 / Abuse Monitor</h3>
+</div>
+<div class="space-y-4">
+<!-- User 1 -->
+<div class="glass-panel p-4 flex items-center justify-between border-r-2 border-error">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-surface-container-highest flex items-center justify-center rounded-sm">
+<span class="material-symbols-outlined text-gray-500">person</span>
+</div>
+<div>
+<p class="text-sm font-bold text-white">user_7721_alpha</p>
+<p class="text-[10px] text-error font-mono font-bold">782 tokens / sec</p>
+</div>
+</div>
+<button class="p-2 hover:text-error transition-colors">
+<span class="material-symbols-outlined">block</span>
+</button>
+</div>
+<!-- User 2 -->
+<div class="glass-panel p-4 flex items-center justify-between border-r-2 border-[#FACC15]">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-surface-container-highest flex items-center justify-center rounded-sm">
+<span class="material-symbols-outlined text-gray-500">database</span>
+</div>
+<div>
+<p class="text-sm font-bold text-white">IP: 82.11.43.2</p>
+<p class="text-[10px] text-[#FACC15] font-mono font-bold">450 tokens / sec</p>
+</div>
+</div>
+<button class="p-2 hover:text-[#FACC15] transition-colors">
+<span class="material-symbols-outlined">visibility</span>
+</button>
+</div>
+<!-- User 3 -->
+<div class="glass-panel p-4 flex items-center justify-between border-r-2 border-transparent">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 bg-surface-container-highest flex items-center justify-center rounded-sm">
+<span class="material-symbols-outlined text-gray-500">terminal</span>
+</div>
+<div>
+<p class="text-sm font-bold text-white">App_Prod_Node_02</p>
+<p class="text-[10px] text-secondary font-mono">120 tokens / sec</p>
+</div>
+</div>
+<button class="p-2 text-gray-700">
+<span class="material-symbols-outlined">check_circle</span>
+</button>
+</div>
+</div>
+<div class="mt-8 p-4 bg-error/5 border border-error/10 rounded-sm">
+<p class="text-[10px] text-error font-bold uppercase tracking-widest flex items-center gap-2">
+<span class="material-symbols-outlined text-xs">warning</span> 警报提示 / Alert
+                    </p>
+<p class="text-xs text-on-error-container mt-1 font-body">检测到持续的暴力破解尝试，系统已自动调高 API 验证等级。</p>
+</div>
+</section>
+</div>
+</main>
+<!-- Background Decorative Element -->
+<div class="fixed inset-0 pointer-events-none z-[-1] opacity-20">
+<div class="absolute top-0 right-0 w-[500px] h-[500px] bg-[#FACC15]/5 blur-[120px] rounded-full"></div>
+<div class="absolute bottom-0 left-64 w-[300px] h-[300px] bg-error/5 blur-[100px] rounded-full"></div>
+</div>
+</body></html>

@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Neon Manuscript - 世界观设定库</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary-fixed": "#ffe083",
+                        "tertiary-container": "#82e68f",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "on-primary": "#3c2f00",
+                        "inverse-surface": "#dee3eb",
+                        "secondary-container": "#00b55d",
+                        "error": "#ffb4ab",
+                        "primary": "#ffecb9",
+                        "tertiary": "#b2ffb7",
+                        "on-primary-container": "#6c5700",
+                        "outline-variant": "#4d4632",
+                        "primary-container": "#facc15",
+                        "on-surface-variant": "#d1c6ab",
+                        "on-primary-fixed": "#231b00",
+                        "surface-tint": "#eec200",
+                        "on-secondary-container": "#003e1c",
+                        "tertiary-fixed": "#94f99f",
+                        "primary-fixed-dim": "#eec200",
+                        "on-primary-fixed-variant": "#574500",
+                        "on-error-container": "#ffdad6",
+                        "surface-container-high": "#252a30",
+                        "secondary-fixed-dim": "#4de082",
+                        "error-container": "#93000a",
+                        "outline": "#9a9078",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "secondary": "#4de082",
+                        "on-secondary-fixed-variant": "#005227",
+                        "surface-dim": "#0f1419",
+                        "on-surface": "#dee3eb",
+                        "on-tertiary": "#003913",
+                        "on-background": "#dee3eb",
+                        "background": "#0f1419",
+                        "surface-container-lowest": "#0a0f14",
+                        "inverse-primary": "#735c00",
+                        "surface-container-low": "#171c22",
+                        "on-error": "#690005",
+                        "on-tertiary-fixed": "#002108",
+                        "surface-container": "#1b2026",
+                        "on-secondary": "#003919",
+                        "surface-container-highest": "#30353b",
+                        "on-tertiary-container": "#006828",
+                        "secondary-fixed": "#6dfe9c",
+                        "inverse-on-surface": "#2c3137",
+                        "surface-variant": "#30353b",
+                        "surface-bright": "#353a40",
+                        "surface": "#0f1419",
+                        "on-secondary-fixed": "#00210c"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #000000;
+            color: #dee3eb;
+        }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow:hover {
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.15);
+        }
+        .ai-pulse-orb {
+            width: 8px;
+            height: 8px;
+            background-color: #4de082;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #4de082;
+        }
+    </style>
+</head>
+<body class="font-label overflow-hidden">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 w-full z-50 bg-black/60 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_0_20px_rgba(250,204,21,0.05)] flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-8">
+<h1 class="text-2xl font-headline font-bold tracking-tighter text-primary-container uppercase">Neon Manuscript</h1>
+<div class="hidden md:flex items-center gap-6">
+<a class="text-primary-container font-bold font-headline tracking-tight" href="#">Worldview</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline tracking-tight" href="#">Timeline</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-headline tracking-tight" href="#">Repository</a>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative group">
+<input class="bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary text-sm px-4 py-2 w-64 transition-all" placeholder="搜索设定..." type="text"/>
+<span class="material-symbols-outlined absolute right-3 top-2 text-slate-500 text-sm">search</span>
+</div>
+<span class="material-symbols-outlined text-slate-400 cursor-pointer hover:text-primary transition-colors">notifications</span>
+<span class="material-symbols-outlined text-slate-400 cursor-pointer hover:text-primary transition-colors">bolt</span>
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant overflow-hidden">
+<img alt="User cybernetic profile" data-alt="Cybernetic futuristic profile portrait of a user" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDY7DZKOuYfajlJYFNwcuNkEF8jK3d_s1Ce8E1jGST-LhWBA9Qu0iVbztHafVgltBnY7iUPNwsWIuFvdmFKje5kw4xADqY4odDXmC2HXy3dDaZGG2UcYREoy4j9i6OujcJy3RQzvbd8mJZWRLqX_H9ZxuarR_jiR-PNUC4Ao7-K5m-nOWY5kGDtAWxEoiamoyvptBQfh29OQWLNl9F79XL2aIMjLEn3jblusAaNIPiZn4chm9e7BzFJ9Dob-p6N_GJLRZgexIe1lg-p"/>
+</div>
+</div>
+</header>
+<!-- Side Navigation Bar -->
+<aside class="h-screen w-64 fixed left-0 top-0 pt-20 bg-[#171c22] flex flex-col gap-1 px-4 z-40">
+<div class="mb-6 px-2">
+<h2 class="text-primary-container font-bold text-lg font-headline">Project Alpha</h2>
+<p class="text-slate-500 text-xs">Cyberpunk Anthology</p>
+</div>
+<nav class="space-y-2">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-800/50 hover:text-slate-100 transition-all active:translate-x-1 duration-150 rounded" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-800/50 hover:text-slate-100 transition-all active:translate-x-1 duration-150 rounded" href="#">
+<span class="material-symbols-outlined">group</span>
+<span>Characters</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-yellow-400/10 text-yellow-400 border-r-2 border-yellow-400 transition-all rounded" href="#">
+<span class="material-symbols-outlined">public</span>
+<span>Worldview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-800/50 hover:text-slate-100 transition-all active:translate-x-1 duration-150 rounded" href="#">
+<span class="material-symbols-outlined">account_tree</span>
+<span>Outline</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-400 hover:bg-slate-800/50 hover:text-slate-100 transition-all active:translate-x-1 duration-150 rounded" href="#">
+<span class="material-symbols-outlined">auto_stories</span>
+<span>Chapters</span>
+</a>
+</nav>
+<div class="mt-auto pb-6 space-y-2">
+<button class="w-full py-2 bg-primary-container text-on-primary-container font-bold text-sm mb-4 active:scale-95 duration-200">New Chapter</button>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-slate-100" href="#">
+<span class="material-symbols-outlined">archive</span>
+<span>Archive</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-400 hover:text-slate-100" href="#">
+<span class="material-symbols-outlined">delete</span>
+<span>Trash</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 mt-16 p-8 h-[calc(100vh-4rem)] overflow-y-auto bg-black">
+<!-- Header & Category Tabs -->
+<div class="flex flex-col gap-6 mb-8">
+<div class="flex justify-between items-end">
+<div>
+<h2 class="text-4xl font-headline font-bold text-on-surface tracking-tighter">世界观设定库</h2>
+<p class="text-slate-400 font-body mt-2">构建宏大叙事的基石，AI 辅助深度补全。</p>
+</div>
+<div class="flex gap-2">
+<button class="flex items-center gap-2 px-4 py-2 border border-outline-variant/30 text-sm text-slate-300 hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-sm">filter_list</span> 筛选
+                    </button>
+<button class="flex items-center gap-2 px-4 py-2 border border-outline-variant/30 text-sm text-slate-300 hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined text-sm">sort</span> 排序
+                    </button>
+</div>
+</div>
+<div class="flex gap-1 border-b border-outline-variant/10">
+<button class="px-6 py-3 text-sm font-medium border-b-2 border-primary text-primary transition-all">地理/地点</button>
+<button class="px-6 py-3 text-sm font-medium text-slate-500 hover:text-slate-300 transition-all border-b-2 border-transparent">物品/法宝</button>
+<button class="px-6 py-3 text-sm font-medium text-slate-500 hover:text-slate-300 transition-all border-b-2 border-transparent">力量体系</button>
+<button class="px-6 py-3 text-sm font-medium text-slate-500 hover:text-slate-300 transition-all border-b-2 border-transparent">历史/传说</button>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Featured Location Card (Large) -->
+<div class="col-span-12 lg:col-span-8 group relative overflow-hidden bg-surface-container-low p-6 neon-glow transition-all">
+<div class="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -mr-20 -mt-20"></div>
+<div class="flex flex-col h-full justify-between relative z-10">
+<div>
+<div class="flex items-center gap-3 mb-4">
+<span class="px-2 py-1 bg-secondary/10 text-secondary text-[10px] uppercase tracking-widest font-bold border border-secondary/20">Active Region</span>
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">location_on</span>
+</div>
+<h3 class="text-3xl font-headline font-bold mb-3">上城区：霓虹森林</h3>
+<p class="text-slate-400 font-body leading-relaxed max-w-xl">
+                            位于城市生态系统的顶层，由无数悬浮式摩天大楼组成。这里的居民从不接触地面，永不熄灭的广告霓虹是他们的人造太阳。
+                        </p>
+</div>
+<div class="mt-8 flex items-center gap-6">
+<div class="flex flex-col">
+<span class="text-[10px] text-slate-500 uppercase tracking-tighter">人口基数</span>
+<span class="text-xl font-headline text-primary">1.2M</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-slate-500 uppercase tracking-tighter">危险等级</span>
+<span class="text-xl font-headline text-secondary">低 (Low)</span>
+</div>
+<button class="ml-auto flex items-center gap-2 text-sm text-primary hover:underline transition-all">
+                            详情页面 <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+</div>
+</div>
+</div>
+<!-- AI Lore Expander Tool -->
+<div class="col-span-12 lg:col-span-4 bg-surface-container-high p-6 border-l-4 border-secondary flex flex-col gap-4">
+<div class="flex items-center gap-2">
+<div class="ai-pulse-orb"></div>
+<span class="text-sm font-bold text-secondary uppercase tracking-widest">AI Lore Expander</span>
+</div>
+<h4 class="font-headline font-bold text-lg">智能世界观补全</h4>
+<p class="text-xs text-slate-400">基于当前设定的“霓虹森林”，为您生成周边细节：</p>
+<div class="space-y-3 mt-2">
+<div class="p-3 bg-black/40 text-xs font-body border border-outline-variant/10 leading-relaxed italic text-slate-300">
+                        “...在那里的自动贩卖机中，不仅售卖合成苏打，还售卖那种能让人忘记昨夜雨声的‘电子梦境’芯片。”
+                    </div>
+<div class="p-3 bg-black/40 text-xs font-body border border-outline-variant/10 leading-relaxed italic text-slate-300">
+                        “这里的义体诊所通常隐藏在名为‘云端禅院’的虚拟茶馆后，只接待有加密密钥的访客。”
+                    </div>
+</div>
+<button class="mt-auto w-full py-3 bg-secondary-container text-on-secondary-container text-xs font-bold uppercase tracking-widest active:scale-95 duration-150">
+                    生成更多细节
+                </button>
+</div>
+<!-- Smaller Bento Cards -->
+<div class="col-span-12 md:col-span-4 bg-surface-container p-5 hover:bg-surface-container-high transition-colors group">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-primary transition-colors">temple_buddhist</span>
+<span class="text-[10px] text-slate-600">ID: LOC_002</span>
+</div>
+<h4 class="font-headline font-bold text-lg mb-2">底层：铁锈之海</h4>
+<p class="text-xs text-slate-500 font-body line-clamp-2">被遗忘的地表废墟，充满报废的机械与变异植被，是法外之徒的乐园。</p>
+</div>
+<div class="col-span-12 md:col-span-4 bg-surface-container p-5 hover:bg-surface-container-high transition-colors group">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-primary transition-colors">factory</span>
+<span class="text-[10px] text-slate-600">ID: LOC_003</span>
+</div>
+<h4 class="font-headline font-bold text-lg mb-2">工业区：火神熔炉</h4>
+<p class="text-xs text-slate-500 font-body line-clamp-2">承担城市90%的义体生产任务，空气中常年弥漫着金属火花的味道。</p>
+</div>
+<div class="col-span-12 md:col-span-4 bg-surface-container p-5 hover:bg-surface-container-high transition-colors group">
+<div class="flex justify-between items-start mb-4">
+<span class="material-symbols-outlined text-slate-500 group-hover:text-primary transition-colors">dns</span>
+<span class="text-[10px] text-slate-600">ID: LOC_004</span>
+</div>
+<h4 class="font-headline font-bold text-lg mb-2">数据中心：深渊骨髓</h4>
+<p class="text-xs text-slate-500 font-body line-clamp-2">巨大的服务器阵列埋藏在永久冻土之下，存储着整个人类的数字化意志。</p>
+</div>
+<div class="col-span-12 lg:col-span-6 bg-surface-container-low border border-outline-variant/5 p-6 flex items-center gap-6">
+<div class="w-32 h-32 flex-shrink-0 bg-surface-container-highest flex items-center justify-center">
+<img alt="Tech Map preview" class="w-full h-full object-cover opacity-50 grayscale hover:grayscale-0 transition-all" data-alt="Abstract futuristic technical blueprint of a city map" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCSKOjFqn9j73zWdRDEBG-xvR7LH7QeO3O0GKPEnKJfNN0WbWBOQVQcnB0FyWeUus5fJ3TPENysLFOIO6oM1bCrOlwCfY5nF04Jg8SoBvPKXhhyjWDcD7tZUUnzpmT8FjWlae23gqBJlen4yuAZAYmPh_TNsGH_UNlrsOpIuVjeMPHx59li7eVo5dBZozGyUY-w0go8co6hrI9VnExlR-ZbANvS5ThIyXxcTeblcZJ2huBHpJ-dmhTmk0ZNWvlqP_lmUVD8VRJugpah"/>
+</div>
+<div>
+<h4 class="font-headline font-bold text-xl text-primary">区域势力图</h4>
+<p class="text-sm text-slate-400 mt-1">目前共有 4 个主要阵营控制 12 个关键地点。点击查看势力消长。</p>
+<button class="mt-4 text-xs font-bold text-secondary uppercase underline decoration-secondary/30 underline-offset-4">查看实时地图</button>
+</div>
+</div>
+<div class="col-span-12 lg:col-span-6 bg-surface-container-low border border-outline-variant/5 p-6 flex items-center gap-6">
+<div class="w-32 h-32 flex-shrink-0 bg-surface-container-highest flex items-center justify-center">
+<img alt="Rules system preview" class="w-full h-full object-cover opacity-50 grayscale hover:grayscale-0 transition-all" data-alt="Cyberpunk digital network nodes and rules visualization" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDlc6shARtjm4vEsJo0SLfeqGMWGUBz3PDl_9OtntYaHjKqGaaRi4fyWjZ5T-bOxZI2f6daxeWIx18yBu5q_GELy8UqMTcpBU4l25keX4eHUk7uyv6ZGwD_ugd2ww6LF8QtrKz4sV2mg6leo6_gTy1XDBl5iw4Wv8wy77Xrb9AExzwT0w2Ln9iRXBKNub11NqDonUbVPr_0oo5V6I9gJxx5AKYNpVVozKnTMJPJBiwaDbevA0caQ9kdbk4SiUBtReYa2-_6zEQA6DDp"/>
+</div>
+<div>
+<h4 class="font-headline font-bold text-xl text-primary">设定一致性检查</h4>
+<p class="text-sm text-slate-400 mt-1">检测到 2 处逻辑冲突：关于“魔法”与“义体”的兼容性描述不一致。</p>
+<button class="mt-4 text-xs font-bold text-error uppercase underline decoration-error/30 underline-offset-4">立即修复冲突</button>
+</div>
+</div>
+</div>
+</main>
+<!-- Floating Action Button -->
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary-container text-on-primary-container rounded shadow-[0_0_20px_rgba(250,204,21,0.4)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50">
+<span class="material-symbols-outlined text-3xl font-bold">add</span>
+</button>
+</body></html>

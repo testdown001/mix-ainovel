@@ -2,22 +2,22 @@
 <template>
   <div class="foreshadowing-section">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="fs-header">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--md-warning-container);">
-          <svg class="w-5 h-5" style="color: var(--md-on-warning-container);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <div class="fs-icon-box">
+          <svg class="w-5 h-5" style="color: #FACC15;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         </div>
         <div>
-          <h3 class="md-title-medium" style="color: var(--md-on-surface);">伏笔管理</h3>
-          <p class="md-body-small" style="color: var(--md-on-surface-variant);">追踪故事线索与回收</p>
+          <h3 class="fs-title" style="font-family: var(--ar-font-display); color: #dee3eb;">伏笔管理</h3>
+          <p class="fs-subtitle" style="color: #8b929a;">追踪故事线索与回收</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <button
           @click="generateForeshadowings"
-          class="md-btn md-btn-tonal md-ripple px-3 py-1.5 md-label-medium"
+          class="fs-btn-generate"
           :disabled="isGenerating || isLoading"
         >
           <svg v-if="isGenerating" class="w-4 h-4 mr-1.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -30,7 +30,7 @@
         </button>
         <button
           @click="refreshData"
-          class="md-icon-btn md-ripple"
+          class="fs-btn-icon"
           :disabled="isLoading"
         >
           <svg
@@ -49,38 +49,38 @@
 
     <!-- Statistics Cards -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">总伏笔</p>
-        <p class="md-headline-small" style="color: var(--md-primary);">{{ totalForeshadowings }}</p>
+      <div class="fs-stat-card">
+        <p class="fs-stat-label">总伏笔</p>
+        <p class="fs-stat-value" style="color: #FACC15;">{{ totalForeshadowings }}</p>
       </div>
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">已埋设</p>
-        <p class="md-headline-small" style="color: var(--md-google-yellow);">{{ plantedCount }}</p>
+      <div class="fs-stat-card">
+        <p class="fs-stat-label">已埋设</p>
+        <p class="fs-stat-value" style="color: #FACC15;">{{ plantedCount }}</p>
       </div>
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">已回收</p>
-        <p class="md-headline-small" style="color: var(--md-google-green);">{{ paidOffCount }}</p>
+      <div class="fs-stat-card">
+        <p class="fs-stat-label">已回收</p>
+        <p class="fs-stat-value" style="color: #4ADE80;">{{ paidOffCount }}</p>
       </div>
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">待回收</p>
-        <p class="md-headline-small" style="color: var(--md-google-red);">{{ overdueCount }}</p>
+      <div class="fs-stat-card">
+        <p class="fs-stat-label">待回收</p>
+        <p class="fs-stat-value" style="color: #EF4444;">{{ overdueCount }}</p>
       </div>
     </div>
 
     <!-- Status Filter Tabs -->
-    <div class="md-tabs mb-6">
+    <div class="fs-tabs">
       <button 
         v-for="tab in statusTabs" 
         :key="tab.key"
         @click="activeTab = tab.key"
-        class="md-tab"
-        :class="{ 'active': activeTab === tab.key }"
+        class="fs-tab"
+        :class="{ 'fs-tab--active': activeTab === tab.key }"
       >
         {{ tab.label }}
         <span 
           v-if="getCountByStatus(tab.key) > 0"
-          class="ml-2 px-2 py-0.5 rounded-full md-label-small"
-          :style="{ backgroundColor: tab.color + '20', color: tab.color }"
+          class="fs-tab-badge"
+          :style="{ backgroundColor: tab.color + '18', color: tab.color }"
         >
           {{ getCountByStatus(tab.key) }}
         </span>
@@ -89,32 +89,32 @@
 
     <!-- Loading State -->
     <div v-if="isLoading" class="flex flex-col items-center justify-center py-12">
-      <div class="md-spinner"></div>
-      <p class="mt-4 md-body-medium" style="color: var(--md-on-surface-variant);">加载伏笔数据中...</p>
+      <div class="fs-spinner"></div>
+      <p class="mt-4" style="color: #8b929a; font-family: var(--ar-font-ui); font-size: 0.875rem;">加载伏笔数据中...</p>
     </div>
 
     <!-- Error State -->
     <div v-else-if="error" class="flex flex-col items-center justify-center py-12">
-      <div class="w-12 h-12 rounded-full flex items-center justify-center mb-4" style="background-color: var(--md-error-container);">
-        <svg class="w-6 h-6" style="color: var(--md-error);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="fs-error-icon">
+        <svg class="w-6 h-6" style="color: #EF4444;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <p class="md-body-medium" style="color: var(--md-error);">{{ error }}</p>
-      <button @click="refreshData" class="md-btn md-btn-text md-ripple mt-4">重试</button>
+      <p style="color: #EF4444; font-size: 0.875rem;">{{ error }}</p>
+      <button @click="refreshData" class="fs-btn-retry">重试</button>
     </div>
 
     <!-- Empty State -->
     <div v-else-if="filteredForeshadowing.length === 0" class="flex flex-col items-center justify-center py-12">
-      <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4" style="background-color: var(--md-surface-container);">
-        <svg class="w-8 h-8" style="color: var(--md-on-surface-variant);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="fs-empty-icon">
+        <svg class="w-8 h-8" style="color: #545d68;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       </div>
-      <p class="md-body-large" style="color: var(--md-on-surface);">
+      <p style="color: #dee3eb; font-size: 1rem; margin-top: 0.5rem;">
         {{ activeTab === 'all' ? '暂无伏笔记录' : `暂无${statusTabs.find(t => t.key === activeTab)?.label}的伏笔` }}
       </p>
-      <p class="md-body-medium" style="color: var(--md-on-surface-variant);">系统会基于蓝图与章节数据自动维护伏笔</p>
+      <p style="color: #8b929a; font-size: 0.875rem; margin-top: 0.25rem;">系统会基于蓝图与章节数据自动维护伏笔</p>
     </div>
 
     <!-- Foreshadowing List -->
@@ -122,58 +122,58 @@
       <div 
         v-for="item in filteredForeshadowing" 
         :key="item.id"
-        class="md-card md-card-outlined p-4 transition-all duration-200"
-        style="border-radius: var(--md-radius-md);"
+        class="fs-card"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1">
             <!-- Status & Importance -->
             <div class="flex items-center gap-2 mb-2">
+              <!-- Green pulse dot for active (planted) foreshadowing -->
+              <span v-if="item.status === 'planted'" class="fs-pulse-dot"></span>
               <span
-                class="md-chip md-chip-filter selected px-2 py-1"
-                :style="{ backgroundColor: getStatusColor(item.status) + '20', color: getStatusColor(item.status) }"
+                class="fs-status-chip"
+                :style="{ backgroundColor: getStatusColor(item.status) + '18', color: getStatusColor(item.status), borderColor: getStatusColor(item.status) + '30' }"
               >
                 {{ getStatusLabel(item.status) }}
               </span>
-              <span class="md-chip md-chip-assist px-2 py-1">
+              <span class="fs-importance-chip">
                 {{ getImportanceLabel(item.importance) }}
               </span>
             </div>
 
             <!-- Description -->
-            <p class="md-body-medium mb-3" style="color: var(--md-on-surface);">{{ item.description }}</p>
+            <p class="fs-description">{{ item.description }}</p>
 
             <!-- Metadata -->
             <div class="flex flex-wrap gap-4">
               <div class="flex items-center gap-1">
-                <svg class="w-4 h-4" style="color: var(--md-on-surface-variant);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-4 h-4" style="color: #545d68;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                 </svg>
-                <span class="md-body-small" style="color: var(--md-on-surface-variant);">
+                <span class="fs-meta-text">
                   埋设于第{{ item.planted_chapter }}章《{{ item.planted_chapter_title }}》
                 </span>
               </div>
               <div v-if="item.expected_payoff_chapter" class="flex items-center gap-1">
-                <svg class="w-4 h-4" style="color: var(--md-on-surface-variant);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-4 h-4" style="color: #545d68;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span class="md-body-small" style="color: var(--md-on-surface-variant);">
+                <span class="fs-meta-text">
                   预期回收于第{{ item.expected_payoff_chapter }}章
                 </span>
               </div>
               <div v-if="item.actual_payoff_chapter" class="flex items-center gap-1">
-                <svg class="w-4 h-4" style="color: var(--md-success);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-4 h-4" style="color: #4ADE80;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
-                <span class="md-body-small" style="color: var(--md-success);">
+                <span style="color: #4ADE80; font-size: 0.8rem;">
                   实际回收于第{{ item.actual_payoff_chapter }}章
                 </span>
               </div>
             </div>
             <p
               v-if="item.author_note"
-              class="md-body-small mt-2"
-              style="color: var(--md-on-surface-variant);"
+              class="fs-author-note"
             >
               备注：{{ item.author_note }}
             </p>
@@ -182,15 +182,14 @@
           <div class="flex items-center gap-2">
             <button
               @click="startEdit(item)"
-              class="md-btn md-btn-text md-ripple px-3 py-1 md-label-medium"
+              class="fs-btn-edit"
               :disabled="isSubmitting"
             >
               编辑
             </button>
             <button
               @click="deleteForeshadowing(item)"
-              class="md-btn md-ripple px-3 py-1 md-label-medium"
-              style="background-color: var(--md-error-container); color: var(--md-error);"
+              class="fs-btn-delete"
               :disabled="isSubmitting"
             >
               删除
@@ -200,36 +199,32 @@
 
         <div
           v-if="editingId === item.id"
-          class="mt-4 pt-4 border-t space-y-3"
-          style="border-color: var(--md-outline-variant);"
+          class="fs-edit-form"
         >
           <div>
-            <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">伏笔描述</label>
+            <label class="fs-form-label">伏笔描述</label>
             <textarea
               v-model="editForm.description"
               rows="3"
-              class="w-full px-3 py-2 border rounded-md md-body-medium"
-              style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+              class="fs-input"
             ></textarea>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">预期回收章节</label>
+              <label class="fs-form-label">预期回收章节</label>
               <input
                 v-model.number="editForm.expected_payoff_chapter"
                 type="number"
                 min="1"
-                class="w-full px-3 py-2 border rounded-md md-body-medium"
-                style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+                class="fs-input"
                 placeholder="留空表示不限制"
               />
             </div>
             <div>
-              <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">重要性</label>
+              <label class="fs-form-label">重要性</label>
               <select
                 v-model="editForm.importance"
-                class="w-full px-3 py-2 border rounded-md md-body-medium"
-                style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+                class="fs-input"
               >
                 <option value="short">短期伏笔</option>
                 <option value="medium">中期伏笔</option>
@@ -238,26 +233,25 @@
             </div>
           </div>
           <div>
-            <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">备注</label>
+            <label class="fs-form-label">备注</label>
             <textarea
               v-model="editForm.author_note"
               rows="2"
-              class="w-full px-3 py-2 border rounded-md md-body-medium"
-              style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+              class="fs-input"
               placeholder="可选"
             ></textarea>
           </div>
           <div class="flex items-center justify-end gap-2">
             <button
               @click="cancelEdit"
-              class="md-btn md-btn-text md-ripple px-3 py-1.5 md-label-medium"
+              class="fs-btn-cancel"
               :disabled="isSubmitting"
             >
               取消
             </button>
             <button
               @click="updateForeshadowing(item.id)"
-              class="md-btn md-btn-filled md-ripple px-3 py-1.5 md-label-medium"
+              class="fs-btn-save"
               :disabled="isSubmitting"
             >
               {{ isSubmitting ? '保存中...' : '保存修改' }}
@@ -319,10 +313,10 @@ const editForm = ref({
 })
 
 const statusTabs = [
-  { key: 'all', label: '全部', color: '#5F6368' },
-  { key: 'planted', label: '已埋设', color: '#FBBC04' },
-  { key: 'paid_off', label: '已回收', color: '#34A853' },
-  { key: 'overdue', label: '待回收', color: '#EA4335' }
+  { key: 'all', label: '全部', color: '#8b929a' },
+  { key: 'planted', label: '已埋设', color: '#FACC15' },
+  { key: 'paid_off', label: '已回收', color: '#4ADE80' },
+  { key: 'overdue', label: '待回收', color: '#EF4444' }
 ]
 
 const filteredForeshadowing = computed(() => {
@@ -342,11 +336,11 @@ const getCountByStatus = (status: string) => {
 
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
-    'planted': '#FBBC04',
-    'paid_off': '#34A853',
-    'overdue': '#EA4335'
+    'planted': '#FACC15',
+    'paid_off': '#4ADE80',
+    'overdue': '#EF4444'
   }
-  return colors[status] || '#5F6368'
+  return colors[status] || '#8b929a'
 }
 
 const getStatusLabel = (status: string) => {
@@ -569,3 +563,443 @@ onMounted(() => {
   fetchData()
 })
 </script>
+
+<style scoped>
+.foreshadowing-section {
+  font-family: var(--ar-font-ui);
+}
+
+.fs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.fs-icon-box {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(250, 204, 21, 0.08);
+  border: 1px solid rgba(250, 204, 21, 0.15);
+}
+
+.fs-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+.fs-subtitle {
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* Stat cards */
+.fs-stat-card {
+  background-color: #0f1419;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-radius: 4px;
+  padding: 1rem;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.fs-stat-card:hover {
+  border-color: rgba(250, 204, 21, 0.25);
+}
+
+.fs-stat-label {
+  font-family: var(--ar-font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #8b929a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.fs-stat-value {
+  font-family: var(--ar-font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+}
+
+/* Tabs */
+.fs-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(77, 70, 50, 0.15);
+  padding-bottom: 0;
+}
+
+.fs-tab {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #545d68;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.fs-tab:hover {
+  color: #8b929a;
+}
+
+.fs-tab--active {
+  color: #FACC15;
+  border-bottom-color: #FACC15;
+}
+
+.fs-tab-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+/* Foreshadowing cards */
+.fs-card {
+  background-color: #0f1419;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-radius: 4px;
+  padding: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.fs-card:hover {
+  border-color: rgba(250, 204, 21, 0.2);
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.04);
+}
+
+/* Green pulse dot for active foreshadowing */
+.fs-pulse-dot {
+  position: relative;
+  display: inline-flex;
+  width: 8px;
+  height: 8px;
+}
+
+.fs-pulse-dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: #4ADE80;
+  animation: fs-pulse 2s ease-in-out infinite;
+}
+
+.fs-pulse-dot::after {
+  content: '';
+  position: relative;
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4ADE80;
+}
+
+@keyframes fs-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0; transform: scale(2.2); }
+}
+
+.fs-status-chip {
+  font-family: var(--ar-font-ui);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid;
+  letter-spacing: 0.02em;
+}
+
+.fs-importance-chip {
+  font-family: var(--ar-font-ui);
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background-color: #171c22;
+  color: #8b929a;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+.fs-description {
+  font-family: var(--ar-font-ui);
+  font-size: 0.875rem;
+  color: #dee3eb;
+  line-height: 1.6;
+  margin-bottom: 0.75rem;
+}
+
+.fs-meta-text {
+  font-size: 0.8rem;
+  color: #545d68;
+}
+
+.fs-author-note {
+  font-size: 0.8rem;
+  color: #8b929a;
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
+/* Buttons */
+.fs-btn-generate {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  background-color: rgba(250, 204, 21, 0.08);
+  color: #FACC15;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.fs-btn-generate:hover:not(:disabled) {
+  background-color: rgba(250, 204, 21, 0.15);
+  border-color: rgba(250, 204, 21, 0.5);
+}
+
+.fs-btn-generate:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fs-btn-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  background: transparent;
+  color: #8b929a;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.fs-btn-icon:hover:not(:disabled) {
+  color: #FACC15;
+  border-color: rgba(250, 204, 21, 0.3);
+}
+
+.fs-btn-icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fs-btn-edit {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  background: transparent;
+  color: #8b929a;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.fs-btn-edit:hover:not(:disabled) {
+  color: #FACC15;
+  border-color: rgba(250, 204, 21, 0.3);
+}
+
+.fs-btn-edit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fs-btn-delete {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background-color: rgba(239, 68, 68, 0.08);
+  color: #EF4444;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.fs-btn-delete:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.fs-btn-delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fs-btn-retry {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-top: 1rem;
+  padding: 0.375rem 1rem;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  background: transparent;
+  color: #8b929a;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.fs-btn-retry:hover {
+  color: #FACC15;
+  border-color: rgba(250, 204, 21, 0.3);
+}
+
+/* Edit form */
+.fs-edit-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(77, 70, 50, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.fs-form-label {
+  display: block;
+  font-family: var(--ar-font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #8b929a;
+  margin-bottom: 0.25rem;
+  letter-spacing: 0.02em;
+}
+
+.fs-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--ar-font-ui);
+  font-size: 0.875rem;
+  color: #dee3eb;
+  background-color: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  resize: vertical;
+}
+
+.fs-input::placeholder {
+  color: #545d68;
+}
+
+.fs-input:focus {
+  border-color: rgba(250, 204, 21, 0.4);
+  box-shadow: 0 0 0 2px rgba(250, 204, 21, 0.08);
+}
+
+.fs-input option {
+  background-color: #171c22;
+  color: #dee3eb;
+}
+
+.fs-btn-cancel {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  background: transparent;
+  color: #8b929a;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.fs-btn-cancel:hover:not(:disabled) {
+  color: #dee3eb;
+}
+
+.fs-btn-cancel:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.fs-btn-save {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.375rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  background-color: rgba(250, 204, 21, 0.12);
+  color: #FACC15;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.fs-btn-save:hover:not(:disabled) {
+  background-color: rgba(250, 204, 21, 0.2);
+  border-color: rgba(250, 204, 21, 0.6);
+}
+
+.fs-btn-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Error & empty state icons */
+.fs-error-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  margin-bottom: 1rem;
+}
+
+.fs-empty-icon {
+  width: 4rem;
+  height: 4rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+/* Spinner */
+.fs-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid rgba(77, 70, 50, 0.15);
+  border-top-color: #FACC15;
+  border-radius: 50%;
+  animation: fs-spin 0.8s linear infinite;
+}
+
+@keyframes fs-spin {
+  to { transform: rotate(360deg); }
+}
+</style>

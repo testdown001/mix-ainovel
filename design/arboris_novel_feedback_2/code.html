@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Neon Manuscript - Payment &amp; Alerts</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "tertiary-fixed-dim": "#78dc86",
+              "tertiary": "#b2ffb7",
+              "on-primary-container": "#6c5700",
+              "surface-container": "#1b2026",
+              "surface-variant": "#30353b",
+              "on-secondary-container": "#003e1c",
+              "surface-dim": "#0f1419",
+              "on-tertiary": "#003913",
+              "surface-container-low": "#171c22",
+              "on-primary": "#3c2f00",
+              "on-secondary-fixed-variant": "#005227",
+              "tertiary-fixed": "#94f99f",
+              "on-error-container": "#ffdad6",
+              "on-primary-fixed-variant": "#574500",
+              "on-secondary": "#003919",
+              "on-primary-fixed": "#231b00",
+              "error-container": "#93000a",
+              "primary-container": "#facc15",
+              "surface-container-lowest": "#0a0f14",
+              "on-surface-variant": "#d1c6ab",
+              "tertiary-container": "#82e68f",
+              "on-tertiary-fixed": "#002108",
+              "on-tertiary-container": "#006828",
+              "surface-container-highest": "#30353b",
+              "surface-bright": "#353a40",
+              "background": "#000000",
+              "error": "#ffb4ab",
+              "inverse-surface": "#dee3eb",
+              "inverse-on-surface": "#2c3137",
+              "surface-tint": "#eec200",
+              "secondary": "#4de082",
+              "secondary-container": "#00b55d",
+              "primary": "#ffecb9",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-surface": "#dee3eb",
+              "on-error": "#690005",
+              "secondary-fixed-dim": "#4de082",
+              "surface": "#0f1419",
+              "on-background": "#dee3eb",
+              "secondary-fixed": "#6dfe9c",
+              "outline-variant": "#4d4632",
+              "surface-container-high": "#252a30",
+              "inverse-primary": "#735c00",
+              "primary-fixed-dim": "#eec200",
+              "outline": "#9a9078",
+              "primary-fixed": "#ffe083",
+              "on-secondary-fixed": "#00210c"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .neon-glow-primary {
+        box-shadow: 0 0 15px rgba(250, 204, 21, 0.3);
+      }
+      .neon-glow-error {
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+      }
+      .glass-panel {
+        background: rgba(48, 53, 59, 0.6);
+        backdrop-filter: blur(12px);
+      }
+    </style>
+</head>
+<body class="bg-background text-on-background font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex items-center justify-between px-6 h-16 w-full font-['Space_Grotesk'] tracking-tight">
+<div class="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)]">Neon Manuscript</div>
+<div class="hidden md:flex space-x-8">
+<a class="text-gray-400 hover:text-yellow-200 transition-colors" href="#">Editor</a>
+<a class="text-gray-400 hover:text-yellow-200 transition-colors" href="#">Library</a>
+<a class="text-gray-400 hover:text-yellow-200 transition-colors" href="#">Marketplace</a>
+<a class="text-gray-400 hover:text-yellow-200 transition-colors" href="#">Analytics</a>
+</div>
+<div class="flex items-center space-x-4">
+<button class="bg-primary-container text-on-primary-container px-4 py-1.5 rounded-sm font-bold active:scale-95 duration-150 hover:bg-yellow-400/90 transition-all">Upgrade</button>
+<span class="material-symbols-outlined text-gray-400 cursor-pointer hover:text-yellow-400 transition-colors">notifications</span>
+<span class="material-symbols-outlined text-gray-400 cursor-pointer hover:text-yellow-400 transition-colors">account_circle</span>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="pt-24 pb-20 px-6 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12">
+<!-- Left Section: Payment Feedback States -->
+<section class="space-y-8">
+<div class="flex flex-col gap-2 mb-8">
+<h2 class="font-headline text-3xl font-bold text-primary-fixed">Transaction Feed</h2>
+<p class="text-on-surface-variant font-light">Real-time status of your manuscript's financial implants.</p>
+</div>
+<!-- Success Card -->
+<div class="surface-container-low p-6 rounded-sm border-l-4 border-secondary relative overflow-hidden group">
+<div class="flex items-start justify-between">
+<div class="space-y-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span class="font-headline font-bold text-xl tracking-tight">Payment Confirmed</span>
+</div>
+<div class="space-y-1">
+<p class="text-sm text-on-surface-variant uppercase tracking-widest font-semibold">Transaction ID</p>
+<p class="font-mono text-secondary text-sm">TXN-9921-XRT-004</p>
+</div>
+<p class="text-on-surface max-w-xs">Your credits have been successfully uploaded to the neural core. Happy writing.</p>
+</div>
+<div class="text-right">
+<p class="text-2xl font-headline font-black text-secondary">+2,500</p>
+<p class="text-[10px] uppercase tracking-tighter text-on-surface-variant">Tokens Added</p>
+</div>
+</div>
+<!-- Abstract Background Gradient for Success Card -->
+<div class="absolute -right-10 -bottom-10 w-32 h-32 bg-secondary/5 blur-3xl rounded-full"></div>
+</div>
+<!-- Failure Card -->
+<div class="surface-container-low p-6 rounded-sm border-l-4 border-error relative overflow-hidden">
+<div class="flex items-start justify-between">
+<div class="space-y-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-error" style="font-variation-settings: 'FILL' 1;">error</span>
+<span class="font-headline font-bold text-xl tracking-tight">Transmission Failed</span>
+</div>
+<div class="space-y-1">
+<p class="text-sm text-on-surface-variant uppercase tracking-widest font-semibold">Error Code</p>
+<p class="font-mono text-error text-sm">ERR_CYBER_LINK_TIMEOUT</p>
+</div>
+<p class="text-on-surface max-w-xs">The payment gateway timed out. Your credits were not deducted. Please retry the link.</p>
+</div>
+<button class="bg-surface-variant text-on-surface px-4 py-2 text-xs font-bold hover:bg-surface-container-high transition-colors self-end">Retry Sync</button>
+</div>
+<div class="absolute -right-10 -bottom-10 w-32 h-32 bg-error/5 blur-3xl rounded-full"></div>
+</div>
+</section>
+<!-- Right Section: Token Depleted Intercept (Simulation) -->
+<section class="flex flex-col items-center justify-center min-h-[500px] relative">
+<!-- Background Elements -->
+<div class="absolute inset-0 bg-gradient-to-tr from-error/5 via-transparent to-transparent opacity-30"></div>
+<!-- The Modal Shell -->
+<div class="glass-panel w-full max-w-md border border-error/20 rounded-sm p-8 neon-glow-error z-10">
+<div class="flex flex-col items-center text-center space-y-6">
+<!-- Alert Icon with Pulsing Effect -->
+<div class="w-16 h-16 rounded-full bg-error/10 flex items-center justify-center border border-error/40 relative">
+<span class="material-symbols-outlined text-error text-4xl" style="font-variation-settings: 'FILL' 1;">bolt</span>
+<div class="absolute inset-0 rounded-full border border-error animate-ping opacity-20"></div>
+</div>
+<div class="space-y-2">
+<h3 class="font-headline text-2xl font-black text-on-surface uppercase tracking-tighter">Token Reserves Depleted</h3>
+<p class="text-on-surface-variant font-body leading-relaxed">Your creative link is fading. The AI requires more neural fuel to continue the manuscript generation.</p>
+</div>
+<!-- Usage Stats Grid -->
+<div class="grid grid-cols-2 gap-4 w-full">
+<div class="bg-black/40 p-4 rounded-sm border border-outline-variant/20">
+<p class="text-[10px] uppercase text-on-surface-variant mb-1">Current Balance</p>
+<p class="font-headline text-xl font-bold text-error">12</p>
+</div>
+<div class="bg-black/40 p-4 rounded-sm border border-outline-variant/20">
+<p class="text-[10px] uppercase text-on-surface-variant mb-1">Required Min.</p>
+<p class="font-headline text-xl font-bold text-on-surface">500</p>
+</div>
+</div>
+<div class="w-full space-y-3">
+<button class="w-full bg-primary-container text-on-primary-container py-4 font-bold tracking-widest uppercase text-sm hover:brightness-110 transition-all neon-glow-primary active:scale-[0.98]">
+                            Recharge Now
+                        </button>
+<button class="w-full text-on-surface-variant py-2 text-xs font-medium hover:text-on-surface transition-colors">
+                            Dismiss &amp; Save Draft
+                        </button>
+</div>
+</div>
+</div>
+<!-- Visual Annotation -->
+<div class="mt-8 flex items-center gap-2 text-secondary/60">
+<span class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_rgba(74,222,128,0.5)]"></span>
+<p class="text-xs font-mono tracking-widest uppercase">AI Pulse: System Intercept Active</p>
+</div>
+</section>
+</main>
+<!-- SideNavBar (Desktop Only) -->
+<aside class="hidden md:flex flex-col h-full border-r border-white/5 bg-[#0f1419] h-screen w-64 fixed left-0 top-0 pt-20 font-['Inter'] text-sm font-medium z-40">
+<div class="px-6 py-4">
+<h4 class="text-yellow-400 font-black text-lg mb-1 uppercase tracking-tight">Cyber scribe</h4>
+<p class="text-gray-500 text-[10px] uppercase tracking-widest">Pro Plan Active</p>
+</div>
+<nav class="flex-1 mt-4">
+<a class="flex items-center gap-4 text-gray-500 hover:text-gray-200 px-4 py-3 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">edit_note</span>
+                Drafts
+            </a>
+<div class="bg-yellow-400/10 text-yellow-400 border-r-4 border-yellow-400 px-4 py-3 flex items-center gap-4">
+<span class="material-symbols-outlined">auto_awesome</span>
+                AI Insights
+            </div>
+<a class="flex items-center gap-4 text-gray-500 hover:text-gray-200 px-4 py-3 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">group</span>
+                Characters
+            </a>
+<a class="flex items-center gap-4 text-gray-500 hover:text-gray-200 px-4 py-3 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">public</span>
+                World Building
+            </a>
+<a class="flex items-center gap-4 text-gray-500 hover:text-gray-200 px-4 py-3 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">rocket_launch</span>
+                Publishing
+            </a>
+</nav>
+<div class="mt-auto border-t border-white/5 py-4">
+<button class="mx-4 mb-4 bg-yellow-400 text-black w-[calc(100%-32px)] py-2 font-bold text-xs uppercase hover:bg-yellow-300 transition-colors">New Chapter</button>
+<a class="flex items-center gap-4 text-gray-500 hover:text-gray-200 px-4 py-2 text-xs" href="#">
+<span class="material-symbols-outlined text-sm">settings</span>
+                Settings
+            </a>
+<a class="flex items-center gap-4 text-gray-500 hover:text-gray-200 px-4 py-2 text-xs" href="#">
+<span class="material-symbols-outlined text-sm">help</span>
+                Support
+            </a>
+</div>
+</aside>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full h-16 flex justify-around items-center px-4 pb-safe bg-black/90 backdrop-blur-lg border-t border-yellow-500/30 shadow-[0_-4px_24px_rgba(250,204,21,0.1)] z-50 font-['Inter'] text-[10px] uppercase tracking-widest">
+<div class="flex flex-col items-center justify-center text-gray-500 py-2 px-4 active:bg-yellow-400/20 tap-highlight-transparent">
+<span class="material-symbols-outlined text-xl mb-1">history_edu</span>
+            Writing
+        </div>
+<div class="flex flex-col items-center justify-center text-yellow-400 bg-yellow-400/5 rounded-xl py-2 px-4 active:bg-yellow-400/20 tap-highlight-transparent">
+<span class="material-symbols-outlined text-xl mb-1">bolt</span>
+            Pulse
+        </div>
+<div class="flex flex-col items-center justify-center text-gray-500 py-2 px-4 active:bg-yellow-400/20 tap-highlight-transparent">
+<span class="material-symbols-outlined text-xl mb-1">inventory_2</span>
+            Vault
+        </div>
+<div class="flex flex-col items-center justify-center text-gray-500 py-2 px-4 active:bg-yellow-400/20 tap-highlight-transparent">
+<span class="material-symbols-outlined text-xl mb-1">person</span>
+            Account
+        </div>
+</nav>
+</body></html>

@@ -9,7 +9,7 @@
     >
       <div
         v-if="visible"
-        class="md-dialog-overlay"
+        class="ca-overlay"
         @click.self="handleClose"
       >
         <transition
@@ -18,12 +18,12 @@
           enter-from-class="opacity-0 scale-95"
           leave-to-class="opacity-0 scale-95"
         >
-          <div class="md-dialog max-w-md w-full mx-4">
-            <!-- Material 3 Dialog Header -->
-            <div class="md-dialog-header flex items-center gap-4">
+          <div class="ca-dialog max-w-md w-full mx-4">
+            <!-- Header -->
+            <div class="ca-header flex items-center gap-4">
               <!-- Icon -->
               <div
-                class="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
+                class="ca-icon-container"
                 :style="iconContainerStyle"
               >
                 <!-- Error Icon -->
@@ -88,17 +88,17 @@
                 </svg>
               </div>
               <div>
-                <h3 class="md-dialog-title">{{ titleText }}</h3>
+                <h3 class="ca-title">{{ titleText }}</h3>
               </div>
             </div>
 
             <!-- Content -->
-            <div class="md-dialog-content">
-              <p class="md-body-large" style="color: var(--md-on-surface-variant);">{{ message }}</p>
+            <div class="ca-content">
+              <p class="ar-body-lg" style="color: var(--ar-text-secondary);">{{ message }}</p>
             </div>
 
-            <!-- Material 3 Dialog Actions -->
-            <div class="md-dialog-actions">
+            <!-- Actions -->
+            <div class="ca-actions">
               <button
                 v-if="showCancel"
                 @click="handleCancel"
@@ -160,29 +160,28 @@ const titleText = computed(() => {
   }
 })
 
-// Material 3 Color Theming
 const iconContainerStyle = computed(() => {
   switch (props.type) {
     case 'success': 
-      return { backgroundColor: 'var(--md-success-container)' }
+      return { backgroundColor: 'var(--ar-secondary-muted)' }
     case 'error': 
-      return { backgroundColor: 'var(--md-error-container)' }
+      return { backgroundColor: 'rgba(239, 68, 68, 0.15)' }
     case 'warning': 
-      return { backgroundColor: 'var(--md-warning-container)' }
+      return { backgroundColor: 'rgba(245, 158, 11, 0.15)' }
     case 'confirmation': 
-      return { backgroundColor: 'var(--md-secondary-container)' }
+      return { backgroundColor: 'var(--ar-secondary-muted)' }
     default: 
-      return { backgroundColor: 'var(--md-primary-container)' }
+      return { backgroundColor: 'var(--ar-primary-muted)' }
   }
 })
 
 const iconColor = computed(() => {
   switch (props.type) {
-    case 'success': return 'var(--md-success)'
-    case 'error': return 'var(--md-error)'
-    case 'warning': return 'var(--md-warning)'
-    case 'confirmation': return 'var(--md-secondary)'
-    default: return 'var(--md-primary)'
+    case 'success': return 'var(--ar-secondary)'
+    case 'error': return 'var(--ar-error)'
+    case 'warning': return 'var(--ar-warning)'
+    case 'confirmation': return 'var(--ar-secondary)'
+    default: return 'var(--ar-primary)'
   }
 })
 
@@ -209,3 +208,65 @@ const handleClose = () => {
   emit('close')
 }
 </script>
+
+<style scoped>
+.ca-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.ca-dialog {
+  background-color: var(--ar-bg-elevated);
+  border-radius: var(--ar-radius-sm);
+  border: 1px solid var(--ar-border);
+  box-shadow: var(--ar-elevation-glow);
+  min-width: 280px;
+  max-height: calc(100vh - 96px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ca-header {
+  padding: 24px 24px 16px;
+}
+
+.ca-title {
+  font-family: var(--ar-font-display);
+  font-size: var(--ar-text-h3);
+  font-weight: 600;
+  color: var(--ar-text-primary);
+  margin: 0;
+}
+
+.ca-icon-container {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--ar-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ca-content {
+  padding: 0 24px;
+  overflow-y: auto;
+  color: var(--ar-text-secondary);
+  font-size: var(--ar-text-body);
+}
+
+.ca-actions {
+  padding: 16px 24px 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+</style>

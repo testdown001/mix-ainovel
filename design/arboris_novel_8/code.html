@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-tint": "#eec200",
+                        "on-secondary-fixed-variant": "#005227",
+                        "secondary": "#4de082",
+                        "inverse-surface": "#dee3eb",
+                        "surface-dim": "#0f1419",
+                        "surface-container": "#1b2026",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "on-secondary": "#003919",
+                        "on-secondary-fixed": "#00210c",
+                        "on-secondary-container": "#003e1c",
+                        "surface-container-highest": "#30353b",
+                        "inverse-on-surface": "#2c3137",
+                        "on-primary": "#3c2f00",
+                        "tertiary-container": "#82e68f",
+                        "surface-variant": "#30353b",
+                        "surface-container-lowest": "#0a0f14",
+                        "surface-container-low": "#171c22",
+                        "surface": "#0f1419",
+                        "on-surface": "#dee3eb",
+                        "on-tertiary-fixed": "#002108",
+                        "primary-container": "#facc15",
+                        "on-tertiary-container": "#006828",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "on-tertiary": "#003913",
+                        "primary": "#ffecb9",
+                        "tertiary-fixed": "#94f99f",
+                        "surface-container-high": "#252a30",
+                        "primary-fixed-dim": "#eec200",
+                        "secondary-container": "#00b55d",
+                        "outline-variant": "#4d4632",
+                        "on-error-container": "#ffdad6",
+                        "error-container": "#93000a",
+                        "error": "#ffb4ab",
+                        "surface-bright": "#353a40",
+                        "primary-fixed": "#ffe083",
+                        "on-surface-variant": "#d1c6ab",
+                        "secondary-fixed-dim": "#4de082",
+                        "on-primary-container": "#6c5700",
+                        "background": "#000000",
+                        "tertiary": "#b2ffb7",
+                        "outline": "#9a9078",
+                        "on-primary-fixed-variant": "#574500",
+                        "on-primary-fixed": "#231b00",
+                        "on-background": "#dee3eb",
+                        "inverse-primary": "#735c00",
+                        "on-error": "#690005",
+                        "secondary-fixed": "#6dfe9c"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        body { background-color: #000000; color: #dee3eb; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glass-panel { background: rgba(48, 53, 59, 0.6); backdrop-filter: blur(12px); }
+        .ambient-glow-primary { box-shadow: 0 0 40px rgba(250, 204, 21, 0.08); }
+        .ambient-glow-secondary { box-shadow: 0 0 40px rgba(74, 222, 128, 0.08); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="font-label overflow-hidden">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_0_20px_rgba(250,204,21,0.08)] flex justify-between items-center px-8 h-16">
+<div class="text-2xl font-black text-yellow-400 italic font-headline uppercase tracking-widest">Neon Manuscript</div>
+<nav class="hidden md:flex items-center gap-8 font-headline font-bold uppercase tracking-widest">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Write</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Analyze</a>
+<a class="text-yellow-400 border-b-2 border-yellow-400 pb-1" href="#">Lab</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Settings</a>
+</nav>
+<div class="flex items-center gap-6">
+<span class="material-symbols-outlined text-yellow-400 cursor-pointer hover:scale-95 duration-200" data-icon="bolt">bolt</span>
+<span class="material-symbols-outlined text-yellow-400 cursor-pointer hover:scale-95 duration-200" data-icon="account_circle">account_circle</span>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 pt-20 bg-[#0f1419] border-r border-white/5 flex flex-col z-40">
+<div class="px-6 mb-8">
+<h2 class="font-headline text-green-400 text-xs tracking-tighter uppercase opacity-60">Project Alpha</h2>
+<p class="font-body text-sm font-bold text-slate-200">Cyberpunk Anthology</p>
+</div>
+<nav class="flex-1 space-y-1 px-3">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 transition-all duration-300 ease-in-out font-inter text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="edit_note">edit_note</span>
+<span>Manuscript</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 transition-all duration-300 ease-in-out font-inter text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span>Characters</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-green-400/10 text-green-400 border-r-2 border-green-400 transition-all duration-300 ease-in-out font-inter text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="public">public</span>
+<span>Worldview</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 transition-all duration-300 ease-in-out font-inter text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="biotech">biotech</span>
+<span>Plot Lab</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 transition-all duration-300 ease-in-out font-inter text-sm font-medium" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span>AI Settings</span>
+</a>
+</nav>
+<div class="p-4 mb-4">
+<button class="w-full py-3 bg-green-400/10 border border-green-400/30 text-green-400 font-headline text-xs font-bold uppercase tracking-widest hover:bg-green-400/20 transition-all">
+                Sync Knowledge Base
+            </button>
+</div>
+<div class="px-3 pb-6 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 transition-colors font-inter text-xs" href="#">
+<span class="material-symbols-outlined scale-75" data-icon="inventory_2">inventory_2</span>
+<span>Archive</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:text-slate-200 transition-colors font-inter text-xs" href="#">
+<span class="material-symbols-outlined scale-75" data-icon="help">help</span>
+<span>Help</span>
+</a>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 pt-16 h-screen overflow-y-auto no-scrollbar bg-black">
+<div class="max-w-7xl mx-auto p-12">
+<!-- Hero Header -->
+<div class="mb-12 flex justify-between items-end">
+<div>
+<h1 class="font-headline text-5xl font-black text-on-surface uppercase mb-2">Writing Setting Library</h1>
+<p class="text-slate-400 font-body italic max-w-xl">Deep synchronization between your imagination and the machine neural core. Establish the laws of your universe.</p>
+</div>
+<div class="flex gap-4">
+<button class="px-6 py-2 border border-outline-variant/40 text-secondary font-headline text-sm flex items-center gap-2 hover:bg-secondary/5 transition-colors">
+<span class="material-symbols-outlined text-sm" data-icon="refresh">refresh</span>
+                        刷新知识库
+                    </button>
+<button class="px-6 py-2 bg-primary-container text-on-primary-container font-headline text-sm font-bold uppercase tracking-tight ambient-glow-primary">
+                        Deploy Update
+                    </button>
+</div>
+</div>
+<!-- Bento Grid Content -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Foreshadowing Tracking -->
+<div class="col-span-12 lg:col-span-8 bg-surface-container-low p-8 rounded-lg relative overflow-hidden">
+<div class="absolute top-0 right-0 w-32 h-32 bg-secondary/5 blur-[80px] rounded-full"></div>
+<div class="flex justify-between items-center mb-8">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-secondary" data-icon="analytics">analytics</span>
+<h3 class="font-headline text-xl font-bold uppercase tracking-wider">伏笔追踪 (Foreshadowing)</h3>
+</div>
+<span class="text-xs font-label text-slate-500">12 OPEN / 45 RESOLVED</span>
+</div>
+<div class="space-y-4">
+<!-- Active Foreshadowing -->
+<div class="flex items-start gap-4 p-4 border-l-2 border-secondary bg-surface-container/50">
+<div class="mt-1"><span class="material-symbols-outlined text-secondary scale-75" data-icon="radio_button_checked">radio_button_checked</span></div>
+<div class="flex-1">
+<div class="flex justify-between mb-1">
+<h4 class="font-label font-bold text-on-surface">The Chrome Ghost's Identity</h4>
+<span class="text-[10px] px-2 py-0.5 bg-surface-variant text-secondary rounded">CHAPTER 04</span>
+</div>
+<p class="text-sm text-slate-400 font-body">Hinted that the Ghost uses a pre-war neuro-link. Linked to Arasaka archives.</p>
+</div>
+</div>
+<div class="flex items-start gap-4 p-4 border-l-2 border-secondary bg-surface-container/50">
+<div class="mt-1"><span class="material-symbols-outlined text-secondary scale-75" data-icon="radio_button_checked">radio_button_checked</span></div>
+<div class="flex-1">
+<div class="flex justify-between mb-1">
+<h4 class="font-label font-bold text-on-surface">Rain on Sector 7</h4>
+<span class="text-[10px] px-2 py-0.5 bg-surface-variant text-secondary rounded">CHAPTER 12</span>
+</div>
+<p class="text-sm text-slate-400 font-body">Atmospheric foreshadowing of the acidic flood event. Needs payoff by Arc 3.</p>
+</div>
+</div>
+<!-- Closed Foreshadowing -->
+<div class="flex items-start gap-4 p-4 border-l-2 border-slate-700 opacity-50">
+<div class="mt-1"><span class="material-symbols-outlined text-slate-500 scale-75" data-icon="check_circle">check_circle</span></div>
+<div class="flex-1">
+<h4 class="font-label font-bold text-slate-400 line-through">The Broken Watch Symbolism</h4>
+<p class="text-sm text-slate-500 font-body">Resolved in Chapter 08: Watch repaired, representing time healing.</p>
+</div>
+</div>
+</div>
+<button class="mt-8 text-xs font-headline text-secondary uppercase tracking-widest border-b border-secondary/30 pb-1 hover:border-secondary transition-all">
+                        View Full Map
+                    </button>
+</div>
+<!-- Style Profiles / Writing Presets -->
+<div class="col-span-12 lg:col-span-4 space-y-6">
+<div class="bg-surface-container-high p-6 rounded-lg ambient-glow-primary">
+<div class="flex items-center gap-3 mb-6">
+<span class="material-symbols-outlined text-primary-container" data-icon="auto_awesome">auto_awesome</span>
+<h3 class="font-headline text-lg font-bold uppercase tracking-tight">创作模式预设</h3>
+</div>
+<div class="space-y-3">
+<div class="p-4 bg-primary-container/10 border border-primary-container/20 rounded-lg cursor-pointer hover:bg-primary-container/20 transition-all group">
+<div class="flex justify-between items-center mb-1">
+<span class="font-label font-bold text-primary-container">Gibson Noir</span>
+<span class="material-symbols-outlined text-xs text-primary-container" data-icon="verified" style="font-variation-settings: 'FILL' 1;">verified</span>
+</div>
+<p class="text-[11px] text-slate-400">Hard-boiled dialogue, heavy sensory descriptions, low optimism bias.</p>
+</div>
+<div class="p-4 bg-surface-container-lowest border border-white/5 rounded-lg cursor-pointer hover:border-primary-container/30 transition-all">
+<div class="flex justify-between items-center mb-1">
+<span class="font-label font-bold text-slate-300">Blade Runner Echo</span>
+<span class="material-symbols-outlined text-xs text-slate-600" data-icon="lock">lock</span>
+</div>
+<p class="text-[11px] text-slate-500">Philosophical internal monologue, focus on architectural scale.</p>
+</div>
+<div class="p-4 bg-surface-container-lowest border border-white/5 rounded-lg cursor-pointer hover:border-primary-container/30 transition-all">
+<div class="flex justify-between items-center mb-1">
+<span class="font-label font-bold text-slate-300">Netrunner Fast</span>
+<span class="material-symbols-outlined text-xs text-slate-600" data-icon="lock">lock</span>
+</div>
+<p class="text-[11px] text-slate-500">Short sentences, technical jargon, high-action pacing.</p>
+</div>
+</div>
+</div>
+<!-- Sync Status Card -->
+<div class="bg-surface-container p-6 rounded-lg border border-white/5">
+<h4 class="text-xs font-headline text-slate-500 uppercase tracking-[0.2em] mb-4">Live Sync Pulse</h4>
+<div class="flex items-center gap-4 mb-2">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse shadow-[0_0_8px_#4ade80]"></div>
+<span class="text-sm font-label text-slate-200">Neural Link Stable</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1 rounded-full overflow-hidden">
+<div class="bg-secondary h-full w-[82%]"></div>
+</div>
+<div class="flex justify-between mt-2 text-[10px] text-slate-500 font-label">
+<span>8,241 ENTRIES ANALYZED</span>
+<span>98% ACCURACY</span>
+</div>
+</div>
+</div>
+<!-- Reference Novels Card -->
+<div class="col-span-12 grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-surface-container-low p-6 rounded-lg border border-white/5 flex flex-col justify-between group cursor-pointer hover:bg-surface-container transition-colors">
+<div>
+<div class="w-12 h-16 bg-surface-variant rounded-sm mb-4 flex items-center justify-center">
+<span class="material-symbols-outlined text-slate-600" data-icon="menu_book">menu_book</span>
+</div>
+<h5 class="font-label font-bold text-slate-200 group-hover:text-primary-container transition-colors">Neuromancer</h5>
+<p class="text-xs text-slate-500 font-body mt-2 italic">William Gibson</p>
+</div>
+<div class="mt-6 flex gap-2">
+<span class="px-2 py-0.5 text-[9px] bg-surface-variant text-slate-400">ATMOSPHERE</span>
+<span class="px-2 py-0.5 text-[9px] bg-surface-variant text-slate-400">PROSE</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-lg border border-white/5 flex flex-col justify-between group cursor-pointer hover:bg-surface-container transition-colors">
+<div>
+<div class="w-12 h-16 bg-surface-variant rounded-sm mb-4 flex items-center justify-center">
+<span class="material-symbols-outlined text-slate-600" data-icon="menu_book">menu_book</span>
+</div>
+<h5 class="font-label font-bold text-slate-200 group-hover:text-primary-container transition-colors">Snow Crash</h5>
+<p class="text-xs text-slate-500 font-body mt-2 italic">Neal Stephenson</p>
+</div>
+<div class="mt-6 flex gap-2">
+<span class="px-2 py-0.5 text-[9px] bg-surface-variant text-slate-400">PACING</span>
+<span class="px-2 py-0.5 text-[9px] bg-surface-variant text-slate-400">TECH</span>
+</div>
+</div>
+<div class="border-2 border-dashed border-white/5 p-6 rounded-lg flex flex-col items-center justify-center group hover:border-primary-container/30 cursor-pointer transition-all">
+<span class="material-symbols-outlined text-slate-700 mb-2 group-hover:text-primary-container" data-icon="add_circle">add_circle</span>
+<span class="text-xs font-headline text-slate-600 group-hover:text-primary-container uppercase tracking-widest">Add Reference</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Floating AI Pulse Button -->
+<div class="fixed bottom-12 right-12 flex flex-col items-end gap-4 z-50">
+<div class="glass-panel px-4 py-3 border border-secondary/30 text-secondary text-xs font-label ambient-glow-secondary">
+<span class="flex items-center gap-2 italic">
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_10px_#4ade80]"></div>
+                AI has identified 3 plot inconsistencies in Arc 2.
+            </span>
+</div>
+<button class="w-16 h-16 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center shadow-2xl ambient-glow-primary hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-3xl" data-icon="bolt" style="font-variation-settings: 'FILL' 1;">bolt</span>
+</button>
+</div>
+</body></html>

@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-tint": "#eec200",
+              "on-secondary-fixed-variant": "#005227",
+              "secondary": "#4de082",
+              "inverse-surface": "#dee3eb",
+              "surface-dim": "#0f1419",
+              "surface-container": "#1b2026",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-secondary": "#003919",
+              "on-secondary-fixed": "#00210c",
+              "on-secondary-container": "#003e1c",
+              "surface-container-highest": "#30353b",
+              "inverse-on-surface": "#2c3137",
+              "on-primary": "#3c2f00",
+              "tertiary-container": "#82e68f",
+              "surface-variant": "#30353b",
+              "surface-container-lowest": "#0a0f14",
+              "surface-container-low": "#171c22",
+              "surface": "#0f1419",
+              "on-surface": "#dee3eb",
+              "on-tertiary-fixed": "#002108",
+              "primary-container": "#facc15",
+              "on-tertiary-container": "#006828",
+              "tertiary-fixed-dim": "#78dc86",
+              "on-tertiary": "#003913",
+              "primary": "#ffecb9",
+              "tertiary-fixed": "#94f99f",
+              "surface-container-high": "#252a30",
+              "primary-fixed-dim": "#eec200",
+              "secondary-container": "#00b55d",
+              "outline-variant": "#4d4632",
+              "on-error-container": "#ffdad6",
+              "error-container": "#93000a",
+              "error": "#ffb4ab",
+              "surface-bright": "#353a40",
+              "primary-fixed": "#ffe083",
+              "on-surface-variant": "#d1c6ab",
+              "secondary-fixed-dim": "#4de082",
+              "on-primary-container": "#6c5700",
+              "background": "#0f1419",
+              "tertiary": "#b2ffb7",
+              "outline": "#9a9078",
+              "on-primary-fixed-variant": "#574500",
+              "on-primary-fixed": "#231b00",
+              "on-background": "#dee3eb",
+              "inverse-primary": "#735c00",
+              "on-error": "#690005",
+              "secondary-fixed": "#6dfe9c"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.08);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 15px rgba(74, 222, 128, 0.15);
+        }
+        .ambient-void {
+            background: radial-gradient(circle at 50% 50%, #1b2026 0%, #000000 100%);
+        }
+        body {
+            background-color: #000000;
+            color: #dee3eb;
+        }
+    </style>
+</head>
+<body class="font-label overflow-hidden h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_0_20px_rgba(250,204,21,0.08)] flex justify-between items-center px-8 h-16">
+<div class="text-2xl font-black text-yellow-400 italic font-headline uppercase tracking-widest">Neon Manuscript</div>
+<nav class="hidden md:flex items-center space-x-8 font-headline font-bold uppercase tracking-widest">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Write</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Analyze</a>
+<a class="text-yellow-400 border-b-2 border-yellow-400 pb-1" href="#">Lab</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors" href="#">Settings</a>
+</nav>
+<div class="flex items-center space-x-4">
+<button class="p-2 hover:bg-yellow-400/10 transition-all duration-200 scale-95 text-yellow-400">
+<span class="material-symbols-outlined">bolt</span>
+</button>
+<button class="p-2 hover:bg-yellow-400/10 transition-all duration-200 scale-95 text-yellow-400">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</header>
+<div class="flex flex-1 pt-16 h-full overflow-hidden">
+<!-- SideNavBar -->
+<aside class="h-screen w-64 bg-[#0f1419] flex flex-col border-r border-white/5 font-inter text-sm font-medium transition-all duration-300 ease-in-out">
+<div class="px-6 py-8">
+<h2 class="text-green-400 font-headline font-bold text-lg tracking-tight">Project Alpha</h2>
+<p class="text-slate-500 text-xs uppercase tracking-widest mt-1">Cyberpunk Anthology</p>
+</div>
+<nav class="flex-1 space-y-1 px-3">
+<a class="flex items-center space-x-3 px-3 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="edit_note">edit_note</span>
+<span>Manuscript</span>
+</a>
+<a class="flex items-center space-x-3 px-3 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span>Characters</span>
+</a>
+<a class="flex items-center space-x-3 px-3 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="public">public</span>
+<span>Worldview</span>
+</a>
+<a class="flex items-center space-x-3 px-3 py-3 bg-green-400/10 text-green-400 border-r-2 border-green-400 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="biotech">biotech</span>
+<span>Plot Lab</span>
+</a>
+<a class="flex items-center space-x-3 px-3 py-3 text-slate-500 hover:text-slate-200 hover:bg-slate-800/50 rounded-sm" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span>AI Settings</span>
+</a>
+</nav>
+<div class="p-4 border-t border-white/5 space-y-4">
+<button class="w-full py-2 bg-green-400 text-black font-bold text-xs uppercase tracking-tighter rounded-sm hover:brightness-110 transition-all">
+                    Sync Knowledge Base
+                </button>
+<div class="space-y-1">
+<a class="flex items-center space-x-3 px-3 py-2 text-slate-500 hover:text-slate-200 text-xs" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="inventory_2">inventory_2</span>
+<span>Archive</span>
+</a>
+<a class="flex items-center space-x-3 px-3 py-2 text-slate-500 hover:text-slate-200 text-xs" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="help">help</span>
+<span>Help</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Canvas: AI Plot Lab -->
+<main class="flex-1 ambient-void relative overflow-y-auto custom-scrollbar p-8">
+<div class="max-w-7xl mx-auto space-y-8">
+<!-- Header Section -->
+<div class="flex justify-between items-end border-b border-outline-variant/10 pb-6">
+<div>
+<h1 class="text-4xl font-black font-headline text-primary-container tracking-tighter">AI PLOT LAB v2</h1>
+<p class="text-on-surface-variant font-label text-sm mt-2 opacity-70">Synthesizing narrative trajectories and temporal logic audits.</p>
+</div>
+<div class="flex space-x-4">
+<button class="px-6 py-2.5 bg-primary-container text-on-primary-container font-headline font-bold text-sm tracking-widest uppercase flex items-center space-x-2 rounded-sm neon-glow-primary hover:brightness-110">
+<span class="material-symbols-outlined text-lg">auto_fix_high</span>
+<span>后续大纲生成</span>
+</button>
+</div>
+</div>
+<!-- Main Layout Grid -->
+<div class="grid grid-cols-12 gap-6">
+<!-- Left Column: Chapter Deduction Sandbox -->
+<div class="col-span-12 lg:col-span-8 space-y-6">
+<div class="bg-surface-container-low p-6 rounded-sm border border-outline-variant/5 relative overflow-hidden">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline font-bold text-secondary uppercase tracking-widest flex items-center space-x-2">
+<span class="material-symbols-outlined">account_tree</span>
+<span>章节剧情推演 (Chapter Deduction)</span>
+</h3>
+<span class="text-[10px] text-slate-500 font-mono">NODE_COUNT: 12 // STABILITY: 94%</span>
+</div>
+<!-- Sandbox Visualization -->
+<div class="h-[400px] border border-outline-variant/10 bg-black/40 relative rounded-sm flex items-center justify-center overflow-hidden">
+<!-- Abstract SVG "Nodes" to mimic interactive sandbox -->
+<svg class="absolute inset-0 w-full h-full opacity-30">
+<defs>
+<pattern height="40" id="grid" patternunits="userSpaceOnUse" width="40">
+<path d="M 40 0 L 0 0 0 40" fill="none" stroke="#4de082" stroke-width="0.5"></path>
+</pattern>
+</defs>
+<rect fill="url(#grid)" height="100%" width="100%"></rect>
+</svg>
+<div class="relative w-full h-full flex items-center justify-center p-12">
+<!-- Visualizing Branching Logic -->
+<div class="grid grid-cols-3 gap-12 w-full max-w-2xl items-center relative z-10">
+<!-- Origin Node -->
+<div class="col-span-1">
+<div class="p-4 bg-secondary/10 border border-secondary text-secondary rounded-sm text-center">
+<div class="text-[10px] uppercase font-bold opacity-60">Chapter 14 Start</div>
+<div class="text-xs font-body mt-2">主人公发现加密芯片</div>
+</div>
+</div>
+<!-- Branches -->
+<div class="col-span-2 space-y-8 relative">
+<div class="absolute -left-12 top-1/2 w-12 h-[2px] bg-outline-variant/30"></div>
+<!-- Branch A -->
+<div class="flex items-center space-x-4">
+<div class="h-[2px] w-8 bg-secondary/50"></div>
+<div class="p-4 bg-surface-container-high border border-outline-variant/30 text-on-surface rounded-sm flex-1 hover:border-secondary transition-colors cursor-pointer group">
+<div class="flex justify-between items-center">
+<span class="text-[10px] uppercase text-secondary font-bold">Outcome A</span>
+<span class="material-symbols-outlined text-secondary text-xs" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+<div class="text-xs font-body mt-2">选择上交组织，换取地位提升</div>
+</div>
+</div>
+<!-- Branch B -->
+<div class="flex items-center space-x-4">
+<div class="h-[2px] w-8 bg-outline-variant/30"></div>
+<div class="p-4 bg-surface-container-low border border-outline-variant/10 text-slate-500 rounded-sm flex-1 hover:border-primary-container transition-colors cursor-pointer">
+<div class="flex justify-between items-center">
+<span class="text-[10px] uppercase font-bold">Outcome B</span>
+</div>
+<div class="text-xs font-body mt-2">私自破解，引发黑帮追杀</div>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Pulse Effect Overlay -->
+<div class="absolute bottom-4 right-4 flex items-center space-x-2 text-[10px] text-secondary">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse neon-glow-secondary"></div>
+<span class="uppercase tracking-widest font-bold">AI Analyzing Logic...</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Continuous Generation Timeline -->
+<div class="bg-surface-container-low p-6 rounded-sm border border-outline-variant/5">
+<h3 class="font-headline font-bold text-primary-container uppercase tracking-widest flex items-center space-x-2 mb-6">
+<span class="material-symbols-outlined">timeline</span>
+<span>连续生成控制 (Continuous Queue)</span>
+</h3>
+<div class="flex items-start space-x-4 overflow-x-auto pb-4 custom-scrollbar">
+<!-- Queue Item 1 (Completed) -->
+<div class="min-w-[240px] p-4 bg-surface-container-highest border-l-4 border-secondary rounded-sm">
+<div class="flex justify-between items-start">
+<span class="text-[10px] font-bold text-secondary uppercase">CH-15 Outline</span>
+<span class="material-symbols-outlined text-sm text-secondary">check_circle</span>
+</div>
+<p class="text-xs font-body mt-3 leading-relaxed text-on-surface-variant italic line-clamp-2">"霓虹雨夜下的交易，芯片背后的真相..."</p>
+<div class="mt-4 flex justify-between items-center">
+<span class="text-[9px] text-slate-500 uppercase tracking-tighter">Tokens: 1,200</span>
+<button class="text-secondary text-[10px] font-bold uppercase hover:underline">Edit</button>
+</div>
+</div>
+<!-- Queue Item 2 (In Progress) -->
+<div class="min-w-[240px] p-4 bg-surface-container border-l-4 border-primary-container rounded-sm neon-glow-primary">
+<div class="flex justify-between items-start">
+<span class="text-[10px] font-bold text-primary-container uppercase">CH-16 Outline</span>
+<span class="text-[10px] text-primary-container font-mono animate-pulse">GENERATING...</span>
+</div>
+<div class="mt-4 h-1 w-full bg-black/50 rounded-full overflow-hidden">
+<div class="h-full bg-primary-container w-[65%]"></div>
+</div>
+<p class="text-xs font-body mt-4 text-slate-400">Expanding character motives...</p>
+</div>
+<!-- Queue Item 3 (Pending) -->
+<div class="min-w-[240px] p-4 bg-black/20 border border-dashed border-outline-variant/20 rounded-sm flex flex-col items-center justify-center text-slate-600">
+<span class="material-symbols-outlined mb-2 opacity-50">add_circle</span>
+<span class="text-[10px] font-bold uppercase tracking-widest">Queue Next Step</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Column: AI Logic Audit & Tools -->
+<div class="col-span-12 lg:col-span-4 space-y-6">
+<!-- AI Logic Audit Panel -->
+<div class="glass-panel p-6 rounded-sm border border-outline-variant/20 h-full flex flex-col">
+<h3 class="font-headline font-bold text-primary uppercase tracking-widest flex items-center space-x-2 mb-6">
+<span class="material-symbols-outlined">rule</span>
+<span>AI 逻辑审计 (Logic Audit)</span>
+</h3>
+<div class="space-y-4 flex-1">
+<!-- Audit Item 1 -->
+<div class="p-3 bg-surface-container-lowest/50 border-l-2 border-secondary/40 rounded-sm">
+<div class="flex items-center space-x-2 mb-1">
+<span class="material-symbols-outlined text-secondary text-sm">verified</span>
+<span class="text-[10px] font-bold text-secondary uppercase tracking-tight">Consistency Check</span>
+</div>
+<p class="text-xs text-on-surface leading-tight">人物“克洛伊”的动机与第3章设定的复仇计划保持一致。</p>
+</div>
+<!-- Audit Item 2 -->
+<div class="p-3 bg-error-container/10 border-l-2 border-error/50 rounded-sm">
+<div class="flex items-center space-x-2 mb-1">
+<span class="material-symbols-outlined text-error text-sm">warning</span>
+<span class="text-[10px] font-bold text-error uppercase tracking-tight">Contradiction Warning</span>
+</div>
+<p class="text-xs text-error/80 leading-tight">此处提到的“雨林地形”与第8章中该城市的“荒漠化”设定冲突。</p>
+<button class="mt-2 text-[9px] font-bold text-error uppercase hover:underline">Fix Settings</button>
+</div>
+<!-- Audit Item 3 -->
+<div class="p-3 bg-surface-container-lowest/50 border-l-2 border-primary-container/40 rounded-sm">
+<div class="flex items-center space-x-2 mb-1">
+<span class="material-symbols-outlined text-primary-container text-sm">lightbulb</span>
+<span class="text-[10px] font-bold text-primary-container uppercase tracking-tight">Foreshadowing Check</span>
+</div>
+<p class="text-xs text-on-surface leading-tight">埋下的伏笔（银色手提箱）尚未在后续大纲中回收，建议在CH-18关联。</p>
+</div>
+</div>
+<div class="mt-8 pt-6 border-t border-outline-variant/10">
+<h4 class="text-[10px] font-headline font-black text-slate-500 uppercase tracking-widest mb-4">Project Parameters</h4>
+<div class="space-y-3">
+<div class="flex justify-between items-center text-[11px]">
+<span class="text-slate-400">Narrative Tension</span>
+<span class="text-secondary">High (8.2/10)</span>
+</div>
+<div class="h-1 w-full bg-black/50 rounded-full">
+<div class="h-full bg-secondary w-[82%]"></div>
+</div>
+<div class="flex justify-between items-center text-[11px]">
+<span class="text-slate-400">Setting Cohesion</span>
+<span class="text-primary-container">Medium (6.5/10)</span>
+</div>
+<div class="h-1 w-full bg-black/50 rounded-full">
+<div class="h-full bg-primary-container w-[65%]"></div>
+</div>
+</div>
+</div>
+<button class="mt-8 w-full py-3 border border-outline-variant/30 text-slate-400 font-bold text-xs uppercase tracking-widest hover:bg-white/5 transition-all">
+                                Run Full Audit (Scan All Chapters)
+                            </button>
+</div>
+</div>
+</div>
+<!-- Floating Footer Controls -->
+<div class="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center space-x-4 bg-surface-container-high/80 backdrop-blur-md p-2 rounded-xl border border-white/5 shadow-2xl z-50">
+<button class="p-3 hover:bg-white/10 text-slate-400 transition-colors">
+<span class="material-symbols-outlined">undo</span>
+</button>
+<div class="h-6 w-[1px] bg-outline-variant/20 mx-2"></div>
+<button class="px-8 py-3 bg-white text-black font-headline font-black uppercase text-xs tracking-[0.2em] hover:bg-secondary hover:text-black transition-colors rounded-sm">
+                        Execute Scenario
+                    </button>
+<div class="h-6 w-[1px] bg-outline-variant/20 mx-2"></div>
+<button class="p-3 hover:bg-white/10 text-slate-400 transition-colors">
+<span class="material-symbols-outlined">redo</span>
+</button>
+</div>
+</div>
+</main>
+</div>
+</body></html>

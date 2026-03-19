@@ -1,47 +1,53 @@
 <!-- AIMETA P=用户管理_用户列表管理|R=用户CRUD_权限|NR=不含认证功能|E=component:UserManagement|X=ui|A=用户组件|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <n-card :bordered="false" class="admin-card">
-    <template #header>
-      <div class="card-header">
-        <span class="card-title">用户管理</span>
-        <n-space :size="12">
-          <n-input
-            v-model:value="keyword"
-            clearable
-            round
-            placeholder="搜索用户名或邮箱"
-            @update:value="handleSearch"
-            class="search-input"
-          />
-          <n-button type="primary" size="small" @click="handleAdd">
-            新建用户
-          </n-button>
-          <n-button quaternary size="small" @click="fetchUsers" :loading="loading">
-            刷新
-          </n-button>
-        </n-space>
-      </div>
-    </template>
-
-    <n-space vertical size="large">
-      <n-alert v-if="error" type="error" closable @close="error = null">
-        {{ error }}
-      </n-alert>
-
-      <n-spin :show="loading">
-        <n-data-table
-          :columns="columns"
-          :data="filteredUsers"
-          :bordered="false"
-          :pagination="pagination"
-          :row-key="rowKey"
-          class="user-table"
+  <div class="user-panel">
+    <div class="panel-header">
+      <span class="panel-title">用户管理</span>
+      <div class="panel-actions">
+        <n-input
+          v-model:value="keyword"
+          clearable
+          placeholder="搜索用户名或邮箱"
+          @update:value="handleSearch"
+          class="search-input"
         />
-      </n-spin>
-    </n-space>
+        <n-button
+          class="action-btn action-btn--primary"
+          size="small"
+          @click="handleAdd"
+        >
+          新建用户
+        </n-button>
+        <button class="refresh-btn" @click="fetchUsers" :disabled="loading">
+          <span v-if="loading" class="spinner" />
+          <span v-else>刷新</span>
+        </button>
+      </div>
+    </div>
+
+    <n-alert v-if="error" type="error" closable @close="error = null" class="user-alert">
+      {{ error }}
+    </n-alert>
+
+    <n-spin :show="loading">
+      <n-data-table
+        :columns="columns"
+        :data="filteredUsers"
+        :bordered="false"
+        :pagination="pagination"
+        :row-key="rowKey"
+        class="cyber-table"
+      />
+    </n-spin>
 
     <!-- Create/Edit User Modal -->
-    <n-modal v-model:show="showModal" preset="card" :title="modalTitle" style="width: 500px">
+    <n-modal
+      v-model:show="showModal"
+      preset="card"
+      :title="modalTitle"
+      class="cyber-modal"
+      style="width: 500px"
+    >
       <n-form
         ref="formRef"
         :model="formModel"
@@ -91,15 +97,15 @@
         </n-form-item>
       </n-form>
       <template #footer>
-        <n-space justify="end">
+        <div class="modal-footer">
           <n-button @click="showModal = false">取消</n-button>
           <n-button type="primary" :loading="submitting" @click="handleSubmit">
             确认
           </n-button>
-        </n-space>
+        </div>
       </template>
     </n-modal>
-  </n-card>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -372,36 +378,238 @@ onMounted(fetchUsers)
 </script>
 
 <style scoped>
-.admin-card {
+.user-panel {
   width: 100%;
+  box-sizing: border-box;
 }
 
-.card-header {
+.panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--ar-spacing-4);
   flex-wrap: wrap;
+  margin-bottom: var(--ar-spacing-6);
 }
 
-.card-title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #1f2937;
+.panel-title {
+  font-family: var(--ar-font-display);
+  font-size: var(--ar-text-h2);
+  font-weight: 700;
+  color: var(--ar-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ar-spacing-3);
+  flex-wrap: wrap;
 }
 
 .search-input {
   width: min(230px, 60vw);
 }
 
+/* Override Naive UI input to match cyberpunk design */
+.search-input :deep(.n-input) {
+  --n-border: 1px solid var(--ar-border) !important;
+  --n-border-hover: 1px solid rgba(250, 204, 21, 0.3) !important;
+  --n-border-focus: 1px solid var(--ar-secondary) !important;
+  --n-color: var(--ar-bg-elevated) !important;
+  --n-color-focus: var(--ar-bg-elevated) !important;
+  --n-text-color: var(--ar-text-primary) !important;
+  --n-placeholder-color: var(--ar-text-muted) !important;
+  --n-caret-color: var(--ar-primary) !important;
+  --n-border-radius: var(--ar-radius-sm) !important;
+  font-family: var(--ar-font-ui);
+}
+
+.action-btn--primary {
+  font-family: var(--ar-font-ui);
+  font-weight: 600;
+  border-radius: var(--ar-radius-sm) !important;
+}
+
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--ar-border);
+  border-radius: var(--ar-radius-sm);
+  background: transparent;
+  color: var(--ar-text-secondary);
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-body-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--ar-duration-short) var(--ar-easing-standard);
+}
+
+.refresh-btn:hover:not(:disabled) {
+  color: var(--ar-primary);
+  border-color: rgba(250, 204, 21, 0.3);
+  background: var(--ar-primary-muted);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ar-bg-highlight);
+  border-top-color: var(--ar-primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.user-alert {
+  margin-bottom: var(--ar-spacing-4);
+}
+
+/* Cyberpunk Data Table overrides */
+.cyber-table :deep(.n-data-table) {
+  --n-border-color: var(--ar-border) !important;
+  --n-th-color: var(--ar-bg-surface) !important;
+  --n-td-color: transparent !important;
+  --n-th-text-color: var(--ar-text-secondary) !important;
+  --n-td-text-color: var(--ar-text-primary) !important;
+  --n-border-radius: var(--ar-radius-sm) !important;
+}
+
+.cyber-table :deep(.n-data-table-wrapper) {
+  border-radius: var(--ar-radius-sm);
+  border: 1px solid var(--ar-border);
+  background: var(--ar-bg-surface);
+}
+
+.cyber-table :deep(.n-data-table-th) {
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-label);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ar-text-secondary) !important;
+  background: var(--ar-bg-surface) !important;
+  border-bottom: 1px solid var(--ar-border) !important;
+  border-color: var(--ar-border) !important;
+}
+
+.cyber-table :deep(.n-data-table-td) {
+  font-family: var(--ar-font-ui);
+  font-size: var(--ar-text-body);
+  color: var(--ar-text-primary) !important;
+  border-bottom: 1px solid var(--ar-border-subtle) !important;
+  border-color: var(--ar-border-subtle) !important;
+  background: transparent !important;
+}
+
+.cyber-table :deep(.n-data-table-tr:hover .n-data-table-td) {
+  background: var(--ar-bg-elevated) !important;
+}
+
+.cyber-table :deep(.n-data-table-th__ellipsis),
+.cyber-table :deep(.n-data-table-td__ellipsis) {
+  color: inherit;
+}
+
+/* Pagination overrides */
+.cyber-table :deep(.n-pagination) {
+  --n-item-color: transparent !important;
+  --n-item-color-hover: var(--ar-primary-muted) !important;
+  --n-item-color-active: var(--ar-primary-muted) !important;
+  --n-item-text-color: var(--ar-text-secondary) !important;
+  --n-item-text-color-hover: var(--ar-primary) !important;
+  --n-item-text-color-active: var(--ar-primary) !important;
+  --n-item-border: 1px solid var(--ar-border) !important;
+  --n-item-border-hover: 1px solid rgba(250, 204, 21, 0.3) !important;
+  --n-item-border-active: 1px solid var(--ar-primary) !important;
+  --n-item-border-radius: var(--ar-radius-sm) !important;
+  --n-button-color-hover: var(--ar-primary-muted) !important;
+  --n-button-border: 1px solid var(--ar-border) !important;
+  --n-button-border-hover: 1px solid rgba(250, 204, 21, 0.3) !important;
+  --n-button-icon-color: var(--ar-text-secondary) !important;
+  --n-button-icon-color-hover: var(--ar-primary) !important;
+  font-family: var(--ar-font-ui);
+  margin-top: var(--ar-spacing-4);
+}
+
+/* Modal overrides */
+.cyber-modal :deep(.n-card) {
+  --n-color: var(--ar-bg-elevated) !important;
+  --n-border-color: var(--ar-border) !important;
+  --n-border-radius: var(--ar-radius-sm) !important;
+  --n-title-text-color: var(--ar-text-primary) !important;
+  --n-title-font-weight: 700 !important;
+  box-shadow: var(--ar-elevation-glow) !important;
+}
+
+.cyber-modal :deep(.n-card-header__main) {
+  font-family: var(--ar-font-display);
+  font-size: var(--ar-text-h3);
+}
+
+.cyber-modal :deep(.n-card-header) {
+  border-bottom: 1px solid var(--ar-border) !important;
+}
+
+.cyber-modal :deep(.n-card__footer) {
+  border-top: 1px solid var(--ar-border) !important;
+}
+
+/* Form overrides within modal */
+.cyber-modal :deep(.n-form-item-label__text) {
+  font-family: var(--ar-font-ui) !important;
+  color: var(--ar-text-secondary) !important;
+  font-weight: 500;
+}
+
+.cyber-modal :deep(.n-input) {
+  --n-border: 1px solid var(--ar-border) !important;
+  --n-border-hover: 1px solid rgba(250, 204, 21, 0.3) !important;
+  --n-border-focus: 1px solid var(--ar-secondary) !important;
+  --n-color: var(--ar-bg-highlight) !important;
+  --n-color-focus: var(--ar-bg-highlight) !important;
+  --n-text-color: var(--ar-text-primary) !important;
+  --n-placeholder-color: var(--ar-text-muted) !important;
+  --n-caret-color: var(--ar-primary) !important;
+  --n-border-radius: var(--ar-radius-sm) !important;
+  font-family: var(--ar-font-ui);
+}
+
+.cyber-modal :deep(.n-switch.n-switch--active) {
+  --n-rail-color-active: var(--ar-secondary) !important;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ar-spacing-2);
+}
+
 @media (max-width: 767px) {
-  .card-header {
+  .panel-header {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .card-title {
-    font-size: 1.125rem;
+  .panel-title {
+    font-size: var(--ar-text-h3);
+  }
+
+  .panel-actions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .search-input {

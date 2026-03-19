@@ -17,19 +17,19 @@
           ? 'fixed left-4 top-20 bottom-4 w-80 z-50 translate-x-0'
           : 'lg:w-80 lg:flex-shrink-0 -translate-x-full absolute lg:relative'
       ]"
-      style="border-radius: var(--md-radius-xl);"
+      style="border-radius: var(--ar-radius-sm);"
     >
       <div class="h-full flex flex-col">
         <!-- 蓝图预览卡片 -->
         <div class="md-card-header flex-shrink-0">
           <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--md-primary-container);">
+            <div class="w-10 h-10 flex items-center justify-center" style="background-color: var(--md-primary-container); border-radius: var(--ar-radius-sm);">
               <svg class="w-5 h-5" style="color: var(--md-on-primary-container);" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
               </svg>
             </div>
             <div>
-              <h2 class="md-title-medium font-semibold">故事蓝图</h2>
+              <h2 class="md-title-medium font-display font-semibold">故事蓝图</h2>
               <p class="md-body-small md-on-surface-variant">{{ project.blueprint?.style || '未设定风格' }}</p>
             </div>
           </div>
@@ -105,7 +105,7 @@
         <div ref="listContainer" class="flex-1 overflow-y-auto">
           <div class="p-6 pb-4">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="md-title-medium font-semibold">章节大纲</h3>
+              <h3 class="md-title-medium font-display font-semibold">章节大纲</h3>
               <div class="flex items-center gap-2">
                 <!-- 预设选择按钮 -->
                 <button
@@ -171,7 +171,7 @@
                   </div>
                   <div
                     :class="[
-                      'w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0',
+                      'w-8 h-8 flex items-center justify-center text-sm font-semibold flex-shrink-0 m3-chapter-badge',
                       isChapterCompleted(chapter.chapter_number)
                         ? 'bg-[var(--md-success)] text-[var(--md-on-success)]'
                         : isChapterGenerating(chapter.chapter_number) || isChapterEvaluating(chapter.chapter_number) || isChapterSelecting(chapter.chapter_number)
@@ -761,7 +761,7 @@ const canGenerateChapter = (chapterNumber: number) => {
 .reference-panel {
   margin: 0 1rem 1rem;
   padding: 0.75rem;
-  border-radius: 1rem;
+  border-radius: var(--ar-radius-sm);
   background: var(--ar-bg-elevated);
   border: 1px solid var(--ar-border);
 }
@@ -799,7 +799,7 @@ const canGenerateChapter = (chapterNumber: number) => {
   font-size: 0.75rem;
   cursor: pointer;
   padding: 0.25rem 0.5rem;
-  border-radius: 0.75rem;
+  border-radius: var(--ar-radius-xs);
 }
 
 .reference-panel-link--primary {
@@ -827,16 +827,18 @@ const canGenerateChapter = (chapterNumber: number) => {
   justify-content: space-between;
   align-items: center;
   padding: 0.55rem 0.75rem;
-  border-radius: 0.75rem;
+  border-radius: var(--ar-radius-sm);
   background: var(--ar-bg-surface);
   border: 1px solid var(--ar-border);
 }
 
 .reference-panel-tag {
   font-size: 0.7rem;
-  border-radius: 999px;
+  border-radius: var(--ar-radius-xs);
   padding: 0.1rem 0.5rem;
   text-transform: capitalize;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .reference-panel-tag[data-status="ready"] {
@@ -862,28 +864,33 @@ const canGenerateChapter = (chapterNumber: number) => {
 
 <style scoped>
 .m3-chapter-card {
-  border-radius: var(--md-radius-lg);
-  border: 1px solid var(--md-outline-variant);
-  background-color: var(--md-surface);
-  transition: all var(--md-duration-medium) var(--md-easing-standard);
+  border-radius: var(--ar-radius-sm);
+  border: 1px solid var(--ar-border);
+  background-color: var(--ar-bg-surface);
+  transition: all var(--ar-duration-medium) var(--ar-easing-standard);
 }
 
 .m3-chapter-card:hover {
-  background-color: var(--md-surface-container-low);
+  background-color: var(--ar-bg-elevated);
+  box-shadow: var(--ar-elevation-glow);
 }
 
 .m3-chapter-selected {
-  border-color: var(--md-primary);
-  background-color: var(--md-primary-container);
+  border-color: var(--ar-primary);
+  background-color: var(--ar-primary-muted);
 }
 
 .m3-chapter-danger {
-  border-color: var(--md-error);
-  background-color: var(--md-error-container);
+  border-color: var(--ar-error);
+  background-color: rgba(239, 68, 68, 0.1);
+}
+
+.m3-chapter-badge {
+  border-radius: var(--ar-radius-sm);
 }
 
 .m3-stagger {
-  animation: m3-rise 0.45s ease-out both;
+  animation: m3-rise 0.45s var(--ar-easing-decelerate) both;
 }
 
 @keyframes m3-rise {
@@ -905,7 +912,7 @@ const canGenerateChapter = (chapterNumber: number) => {
   font-weight: 600;
   width: 20px;
   height: 20px;
-  border-radius: 4px;
+  border-radius: var(--ar-radius-xs);
   line-height: 1;
 }
 </style>

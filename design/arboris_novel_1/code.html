@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Novel - 创作空间</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-dim": "#0f1419",
+                        "on-background": "#dee3eb",
+                        "surface-container-high": "#252a30",
+                        "surface-container-lowest": "#0a0f14",
+                        "primary-container": "#facc15",
+                        "on-error-container": "#ffdad6",
+                        "inverse-on-surface": "#2c3137",
+                        "secondary-container": "#00b55d",
+                        "error-container": "#93000a",
+                        "tertiary-container": "#82e68f",
+                        "outline": "#9a9078",
+                        "primary-fixed-dim": "#eec200",
+                        "on-primary-fixed": "#231b00",
+                        "secondary-fixed": "#6dfe9c",
+                        "on-error": "#690005",
+                        "on-secondary-fixed": "#00210c",
+                        "surface": "#0f1419",
+                        "on-primary": "#3c2f00",
+                        "error": "#ffb4ab",
+                        "tertiary": "#b2ffb7",
+                        "inverse-surface": "#dee3eb",
+                        "surface-container": "#1b2026",
+                        "primary": "#ffecb9",
+                        "on-tertiary-fixed-variant": "#00531e",
+                        "tertiary-fixed-dim": "#78dc86",
+                        "surface-bright": "#353a40",
+                        "on-surface": "#dee3eb",
+                        "on-tertiary-container": "#006828",
+                        "secondary-fixed-dim": "#4de082",
+                        "outline-variant": "#4d4632",
+                        "inverse-primary": "#735c00",
+                        "surface-tint": "#eec200",
+                        "on-primary-container": "#6c5700",
+                        "tertiary-fixed": "#94f99f",
+                        "surface-container-highest": "#30353b",
+                        "on-tertiary": "#003913",
+                        "background": "#0f1419",
+                        "surface-variant": "#30353b",
+                        "on-primary-fixed-variant": "#574500",
+                        "on-surface-variant": "#d1c6ab",
+                        "on-secondary": "#003919",
+                        "on-tertiary-fixed": "#002108",
+                        "primary-fixed": "#ffe083",
+                        "on-secondary-container": "#003e1c",
+                        "secondary": "#4de082",
+                        "surface-container-low": "#171c22",
+                        "on-secondary-fixed-variant": "#005227"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Noto Serif SC"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #000000;
+            color: #dee3eb;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .manuscript-editor::selection {
+            background: rgba(250, 204, 21, 0.3);
+            color: #facc15;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #000000;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30353b;
+            border-radius: 2px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #facc15;
+        }
+        .slider-custom {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 2px;
+            background: #4d4632;
+            outline: none;
+        }
+        .slider-custom::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            background: #facc15;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #facc15;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #facc15;
+        }
+    </style>
+</head>
+<body class="font-label overflow-hidden h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-6">
+<span class="font-headline tracking-tight text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)]">Arboris Novel</span>
+<div class="h-6 w-[1px] bg-outline-variant/30"></div>
+<h1 class="font-body text-lg text-on-surface">第42章：觉醒</h1>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 px-3 py-1 bg-surface-container-low rounded-sm border border-outline-variant/10">
+<span class="material-symbols-outlined text-sm text-yellow-400">description</span>
+<span class="text-xs font-headline text-on-surface-variant uppercase tracking-wider">1,432 字</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-4 py-1.5 text-sm font-medium border border-outline-variant/40 text-secondary hover:text-secondary-fixed transition-colors hover:bg-white/5 active:scale-95 transition-transform">
+                    保存
+                </button>
+<button class="px-6 py-1.5 text-sm font-bold bg-primary-container text-on-primary-container hover:shadow-[0_0_15px_rgba(250,204,21,0.5)] active:scale-95 transition-all">
+                    发布
+                </button>
+</div>
+<div class="flex items-center gap-3 ml-4">
+<span class="material-symbols-outlined text-gray-500 hover:text-yellow-300 transition-colors cursor-pointer">account_circle</span>
+<span class="material-symbols-outlined text-gray-500 hover:text-yellow-300 transition-colors cursor-pointer">settings</span>
+</div>
+</div>
+</header>
+<div class="flex flex-1 pt-16 h-full overflow-hidden">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-[#171c22] flex flex-col p-4 gap-y-2 hidden md:flex">
+<div class="mb-6 px-2">
+<h3 class="font-headline text-yellow-400 font-bold text-sm tracking-widest opacity-80">小说管理</h3>
+<p class="text-[10px] text-gray-500 uppercase">章节与大纲</p>
+</div>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-headline text-sm">主页</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 bg-yellow-400 text-black font-bold rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined">edit_note</span>
+<span class="font-headline text-sm">创作空间</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-headline text-sm">数据分析</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">loyalty</span>
+<span class="font-headline text-sm">订阅方案</span>
+</a>
+<div class="mt-auto pt-4 border-t border-outline-variant/10 flex flex-col gap-y-1">
+<button class="w-full py-2 mb-4 bg-surface-container-highest border border-outline-variant/20 text-yellow-400 text-xs font-bold hover:bg-surface-bright transition-colors">
+                    + 新建章节
+                </button>
+<a class="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-yellow-200 text-xs" href="#">
+<span class="material-symbols-outlined text-sm">settings</span>
+<span>设置</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-yellow-200 text-xs" href="#">
+<span class="material-symbols-outlined text-sm">help</span>
+<span>帮助</span>
+</a>
+</div>
+</nav>
+<!-- Main Workspace Canvas -->
+<main class="flex-1 ml-64 mr-[560px] flex flex-col items-center bg-black overflow-y-auto relative manuscript-view">
+<div class="w-full max-w-[850px] py-20 px-8 min-h-full">
+<!-- Manuscript Area -->
+<div class="font-body text-[18px] leading-[1.8] text-on-surface outline-none manuscript-editor" contenteditable="true" spellcheck="false">
+<p class="mb-8">窗外的霓虹灯火像是一场永不落幕的葬礼，将整座城市的阴影涂抹成诡异的深紫色。苏河站在落地窗前，指尖轻轻触碰着冰冷的玻璃。在这个时代，灵魂是可以被量化的，而他刚刚完成了一次非法的溢价交易。</p>
+<p class="mb-8">“检测到非法神经突触活动。” 植入体内的AI助理“阿格斯”用它那毫无感情的合成音提醒道，“苏先生，您的情绪指数已超过安全阈值24%。建议立即启动冷静程序。”</p>
+<p class="mb-8">苏河冷笑一声，没有理会脑海中跳动的红色警告信息。他看着远方那些如同丛林般耸立的摩天大楼，每一扇发光的窗户背后都藏着一个被算法禁锢的梦。而他，刚刚从那张名为“现实”的网中撕开了一个小小的裂口。</p>
+<div class="relative group my-10 py-6 px-8 bg-surface-container-low border-l-2 border-secondary/50">
+<div class="absolute -left-2 top-6 w-4 h-4 rounded-full bg-secondary shadow-[0_0_10px_#4de082] flex items-center justify-center">
+<span class="material-symbols-outlined text-[10px] text-black font-bold">psychology</span>
+</div>
+<p class="text-secondary-fixed italic opacity-90">
+                            此处建议增加关于“赛博格义肢”故障的描写，以增强苏河当前心理压力的生理表现。是否生成描述段落？
+                        </p>
+<div class="mt-4 flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="text-[10px] uppercase tracking-tighter font-bold bg-secondary text-on-secondary px-3 py-1 rounded-sm">确认生成</button>
+<button class="text-[10px] uppercase tracking-tighter font-bold border border-outline-variant/30 text-on-surface-variant px-3 py-1 rounded-sm">忽略建议</button>
+</div>
+</div>
+<p class="mb-8">他抬起右手，机械骨架在皮下发出细微的嗡鸣。那是觉醒的节奏，也是毁灭的序曲。他知道，从这一刻起，他再也不是那个温顺的、被饲养在大数据中的码农了。</p>
+<p class="mb-8 text-on-surface/40 cursor-text">点击此处继续创作...</p>
+</div>
+</div>
+<!-- Floating AI Inspiration Trigger -->
+<div class="fixed bottom-10 right-[580px] z-40">
+<button class="flex items-center gap-3 px-5 py-3 bg-black border border-yellow-400/50 text-yellow-400 rounded-full shadow-[0_0_20px_rgba(250,204,21,0.2)] hover:shadow-[0_0_30px_rgba(250,204,21,0.4)] transition-all active:scale-95 group">
+<span class="material-symbols-outlined text-yellow-400 animate-pulse" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<span class="font-headline font-bold text-sm tracking-widest">灵感火花</span>
+</button>
+</div>
+</main>
+<!-- Right Panels Wrapper (Integrated AI Control + Intellectual Panel) -->
+<div class="fixed right-0 top-16 h-[calc(100vh-64px)] w-[560px] flex border-l border-outline-variant/10">
+<!-- AI Control Drawer -->
+<aside class="w-64 bg-surface-container-lowest border-r border-outline-variant/10 p-5 flex flex-col gap-6 overflow-y-auto">
+<div>
+<h4 class="font-headline text-xs font-bold text-secondary uppercase tracking-widest mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">smart_toy</span> AI 控制器
+                    </h4>
+<!-- Model Selection -->
+<div class="space-y-2 mb-6">
+<label class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">模型选择</label>
+<select class="w-full bg-surface-container border border-outline-variant/20 rounded-sm text-xs py-2 px-2 focus:ring-1 focus:ring-yellow-400/50 outline-none appearance-none cursor-pointer">
+<option>Claude 3.5 Sonnet</option>
+<option>Llama 3 (70B)</option>
+<option>GPT-4o</option>
+<option>Mistral Large</option>
+</select>
+</div>
+<!-- Parameter Sliders -->
+<div class="space-y-4 mb-6">
+<div class="space-y-2">
+<div class="flex justify-between items-center">
+<label class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">温度 (Temperature)</label>
+<span class="text-[10px] text-yellow-400 font-mono">0.7</span>
+</div>
+<input class="slider-custom" max="1" min="0" step="0.1" type="range" value="0.7"/>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-center">
+<label class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter">创意偏好 (Creativity)</label>
+<span class="text-[10px] text-yellow-400 font-mono">High</span>
+</div>
+<input class="slider-custom" max="100" min="0" type="range" value="80"/>
+</div>
+</div>
+<!-- Context Injection Toggles -->
+<div class="space-y-3">
+<label class="text-[10px] text-gray-500 uppercase font-bold tracking-tighter mb-1 block">上下文注入</label>
+<div class="flex items-center justify-between p-2 bg-white/5 rounded-sm">
+<span class="text-xs text-on-surface">角色设定</span>
+<div class="relative inline-block w-8 align-middle select-none">
+<input class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300 right-4 checked:right-0 checked:bg-yellow-400" id="characterToggle" name="toggle" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-4 rounded-full bg-gray-700 cursor-pointer" for="characterToggle"></label>
+</div>
+</div>
+<div class="flex items-center justify-between p-2 bg-white/5 rounded-sm">
+<span class="text-xs text-on-surface">剧情大纲</span>
+<div class="relative inline-block w-8 align-middle select-none">
+<input checked="" class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300 right-4 checked:right-0 checked:bg-yellow-400" id="outlineToggle" name="toggle" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-4 rounded-full bg-gray-700 cursor-pointer" for="outlineToggle"></label>
+</div>
+</div>
+<div class="flex items-center justify-between p-2 bg-white/5 rounded-sm">
+<span class="text-xs text-on-surface">世界观/设定集</span>
+<div class="relative inline-block w-8 align-middle select-none">
+<input class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer transition-all duration-300 right-4 checked:right-0 checked:bg-yellow-400" id="worldToggle" name="toggle" type="checkbox"/>
+<label class="toggle-label block overflow-hidden h-4 rounded-full bg-gray-700 cursor-pointer" for="worldToggle"></label>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-auto">
+<button class="w-full py-3 bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-bold uppercase tracking-widest hover:bg-secondary/20 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">psychology</span>
+                        进入灵感模式
+                    </button>
+</div>
+</aside>
+<!-- Original Right Sidebar (Intellectual Panel) -->
+<aside class="w-72 bg-surface-container-low p-6 flex flex-col gap-6 overflow-y-auto">
+<!-- Chapter Notes -->
+<section>
+<div class="flex items-center justify-between mb-4">
+<h4 class="font-headline text-xs font-bold text-yellow-400/80 uppercase tracking-widest">章节备注</h4>
+<span class="material-symbols-outlined text-sm text-gray-600">edit</span>
+</div>
+<div class="p-4 bg-surface-container rounded-sm border-l-2 border-yellow-400/30">
+<p class="text-xs text-on-surface-variant leading-relaxed">
+                            本章核心：确立主角与现有秩序的决裂。
+                            基调：压抑、冷峻、觉醒。
+                            伏笔：提到的“阿格斯”AI助理将在第50章产生独立意识。
+                        </p>
+</div>
+</section>
+<!-- Outline Bento Grid -->
+<section>
+<div class="flex items-center justify-between mb-4">
+<h4 class="font-headline text-xs font-bold text-yellow-400/80 uppercase tracking-widest">剧情大纲</h4>
+<span class="material-symbols-outlined text-sm text-gray-600">unfold_more</span>
+</div>
+<div class="grid grid-cols-1 gap-2">
+<div class="p-3 bg-surface-container-low border border-outline-variant/10 flex items-center gap-3">
+<span class="text-[10px] font-headline text-yellow-400 font-bold">01</span>
+<span class="text-xs text-on-surface">非法交易完成</span>
+<span class="material-symbols-outlined text-[14px] text-secondary ml-auto">check_circle</span>
+</div>
+<div class="p-3 bg-surface-container-high border border-yellow-400/30 flex items-center gap-3">
+<span class="text-[10px] font-headline text-yellow-400 font-bold">02</span>
+<span class="text-xs text-on-surface font-bold">自我觉醒时刻</span>
+<span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse ml-auto"></span>
+</div>
+<div class="p-3 bg-surface-container-low border border-outline-variant/10 flex items-center gap-3 opacity-50">
+<span class="text-[10px] font-headline text-gray-500 font-bold">03</span>
+<span class="text-xs text-on-surface">执政官的追捕</span>
+</div>
+</div>
+</section>
+<!-- Character Cards -->
+<section class="mt-4">
+<div class="flex items-center justify-between mb-4">
+<h4 class="font-headline text-xs font-bold text-yellow-400/80 uppercase tracking-widest">登场角色</h4>
+<span class="material-symbols-outlined text-sm text-gray-600">person_add</span>
+</div>
+<div class="space-y-3">
+<div class="flex items-center gap-3 p-2 hover:bg-white/5 transition-colors cursor-pointer rounded-sm group">
+<div class="w-10 h-10 bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center">
+<img alt="Su He" class="w-8 h-8 opacity-80 group-hover:opacity-100 transition-opacity" data-alt="Cyberpunk male character avatar abstract" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAhwrE8Wso9ClU_gzW9Dnl-G4GhErFqBNVYISL5Hp8QLOh01iGsGFHJm9l06Afjw7t8D-3CEekqcVB6MsXNx84vRfs1n1qQmyr7OUjAT9hxFzjh5BTobEXOBZCvrzdXteAI6LSQxYt_WkkmOnyDtuY35rDrm-7u3-l_7npdtOiSQX_fJcTtlmnZIu2OdUstxtYqjK_Oo6MAMIoq63T3WYjVtwT_Dc7R2QI_OXtvovfCpnA-BJRYlGeCGi7kbf53a2pZG_hmnjMRzBhr"/>
+</div>
+<div>
+<p class="text-xs font-bold text-on-surface">苏河 (主角)</p>
+<p class="text-[10px] text-gray-500">性格：孤僻、果敢</p>
+</div>
+</div>
+<div class="flex items-center gap-3 p-2 hover:bg-white/5 transition-colors cursor-pointer rounded-sm group">
+<div class="w-10 h-10 bg-surface-container-highest border border-outline-variant/20 flex items-center justify-center">
+<img alt="Argus" class="w-8 h-8 opacity-40 group-hover:opacity-100 transition-opacity" data-alt="AI robot assistant avatar abstract" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAwCXNblN3VWCzKbniGfdI3x8rOyotB9PV-M1fLFlXjtBvznFO-vrJGcvgHP_eyIM-AFWC65JgCIu5bs-lwJG3UBjSqCwXWT9nEvWSKil7XHruRuTpEMBco2t0khyEi-OQ4sxPyaozClrNXYwXMj6ic5mxWQz0uWGptrmwl56uzL_0HJQ9WYgFLXj_ltYjrJeq8lC7tAW2GA-K7E6iFzosJ73LTx077xYMx9nOJjLajXENP8R7_b1GhyEVziC0_Z_aXTpGbzU4H6ANG"/>
+</div>
+<div>
+<p class="text-xs font-bold text-on-surface">阿格斯 (AI)</p>
+<p class="text-[10px] text-gray-500">状态：运行中 / 监控</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Stats Card -->
+<section class="mt-auto p-4 bg-gradient-to-br from-surface-container-low to-black border border-outline-variant/10">
+<p class="text-[10px] font-headline text-gray-500 uppercase mb-2">创作数据</p>
+<div class="flex justify-between items-end">
+<div>
+<span class="text-2xl font-headline font-bold text-yellow-400">182</span>
+<span class="text-[10px] text-gray-500 ml-1">分钟 / 今日</span>
+</div>
+<div class="flex flex-col items-end">
+<span class="text-xs text-secondary font-bold">+1.2k</span>
+<span class="text-[8px] text-gray-600 uppercase">Words Growth</span>
+</div>
+</div>
+<div class="w-full h-1 bg-surface-container-highest mt-3 rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-3/4 shadow-[0_0_8px_#4de082]"></div>
+</div>
+</section>
+</aside>
+</div>
+<!-- BottomNavBar (Mobile Only) -->
+<footer class="fixed bottom-0 w-full z-50 lg:hidden bg-black/90 backdrop-blur-lg border-t border-green-900/30 shadow-[0_-4px_12px_rgba(74,222,128,0.1)] flex justify-around items-center h-16 pb-safe">
+<div class="flex flex-col items-center justify-center text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.5)] active:scale-110 transition-transform">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">book</span>
+<span class="font-body text-[10px]">章节</span>
+</div>
+<div class="flex flex-col items-center justify-center text-gray-600 hover:text-green-300 active:scale-110 transition-transform">
+<span class="material-symbols-outlined">account_tree</span>
+<span class="font-body text-[10px]">大纲</span>
+</div>
+<div class="flex flex-col items-center justify-center text-gray-600 hover:text-green-300 active:scale-110 transition-transform">
+<span class="material-symbols-outlined">groups</span>
+<span class="font-body text-[10px]">角色</span>
+</div>
+<div class="flex flex-col items-center justify-center text-gray-600 hover:text-green-300 active:scale-110 transition-transform">
+<span class="material-symbols-outlined">psychology</span>
+<span class="font-body text-[10px]">AI助手</span>
+</div>
+</footer>
+</div>
+<!-- Background decorative glows -->
+<div class="fixed top-1/4 -left-20 w-96 h-96 bg-yellow-400/5 rounded-full blur-[100px] pointer-events-none"></div>
+<div class="fixed bottom-1/4 -right-20 w-80 h-80 bg-secondary/5 rounded-full blur-[100px] pointer-events-none"></div>
+</body></html>

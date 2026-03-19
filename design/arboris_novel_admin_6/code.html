@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "outline-variant": "#4d4632",
+              "on-surface": "#dee3eb",
+              "on-secondary": "#003919",
+              "on-primary-fixed-variant": "#574500",
+              "on-error-container": "#ffdad6",
+              "surface-container": "#1b2026",
+              "secondary": "#4de082",
+              "surface-container-highest": "#30353b",
+              "on-secondary-fixed-variant": "#005227",
+              "on-secondary-container": "#003e1c",
+              "on-primary": "#3c2f00",
+              "surface-dim": "#0f1419",
+              "tertiary-fixed-dim": "#78dc86",
+              "error-container": "#93000a",
+              "surface-container-low": "#171c22",
+              "primary-container": "#facc15",
+              "surface-container-high": "#252a30",
+              "inverse-surface": "#dee3eb",
+              "tertiary-fixed": "#94f99f",
+              "on-primary-fixed": "#231b00",
+              "inverse-primary": "#735c00",
+              "tertiary-container": "#82e68f",
+              "on-secondary-fixed": "#00210c",
+              "on-tertiary-fixed": "#002108",
+              "on-tertiary-container": "#006828",
+              "inverse-on-surface": "#2c3137",
+              "background": "#0f1419",
+              "secondary-fixed": "#6dfe9c",
+              "secondary-container": "#00b55d",
+              "on-tertiary-fixed-variant": "#00531e",
+              "error": "#ffb4ab",
+              "surface-tint": "#eec200",
+              "on-tertiary": "#003913",
+              "primary": "#ffecb9",
+              "on-primary-container": "#6c5700",
+              "on-background": "#dee3eb",
+              "primary-fixed-dim": "#eec200",
+              "on-surface-variant": "#d1c6ab",
+              "outline": "#9a9078",
+              "surface": "#0f1419",
+              "primary-fixed": "#ffe083",
+              "surface-variant": "#30353b",
+              "surface-container-lowest": "#0a0f14",
+              "surface-bright": "#353a40",
+              "tertiary": "#b2ffb7",
+              "secondary-fixed-dim": "#4de082",
+              "on-error": "#690005"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { background-color: #000000; color: #dee3eb; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .glow-active { box-shadow: 0 0 15px rgba(74, 222, 128, 0.2); }
+        .glow-banned { box-shadow: 0 0 15px rgba(255, 180, 171, 0.2); }
+        .glass-panel { background: rgba(48, 53, 59, 0.6); backdrop-filter: blur(12px); }
+        .neon-border-bottom { border-bottom: 1px solid rgba(250, 204, 21, 0.15); }
+    </style>
+</head>
+<body class="font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar (Left Anchor) -->
+<aside class="fixed left-0 top-0 h-full w-64 z-50 flex flex-col bg-[#171c22] border-r border-[#4d4632]/15">
+<div class="p-6">
+<h1 class="text-2xl font-bold tracking-tighter text-[#FACC15] uppercase font-headline">Arboris Admin</h1>
+<p class="text-[10px] text-gray-500 font-medium mt-1 tracking-widest uppercase">System Oversight</p>
+</div>
+<nav class="flex-1 px-3 space-y-1">
+<!-- Dashboard -->
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-sm font-medium">Dashboard</span>
+</a>
+<!-- User Management (Active) -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#FACC15] bg-[#30353b]/60 backdrop-blur-md rounded-sm border-l-4 border-[#FACC15]" href="#">
+<span class="material-symbols-outlined" data-icon="group" style="font-variation-settings: 'FILL' 1;">group</span>
+<span class="text-sm font-bold">User Management</span>
+</a>
+<!-- Novel Projects -->
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="book_2">book_2</span>
+<span class="text-sm font-medium">Novel Projects</span>
+</a>
+<!-- Prompt Management -->
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+<span class="text-sm font-medium">Prompt Management</span>
+</a>
+<!-- System Logs -->
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="receipt_long">receipt_long</span>
+<span class="text-sm font-medium">System Logs</span>
+</a>
+<!-- System Health -->
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="health_metrics">health_metrics</span>
+<span class="text-sm font-medium">System Health</span>
+</a>
+<!-- Security Center -->
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="shield_lock">shield_lock</span>
+<span class="text-sm font-medium">Security Center</span>
+</a>
+</nav>
+<div class="px-3 py-6 border-t border-[#4d4632]/10 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-sm font-medium">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined" data-icon="help_center">help_center</span>
+<span class="text-sm font-medium">Support</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-64 h-16 flex justify-between items-center px-8 z-40 bg-black/80 backdrop-blur-xl border-b border-[#4d4632]/15 shadow-[0_0_20px_rgba(250,204,21,0.05)]">
+<div class="flex items-center gap-8">
+<span class="text-xl font-black text-[#FACC15] italic font-headline">Arboris Console</span>
+<div class="flex gap-6">
+<div class="flex flex-col">
+<span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">CPU LOAD</span>
+<span class="text-xs font-medium text-secondary">24%</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">RAM USE</span>
+<span class="text-xs font-medium text-secondary">12GB</span>
+</div>
+<div class="flex flex-col">
+<span class="text-[10px] text-gray-500 uppercase font-bold tracking-widest">LATENCY</span>
+<span class="text-xs font-medium text-secondary">15ms</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<button class="bg-primary-container text-on-primary-container px-4 py-1.5 text-xs font-bold rounded-sm hover:brightness-110 transition-all uppercase tracking-tight">
+                Deploy Update
+            </button>
+<div class="flex items-center gap-4 text-gray-400">
+<span class="material-symbols-outlined cursor-pointer hover:text-[#FACC15]" data-icon="notifications_active">notifications_active</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-[#FACC15]" data-icon="settings_suggest">settings_suggest</span>
+<div class="h-8 w-8 rounded-full overflow-hidden border border-[#FACC15]/30">
+<img alt="Admin Avatar" class="w-full h-full object-cover" data-alt="Close up portrait of a male system administrator" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDR0J8iyOK9rDkbsTt__AWQ06Lj5xAwg5j1gEJNLlMAAC4_QoHCIEjZXff4cqXspAaf4tDKXwW6bPo95kaawp5zlk74FD-LDGixwX2LdAW5Q03wkeSa5YnTtzbBxvasSJQhvtw-jvU7jW7rTnRt6PfYCILSUeLYl899TOKnTeTatPGxDb637tPxb2itL8LF3DUzjapQqW72KDmWkt7Z8MhrQmYllFpMybLL2sSCJK4g0OrIDdRsSL8xHO6Rsl5b3mGAzTFO9t-zBUeL"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-64 pt-24 pb-12 px-8 min-h-screen bg-black">
+<!-- Quick Stats Header -->
+<section class="grid grid-cols-4 gap-6 mb-8">
+<div class="bg-surface-container-low p-6 rounded-sm border-l-2 border-primary-container">
+<p class="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">Total Users</p>
+<h2 class="text-3xl font-bold font-headline text-on-surface">1,284,092</h2>
+<div class="mt-2 flex items-center text-[10px] text-secondary">
+<span class="material-symbols-outlined text-xs mr-1" data-icon="trending_up">trending_up</span>
+<span>+12.5% vs last month</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-sm border-l-2 border-secondary">
+<p class="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">New Users (24h)</p>
+<h2 class="text-3xl font-bold font-headline text-on-surface">3,492</h2>
+<div class="mt-2 flex items-center text-[10px] text-secondary">
+<span class="material-symbols-outlined text-xs mr-1" data-icon="bolt">bolt</span>
+<span>Spike in registrations</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-sm border-l-2 border-primary">
+<p class="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">Active Writers</p>
+<h2 class="text-3xl font-bold font-headline text-on-surface">842,103</h2>
+<div class="mt-2 flex items-center text-[10px] text-primary">
+<span class="material-symbols-outlined text-xs mr-1" data-icon="edit_note">edit_note</span>
+<span>65% Engagement rate</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-sm border-l-2 border-error">
+<p class="text-xs text-gray-500 font-bold uppercase tracking-widest mb-1">Banned Accounts</p>
+<h2 class="text-3xl font-bold font-headline text-on-surface">412</h2>
+<div class="mt-2 flex items-center text-[10px] text-error">
+<span class="material-symbols-outlined text-xs mr-1" data-icon="gavel">gavel</span>
+<span>Violation detected</span>
+</div>
+</div>
+</section>
+<!-- Search and Filter Bar -->
+<section class="glass-panel p-6 mb-6 rounded-sm border border-outline-variant/10">
+<div class="flex flex-wrap items-end gap-6">
+<div class="flex-1 min-w-[300px]">
+<label class="block text-[10px] text-gray-500 font-bold uppercase mb-2">Search Registry</label>
+<div class="relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-gray-500" data-icon="search">search</span>
+<input class="w-full bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary rounded-sm py-2.5 pl-10 text-sm text-on-surface placeholder:text-gray-600" placeholder="Search by User ID, Name, or Phone..." type="text"/>
+</div>
+</div>
+<div>
+<label class="block text-[10px] text-gray-500 font-bold uppercase mb-2">Account Status</label>
+<select class="bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary rounded-sm py-2.5 px-4 text-sm text-on-surface min-w-[140px]">
+<option>All Status</option>
+<option>Active</option>
+<option>Banned</option>
+</select>
+</div>
+<div>
+<label class="block text-[10px] text-gray-500 font-bold uppercase mb-2">Access Tier</label>
+<div class="flex gap-2">
+<select class="bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary rounded-sm py-2.5 px-4 text-sm text-on-surface min-w-[140px]">
+<option>All Tiers</option>
+<option>Free</option>
+<option>Premium</option>
+<option>Elite</option>
+</select>
+<button class="bg-surface-container-highest text-on-surface px-4 py-2.5 rounded-sm hover:bg-outline-variant/30 transition-colors">
+<span class="material-symbols-outlined align-middle" data-icon="filter_list">filter_list</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- User Table Container -->
+<section class="bg-surface-container-lowest border border-outline-variant/10 rounded-sm overflow-hidden">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low/50 text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+<th class="px-6 py-4">User ID</th>
+<th class="px-6 py-4">Username / Avatar</th>
+<th class="px-6 py-4">Registration</th>
+<th class="px-6 py-4">Access Tier</th>
+<th class="px-6 py-4">Manuscripts</th>
+<th class="px-6 py-4">Status</th>
+<th class="px-6 py-4 text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/10">
+<!-- Row 1 -->
+<tr class="group hover:bg-surface-container-low/30 transition-colors">
+<td class="px-6 py-4 text-xs font-mono text-gray-500">ID-29401-X</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="h-9 w-9 rounded-sm overflow-hidden border border-outline-variant/20">
+<img alt="User 1" class="w-full h-full object-cover" data-alt="Avatar of a male user with glasses" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAxpiMCsb5rcKSp_Qcq1OjAwU1hFNmKZh-6H-JGfTiua-PdzibN7sWrlqy7vrST8FNAOjFkj2xg1vkxIw1bCtNn0EanqLx4OA9wg_oRNBvGRJHoG__5nbmjQpSj5d-n26YWV64IQSNb7u1NyykL2zlRiEJIqFSbGsy01rN5wDmG5_aOMym4LbgZ5t_LhE8dLtnVOrfLKLklVBNK8HK-6BS_rjQFTTrGNXbzfsDt-NV0VY5KahMintEToH9xY25cY5wNp6IoObsOfDbv"/>
+</div>
+<div>
+<div class="text-sm font-bold text-on-surface">夜行者_Neon</div>
+<div class="text-[10px] text-gray-500">+86 138****9021</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-4 text-xs text-on-surface-variant font-medium">2023.10.12</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] font-bold uppercase bg-[#FACC15]/20 text-[#FACC15] rounded-sm">Elite</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm font-headline text-on-surface">14</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="h-1.5 w-1.5 rounded-full bg-secondary glow-active"></div>
+<span class="text-xs text-secondary font-medium">Active</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-[10px] font-bold uppercase tracking-widest text-[#FACC15] border border-[#FACC15]/30 px-3 py-1 rounded-sm hover:bg-[#FACC15] hover:text-black transition-all">Manage</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="group hover:bg-surface-container-low/30 transition-colors">
+<td class="px-6 py-4 text-xs font-mono text-gray-500">ID-88219-B</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="h-9 w-9 rounded-sm overflow-hidden border border-outline-variant/20">
+<img alt="User 2" class="w-full h-full object-cover" data-alt="Avatar of a female user smiling" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBWXS2Y9H8F5Vq6_b8xNuWAsqUhKr-SgqK08FC32wYgXezsTCWzGOcuP-PfgJ-MzPswONVAjOjP2STigoaXmPS_es3dI8R4mmH0v8i_fVZnlI1FpiEYaqNDpFvHtgxv86Stm3iEmJRIc5axSlwwELD5p6pPDi8BysDGBd-ttY9QQkZ9DeCkU_42wTVqh7C9hHeQlBMvhmOWqgzyZHYSkIP8iZCk4snunSw8vnA2Z4wHmlY9zBnNuNqpJA8QHMbl3_MAS-KxAe0BR_rV"/>
+</div>
+<div>
+<div class="text-sm font-bold text-on-surface">LunaScriber</div>
+<div class="text-[10px] text-gray-500">+86 155****4432</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-4 text-xs text-on-surface-variant font-medium">2023.11.05</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] font-bold uppercase bg-slate-500/20 text-slate-400 rounded-sm">Free</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm font-headline text-on-surface">2</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="h-1.5 w-1.5 rounded-full bg-secondary glow-active"></div>
+<span class="text-xs text-secondary font-medium">Active</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-[10px] font-bold uppercase tracking-widest text-[#FACC15] border border-[#FACC15]/30 px-3 py-1 rounded-sm hover:bg-[#FACC15] hover:text-black transition-all">Manage</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="group hover:bg-surface-container-low/30 transition-colors">
+<td class="px-6 py-4 text-xs font-mono text-gray-500">ID-10293-Y</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="h-9 w-9 rounded-sm overflow-hidden border border-outline-variant/20">
+<img alt="User 3" class="w-full h-full object-cover" data-alt="Portrait of a serious man with a beard" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBf5NNNWSfHhkEllGViGQYJFM3W0hAgQTHK1xi7igb-sZM9_wRWWa0WXGJACQ5wHEIiBJvbHFA-XuD1zfzzB1xrfXPPs0SA0VEvAr4xEZ5SLQosLj9pv5Shqna5xgXtP1U8GZGJY8EJOjWA5Zd4mLkxNDL8Nq2gnRygDWHvUORF6JdXvCUXoZd3sji_hFAAx6GYPf2Ustll4q9aQ2th3bF1wTE4h9UvqqREksln4Dnq3TSD0iEMGM8mlLIBhgoy_YPJ3nyL2s-wKETY"/>
+</div>
+<div>
+<div class="text-sm font-bold text-on-surface">VoidWalker</div>
+<div class="text-[10px] text-gray-500">+86 189****1100</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-4 text-xs text-on-surface-variant font-medium">2023.08.22</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] font-bold uppercase bg-primary/20 text-primary-container rounded-sm">Premium</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm font-headline text-on-surface">8</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="h-1.5 w-1.5 rounded-full bg-error glow-banned"></div>
+<span class="text-xs text-error font-medium">Banned</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-[10px] font-bold uppercase tracking-widest text-[#FACC15] border border-[#FACC15]/30 px-3 py-1 rounded-sm hover:bg-[#FACC15] hover:text-black transition-all">Manage</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="group hover:bg-surface-container-low/30 transition-colors">
+<td class="px-6 py-4 text-xs font-mono text-gray-500">ID-44201-Z</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="h-9 w-9 rounded-sm overflow-hidden border border-outline-variant/20">
+<img alt="User 4" class="w-full h-full object-cover" data-alt="Avatar of a woman looking away" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQZ4BgV9e0ZLcDtd7J8Co6jLsObMtrf46p-f71SXsNqqtkWIs5eVvL80RSPKPkmHu7NpKn1PtYenvS2RUIlf_OZpCaJLexURZgpZkQgDpevWH13FII2hKCVVYRhfKRYs_S5mOtlYTZANToc6jTDlhn6Er99xL_DLxvJw0sMQc29ZEuKAnUda3TeSwPigoF11qMKoEhsbTS2rkKWeeuHLAtJMppzXSuCcejEw2Qja19fZzTBrMNY6f2XKZhabzaazWWPTU5b05YPjrQ"/>
+</div>
+<div>
+<div class="text-sm font-bold text-on-surface">Ink Weaver</div>
+<div class="text-[10px] text-gray-500">+86 130****8821</div>
+</div>
+</div>
+</td>
+<td class="px-6 py-4 text-xs text-on-surface-variant font-medium">2024.01.15</td>
+<td class="px-6 py-4">
+<span class="px-2 py-0.5 text-[10px] font-bold uppercase bg-[#FACC15]/20 text-[#FACC15] rounded-sm">Elite</span>
+</td>
+<td class="px-6 py-4">
+<span class="text-sm font-headline text-on-surface">31</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex items-center gap-2">
+<div class="h-1.5 w-1.5 rounded-full bg-secondary glow-active"></div>
+<span class="text-xs text-secondary font-medium">Active</span>
+</div>
+</td>
+<td class="px-6 py-4 text-right">
+<button class="text-[10px] font-bold uppercase tracking-widest text-[#FACC15] border border-[#FACC15]/30 px-3 py-1 rounded-sm hover:bg-[#FACC15] hover:text-black transition-all">Manage</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="px-6 py-4 bg-surface-container-low/50 flex items-center justify-between">
+<span class="text-[10px] text-gray-500 font-bold uppercase tracking-widest">Showing 1 to 4 of 1,284,092 users</span>
+<div class="flex items-center gap-1">
+<button class="h-8 w-8 flex items-center justify-center rounded-sm text-gray-500 hover:text-[#FACC15] transition-colors">
+<span class="material-symbols-outlined" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="h-8 w-8 flex items-center justify-center rounded-sm bg-[#FACC15] text-black text-xs font-bold">1</button>
+<button class="h-8 w-8 flex items-center justify-center rounded-sm text-gray-400 text-xs font-bold hover:bg-surface-container-highest">2</button>
+<button class="h-8 w-8 flex items-center justify-center rounded-sm text-gray-400 text-xs font-bold hover:bg-surface-container-highest">3</button>
+<span class="px-2 text-gray-600">...</span>
+<button class="h-8 w-8 flex items-center justify-center rounded-sm text-gray-400 text-xs font-bold hover:bg-surface-container-highest">12,840</button>
+<button class="h-8 w-8 flex items-center justify-center rounded-sm text-gray-500 hover:text-[#FACC15] transition-colors">
+<span class="material-symbols-outlined" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Aesthetic Footer Ornament -->
+<div class="mt-12 opacity-20 flex justify-center items-center gap-4">
+<div class="h-px w-24 bg-gradient-to-r from-transparent to-[#FACC15]"></div>
+<span class="font-headline text-[10px] tracking-[0.5em] text-[#FACC15]">ARBORIS DATA CORE</span>
+<div class="h-px w-24 bg-gradient-to-l from-transparent to-[#FACC15]"></div>
+</div>
+</main>
+</body></html>

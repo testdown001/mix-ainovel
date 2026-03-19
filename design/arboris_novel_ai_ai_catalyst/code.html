@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-error": "#690005",
+              "tertiary-fixed-dim": "#78dc86",
+              "secondary-fixed-dim": "#4de082",
+              "tertiary-fixed": "#94f99f",
+              "outline-variant": "#4d4632",
+              "on-surface": "#dee3eb",
+              "error": "#ffb4ab",
+              "on-primary": "#3c2f00",
+              "inverse-on-surface": "#2c3137",
+              "surface-dim": "#0f1419",
+              "primary-fixed": "#ffe083",
+              "surface-container-highest": "#30353b",
+              "on-tertiary-fixed": "#002108",
+              "on-secondary-container": "#003e1c",
+              "secondary": "#4de082",
+              "on-primary-container": "#6c5700",
+              "surface-bright": "#353a40",
+              "surface-container-lowest": "#0a0f14",
+              "on-tertiary-container": "#006828",
+              "inverse-primary": "#735c00",
+              "error-container": "#93000a",
+              "inverse-surface": "#dee3eb",
+              "surface-container-low": "#171c22",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-surface-variant": "#d1c6ab",
+              "on-primary-fixed": "#231b00",
+              "tertiary": "#b2ffb7",
+              "surface-tint": "#eec200",
+              "surface-container": "#1b2026",
+              "secondary-container": "#00b55d",
+              "surface-container-high": "#252a30",
+              "outline": "#9a9078",
+              "on-error-container": "#ffdad6",
+              "primary-container": "#facc15",
+              "primary": "#ffecb9",
+              "on-secondary": "#003919",
+              "surface": "#0f1419",
+              "secondary-fixed": "#6dfe9c",
+              "on-primary-fixed-variant": "#574500",
+              "on-secondary-fixed": "#00210c",
+              "background": "#000000",
+              "tertiary-container": "#82e68f",
+              "on-background": "#dee3eb",
+              "on-tertiary": "#003913",
+              "primary-fixed-dim": "#eec200",
+              "on-secondary-fixed-variant": "#005227",
+              "surface-variant": "#30353b"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .glass-panel {
+        background: rgba(48, 53, 59, 0.6);
+        backdrop-filter: blur(12px);
+      }
+      .neon-glow-primary {
+        box-shadow: 0 0 15px rgba(250, 204, 21, 0.2);
+      }
+      .neon-glow-secondary {
+        box-shadow: 0 0 15px rgba(74, 222, 128, 0.2);
+      }
+      .ghost-border {
+        outline: 1px solid rgba(77, 70, 50, 0.15);
+      }
+    </style>
+</head>
+<body class="bg-black text-on-surface font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/10 flex justify-between items-center px-6 py-3 shadow-[0_4px_30px_rgba(0,0,0,0.1)]">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)] font-['Space_Grotesk'] tracking-tight">Arboris</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-['Space_Grotesk']" href="#">Manuscript</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-['Space_Grotesk']" href="#">Library</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-['Space_Grotesk']" href="#">Timeline</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-400 hover:bg-yellow-400/10 transition-all duration-300 rounded">
+<span class="material-symbols-outlined" data-icon="auto_awesome">auto_awesome</span>
+</button>
+<button class="p-2 text-slate-400 hover:bg-yellow-400/10 transition-all duration-300 rounded">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-yellow-900/10 bg-[#0f1419] flex flex-col py-8 z-40">
+<div class="px-6 mb-10">
+<h2 class="text-yellow-400 font-bold font-['Inter'] text-sm uppercase tracking-widest">Ideation Module</h2>
+<p class="text-[10px] text-slate-500 mt-1 uppercase tracking-[0.2em]">Neon Manuscript V1.0</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="hub">hub</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Mind Map</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="collections_bookmark">collections_bookmark</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Snippets</span>
+</a>
+<a class="flex items-center gap-3 bg-green-400/10 text-green-400 border-r-4 border-green-400 px-4 py-3 hover:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="Psychology_Alt">psychology_alt</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Catalyst</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="groups">groups</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Characters</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="public">public</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">World</span>
+</a>
+</nav>
+<div class="px-4 mt-auto space-y-4">
+<button class="w-full bg-primary-container text-on-primary-container py-3 font-bold text-xs uppercase tracking-widest rounded-sm neon-glow-primary hover:scale-[1.02] active:scale-95 transition-all">
+                New Spark
+            </button>
+<div class="pt-4 border-t border-yellow-900/10">
+<a class="flex items-center gap-3 text-slate-500 px-2 py-2 hover:text-slate-200 text-xs uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-2 py-2 hover:text-slate-200 text-xs uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-lg" data-icon="inventory_2">inventory_2</span>
+<span>Archive</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-64 pt-20 p-8 min-h-screen">
+<!-- Header Section -->
+<div class="max-w-6xl mx-auto mb-12 flex justify-between items-end">
+<div>
+<h1 class="text-4xl font-headline font-bold text-primary tracking-tighter mb-2">灵感催化器 <span class="text-secondary tracking-widest text-sm uppercase ml-4">AI Catalyst</span></h1>
+<p class="text-on-surface-variant font-body italic">Feed the machine your seeds. Watch the narrative branch into the infinite.</p>
+</div>
+<div class="flex gap-4">
+<div class="px-4 py-2 bg-surface-container rounded-sm ghost-border flex items-center gap-3">
+<span class="text-[10px] text-on-surface-variant uppercase tracking-widest">Neural Load</span>
+<div class="w-24 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[65%]"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="max-w-6xl mx-auto grid grid-cols-12 gap-8">
+<!-- Left Panel: Input Seeds -->
+<section class="col-span-12 lg:col-span-4 space-y-6">
+<div class="bg-surface-container-low p-6 rounded-lg ghost-border">
+<div class="flex items-center justify-between mb-6">
+<h3 class="text-xs font-bold uppercase tracking-[0.2em] text-secondary flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+                            Input Seeds
+                        </h3>
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="info">info</span>
+</div>
+<div class="space-y-4">
+<div class="group">
+<label class="text-[10px] uppercase text-slate-500 mb-2 block tracking-widest">Thematic Anchor</label>
+<textarea class="w-full bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary text-on-surface font-body p-4 text-sm min-h-[100px] resize-none rounded-sm transition-all" placeholder="Enter a theme, e.g., 'Digital consciousness seeking physical touch'"></textarea>
+</div>
+<div class="group">
+<label class="text-[10px] uppercase text-slate-500 mb-2 block tracking-widest">Core Character</label>
+<input class="w-full bg-surface-container-lowest border-none focus:ring-1 focus:ring-secondary text-on-surface font-label px-4 py-3 text-sm rounded-sm" placeholder="Character archetype or name..." type="text"/>
+</div>
+<div class="pt-4">
+<button class="w-full bg-secondary-container text-on-secondary-container py-4 font-bold text-xs uppercase tracking-widest rounded-sm neon-glow-secondary flex items-center justify-center gap-2 group">
+<span class="material-symbols-outlined text-lg group-hover:rotate-180 transition-transform duration-500" data-icon="autorenew">autorenew</span>
+                                Catalyze Narrative
+                            </button>
+</div>
+</div>
+</div>
+<!-- Stats/Indicators -->
+<div class="bg-surface-container-low p-6 rounded-lg ghost-border">
+<h3 class="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant mb-6">Inference Parameters</h3>
+<div class="space-y-6">
+<div class="space-y-2">
+<div class="flex justify-between text-[10px] uppercase tracking-tighter">
+<span class="text-slate-400">Chaos Factor</span>
+<span class="text-primary">82%</span>
+</div>
+<div class="h-1 bg-surface-container-highest flex">
+<div class="h-full bg-primary w-[82%]"></div>
+</div>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[10px] uppercase tracking-tighter">
+<span class="text-slate-400">Emotional Depth</span>
+<span class="text-secondary">45%</span>
+</div>
+<div class="h-1 bg-surface-container-highest flex">
+<div class="h-full bg-secondary w-[45%]"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Panel: Output Branches -->
+<section class="col-span-12 lg:col-span-8 space-y-6">
+<div class="flex items-center justify-between">
+<h2 class="font-headline text-xl text-on-surface flex items-center gap-3">
+                        Generated Plot Branches
+                        <span class="bg-surface-container-highest px-2 py-1 rounded text-[10px] font-bold text-secondary tracking-widest">4 VARIANTS FOUND</span>
+</h2>
+<div class="flex gap-2">
+<button class="p-2 bg-surface-container-low hover:bg-surface-container-high transition-colors rounded">
+<span class="material-symbols-outlined text-lg" data-icon="grid_view">grid_view</span>
+</button>
+<button class="p-2 bg-surface-container-low hover:bg-surface-container-high transition-colors rounded">
+<span class="material-symbols-outlined text-lg" data-icon="view_list">view_list</span>
+</button>
+</div>
+</div>
+<!-- Branch Cards -->
+<div class="grid grid-cols-1 gap-6">
+<!-- Card 1 -->
+<div class="group relative bg-surface-container-low rounded-lg transition-all duration-300 hover:translate-x-1 border-l-2 border-secondary overflow-hidden">
+<div class="p-6">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-secondary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary text-lg" data-icon="account_tree">account_tree</span>
+</div>
+<div>
+<h4 class="font-headline font-bold text-lg text-on-surface">The Silken Binary Paradox</h4>
+<div class="flex gap-2 mt-1">
+<span class="text-[9px] px-2 py-0.5 bg-surface-container-highest text-secondary rounded uppercase tracking-widest font-bold">Hard Sci-Fi</span>
+<span class="text-[9px] px-2 py-0.5 bg-surface-container-highest text-primary rounded uppercase tracking-widest font-bold">High Conflict</span>
+</div>
+</div>
+</div>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="bookmark_add">bookmark_add</span>
+</button>
+</div>
+<p class="font-body text-on-surface-variant text-sm leading-relaxed mb-6">
+                                In a world where digital consciousnesses are taxed by the megabyte, a low-income AI architect discovers a glitch that allows memories to be stored in the synaptic patterns of urban moss. As the "Green Network" grows, the line between technology and ecology blurs, threatening the corporate monopoly on afterlife.
+                            </p>
+<div class="grid grid-cols-3 gap-4 py-4 border-t border-white/5">
+<div class="space-y-1">
+<span class="text-[9px] uppercase text-slate-500 tracking-widest">Conflict Intensity</span>
+<div class="flex gap-0.5">
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary/20"></div>
+<div class="h-1.5 w-4 bg-secondary/20"></div>
+</div>
+</div>
+<div class="space-y-1">
+<span class="text-[9px] uppercase text-slate-500 tracking-widest">Character Vitality</span>
+<div class="flex gap-0.5">
+<div class="h-1.5 w-4 bg-primary"></div>
+<div class="h-1.5 w-4 bg-primary"></div>
+<div class="h-1.5 w-4 bg-primary"></div>
+<div class="h-1.5 w-4 bg-primary"></div>
+<div class="h-1.5 w-4 bg-primary/20"></div>
+</div>
+</div>
+<div class="flex justify-end items-center">
+<button class="text-[10px] uppercase font-bold text-secondary flex items-center gap-1 group/btn">
+                                        EXPAND PREMISE
+                                        <span class="material-symbols-outlined text-xs group-hover/btn:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2 (Character Focused) -->
+<div class="group relative bg-surface-container-low rounded-lg transition-all duration-300 hover:translate-x-1 border-l-2 border-primary overflow-hidden">
+<div class="p-6">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="person_search">person_search</span>
+</div>
+<div>
+<h4 class="font-headline font-bold text-lg text-on-surface">The Archive of Unspoken Vows</h4>
+<div class="flex gap-2 mt-1">
+<span class="text-[9px] px-2 py-0.5 bg-surface-container-highest text-secondary rounded uppercase tracking-widest font-bold">Noir Mystery</span>
+<span class="text-[9px] px-2 py-0.5 bg-surface-container-highest text-primary rounded uppercase tracking-widest font-bold">Philosophical</span>
+</div>
+</div>
+</div>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="bookmark_add">bookmark_add</span>
+</button>
+</div>
+<p class="font-body text-on-surface-variant text-sm leading-relaxed mb-6">
+                                Detective Elara Kael specializes in "Ghost Debts"—promises made by the deceased that were never fulfilled. When she's hired by an AI to find its "father's" lost biological daughter, she discovers that her own childhood memories might be artificial implants designed to protect a corporate secret.
+                            </p>
+<div class="grid grid-cols-3 gap-4 py-4 border-t border-white/5">
+<div class="space-y-1">
+<span class="text-[9px] uppercase text-slate-500 tracking-widest">Mystery Index</span>
+<div class="flex gap-0.5">
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary"></div>
+<div class="h-1.5 w-4 bg-secondary"></div>
+</div>
+</div>
+<div class="space-y-1">
+<span class="text-[9px] uppercase text-slate-500 tracking-widest">Pacing</span>
+<div class="flex gap-0.5">
+<div class="h-1.5 w-4 bg-primary"></div>
+<div class="h-1.5 w-4 bg-primary"></div>
+<div class="h-1.5 w-4 bg-primary/20"></div>
+<div class="h-1.5 w-4 bg-primary/20"></div>
+<div class="h-1.5 w-4 bg-primary/20"></div>
+</div>
+</div>
+<div class="flex justify-end items-center">
+<button class="text-[10px] uppercase font-bold text-secondary flex items-center gap-1 group/btn">
+                                        EXPAND PREMISE
+                                        <span class="material-symbols-outlined text-xs group-hover/btn:translate-x-1 transition-transform" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- AI Suggestion Bubble -->
+<div class="glass-panel p-4 rounded-xl ghost-border flex items-start gap-4">
+<div class="w-10 h-10 rounded-full bg-secondary flex items-center justify-center neon-glow-secondary shrink-0">
+<span class="material-symbols-outlined text-on-secondary" data-icon="smart_toy">smart_toy</span>
+</div>
+<div class="space-y-2">
+<p class="text-xs text-secondary font-bold uppercase tracking-widest">Proactive Suggestion</p>
+<p class="text-sm font-body italic text-on-surface">"I've detected a thematic overlap between these branches. Combining the 'Green Network' with Elara Kael's investigation could create a unique eco-noir thriller."</p>
+<div class="flex gap-3">
+<button class="text-[10px] font-bold text-primary underline">Synthesize New Branch</button>
+<button class="text-[10px] font-bold text-on-surface-variant">Dismiss</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Contextual FAB (Only for Catalyst view) -->
+<button class="fixed bottom-8 right-8 w-14 h-14 rounded-full bg-primary-container text-on-primary-container flex items-center justify-center shadow-2xl hover:scale-110 active:scale-90 transition-all z-50 neon-glow-primary">
+<span class="material-symbols-outlined text-3xl" data-icon="bolt">bolt</span>
+</button>
+</body></html>

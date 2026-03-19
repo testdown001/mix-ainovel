@@ -4,7 +4,7 @@
     <template #header>
       <div class="card-header">
         <span class="card-title">更新日志管理</span>
-        <n-button quaternary size="small" @click="fetchLogs" :loading="loading">
+        <n-button quaternary size="small" class="refresh-btn" @click="fetchLogs" :loading="loading">
           刷新
         </n-button>
       </div>
@@ -15,7 +15,7 @@
         {{ error }}
       </n-alert>
 
-      <n-card size="small" class="form-card">
+      <div class="form-card">
         <n-form :model="form" label-placement="top">
           <n-form-item label="更新内容">
             <n-input
@@ -34,55 +34,56 @@
             </n-button>
           </n-space>
         </n-form>
-      </n-card>
+      </div>
 
       <n-spin :show="loading">
         <n-empty v-if="!logs.length && !loading" description="目前还没有更新记录" />
-        <n-space v-else vertical size="large">
-          <n-card
+        <div v-else class="timeline-container">
+          <div
             v-for="log in orderedLogs"
             :key="log.id"
-            :bordered="false"
-            size="small"
-            class="log-card"
+            class="log-entry"
           >
-            <div class="log-header">
-              <n-space align="center" size="small">
-                <n-tag v-if="log.is_pinned" type="warning" :bordered="false">置顶</n-tag>
-                <span class="log-date">{{ formatDate(log.created_at) }}</span>
-                <span v-if="log.created_by" class="log-author">by {{ log.created_by }}</span>
-              </n-space>
-              <n-space size="small">
-                <n-switch
-                  :value="log.is_pinned"
-                  size="small"
-                  :loading="togglingId === log.id"
-                  @update:value="(value) => togglePin(log, value)"
-                >
-                  <template #checked>置顶</template>
-                  <template #unchecked>置顶</template>
-                </n-switch>
-                <n-popconfirm
-                  placement="left"
-                  positive-text="删除"
-                  negative-text="取消"
-                  type="error"
-                  @positive-click="() => deleteLog(log.id)"
-                >
-                  <template #trigger>
-                    <n-button quaternary type="error" size="small" :loading="deletingId === log.id">
-                      删除
-                    </n-button>
-                  </template>
-                  确认删除该更新日志？
-                </n-popconfirm>
-              </n-space>
+            <div class="timeline-dot" :class="{ pinned: log.is_pinned }"></div>
+            <div class="log-card">
+              <div class="log-header">
+                <div class="log-meta">
+                  <span v-if="log.is_pinned" class="pin-badge">置顶</span>
+                  <span class="log-date">{{ formatDate(log.created_at) }}</span>
+                  <span v-if="log.created_by" class="log-author">by {{ log.created_by }}</span>
+                </div>
+                <div class="log-actions">
+                  <n-switch
+                    :value="log.is_pinned"
+                    size="small"
+                    :loading="togglingId === log.id"
+                    @update:value="(value) => togglePin(log, value)"
+                  >
+                    <template #checked>置顶</template>
+                    <template #unchecked>置顶</template>
+                  </n-switch>
+                  <n-popconfirm
+                    placement="left"
+                    positive-text="删除"
+                    negative-text="取消"
+                    type="error"
+                    @positive-click="() => deleteLog(log.id)"
+                  >
+                    <template #trigger>
+                      <n-button quaternary type="error" size="small" :loading="deletingId === log.id">
+                        删除
+                      </n-button>
+                    </template>
+                    确认删除该更新日志？
+                  </n-popconfirm>
+                </div>
+              </div>
+              <div class="log-content">
+                {{ log.content }}
+              </div>
             </div>
-            <div class="log-content">
-              {{ log.content }}
-            </div>
-          </n-card>
-        </n-space>
+          </div>
+        </div>
       </n-spin>
     </n-space>
   </n-card>
@@ -216,6 +217,9 @@ onMounted(fetchLogs)
 <style scoped>
 .admin-card {
   width: 100%;
+  background: #0f1419;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
 }
 
 .card-header {
@@ -227,18 +231,83 @@ onMounted(fetchLogs)
 }
 
 .card-title {
+  font-family: var(--ar-font-display);
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #FACC15;
+}
+
+.refresh-btn {
+  color: #8b929a !important;
+}
+
+.refresh-btn:hover {
+  color: #FACC15 !important;
 }
 
 .form-card {
-  border-radius: 16px;
+  background: #171c22;
+  border-radius: 4px;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  padding: 20px;
+}
+
+.timeline-container {
+  position: relative;
+  padding-left: 24px;
+}
+
+.timeline-container::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    rgba(250, 204, 21, 0.3) 0%,
+    rgba(77, 70, 50, 0.15) 100%
+  );
+}
+
+.log-entry {
+  position: relative;
+  margin-bottom: 20px;
+}
+
+.log-entry:last-child {
+  margin-bottom: 0;
+}
+
+.timeline-dot {
+  position: absolute;
+  left: -20px;
+  top: 18px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #545d68;
+  border: 2px solid #252a30;
+  z-index: 1;
+}
+
+.timeline-dot.pinned {
+  background: #FACC15;
+  border-color: #0f1419;
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.4);
 }
 
 .log-card {
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.06), rgba(15, 118, 110, 0));
+  background: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-radius: 4px;
+  padding: 16px;
+  transition: border-color 0.2s ease;
+}
+
+.log-card:hover {
+  border-color: rgba(250, 204, 21, 0.15);
 }
 
 .log-header {
@@ -250,26 +319,106 @@ onMounted(fetchLogs)
   margin-bottom: 10px;
 }
 
+.log-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pin-badge {
+  font-family: var(--ar-font-ui);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #000;
+  background: #FACC15;
+  padding: 1px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .log-date {
+  font-family: var(--ar-font-ui);
   font-size: 0.85rem;
-  color: #4b5563;
+  color: #8b929a;
 }
 
 .log-author {
+  font-family: var(--ar-font-ui);
   font-size: 0.85rem;
-  color: #6b7280;
+  color: #545d68;
 }
 
 .log-content {
+  font-family: var(--ar-font-ui);
   font-size: 0.95rem;
-  color: #1f2937;
-  line-height: 1.6;
+  color: #dee3eb;
+  line-height: 1.7;
   white-space: pre-wrap;
+}
+
+:deep(.n-card > .n-card-header) {
+  border-bottom: 1px solid rgba(77, 70, 50, 0.15);
+}
+
+:deep(.n-card) {
+  --n-color: #0f1419;
+  --n-color-embedded: #171c22;
+  --n-text-color: #dee3eb;
+  --n-title-text-color: #dee3eb;
+  border-radius: 4px;
+}
+
+:deep(.n-form-item .n-form-item-label) {
+  color: #8b929a;
+  font-family: var(--ar-font-ui);
+}
+
+:deep(.n-input) {
+  --n-color: #252a30;
+  --n-color-focus: #252a30;
+  --n-border: 1px solid rgba(77, 70, 50, 0.15);
+  --n-border-focus: 1px solid rgba(250, 204, 21, 0.4);
+  --n-text-color: #dee3eb;
+  --n-placeholder-color: #545d68;
+  --n-caret-color: #FACC15;
+  border-radius: 4px;
+}
+
+:deep(.n-switch.n-switch--active) {
+  --n-rail-color-active: #FACC15;
+}
+
+:deep(.n-button--primary-type) {
+  --n-color: #FACC15;
+  --n-text-color: #000;
+  --n-color-hover: #eab308;
+  --n-text-color-hover: #000;
+  --n-border: 1px solid #FACC15;
+  --n-border-hover: 1px solid #eab308;
+}
+
+:deep(.n-alert) {
+  border-radius: 4px;
+}
+
+:deep(.n-empty .n-empty__description) {
+  color: #545d68;
 }
 
 @media (max-width: 767px) {
   .card-title {
     font-size: 1.125rem;
+  }
+
+  .timeline-container {
+    padding-left: 20px;
   }
 }
 </style>

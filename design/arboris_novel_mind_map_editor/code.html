@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris - 思维导图编辑器</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-error": "#690005",
+              "tertiary-fixed-dim": "#78dc86",
+              "secondary-fixed-dim": "#4de082",
+              "tertiary-fixed": "#94f99f",
+              "outline-variant": "#4d4632",
+              "on-surface": "#dee3eb",
+              "error": "#ffb4ab",
+              "on-primary": "#3c2f00",
+              "inverse-on-surface": "#2c3137",
+              "surface-dim": "#0f1419",
+              "primary-fixed": "#ffe083",
+              "surface-container-highest": "#30353b",
+              "on-tertiary-fixed": "#002108",
+              "on-secondary-container": "#003e1c",
+              "secondary": "#4de082",
+              "on-primary-container": "#6c5700",
+              "surface-bright": "#353a40",
+              "surface-container-lowest": "#0a0f14",
+              "on-tertiary-container": "#006828",
+              "inverse-primary": "#735c00",
+              "error-container": "#93000a",
+              "inverse-surface": "#dee3eb",
+              "surface-container-low": "#171c22",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-surface-variant": "#d1c6ab",
+              "on-primary-fixed": "#231b00",
+              "tertiary": "#b2ffb7",
+              "surface-tint": "#eec200",
+              "surface-container": "#1b2026",
+              "secondary-container": "#00b55d",
+              "surface-container-high": "#252a30",
+              "outline": "#9a9078",
+              "on-error-container": "#ffdad6",
+              "primary-container": "#facc15",
+              "primary": "#ffecb9",
+              "on-secondary": "#003919",
+              "surface": "#0f1419",
+              "secondary-fixed": "#6dfe9c",
+              "on-primary-fixed-variant": "#574500",
+              "on-secondary-fixed": "#00210c",
+              "background": "#000000",
+              "tertiary-container": "#82e68f",
+              "on-background": "#dee3eb",
+              "on-tertiary": "#003913",
+              "primary-fixed-dim": "#eec200",
+              "on-secondary-fixed-variant": "#005227",
+              "surface-variant": "#30353b"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.25rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .canvas-grid {
+            background-image: radial-gradient(#1e293b 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        .node-connector {
+            background: linear-gradient(90deg, transparent, #facc15, transparent);
+            height: 2px;
+            filter: drop-shadow(0 0 4px #facc15);
+        }
+        .ai-pulse-glow {
+            box-shadow: 0 0 15px rgba(74, 222, 128, 0.3);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-label selection:bg-primary-container selection:text-on-primary-container overflow-hidden">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex justify-between items-center px-6 py-3">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)] font-['Space_Grotesk'] tracking-tight">Arboris</span>
+<nav class="hidden md:flex items-center gap-6">
+<a class="font-['Space_Grotesk'] text-slate-400 hover:text-yellow-200 transition-colors" href="#">Manuscript</a>
+<a class="font-['Space_Grotesk'] text-slate-400 hover:text-yellow-200 transition-colors" href="#">Library</a>
+<a class="font-['Space_Grotesk'] text-slate-400 hover:text-yellow-200 transition-colors" href="#">Timeline</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 text-slate-400 hover:bg-yellow-400/10 transition-all duration-300 scale-95 active:scale-90">
+<span class="material-symbols-outlined" data-icon="auto_awesome">auto_awesome</span>
+</button>
+<button class="p-2 text-slate-400 hover:bg-yellow-400/10 transition-all duration-300 scale-95 active:scale-90">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar (Left) -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-yellow-900/10 bg-[#0f1419] flex flex-col pt-20 pb-8 z-40">
+<div class="px-6 mb-8">
+<h2 class="text-yellow-400 font-bold font-['Inter'] text-xs uppercase tracking-[0.2em] mb-1">Ideation Module</h2>
+<p class="text-slate-500 text-[10px] uppercase tracking-widest">Neon Manuscript V1.0</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 bg-green-400/10 text-green-400 border-r-4 border-green-400 px-4 py-3 hover:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="hub">hub</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Mind Map</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="collections_bookmark">collections_bookmark</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Snippets</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="Psychology_Alt">psychology_alt</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Catalyst</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">Characters</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined" data-icon="public">public</span>
+<span class="font-['Inter'] text-sm uppercase tracking-widest">World</span>
+</a>
+</nav>
+<div class="px-4 mt-auto space-y-4">
+<button class="w-full py-3 bg-primary-container text-on-primary-container font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 rounded-sm hover:shadow-[0_0_15px_rgba(250,204,21,0.3)] transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                New Spark
+            </button>
+<div class="pt-4 border-t border-yellow-900/10 flex flex-col gap-1">
+<a class="flex items-center gap-3 text-slate-500 px-2 py-2 hover:text-slate-200 text-[10px] uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="settings">settings</span>
+                    Settings
+                </a>
+<a class="flex items-center gap-3 text-slate-500 px-2 py-2 hover:text-slate-200 text-[10px] uppercase tracking-widest" href="#">
+<span class="material-symbols-outlined text-sm" data-icon="inventory_2">inventory_2</span>
+                    Archive
+                </a>
+</div>
+</div>
+</aside>
+<!-- Canvas Main Area -->
+<main class="ml-64 mr-80 h-screen canvas-grid relative overflow-hidden flex items-center justify-center">
+<!-- Canvas Toolbars -->
+<div class="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-surface-container-low/80 backdrop-blur-md px-6 py-3 rounded-xl border border-outline-variant/20">
+<button class="p-2 text-on-surface hover:text-primary-container transition-colors"><span class="material-symbols-outlined" data-icon="zoom_in">zoom_in</span></button>
+<button class="p-2 text-on-surface hover:text-primary-container transition-colors"><span class="material-symbols-outlined" data-icon="zoom_out">zoom_out</span></button>
+<div class="w-px h-6 bg-outline-variant/30 mx-2"></div>
+<button class="p-2 text-on-surface hover:text-primary-container transition-colors"><span class="material-symbols-outlined" data-icon="pan_tool">pan_tool</span></button>
+<button class="p-2 text-primary-container bg-primary-container/10 rounded-sm"><span class="material-symbols-outlined" data-icon="near_me">near_me</span></button>
+<div class="w-px h-6 bg-outline-variant/30 mx-2"></div>
+<button class="p-2 text-on-surface hover:text-secondary transition-colors"><span class="material-symbols-outlined" data-icon="add_circle">add_circle</span></button>
+</div>
+<!-- Mind Map Nodes & Connectors (Illustrative) -->
+<div class="relative w-full h-full p-20 flex items-center justify-center">
+<!-- Connector Lines -->
+<div class="absolute w-40 node-connector rotate-[25deg] top-1/2 left-[42%]"></div>
+<div class="absolute w-52 node-connector -rotate-[15deg] top-[40%] left-[48%]"></div>
+<div class="absolute w-32 node-connector rotate-[80deg] top-[55%] left-[51%]"></div>
+<!-- Central Node (Protagonist) -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
+<div class="bg-surface-container-high border-2 border-primary-container p-6 rounded-sm w-48 shadow-[0_0_30px_rgba(250,204,21,0.2)]">
+<div class="flex items-center gap-2 mb-2">
+<span class="w-2 h-2 rounded-full bg-primary-container animate-pulse"></span>
+<span class="text-[10px] font-bold text-primary-fixed-dim uppercase tracking-tighter">Main Character</span>
+</div>
+<h3 class="font-body text-xl text-on-surface">Kaelen Thorne</h3>
+<p class="text-xs text-on-surface-variant/70 mt-2 font-label">The reluctant bridge between the Spire and the Sump.</p>
+</div>
+</div>
+<!-- Secondary Node (Event) -->
+<div class="absolute top-[30%] left-[60%] z-10">
+<div class="bg-surface-container-low border border-outline-variant/40 p-4 rounded-sm w-44 hover:border-secondary transition-colors group">
+<div class="flex justify-between items-start mb-2">
+<span class="text-[10px] font-bold text-secondary uppercase tracking-tighter">Key Event</span>
+<span class="material-symbols-outlined text-secondary text-xs" data-icon="auto_awesome" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+</div>
+<h3 class="font-body text-md text-on-surface">The Data Leak</h3>
+<p class="text-[10px] text-on-surface-variant/60 mt-1 font-label">Night market, Sector 7.</p>
+</div>
+</div>
+<!-- Node (Setting) -->
+<div class="absolute top-[65%] left-[35%] z-10">
+<div class="bg-surface-container-low border border-outline-variant/40 p-4 rounded-sm w-44 hover:border-primary-container transition-colors">
+<span class="text-[10px] font-bold text-tertiary uppercase tracking-tighter mb-2 block">Setting</span>
+<h3 class="font-body text-md text-on-surface">Iron Spire V4</h3>
+<div class="mt-3 overflow-hidden rounded-sm opacity-60">
+<img class="w-full h-12 object-cover" data-alt="Cyberpunk vertical skyscraper with neon lights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBir7S94JO98a7OWFOzTJMuFtXgp9piSCs1ZjFOhnMUwTBoNx78V5LJNZl_-rOARFYFTOZuE0-GYoRVIij4QqJtqTnaki_BbSputXj7SqO1_WkvCe6Z8pmtUXBBQdp-lxjIrsxkkjapeCpVDwmcqQjoD7ODVz3NkJueZ0sF3NV2Ll3dUpphM1r4azjZb04BLTHpDrU6J97eST4rZrJw0vICt_MPGzRgbhrf9jPXrj72vRW8Hp5oCrokn9ga0eNwaJrr5iXEGbNpN-KK"/>
+</div>
+</div>
+</div>
+<!-- AI Pulse Spark -->
+<div class="absolute top-[58%] left-[55%] flex items-center gap-2">
+<div class="w-3 h-3 bg-secondary rounded-full ai-pulse-glow"></div>
+<div class="bg-surface-variant/60 backdrop-blur-lg px-3 py-1 rounded-sm border border-secondary/30">
+<span class="text-[10px] text-secondary font-medium">AI Suggests Connection: Rivalry?</span>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Sidebar (Properties) -->
+<aside class="h-screen w-80 fixed right-0 top-0 border-l border-yellow-900/10 bg-[#0f1419] flex flex-col pt-20 z-40">
+<div class="p-6 border-b border-yellow-900/10">
+<div class="flex justify-between items-center mb-4">
+<h2 class="text-on-surface font-headline font-semibold text-lg">Node Inspector</h2>
+<button class="text-slate-500 hover:text-on-surface"><span class="material-symbols-outlined" data-icon="close">close</span></button>
+</div>
+<div class="space-y-6">
+<!-- Node Identity -->
+<div>
+<label class="text-[10px] uppercase tracking-widest text-slate-500 mb-2 block font-label">Title</label>
+<input class="w-full bg-surface-container-lowest border-none rounded-sm text-on-surface font-body p-3 focus:ring-1 focus:ring-secondary text-lg" type="text" value="Kaelen Thorne"/>
+</div>
+<div>
+<label class="text-[10px] uppercase tracking-widest text-slate-500 mb-2 block font-label">Type</label>
+<div class="grid grid-cols-2 gap-2">
+<button class="flex items-center gap-2 px-3 py-2 bg-primary-container text-on-primary-container text-[10px] font-bold uppercase rounded-sm">
+<span class="material-symbols-outlined text-sm" data-icon="person">person</span> Character
+                        </button>
+<button class="flex items-center gap-2 px-3 py-2 bg-surface-container-highest text-slate-400 text-[10px] font-bold uppercase rounded-sm hover:bg-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="event">event</span> Event
+                        </button>
+</div>
+</div>
+<!-- AI Insights Section -->
+<div class="mt-8">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-secondary text-lg" data-icon="auto_awesome" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<h3 class="text-xs font-bold uppercase tracking-widest text-secondary">AI Enhancement</h3>
+</div>
+<div class="space-y-3">
+<div class="p-4 bg-secondary/5 border border-secondary/20 rounded-sm relative overflow-hidden">
+<div class="absolute top-0 left-0 w-1 h-full bg-secondary"></div>
+<p class="text-xs text-on-surface-variant leading-relaxed font-body">
+                                "Consider adding a secret motive regarding the <span class="text-secondary">Iron Spire</span>'s core data. This would bridge the plot to the Sector 7 leak."
+                            </p>
+<button class="mt-3 text-[10px] text-secondary font-bold uppercase tracking-widest hover:underline flex items-center gap-1">
+                                Apply Insight <span class="material-symbols-outlined text-xs" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<div class="p-4 bg-surface-container-low border border-outline-variant/20 rounded-sm">
+<p class="text-[10px] text-slate-500 italic font-label">Drafting internal conflict dialogue...</p>
+<div class="mt-2 h-1 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-2/3"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Actions -->
+<div class="mt-auto p-6 bg-surface-container-lowest">
+<button class="w-full py-3 border border-outline-variant text-slate-300 font-bold text-[10px] uppercase tracking-widest rounded-sm hover:border-primary-container hover:text-primary-container transition-all mb-3">
+                Delete Node
+            </button>
+<button class="w-full py-3 bg-secondary text-on-secondary font-bold text-[10px] uppercase tracking-widest rounded-sm hover:shadow-[0_0_20px_rgba(74,222,128,0.3)] transition-all">
+                Export Connection Map
+            </button>
+</div>
+</aside>
+</body></html>

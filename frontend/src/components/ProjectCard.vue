@@ -1,16 +1,10 @@
 <!-- AIMETA P=项目卡片_小说项目展示|R=项目信息卡片|NR=不含编辑功能|E=component:ProjectCard|X=internal|A=卡片组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div
-    class="md-card md-card-elevated group p-5 flex flex-col justify-between transition-all duration-300 hover:scale-[1.01]"
-    style="border-radius: var(--md-radius-lg);"
-  >
+  <div class="pc-card group">
     <div>
       <!-- Header: Icon + Title -->
       <div class="flex items-center gap-4 mb-4">
-        <div 
-          class="w-12 h-12 rounded-full flex items-center justify-center"
-          :style="{ backgroundColor: themeColors.container, color: themeColors.onContainer }"
-        >
+        <div class="pc-icon-box" :style="{ borderColor: genreAccent + '30' }">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="h-6 w-6"
@@ -18,6 +12,7 @@
             viewBox="0 0 24 24"
             stroke="currentColor"
             stroke-width="2"
+            :style="{ color: genreAccent }"
           >
             <path
               stroke-linecap="round"
@@ -27,13 +22,13 @@
           </svg>
         </div>
         <div class="flex-1 cursor-pointer" @click="$emit('detail', project.id)">
-          <h3 class="md-title-medium hover:opacity-80 transition-opacity" style="color: var(--md-on-surface);">
+          <h3 class="pc-title">
             {{ project.title }}
           </h3>
-          <p class="md-body-small" style="color: var(--md-on-surface-variant);">
+          <p class="pc-meta">
             {{ project.genre || '未知类型' }} · {{ getStatusText }}
           </p>
-          <p class="md-label-small mt-1" style="color: var(--md-on-surface-variant);">
+          <p class="pc-timestamp">
             最后编辑: {{ formatDateTime(project.last_edited) }}
           </p>
         </div>
@@ -42,29 +37,29 @@
       <!-- Progress Bar -->
       <div class="mb-4">
         <div class="flex justify-between mb-2">
-          <span class="md-label-medium" style="color: var(--md-on-surface-variant);">完成进度</span>
-          <span class="md-label-medium" style="color: var(--md-on-surface);">{{ progress }}%</span>
+          <span class="pc-progress-label">完成进度</span>
+          <span class="pc-progress-value">{{ progress }}%</span>
         </div>
-        <div class="md-progress-linear">
+        <div class="pc-progress-track">
           <div 
-            class="md-progress-linear-bar" 
-            :style="{ width: `${progress}%`, backgroundColor: themeColors.primary }"
+            class="pc-progress-bar" 
+            :style="{ width: `${progress}%`, backgroundColor: genreAccent }"
           ></div>
         </div>
       </div>
 
-      <!-- Material 3 Chips -->
+      <!-- Genre / Chapter Chips -->
       <div class="flex flex-wrap gap-2 mb-4">
         <span 
           v-if="project.genre"
-          class="md-chip md-chip-filter selected"
-          :style="{ backgroundColor: themeColors.container, color: themeColors.onContainer }"
+          class="pc-chip"
+          :style="{ backgroundColor: genreAccent + '12', color: genreAccent, borderColor: genreAccent + '25' }"
         >
           {{ project.genre }}
         </span>
         <span 
           v-if="chapterCount > 0"
-          class="md-chip md-chip-assist"
+          class="pc-chip pc-chip--neutral"
         >
           <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -75,10 +70,10 @@
     </div>
 
     <!-- Action Buttons -->
-    <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform translate-y-2 group-hover:translate-y-0">
+    <div class="pc-actions">
       <button
         @click.stop="$emit('detail', project.id)"
-        class="md-btn md-btn-tonal md-ripple flex-1"
+        class="pc-btn pc-btn--tonal flex-1"
       >
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -88,8 +83,7 @@
       </button>
       <button
         @click.stop="handleDelete"
-        class="md-icon-btn md-ripple"
-        style="color: var(--md-error);"
+        class="pc-btn pc-btn--danger"
         title="删除项目"
       >
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -98,7 +92,7 @@
       </button>
       <button
         @click.stop="$emit('continue', project)"
-        class="md-btn md-btn-filled md-ripple flex-1"
+        class="pc-btn pc-btn--primary flex-1"
       >
         <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -127,42 +121,15 @@ const emit = defineEmits<{
   (e: 'delete', id: string): void
 }>()
 
-// Material 3 Color Theming based on genre
-const themeColors = computed(() => {
+const genreAccent = computed(() => {
   const genre = props.project.genre || ''
   
-  // Google 4-color palette mapping
-  if (genre.includes('科幻') || genre.includes('悬疑')) {
-    return {
-      primary: 'var(--md-google-blue)',
-      container: 'var(--md-primary-container)',
-      onContainer: 'var(--md-on-primary-container)'
-    }
-  } else if (genre.includes('奇幻') || genre.includes('冒险')) {
-    return {
-      primary: 'var(--md-google-green)',
-      container: 'var(--md-success-container)',
-      onContainer: 'var(--md-on-success-container)'
-    }
-  } else if (genre.includes('穿越') || genre.includes('言情')) {
-    return {
-      primary: 'var(--md-google-red)',
-      container: 'var(--md-error-container)',
-      onContainer: 'var(--md-on-error-container)'
-    }
-  } else if (genre.includes('东方') || genre.includes('武侠')) {
-    return {
-      primary: 'var(--md-google-yellow)',
-      container: 'var(--md-warning-container)',
-      onContainer: 'var(--md-on-warning-container)'
-    }
-  }
+  if (genre.includes('科幻') || genre.includes('悬疑')) return '#60A5FA'
+  if (genre.includes('奇幻') || genre.includes('冒险')) return '#4ADE80'
+  if (genre.includes('穿越') || genre.includes('言情')) return '#F87171'
+  if (genre.includes('东方') || genre.includes('武侠')) return '#FACC15'
   
-  return {
-    primary: 'var(--md-primary)',
-    container: 'var(--md-secondary-container)',
-    onContainer: 'var(--md-on-secondary-container)'
-  }
+  return '#FACC15'
 })
 
 // 使用后端预计算的进度数据
@@ -192,3 +159,179 @@ const handleDelete = () => {
   emit('delete', props.project.id)
 }
 </script>
+
+<style scoped>
+.pc-card {
+  background-color: #0f1419;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  border-radius: 4px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: border-color 0.25s, box-shadow 0.3s;
+  font-family: var(--ar-font-ui);
+}
+
+.pc-card:hover {
+  border-color: rgba(250, 204, 21, 0.2);
+  box-shadow: 0 0 24px rgba(250, 204, 21, 0.06);
+}
+
+.pc-icon-box {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #171c22;
+  border: 1px solid rgba(77, 70, 50, 0.15);
+  transition: border-color 0.2s;
+}
+
+.pc-title {
+  font-family: var(--ar-font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #dee3eb;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  transition: color 0.2s;
+  cursor: pointer;
+}
+
+.pc-title:hover {
+  color: #FACC15;
+}
+
+.pc-meta {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  color: #8b929a;
+  margin-top: 0.1rem;
+}
+
+.pc-timestamp {
+  font-family: var(--ar-font-ui);
+  font-size: 0.7rem;
+  color: #545d68;
+  margin-top: 0.2rem;
+}
+
+/* Progress */
+.pc-progress-label {
+  font-family: var(--ar-font-ui);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #8b929a;
+}
+
+.pc-progress-value {
+  font-family: var(--ar-font-display);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #dee3eb;
+}
+
+.pc-progress-track {
+  width: 100%;
+  height: 3px;
+  background-color: #252a30;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pc-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+  box-shadow: 0 0 8px rgba(250, 204, 21, 0.15);
+}
+
+/* Chips */
+.pc-chip {
+  font-family: var(--ar-font-ui);
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  border: 1px solid;
+  letter-spacing: 0.02em;
+}
+
+.pc-chip--neutral {
+  background-color: #171c22;
+  color: #8b929a;
+  border-color: rgba(77, 70, 50, 0.15);
+}
+
+/* Action buttons */
+.pc-actions {
+  display: flex;
+  gap: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+  transform: translateY(0.5rem);
+}
+
+.group:hover .pc-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pc-btn {
+  font-family: var(--ar-font-ui);
+  font-size: 0.8rem;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.pc-btn--tonal {
+  background-color: #171c22;
+  color: #8b929a;
+  border-color: rgba(77, 70, 50, 0.15);
+}
+
+.pc-btn--tonal:hover {
+  color: #dee3eb;
+  border-color: rgba(77, 70, 50, 0.3);
+  background-color: #252a30;
+}
+
+.pc-btn--primary {
+  background-color: rgba(250, 204, 21, 0.1);
+  color: #FACC15;
+  border-color: rgba(250, 204, 21, 0.3);
+}
+
+.pc-btn--primary:hover {
+  background-color: rgba(250, 204, 21, 0.18);
+  border-color: rgba(250, 204, 21, 0.5);
+  box-shadow: 0 0 12px rgba(250, 204, 21, 0.08);
+}
+
+.pc-btn--danger {
+  background: transparent;
+  color: #545d68;
+  border-color: rgba(77, 70, 50, 0.15);
+  padding: 0.4rem;
+}
+
+.pc-btn--danger:hover {
+  color: #EF4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  background-color: rgba(239, 68, 68, 0.06);
+}
+</style>

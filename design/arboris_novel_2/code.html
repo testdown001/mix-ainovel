@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Arboris Novel Author Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface-dim": "#0f1419",
+              "on-background": "#dee3eb",
+              "surface-container-high": "#252a30",
+              "surface-container-lowest": "#0a0f14",
+              "primary-container": "#facc15",
+              "on-error-container": "#ffdad6",
+              "inverse-on-surface": "#2c3137",
+              "secondary-container": "#00b55d",
+              "error-container": "#93000a",
+              "tertiary-container": "#82e68f",
+              "outline": "#9a9078",
+              "primary-fixed-dim": "#eec200",
+              "on-primary-fixed": "#231b00",
+              "secondary-fixed": "#6dfe9c",
+              "on-error": "#690005",
+              "on-secondary-fixed": "#00210c",
+              "surface": "#0f1419",
+              "on-primary": "#3c2f00",
+              "error": "#ffb4ab",
+              "tertiary": "#b2ffb7",
+              "inverse-surface": "#dee3eb",
+              "surface-container": "#1b2026",
+              "primary": "#ffecb9",
+              "on-tertiary-fixed-variant": "#00531e",
+              "tertiary-fixed-dim": "#78dc86",
+              "surface-bright": "#353a40",
+              "on-surface": "#dee3eb",
+              "on-tertiary-container": "#006828",
+              "secondary-fixed-dim": "#4de082",
+              "outline-variant": "#4d4632",
+              "inverse-primary": "#735c00",
+              "surface-tint": "#eec200",
+              "on-primary-container": "#6c5700",
+              "tertiary-fixed": "#94f99f",
+              "surface-container-highest": "#30353b",
+              "on-tertiary": "#003913",
+              "background": "#0f1419",
+              "surface-variant": "#30353b",
+              "on-primary-fixed-variant": "#574500",
+              "on-surface-variant": "#d1c6ab",
+              "on-secondary": "#003919",
+              "on-tertiary-fixed": "#002108",
+              "primary-fixed": "#ffe083",
+              "on-secondary-container": "#003e1c",
+              "secondary": "#4de082",
+              "surface-container-low": "#171c22",
+              "on-secondary-fixed-variant": "#005227"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        body { background-color: #000000; color: #dee3eb; }
+        .glass-panel {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 20px rgba(250, 204, 21, 0.15);
+        }
+        .neon-glow-secondary {
+            box-shadow: 0 0 20px rgba(74, 222, 128, 0.15);
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .mask-gradient {
+            mask-image: linear-gradient(to left, black, transparent);
+        }
+    </style>
+</head>
+<body class="font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/20 shadow-[0_4px_20px_rgba(0,0,0,0.5)] flex justify-between items-center px-6 h-16">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)] font-['Space_Grotesk'] tracking-tight">Arboris Novel</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-yellow-400 hover:text-yellow-300 transition-colors font-medium" href="#">概览</a>
+<a class="text-gray-500 hover:text-yellow-300 transition-colors" href="#">书库</a>
+<a class="text-gray-500 hover:text-yellow-300 transition-colors" href="#">社区</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">search</span>
+<input class="bg-surface-container-low border-none rounded text-sm pl-10 pr-4 py-2 w-64 focus:ring-1 focus:ring-yellow-400 text-on-surface placeholder-gray-600" placeholder="搜索章节或设定..." type="text"/>
+</div>
+<button class="text-gray-500 hover:text-yellow-300 transition-transform scale-95 active:scale-90">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+<button class="text-gray-500 hover:text-yellow-300 transition-transform scale-95 active:scale-90">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-16 h-[calc(100vh-64px)] w-64 bg-[#171c22] hidden md:flex flex-col p-4 gap-y-2 font-['Space_Grotesk'] text-sm z-40">
+<div class="mb-6 px-2">
+<p class="text-gray-500 text-[10px] uppercase tracking-widest mb-1">小说管理</p>
+<div class="flex items-center justify-between group cursor-pointer">
+<p class="text-on-surface font-bold text-lg">当前作品列表</p>
+<span class="material-symbols-outlined text-gray-500 group-hover:text-yellow-400 transition-colors">expand_more</span>
+</div>
+</div>
+<nav class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2.5 bg-yellow-400/10 border-l-2 border-yellow-400 text-yellow-400 font-bold rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="book">book</span>
+<span>霓虹下的暗影</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="book_2">book_2</span>
+<span>深空之歌 (草稿)</span>
+</a>
+<div class="h-4"></div>
+<p class="text-gray-500 text-[10px] uppercase tracking-widest px-2 mb-1">功能导航</p>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="edit_note">edit_note</span>
+<span>创作空间</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="analytics">analytics</span>
+<span>数据分析</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 text-gray-400 hover:text-yellow-200 hover:bg-white/5 rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="loyalty">loyalty</span>
+<span>订阅方案</span>
+</a>
+</nav>
+<div class="mt-8 mb-4">
+<button class="w-full bg-primary-container text-on-primary-container py-3 rounded-sm font-bold flex items-center justify-center gap-2 hover:brightness-110 active:scale-95 transition-all">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+<span>新建小说</span>
+</button>
+</div>
+<div class="mt-auto flex flex-col gap-1 border-t border-white/5 pt-4">
+<a class="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-yellow-200 hover:bg-white/5 rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+<span>系统设置</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-gray-400 hover:text-yellow-200 hover:bg-white/5 rounded-sm transition-all duration-200" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="help">help</span>
+<span>帮助中心</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="md:ml-64 pt-24 px-6 pb-20 min-h-screen">
+<div class="max-w-7xl mx-auto">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-10">
+<div>
+<h1 class="font-headline text-4xl font-bold text-on-background mb-2 tracking-tight">欢迎回来, 创作者</h1>
+<p class="text-gray-500 font-body">今天是 2024年5月24日，你的故事正在散发光芒。</p>
+</div>
+<!-- AI Model Status Widget -->
+<div class="glass-panel p-4 rounded-xl border border-secondary/20 min-w-[280px]">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+<span class="text-xs font-bold text-secondary uppercase tracking-widest">Arboris AI v4.0</span>
+</div>
+<span class="text-[10px] text-gray-500">Latency: 24ms</span>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[10px]">
+<span class="text-gray-400">Context Window (128k)</span>
+<span class="text-secondary">85% Available</span>
+</div>
+<div class="w-full bg-black/40 h-1.5 rounded-full overflow-hidden">
+<div class="bg-secondary h-full shadow-[0_0_8px_#4de082]" style="width: 85%"></div>
+</div>
+<div class="flex justify-between text-[10px] pt-1">
+<span class="text-gray-400">Tokens Remaining</span>
+<span class="text-primary-container font-mono">1,240,500</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+<!-- Stat Cards -->
+<div class="bg-surface-container-low p-6 rounded-lg border-l-2 border-primary-container neon-glow-primary">
+<p class="text-gray-500 text-xs mb-4 uppercase tracking-tighter">总字数</p>
+<h3 class="font-headline text-3xl font-bold text-primary-container">128,450</h3>
+<p class="text-[10px] text-secondary mt-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">trending_up</span>
+                        较上周增长 12%
+                    </p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-lg">
+<p class="text-gray-500 text-xs mb-4 uppercase tracking-tighter">已完成章节</p>
+<h3 class="font-headline text-3xl font-bold text-on-surface">42</h3>
+<p class="text-[10px] text-gray-600 mt-2">预计还需 15 章节完结</p>
+</div>
+<div class="bg-surface-container-low p-6 rounded-lg">
+<p class="text-gray-500 text-xs mb-4 uppercase tracking-tighter">AI 参与创作率</p>
+<h3 class="font-headline text-3xl font-bold text-secondary">18%</h3>
+<div class="w-full bg-black/40 h-1 mt-3 rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 18%"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-6 rounded-lg">
+<p class="text-gray-500 text-xs mb-4 uppercase tracking-tighter">当前排名</p>
+<h3 class="font-headline text-3xl font-bold text-tertiary">#14</h3>
+<p class="text-[10px] text-gray-600 mt-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">workspace_premium</span>
+                        科幻分类热门榜
+                    </p>
+</div>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+<!-- Book Card & Setting Library -->
+<div class="lg:col-span-2 space-y-8">
+<!-- Current Book Main Panel -->
+<div class="relative overflow-hidden group bg-surface-container-high rounded-xl p-8 min-h-[320px] flex flex-col justify-between border border-white/5">
+<div class="absolute -right-20 -top-20 w-80 h-80 bg-primary-container/10 blur-[100px] rounded-full"></div>
+<div class="absolute -left-10 -bottom-10 w-60 h-60 bg-secondary/5 blur-[80px] rounded-full"></div>
+<div class="relative z-10">
+<div class="flex items-start justify-between mb-6">
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-black/40 text-[10px] font-bold text-secondary-fixed tracking-wider uppercase border border-secondary/20 rounded-sm">Cyberpunk</span>
+<span class="px-2 py-0.5 bg-black/40 text-[10px] font-bold text-primary-fixed-dim tracking-wider uppercase border border-primary/20 rounded-sm">连载中</span>
+</div>
+<span class="text-xs text-gray-500 font-mono">ID: AR-99230</span>
+</div>
+<h2 class="font-body text-4xl font-bold text-on-surface mb-4">霓虹下的暗影</h2>
+<p class="text-gray-400 font-body max-w-lg leading-relaxed mb-6">在被永恒阴雨笼罩的2088年，私人侦探凯发现了一段足以毁灭整座城市的记忆代码。代码中的每一行都跳动着早已被遗忘的、属于人类的真实情感。</p>
+</div>
+<div class="relative z-10 flex flex-wrap items-center gap-8">
+<div class="flex items-center gap-4">
+<div class="relative w-16 h-16 flex items-center justify-center">
+<svg class="w-full h-full -rotate-90">
+<circle cx="32" cy="32" fill="transparent" r="28" stroke="rgba(255,255,255,0.05)" stroke-width="4"></circle>
+<circle class="text-primary-container" cx="32" cy="32" fill="transparent" r="28" stroke="currentColor" stroke-dasharray="175" stroke-dashoffset="70" stroke-width="4"></circle>
+</svg>
+<span class="absolute text-xs font-bold text-on-surface">60%</span>
+</div>
+<div>
+<p class="text-[10px] text-gray-500 uppercase">当前进度</p>
+<p class="text-sm font-bold">第 42 章 / 共 70 章</p>
+</div>
+</div>
+<button class="bg-primary-container text-on-primary-container px-8 py-4 rounded-sm font-bold flex items-center gap-3 hover:brightness-110 active:scale-95 transition-all ml-auto">
+<span>继续写作</span>
+<span class="material-symbols-outlined" data-icon="auto_fix_high">auto_fix_high</span>
+</button>
+</div>
+<div class="absolute right-0 bottom-0 opacity-20 pointer-events-none">
+<img alt="Cyberpunk city abstract pattern" class="w-64 h-64 object-cover mask-gradient" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCmM1E2OaDcAWbAA6w_aVl0l_epEuZuXyPY_j99dpKeRgDWxqkm8OHaiRtbWNVln-z7ZIdRoV3s2xLj5eRxeGLCKLdzokaT37NicJd9TBjHXXPSbo3NNacT61RThS9prsI90gTA-HZ4W-JkeNB2ubWmeWYD8vrvU8Vx4Y3vkW0G4UIZMiuySuj7oYgv08zXOkbEEEepwp_3hUeavalr7H5lcRJx-i2y2aPgkSjXtF988iYc2kwAohmOqQy6NwTFE9qcvFMA9S-AQtdt"/>
+</div>
+</div>
+<!-- Robust Setting Library Section -->
+<div class="bg-surface-container-low rounded-xl p-6 border border-white/5">
+<div class="flex items-center justify-between mb-6">
+<h4 class="text-sm font-bold flex items-center gap-2">
+<span class="material-symbols-outlined text-primary-container" data-icon="library_books">library_books</span>
+                                设定库 (Setting Library)
+                            </h4>
+<div class="flex gap-2">
+<button class="text-[10px] px-3 py-1 bg-surface-container-highest border border-white/5 rounded hover:border-yellow-400 transition-colors">管理全部</button>
+<button class="text-[10px] px-3 py-1 bg-yellow-400/20 text-yellow-400 rounded hover:bg-yellow-400/30 transition-colors flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">add</span> 新增设定
+                                </button>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+<!-- Character Tab -->
+<div class="bg-black/20 p-4 rounded-lg border border-white/5 hover:border-yellow-400/30 transition-all cursor-pointer group">
+<div class="flex justify-between items-start mb-3">
+<span class="material-symbols-outlined text-yellow-400 text-lg">person</span>
+<span class="text-[10px] text-gray-600 font-mono">12 Characters</span>
+</div>
+<p class="text-xs font-bold mb-1 group-hover:text-yellow-400">核心角色</p>
+<p class="text-[10px] text-gray-500 line-clamp-1">凯, 萨拉, 机械心...</p>
+</div>
+<!-- World Building Tab -->
+<div class="bg-black/20 p-4 rounded-lg border border-white/5 hover:border-yellow-400/30 transition-all cursor-pointer group">
+<div class="flex justify-between items-start mb-3">
+<span class="material-symbols-outlined text-secondary text-lg">language</span>
+<span class="text-[10px] text-gray-600 font-mono">8 Locations</span>
+</div>
+<p class="text-xs font-bold mb-1 group-hover:text-secondary">地理与世界观</p>
+<p class="text-[10px] text-gray-500 line-clamp-1">上层区, 下城贫民窟...</p>
+</div>
+<!-- Tech/Items Tab -->
+<div class="bg-black/20 p-4 rounded-lg border border-white/5 hover:border-yellow-400/30 transition-all cursor-pointer group">
+<div class="flex justify-between items-start mb-3">
+<span class="material-symbols-outlined text-tertiary text-lg">memory</span>
+<span class="text-[10px] text-gray-600 font-mono">15 Items</span>
+</div>
+<p class="text-xs font-bold mb-1 group-hover:text-tertiary">科技与物品</p>
+<p class="text-[10px] text-gray-500 line-clamp-1">记忆代码, 义体增强...</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Sidebar: Chapters & AI Assistant -->
+<div class="space-y-8">
+<!-- Recent Chapters -->
+<div class="bg-surface-container-low rounded-xl p-6 border border-white/5">
+<h4 class="text-sm font-bold mb-6 flex items-center justify-between">
+<span>近期章节</span>
+<a class="text-primary-container text-[10px] hover:underline" href="#">查看全部</a>
+</h4>
+<div class="space-y-4">
+<div class="flex items-center gap-4 group">
+<div class="w-10 h-10 rounded bg-black/40 flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+</div>
+<div class="flex-1">
+<p class="text-xs font-bold text-on-surface group-hover:text-primary-container transition-colors">第42章: 机械心脏的跳动</p>
+<p class="text-[10px] text-gray-600">已发布 • 3,240 字</p>
+</div>
+<span class="material-symbols-outlined text-gray-700 text-sm">more_vert</span>
+</div>
+<div class="flex items-center gap-4 group">
+<div class="w-10 h-10 rounded bg-black/40 flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-sm">edit</span>
+</div>
+<div class="flex-1">
+<p class="text-xs font-bold text-on-surface group-hover:text-primary-container transition-colors">第43章: 霓虹背后 (草稿)</p>
+<p class="text-[10px] text-gray-600">修改中 • 1,120 字</p>
+</div>
+<span class="material-symbols-outlined text-gray-700 text-sm">more_vert</span>
+</div>
+<div class="flex items-center gap-4 group">
+<div class="w-10 h-10 rounded bg-black/40 flex items-center justify-center text-gray-600">
+<span class="material-symbols-outlined text-sm">schedule</span>
+</div>
+<div class="flex-1">
+<p class="text-xs font-bold text-on-surface group-hover:text-primary-container transition-colors">第41章: 记忆代码的秘密</p>
+<p class="text-[10px] text-gray-600">已发布 • 2,980 字</p>
+</div>
+<span class="material-symbols-outlined text-gray-700 text-sm">more_vert</span>
+</div>
+</div>
+</div>
+<!-- AI Assistant Context Widget -->
+<div class="bg-gradient-to-br from-secondary/10 to-transparent border border-secondary/20 rounded-xl p-6 relative overflow-hidden">
+<div class="absolute -right-4 -bottom-4 opacity-10">
+<span class="material-symbols-outlined text-8xl" data-icon="psychology">psychology</span>
+</div>
+<h4 class="text-sm font-bold text-secondary mb-2">AI 创意联想</h4>
+<p class="text-[11px] text-on-surface/80 leading-relaxed mb-4">基于第42章的内容，我建议在下一章中加入关于“数字灵魂”的哲学辩论。凯可以遇到一个坚信自己有情感的旧型服务机器人...</p>
+<button class="text-[10px] font-bold text-secondary hover:text-white flex items-center gap-1 transition-colors">
+<span>生成剧情大纲</span>
+<span class="material-symbols-outlined text-xs">arrow_forward</span>
+</button>
+</div>
+<!-- Stats / Ranking (Modified to Revenue for variation) -->
+<div class="bg-surface-container-low rounded-xl p-6 border border-white/5">
+<div class="flex items-center justify-between mb-4">
+<h4 class="text-sm font-bold">近期收益趋势</h4>
+<span class="material-symbols-outlined text-secondary text-sm">payments</span>
+</div>
+<div class="h-24 w-full flex items-end justify-between gap-1 mb-2">
+<div class="w-full h-[30%] bg-secondary/10 rounded-t-sm"></div>
+<div class="w-full h-[50%] bg-secondary/20 rounded-t-sm"></div>
+<div class="w-full h-[40%] bg-secondary/10 rounded-t-sm"></div>
+<div class="w-full h-[70%] bg-secondary/40 border-t border-secondary rounded-t-sm"></div>
+<div class="w-full h-[90%] bg-secondary/60 border-t border-secondary rounded-t-sm"></div>
+</div>
+<div class="flex justify-between text-[10px] text-gray-600">
+<span>Mon</span>
+<span>Today</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="fixed bottom-0 w-full z-50 lg:hidden bg-black/90 backdrop-blur-lg border-t border-green-900/30 flex justify-around items-center h-16 pb-safe font-['Inter'] text-[10px] shadow-[0_-4px_12px_rgba(74,222,128,0.1)]">
+<a class="flex flex-col items-center justify-center text-green-400 drop-shadow-[0_0_5px_rgba(74,222,128,0.5)] active:scale-110 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="book">book</span>
+<span>章节</span>
+</a>
+<a class="flex flex-col items-center justify-center text-gray-600 hover:text-green-300 active:scale-110 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+<span>大纲</span>
+</a>
+<a class="flex flex-col items-center justify-center text-gray-600 hover:text-green-300 active:scale-110 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="groups">groups</span>
+<span>设定库</span>
+</a>
+<a class="flex flex-col items-center justify-center text-gray-600 hover:text-green-300 active:scale-110 transition-transform" href="#">
+<span class="material-symbols-outlined" data-icon="psychology">psychology</span>
+<span>AI助手</span>
+</a>
+</nav>
+</body></html>

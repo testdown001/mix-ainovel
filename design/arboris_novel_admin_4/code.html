@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "outline-variant": "#4d4632",
+              "on-surface": "#dee3eb",
+              "on-secondary": "#003919",
+              "on-primary-fixed-variant": "#574500",
+              "on-error-container": "#ffdad6",
+              "surface-container": "#1b2026",
+              "secondary": "#4de082",
+              "surface-container-highest": "#30353b",
+              "on-secondary-fixed-variant": "#005227",
+              "on-secondary-container": "#003e1c",
+              "on-primary": "#3c2f00",
+              "surface-dim": "#0f1419",
+              "tertiary-fixed-dim": "#78dc86",
+              "error-container": "#93000a",
+              "surface-container-low": "#171c22",
+              "primary-container": "#facc15",
+              "surface-container-high": "#252a30",
+              "inverse-surface": "#dee3eb",
+              "tertiary-fixed": "#94f99f",
+              "on-primary-fixed": "#231b00",
+              "inverse-primary": "#735c00",
+              "tertiary-container": "#82e68f",
+              "on-secondary-fixed": "#00210c",
+              "on-tertiary-fixed": "#002108",
+              "on-tertiary-container": "#006828",
+              "inverse-on-surface": "#2c3137",
+              "background": "#000000",
+              "secondary-fixed": "#6dfe9c",
+              "secondary-container": "#00b55d",
+              "on-tertiary-fixed-variant": "#00531e",
+              "error": "#ffb4ab",
+              "surface-tint": "#eec200",
+              "on-tertiary": "#003913",
+              "primary": "#ffecb9",
+              "on-primary-container": "#6c5700",
+              "on-background": "#dee3eb",
+              "primary-fixed-dim": "#eec200",
+              "on-surface-variant": "#d1c6ab",
+              "outline": "#9a9078",
+              "surface": "#0f1419",
+              "primary-fixed": "#ffe083",
+              "surface-variant": "#30353b",
+              "surface-container-lowest": "#0a0f14",
+              "surface-bright": "#353a40",
+              "tertiary": "#b2ffb7",
+              "secondary-fixed-dim": "#4de082",
+              "on-error": "#690005"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .neon-glow {
+        box-shadow: 0 0 20px rgba(250, 204, 21, 0.1);
+      }
+      .glass-panel {
+        background: rgba(48, 53, 59, 0.6);
+        backdrop-filter: blur(12px);
+      }
+      body {
+        background-color: #000000;
+        color: #dee3eb;
+      }
+    </style>
+</head>
+<body class="font-label">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full z-50 flex flex-col h-full w-64 border-r border-[#4d4632]/15 bg-[#171c22] tonal-shift">
+<div class="p-6">
+<h1 class="text-2xl font-bold tracking-tighter text-[#FACC15] uppercase font-headline">Arboris Admin</h1>
+<p class="text-[10px] text-gray-500 mt-1 font-label uppercase tracking-widest">System Oversight</p>
+</div>
+<nav class="flex-1 px-2 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="text-sm">User Management</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined">book_2</span>
+<span class="text-sm">Novel Projects</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="text-sm">Prompt Management</span>
+</a>
+<!-- Active State: System Logs -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#FACC15] bg-[#30353b]/60 backdrop-blur-md rounded-sm border-l-4 border-[#FACC15]" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="text-sm font-medium">System Logs</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined">health_metrics</span>
+<span class="text-sm">System Health</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-gray-400 hover:text-[#FACC15] transition-colors hover:bg-[#30353b]/40" href="#">
+<span class="material-symbols-outlined">shield_lock</span>
+<span class="text-sm">Security Center</span>
+</a>
+</nav>
+<div class="mt-auto p-4 border-t border-[#4d4632]/15">
+<button class="w-full bg-[#30353b]/40 border border-[#FACC15]/30 text-[#FACC15] py-2 px-4 rounded-sm text-xs font-bold hover:bg-[#FACC15]/10 transition-all flex items-center justify-center gap-2 mb-4">
+<span class="material-symbols-outlined text-sm">notification_important</span>
+                New System Alert
+            </button>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-gray-400 hover:text-[#FACC15] transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-lg">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-gray-400 hover:text-[#FACC15] transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-lg">help_center</span>
+<span>Support</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-64 h-16 flex justify-between items-center px-8 z-40 bg-black/80 backdrop-blur-xl border-b border-[#4d4632]/15 shadow-[0_0_20px_rgba(250,204,21,0.05)]">
+<div class="flex items-center gap-6">
+<span class="text-xl font-black text-[#FACC15] italic font-headline">Arboris Console</span>
+<div class="flex gap-4 text-[10px] font-medium text-gray-500 font-label">
+<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> CPU: 24%</span>
+<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> RAM: 12GB</span>
+<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> Latency: 15ms</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="bg-primary-container text-on-primary-container px-4 py-1.5 rounded-sm text-sm font-bold hover:shadow-[0_0_15px_rgba(250,204,21,0.4)] transition-all">
+                Deploy Update
+            </button>
+<div class="flex items-center gap-3 text-gray-400">
+<span class="material-symbols-outlined hover:text-[#FACC15] cursor-pointer transition-opacity">notifications_active</span>
+<span class="material-symbols-outlined hover:text-[#FACC15] cursor-pointer transition-opacity">settings_suggest</span>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-[#FACC15]/20">
+<img alt="Admin Avatar" class="w-full h-full object-cover" data-alt="Admin user avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD9Jk_zN6_E5gqcSHU1zvmkbPzyF1SAJqjrMiPqDICoRYbcxCvR2N-mug0JSD0nL7m9VTxJs3d-_zfxGTuKqfKUx2IlF-J13-ZxIYxJtvnS139vmQrXPoB4y7kkYQcs5Lq95b8n2jpPe6oXpPdFLBFLkGHnw2D9vqYJOQBIK_zAIqUxuQLyIOs_Mp9klqIhTdJ3-jFWMDPqoP5rBru3cKEe2MEofp186hDcSbRWWcAOpTEcSD5f3kzkrLPpkB5K6dKu3roPiwEizcqs"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="pl-64 pt-16 min-h-screen bg-black overflow-x-hidden">
+<div class="max-w-5xl mx-auto p-12">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6">
+<div>
+<h2 class="text-4xl font-headline font-bold text-primary-container tracking-tight mb-2">系统更新日志</h2>
+<p class="text-gray-500 font-label text-sm uppercase tracking-widest">Arboris Core Infrastructure Updates &amp; Change Records</p>
+</div>
+<div class="flex gap-3">
+<div class="relative group">
+<select class="bg-surface-container-low border border-outline-variant/30 text-on-surface text-xs px-4 py-2 pr-10 appearance-none focus:outline-none focus:border-secondary transition-all cursor-pointer">
+<option>所有更新类型 (All Categories)</option>
+<option>重大更新 (Feature)</option>
+<option>模型迭代 (Model Update)</option>
+<option>错误修复 (Bug Fix)</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-1.5 text-gray-500 pointer-events-none text-lg">expand_more</span>
+</div>
+<button class="bg-surface-container-high border border-outline-variant/30 text-on-surface p-2 hover:text-secondary transition-colors">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Vertical Timeline -->
+<div class="relative border-l border-[#4d4632]/30 ml-4 md:ml-8 pl-10 space-y-16">
+<!-- Entry 1 -->
+<div class="relative">
+<div class="absolute -left-[51px] top-1 w-[21px] h-[21px] bg-black border-2 border-primary-container flex items-center justify-center">
+<div class="w-2 h-2 bg-primary-container shadow-[0_0_8px_#FACC15]"></div>
+</div>
+<div class="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+<span class="font-headline text-3xl font-bold text-on-surface">v2.4.0</span>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-primary-container/10 border border-primary-container/20 text-primary-container text-[10px] font-bold uppercase tracking-tighter">Feature</span>
+<span class="px-2 py-0.5 bg-surface-container-high text-gray-400 text-[10px] font-medium font-label">2024-05-24 14:32</span>
+</div>
+</div>
+<div class="glass-panel p-6 border-l-2 border-primary-container/50">
+<h4 class="font-headline text-lg text-white mb-4">大规模语言模型内核升级 (Titan-V4 Integration)</h4>
+<ul class="space-y-3 font-label text-sm text-gray-400">
+<li class="flex items-start gap-3">
+<span class="text-secondary font-mono mt-1">&gt;&gt;</span>
+<span>集成 Titan-V4 叙事引擎，显著提升长篇小说情节连贯性与人物弧光逻辑。</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="text-secondary font-mono mt-1">&gt;&gt;</span>
+<span>新增“风格迁移”功能，支持用户自定义特定文学流派（如：硬核赛博、古典仙侠）。</span>
+</li>
+<li class="flex items-start gap-3">
+<span class="text-secondary font-mono mt-1">&gt;&gt;</span>
+<span>优化上下文窗口处理效率，响应延迟降低约 18%。</span>
+</li>
+</ul>
+</div>
+</div>
+<!-- Entry 2 -->
+<div class="relative">
+<div class="absolute -left-[51px] top-1 w-[21px] h-[21px] bg-black border-2 border-secondary flex items-center justify-center">
+<div class="w-2 h-2 bg-secondary shadow-[0_0_8px_#4ADE80]"></div>
+</div>
+<div class="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+<span class="font-headline text-3xl font-bold text-on-surface">v2.3.8</span>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-secondary/10 border border-secondary/20 text-secondary text-[10px] font-bold uppercase tracking-tighter">Model Update</span>
+<span class="px-2 py-0.5 bg-surface-container-high text-gray-400 text-[10px] font-medium font-label">2024-05-18 09:15</span>
+</div>
+</div>
+<div class="glass-panel p-6 border-l-2 border-secondary/50">
+<h4 class="font-headline text-lg text-white mb-4">中文语境语义增强 (Standard-CN v9)</h4>
+<div class="bg-black/40 p-4 font-mono text-[13px] text-gray-500 mb-4 border border-[#4d4632]/15">
+<span class="text-secondary">$</span> patch --apply semantic_weights_cn_v9.bin<br/>
+<span class="text-secondary">$</span> verifying checksum... [OK]<br/>
+<span class="text-secondary">$</span> update complete: 4,129 parameters recalibrated.
+                        </div>
+<p class="font-label text-sm text-gray-400 leading-relaxed">
+                            重点优化了成语典故的误用频率，增强了修辞手法在描述性段落中的自然程度。解决了“古风”写作模式下词汇重复率过高的问题。
+                        </p>
+</div>
+</div>
+<!-- Entry 3 -->
+<div class="relative">
+<div class="absolute -left-[51px] top-1 w-[21px] h-[21px] bg-black border-2 border-gray-600 flex items-center justify-center">
+<div class="w-2 h-2 bg-gray-600"></div>
+</div>
+<div class="flex flex-col md:flex-row md:items-center gap-4 mb-4">
+<span class="font-headline text-3xl font-bold text-on-surface">v2.3.5</span>
+<div class="flex gap-2">
+<span class="px-2 py-0.5 bg-surface-variant text-on-surface text-[10px] font-bold uppercase tracking-tighter">Bug Fix</span>
+<span class="px-2 py-0.5 bg-surface-container-high text-gray-400 text-[10px] font-medium font-label">2024-05-12 23:44</span>
+</div>
+</div>
+<div class="bg-surface-container-low/40 p-6 border-l-2 border-gray-600/30">
+<h4 class="font-headline text-lg text-white mb-3">同步冲突与内存泄漏修复</h4>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+<div class="space-y-2">
+<p class="text-gray-500 font-bold uppercase text-[10px] tracking-widest">Fixed Issues</p>
+<ul class="list-disc list-inside text-gray-400 font-label">
+<li>多设备编辑导致的章节覆盖漏洞</li>
+<li>PDF导出时的乱码排版错误</li>
+</ul>
+</div>
+<div class="space-y-2">
+<p class="text-gray-500 font-bold uppercase text-[10px] tracking-widest">Performance</p>
+<ul class="list-disc list-inside text-gray-400 font-label">
+<li>编辑器内存回收机制优化</li>
+<li>启动响应时间提升 120ms</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+<!-- Load More / Bottom Marker -->
+<div class="flex justify-center pt-8">
+<button class="flex items-center gap-2 text-gray-500 hover:text-primary-container transition-colors font-label text-xs uppercase tracking-[0.2em]">
+<span class="material-symbols-outlined text-sm">keyboard_double_arrow_down</span>
+                        查看更早的历史记录
+                    </button>
+</div>
+</div>
+</div>
+</main>
+<!-- Contextual FAB (Suppressed on Logs per instructions, but available if needed for tasks) -->
+<!-- Not rendered as this is a focused Task/System screen -->
+</body></html>

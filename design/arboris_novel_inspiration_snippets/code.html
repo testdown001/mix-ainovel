@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;family=Noto+Serif+SC:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-error": "#690005",
+              "tertiary-fixed-dim": "#78dc86",
+              "secondary-fixed-dim": "#4de082",
+              "tertiary-fixed": "#94f99f",
+              "outline-variant": "#4d4632",
+              "on-surface": "#dee3eb",
+              "error": "#ffb4ab",
+              "on-primary": "#3c2f00",
+              "inverse-on-surface": "#2c3137",
+              "surface-dim": "#0f1419",
+              "primary-fixed": "#ffe083",
+              "surface-container-highest": "#30353b",
+              "on-tertiary-fixed": "#002108",
+              "on-secondary-container": "#003e1c",
+              "secondary": "#4de082",
+              "on-primary-container": "#6c5700",
+              "surface-bright": "#353a40",
+              "surface-container-lowest": "#0a0f14",
+              "on-tertiary-container": "#006828",
+              "inverse-primary": "#735c00",
+              "error-container": "#93000a",
+              "inverse-surface": "#dee3eb",
+              "surface-container-low": "#171c22",
+              "on-tertiary-fixed-variant": "#00531e",
+              "on-surface-variant": "#d1c6ab",
+              "on-primary-fixed": "#231b00",
+              "tertiary": "#b2ffb7",
+              "surface-tint": "#eec200",
+              "surface-container": "#1b2026",
+              "secondary-container": "#00b55d",
+              "surface-container-high": "#252a30",
+              "outline": "#9a9078",
+              "on-error-container": "#ffdad6",
+              "primary-container": "#facc15",
+              "primary": "#ffecb9",
+              "on-secondary": "#003919",
+              "surface": "#0f1419",
+              "secondary-fixed": "#6dfe9c",
+              "on-primary-fixed-variant": "#574500",
+              "on-secondary-fixed": "#00210c",
+              "background": "#000000",
+              "tertiary-container": "#82e68f",
+              "on-background": "#dee3eb",
+              "on-tertiary": "#003913",
+              "primary-fixed-dim": "#eec200",
+              "on-secondary-fixed-variant": "#005227",
+              "surface-variant": "#30353b"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Noto Serif SC"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .glass-card {
+            background: rgba(48, 53, 59, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        .neon-glow-hover:hover {
+            box-shadow: 0 0 15px rgba(250, 204, 21, 0.3);
+            border-color: rgba(250, 204, 21, 0.5);
+        }
+        .masonry-grid {
+            column-count: 1;
+            column-gap: 1.5rem;
+        }
+        @media (min-width: 768px) { .masonry-grid { column-count: 2; } }
+        @media (min-width: 1280px) { .masonry-grid { column-count: 3; } }
+        .masonry-item {
+            break-inside: avoid;
+            margin-bottom: 1.5rem;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-label selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 bg-black/80 backdrop-blur-xl border-b border-yellow-900/10 shadow-[0_4px_30px_rgba(0,0,0,0.1)] flex justify-between items-center px-6 py-3">
+<div class="flex items-center gap-8">
+<span class="text-2xl font-bold text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.4)] font-['Space_Grotesk'] tracking-tight">Arboris</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-['Space_Grotesk'] tracking-tight" href="#">Manuscript</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-['Space_Grotesk'] tracking-tight" href="#">Library</a>
+<a class="text-slate-400 hover:text-yellow-200 transition-colors font-['Space_Grotesk'] tracking-tight" href="#">Timeline</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">search</span>
+<input class="bg-surface-container-lowest border-none text-sm py-2 pl-10 pr-4 rounded-lg w-64 focus:ring-1 focus:ring-secondary" placeholder="Search snippets..." type="text"/>
+</div>
+<button class="material-symbols-outlined text-slate-400 hover:text-yellow-400 transition-all p-2 rounded hover:bg-yellow-400/10">auto_awesome</button>
+<button class="material-symbols-outlined text-slate-400 hover:text-yellow-400 transition-all p-2 rounded hover:bg-yellow-400/10">account_circle</button>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 border-r border-yellow-900/10 bg-[#0f1419] hidden md:flex flex-col py-8 z-40">
+<div class="px-6 mb-12 mt-16">
+<h2 class="text-yellow-400 font-bold font-['Inter'] text-sm uppercase tracking-widest">Ideation Module</h2>
+<p class="text-[10px] text-slate-500 mt-1 uppercase tracking-tighter">Neon Manuscript V1.0</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span>Mind Map</span>
+</a>
+<a class="flex items-center gap-3 bg-green-400/10 text-green-400 border-r-4 border-green-400 px-6 py-3 transition-all" href="#">
+<span class="material-symbols-outlined">collections_bookmark</span>
+<span>Snippets</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">psychology_alt</span>
+<span>Catalyst</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">groups</span>
+<span>Characters</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-6 py-3 hover:text-slate-200 hover:bg-white/5 transition-all hover:translate-x-1" href="#">
+<span class="material-symbols-outlined">public</span>
+<span>World</span>
+</a>
+</nav>
+<div class="px-6 mb-6">
+<button class="w-full py-3 bg-primary-container text-on-primary-container font-bold rounded-lg flex items-center justify-center gap-2 hover:shadow-[0_0_15px_rgba(250,204,21,0.4)] transition-all active:scale-95">
+<span class="material-symbols-outlined">add</span>
+<span>New Spark</span>
+</button>
+</div>
+<div class="px-2 space-y-1 border-t border-yellow-900/10 pt-4">
+<a class="flex items-center gap-3 text-slate-500 px-4 py-2 hover:text-slate-200 text-xs" href="#">
+<span class="material-symbols-outlined text-sm">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 text-slate-500 px-4 py-2 hover:text-slate-200 text-xs" href="#">
+<span class="material-symbols-outlined text-sm">inventory_2</span>
+<span>Archive</span>
+</a>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="md:ml-64 pt-24 pb-12 px-6 md:px-10">
+<!-- Header & Filters -->
+<div class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+<div>
+<h1 class="text-4xl font-headline font-bold text-on-surface tracking-tight mb-2">灵感随笔</h1>
+<p class="text-slate-500 font-label text-sm uppercase tracking-widest">Inspiration Snippets &amp; Data Nodes</p>
+</div>
+<div class="flex flex-wrap gap-2">
+<button class="px-4 py-1.5 rounded-full bg-secondary-container text-on-secondary-container text-xs font-bold transition-all">All Nodes</button>
+<button class="px-4 py-1.5 rounded-full bg-surface-container-high text-slate-400 text-xs font-bold hover:bg-surface-container-highest transition-all border border-transparent hover:border-outline-variant">Dialogue</button>
+<button class="px-4 py-1.5 rounded-full bg-surface-container-high text-slate-400 text-xs font-bold hover:bg-surface-container-highest transition-all border border-transparent hover:border-outline-variant">Setting</button>
+<button class="px-4 py-1.5 rounded-full bg-surface-container-high text-slate-400 text-xs font-bold hover:bg-surface-container-highest transition-all border border-transparent hover:border-outline-variant">Plot</button>
+</div>
+</div>
+<!-- Masonry Grid -->
+<div class="masonry-grid">
+<!-- Card 1: Dialogue -->
+<div class="masonry-item">
+<div class="glass-card p-6 rounded-lg border border-outline-variant/20 neon-glow-hover transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] px-2 py-0.5 rounded bg-secondary-fixed-dim/20 text-secondary uppercase tracking-widest font-bold">Dialogue</span>
+<span class="text-[10px] text-slate-500 font-mono">ID: NODE-772</span>
+</div>
+<blockquote class="font-body text-lg leading-relaxed text-on-surface mb-6 border-l-2 border-primary-fixed-dim/30 pl-4 italic">
+                        “这里的霓虹灯从不熄灭，但光亮处却从未有过影子。你明白这意味着什么吗？”
+                    </blockquote>
+<div class="flex items-center justify-between">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full bg-surface-container-highest border border-black flex items-center justify-center text-[10px] text-primary" title="Project: Neon Dreams">ND</div>
+</div>
+<button class="flex items-center gap-1.5 text-[10px] font-bold text-primary-fixed-dim hover:text-primary transition-colors uppercase tracking-widest group/btn">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">auto_awesome</span>
+<span>Expand AI</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Card 2: Setting -->
+<div class="masonry-item">
+<div class="glass-card rounded-lg border border-outline-variant/20 neon-glow-hover transition-all group overflow-hidden">
+<div class="h-32 bg-surface-container-low relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent z-10"></div>
+<img class="w-full h-full object-cover opacity-60" data-alt="Cyberpunk city skyline with neon lights and rain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDcmpFhfCsmX5gFmCx585WF1WH1nzC0SplmK72qtT4yRL8f91LEU1qZwumbUPledE2sMwVtwkB4bwGsD7z6a47iOPE6cq13Ph1AEQBphxTbwRkGuVgSzSC2sLwVPF9bPLUCMXTp7Z-JNUI-mkWcAXGAHIc-cmmSMmo2XoQjQ8g1Ojm63IdXlH6ow0Y8w4nWGM7fqeum8Ixcg6avxZzWeMWlgC6l87iM77sYs2TW8eyUK5j-Vvwm1HZKZxWL46TUH_3Y5bKG6cmkehUH"/>
+<div class="absolute bottom-3 left-4 z-20">
+<span class="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 uppercase tracking-widest font-bold">Setting</span>
+</div>
+</div>
+<div class="p-6">
+<p class="font-body leading-relaxed text-on-surface mb-6">
+                            下层区的集市弥漫着合成机油和辛辣香料的味道。摊位上的电子零件在积水中倒映出破碎的幻影，每一个匆忙经过的路人都像是某种被遗弃的程序。
+                        </p>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-slate-500">schedule</span>
+<span class="text-[10px] text-slate-500">2 hours ago</span>
+</div>
+<button class="material-symbols-outlined text-slate-400 hover:text-primary transition-all">more_horiz</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 3: Plot -->
+<div class="masonry-item">
+<div class="glass-card p-6 rounded-lg border border-outline-variant/20 neon-glow-hover transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] px-2 py-0.5 rounded bg-purple-500/20 text-purple-400 uppercase tracking-widest font-bold">Plot</span>
+<div class="flex gap-2">
+<span class="material-symbols-outlined text-secondary text-sm" style="font-variation-settings: 'FILL' 1;">star</span>
+</div>
+</div>
+<p class="font-body text-base leading-relaxed text-on-surface-variant mb-6">
+                        反抗组织发现所谓的“核心”其实是一个保存着所有人儿时记忆的数据库。摧毁它意味着自由，也意味着永久的失忆。主角面临最终抉择。
+                    </p>
+<div class="space-y-3">
+<div class="h-1 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-2/3 shadow-[0_0_8px_#4de082]"></div>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-[10px] text-slate-500 uppercase">Climax Readiness</span>
+<span class="text-[10px] text-secondary font-bold">67%</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 4: Snippet -->
+<div class="masonry-item">
+<div class="glass-card p-6 rounded-lg border border-outline-variant/20 neon-glow-hover transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] px-2 py-0.5 rounded bg-surface-variant text-slate-300 uppercase tracking-widest font-bold">Draft</span>
+</div>
+<p class="font-body text-xl leading-snug text-primary-fixed-dim mb-4">
+                        “时间是种昂贵的幻觉。”
+                    </p>
+<p class="font-body text-sm text-slate-400 mb-6">
+                        用于第14章开头，作为斯隆尔医生的开场白。需要强调他那种病态的冷静感。
+                    </p>
+<button class="w-full py-2 bg-white/5 border border-white/10 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-white/10 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">edit_note</span>
+<span>Edit Snippet</span>
+</button>
+</div>
+</div>
+<!-- Card 5: Research -->
+<div class="masonry-item">
+<div class="glass-card p-6 rounded-lg border border-outline-variant/20 neon-glow-hover transition-all group">
+<div class="flex justify-between items-start mb-4">
+<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 uppercase tracking-widest font-bold">Research</span>
+</div>
+<div class="space-y-2 mb-6">
+<div class="flex items-center gap-3 text-sm text-on-surface">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+<span class="font-body">神经插槽的过热限制</span>
+</div>
+<div class="flex items-center gap-3 text-sm text-on-surface">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+<span class="font-body">非法内存交易的汇率</span>
+</div>
+<div class="flex items-center gap-3 text-sm text-on-surface">
+<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+<span class="font-body">义体排异反应的幻觉特征</span>
+</div>
+</div>
+<div class="pt-4 border-t border-white/5 flex justify-between items-center">
+<div class="flex items-center gap-2">
+<div class="w-5 h-5 rounded bg-surface-container-highest border border-outline-variant"></div>
+<span class="text-[10px] text-slate-500">World Building Doc</span>
+</div>
+<span class="material-symbols-outlined text-slate-500 text-sm">open_in_new</span>
+</div>
+</div>
+</div>
+<!-- Card 6: AI Generated Spark -->
+<div class="masonry-item">
+<div class="relative group">
+<div class="absolute -inset-0.5 bg-gradient-to-r from-secondary to-primary-container rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000"></div>
+<div class="relative glass-card p-6 rounded-lg border border-secondary/30 neon-glow-hover transition-all">
+<div class="flex justify-between items-start mb-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">psychology</span>
+<span class="text-[10px] text-secondary uppercase font-bold tracking-widest">AI Spark</span>
+</div>
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_#4de082] animate-pulse"></div>
+</div>
+<p class="font-body text-base leading-relaxed text-on-surface mb-6">
+                            如果“回忆”可以像货币一样被交易，那么最穷的人将是那些没有过去的人。他们在这个城市里像幽灵一样游荡，寻找着哪怕是一丁点破碎的童年影像。
+                        </p>
+<div class="flex gap-2">
+<button class="flex-1 py-1.5 bg-secondary text-on-secondary text-[10px] font-bold rounded uppercase tracking-widest hover:brightness-110 transition-all">Keep</button>
+<button class="flex-1 py-1.5 bg-surface-container-highest text-slate-300 text-[10px] font-bold rounded uppercase tracking-widest hover:bg-surface-variant transition-all">Discard</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Floating Action Button (FAB) -->
+<button class="fixed bottom-8 right-8 w-14 h-14 bg-primary-container text-on-primary-container rounded-lg shadow-[0_8px_30px_rgba(250,204,21,0.3)] flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50">
+<span class="material-symbols-outlined text-3xl">add</span>
+</button>
+<!-- AI Insights Drawer (Hidden by default, structure for UI completeness) -->
+<div class="fixed right-0 top-0 h-full w-0 bg-surface-container-low border-l border-yellow-900/10 transition-all z-50 overflow-hidden">
+<div class="p-8 w-80">
+<h3 class="text-xl font-headline font-bold text-yellow-400 mb-6">AI Spark Engine</h3>
+<div class="space-y-6">
+<div class="p-4 bg-background border border-outline-variant/30 rounded">
+<p class="text-[10px] text-secondary font-bold uppercase mb-2">Refining Scene...</p>
+<div class="h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-1/3"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</body></html>

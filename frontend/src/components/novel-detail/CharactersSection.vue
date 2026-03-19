@@ -3,13 +3,13 @@
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="text-2xl font-bold text-text-primary">主要角色</h2>
-        <p class="text-sm text-text-muted">了解故事中核心人物的目标与个性</p>
+        <h2 class="font-display text-2xl font-bold text-text-primary tracking-tight">主要角色</h2>
+        <p class="font-ui text-sm text-text-muted mt-1">了解故事中核心人物的目标与个性</p>
       </div>
       <button
         v-if="editable"
         type="button"
-        class="text-text-muted hover:text-primary transition-colors"
+        class="text-text-muted hover:text-primary transition-colors duration-150"
         @click="emitEdit('characters', '主要角色', data?.characters)">
         <svg class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
           <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
@@ -18,22 +18,22 @@
       </button>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 stagger-reveal">
       <article
         v-for="(character, index) in characters"
         :key="index"
-        class="bg-bg-surface rounded-2xl border border-border transition-all duration-300">
+        class="character-card">
         <div class="p-6">
           <div class="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
-            <div class="w-16 h-16 rounded-full bg-primary-muted flex items-center justify-center text-primary text-lg font-semibold">
+            <div class="character-avatar">
               {{ character.name?.slice(0, 1) || '角' }}
             </div>
-            <div>
-              <h3 class="text-xl font-bold text-text-primary">{{ character.name || '未命名角色' }}</h3>
-              <p v-if="character.identity" class="text-sm text-primary font-medium">{{ character.identity }}</p>
+            <div class="min-w-0">
+              <h3 class="font-display text-xl font-bold text-text-primary tracking-tight">{{ character.name || '未命名角色' }}</h3>
+              <p v-if="character.identity" class="font-ui text-sm text-primary font-medium mt-0.5">{{ character.identity }}</p>
             </div>
           </div>
-          <dl class="space-y-3 text-sm text-text-secondary">
+          <dl class="space-y-3 text-sm font-ui text-text-secondary">
             <div v-if="character.personality">
               <dt class="font-semibold text-text-primary mb-1">性格</dt>
               <dd class="leading-6">{{ character.personality }}</dd>
@@ -50,11 +50,13 @@
               <dt class="font-semibold text-text-primary mb-1">与主角的关系</dt>
               <dd class="leading-6">{{ character.relationship_to_protagonist }}</dd>
             </div>
-            
-            <!-- 新增：显示力量体系和境界 -->
+
             <div v-if="character.power_system_id">
-              <dt class="font-semibold text-text-primary mb-1">力量体系</dt>
-              <dd class="leading-6 text-purple-600 font-medium">
+              <dt class="font-semibold text-text-primary mb-1 flex items-center gap-2">
+                力量体系
+                <span class="neon-pulse"></span>
+              </dt>
+              <dd class="leading-6 text-secondary font-medium">
                 {{ getPowerSystemName(character.power_system_id) }}
                 <span v-if="character.current_power_level_id" class="text-text-muted text-sm ml-1">
                   · {{ getPowerLevelName(character.power_system_id, character.current_power_level_id) }}
@@ -64,7 +66,7 @@
           </dl>
         </div>
       </article>
-      <div v-if="!characters.length" class="bg-bg-surface rounded-2xl border border-dashed border-border p-10 text-center text-text-muted">
+      <div v-if="!characters.length" class="character-card--empty">
         暂无角色信息
       </div>
     </div>
@@ -125,3 +127,42 @@ export default defineComponent({
   name: 'CharactersSection'
 })
 </script>
+
+<style scoped>
+.character-card {
+  background-color: var(--ar-bg-surface);
+  border-radius: var(--ar-radius-sm);
+  box-shadow: var(--ar-elevation-1);
+  transition: all var(--ar-duration-medium) var(--ar-easing-standard);
+}
+
+.character-card:hover {
+  background-color: var(--ar-bg-elevated);
+  box-shadow: var(--ar-elevation-glow);
+}
+
+.character-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--ar-radius-sm);
+  background-color: var(--ar-primary-muted);
+  color: var(--ar-primary);
+  font-family: var(--ar-font-display);
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.character-card--empty {
+  background-color: var(--ar-bg-surface);
+  border-radius: var(--ar-radius-sm);
+  border: 1px dashed var(--ar-border);
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--ar-text-muted);
+  font-family: var(--ar-font-ui);
+}
+</style>
