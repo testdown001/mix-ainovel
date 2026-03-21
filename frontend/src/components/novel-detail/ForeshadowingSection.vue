@@ -1,36 +1,36 @@
 <!-- AIMETA P=伏笔区_伏笔管理展示|R=伏笔列表_回收状态|NR=不含分析逻辑|E=component:ForeshadowingSection|X=ui|A=伏笔组件|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="foreshadowing-section">
+  <div class="space-y-5">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--md-warning-container);">
-          <svg class="w-5 h-5" style="color: var(--md-on-warning-container);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <div class="w-10 h-10 rounded-full flex items-center justify-center bg-[rgba(255,229,0,0.1)]">
+          <svg class="w-5 h-5 text-[#FFE500]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         </div>
         <div>
-          <h3 class="md-title-medium" style="color: var(--md-on-surface);">伏笔管理</h3>
-          <p class="md-body-small" style="color: var(--md-on-surface-variant);">追踪故事线索与回收</p>
+          <h3 class="text-base font-semibold text-white">伏笔管理</h3>
+          <p class="text-xs text-[#666]">追踪故事线索与回收</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
         <button
           @click="generateForeshadowings"
-          class="md-btn md-btn-tonal md-ripple px-3 py-1.5 md-label-medium"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#FFE500] bg-[rgba(255,229,0,0.08)] hover:bg-[rgba(255,229,0,0.14)] border border-[rgba(255,229,0,0.2)] rounded-lg transition-colors"
           :disabled="isGenerating || isLoading"
         >
-          <svg v-if="isGenerating" class="w-4 h-4 mr-1.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg v-if="isGenerating" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
-          <svg v-else class="w-4 h-4 mr-1.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg v-else class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
           {{ isGenerating ? 'AI 生成中...' : '同步伏笔' }}
         </button>
         <button
           @click="refreshData"
-          class="md-icon-btn md-ripple"
+          class="w-8 h-8 flex items-center justify-center rounded-lg text-[#555] hover:text-[#888] hover:bg-[#1C1C1C] transition-colors"
           :disabled="isLoading"
         >
           <svg
@@ -48,39 +48,41 @@
     </div>
 
     <!-- Statistics Cards -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">总伏笔</p>
-        <p class="md-headline-small" style="color: var(--md-primary);">{{ totalForeshadowings }}</p>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="bg-[#1C1C1C] border border-[#2A2A2A] rounded-xl p-4 text-center">
+        <p class="text-xs text-[#666] mb-1">总伏笔</p>
+        <p class="text-2xl font-bold text-white">{{ totalForeshadowings }}</p>
       </div>
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">已埋设</p>
-        <p class="md-headline-small" style="color: var(--md-google-yellow);">{{ plantedCount }}</p>
+      <div class="bg-[#1C1C1C] border border-[#2A2A2A] rounded-xl p-4 text-center">
+        <p class="text-xs text-[#666] mb-1">已埋设</p>
+        <p class="text-2xl font-bold text-[#FFE500]">{{ plantedCount }}</p>
       </div>
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">已回收</p>
-        <p class="md-headline-small" style="color: var(--md-google-green);">{{ paidOffCount }}</p>
+      <div class="bg-[#1C1C1C] border border-[#2A2A2A] rounded-xl p-4 text-center">
+        <p class="text-xs text-[#666] mb-1">已回收</p>
+        <p class="text-2xl font-bold text-[#2ED573]">{{ paidOffCount }}</p>
       </div>
-      <div class="md-card md-card-outlined p-4 text-center" style="border-radius: var(--md-radius-md);">
-        <p class="md-label-medium" style="color: var(--md-on-surface-variant);">待回收</p>
-        <p class="md-headline-small" style="color: var(--md-google-red);">{{ overdueCount }}</p>
+      <div class="bg-[#1C1C1C] border border-[#2A2A2A] rounded-xl p-4 text-center">
+        <p class="text-xs text-[#666] mb-1">待回收</p>
+        <p class="text-2xl font-bold text-[#FF4757]">{{ overdueCount }}</p>
       </div>
     </div>
 
     <!-- Status Filter Tabs -->
-    <div class="md-tabs mb-6">
-      <button 
-        v-for="tab in statusTabs" 
+    <div class="flex gap-1 border-b border-[#2A2A2A]">
+      <button
+        v-for="tab in statusTabs"
         :key="tab.key"
         @click="activeTab = tab.key"
-        class="md-tab"
-        :class="{ 'active': activeTab === tab.key }"
+        class="px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px"
+        :class="activeTab === tab.key
+          ? 'border-[#FFE500] text-[#FFE500]'
+          : 'border-transparent text-[#555] hover:text-[#888]'"
       >
         {{ tab.label }}
-        <span 
+        <span
           v-if="getCountByStatus(tab.key) > 0"
-          class="ml-2 px-2 py-0.5 rounded-full md-label-small"
-          :style="{ backgroundColor: tab.color + '20', color: tab.color }"
+          class="ml-1.5 px-1.5 py-0.5 rounded-full text-xs"
+          :style="{ backgroundColor: tab.color + '22', color: tab.color }"
         >
           {{ getCountByStatus(tab.key) }}
         </span>
@@ -89,108 +91,105 @@
 
     <!-- Loading State -->
     <div v-if="isLoading" class="flex flex-col items-center justify-center py-12">
-      <div class="md-spinner"></div>
-      <p class="mt-4 md-body-medium" style="color: var(--md-on-surface-variant);">加载伏笔数据中...</p>
+      <div class="w-8 h-8 border-2 border-[#FFE500] border-t-transparent rounded-full animate-spin"></div>
+      <p class="mt-4 text-sm text-[#666]">加载伏笔数据中...</p>
     </div>
 
     <!-- Error State -->
     <div v-else-if="error" class="flex flex-col items-center justify-center py-12">
-      <div class="w-12 h-12 rounded-full flex items-center justify-center mb-4" style="background-color: var(--md-error-container);">
-        <svg class="w-6 h-6" style="color: var(--md-error);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="w-12 h-12 rounded-full flex items-center justify-center mb-4 bg-[rgba(255,71,87,0.1)]">
+        <svg class="w-6 h-6 text-[#FF4757]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       </div>
-      <p class="md-body-medium" style="color: var(--md-error);">{{ error }}</p>
-      <button @click="refreshData" class="md-btn md-btn-text md-ripple mt-4">重试</button>
+      <p class="text-sm text-[#FF4757]">{{ error }}</p>
+      <button @click="refreshData" class="mt-4 text-sm text-[#FFE500] hover:text-[#FFC300] transition-colors">重试</button>
     </div>
 
     <!-- Empty State -->
     <div v-else-if="filteredForeshadowing.length === 0" class="flex flex-col items-center justify-center py-12">
-      <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4" style="background-color: var(--md-surface-container);">
-        <svg class="w-8 h-8" style="color: var(--md-on-surface-variant);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="w-16 h-16 rounded-full flex items-center justify-center mb-4 bg-[#1C1C1C]">
+        <svg class="w-8 h-8 text-[#444]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
       </div>
-      <p class="md-body-large" style="color: var(--md-on-surface);">
+      <p class="text-sm text-[#666]">
         {{ activeTab === 'all' ? '暂无伏笔记录' : `暂无${statusTabs.find(t => t.key === activeTab)?.label}的伏笔` }}
       </p>
-      <p class="md-body-medium" style="color: var(--md-on-surface-variant);">系统会基于蓝图与章节数据自动维护伏笔</p>
+      <p class="text-xs text-[#444] mt-1">系统会基于蓝图与章节数据自动维护伏笔</p>
     </div>
 
     <!-- Foreshadowing List -->
-    <div v-else class="space-y-4">
-      <div 
-        v-for="item in filteredForeshadowing" 
+    <div v-else class="space-y-3">
+      <div
+        v-for="item in filteredForeshadowing"
         :key="item.id"
-        class="md-card md-card-outlined p-4 transition-all duration-200 hover:shadow-md"
-        style="border-radius: var(--md-radius-md);"
+        class="bg-[#141414] border border-[#2A2A2A] rounded-xl p-4 transition-all duration-200 hover:border-[#3A3A3A]"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="flex-1">
             <!-- Status & Importance -->
             <div class="flex items-center gap-2 mb-2">
               <span
-                class="md-chip md-chip-filter selected px-2 py-1"
-                :style="{ backgroundColor: getStatusColor(item.status) + '20', color: getStatusColor(item.status) }"
+                class="px-2 py-0.5 rounded-full text-xs font-medium"
+                :style="{ backgroundColor: getStatusColor(item.status) + '22', color: getStatusColor(item.status) }"
               >
                 {{ getStatusLabel(item.status) }}
               </span>
-              <span class="md-chip md-chip-assist px-2 py-1">
+              <span class="px-2 py-0.5 rounded-full text-xs font-medium bg-[#1C1C1C] text-[#888] border border-[#2A2A2A]">
                 {{ getImportanceLabel(item.importance) }}
               </span>
             </div>
 
             <!-- Description -->
-            <p class="md-body-medium mb-3" style="color: var(--md-on-surface);">{{ item.description }}</p>
+            <p class="text-sm text-[#bbb] mb-3">{{ item.description }}</p>
 
             <!-- Metadata -->
             <div class="flex flex-wrap gap-4">
               <div class="flex items-center gap-1">
-                <svg class="w-4 h-4" style="color: var(--md-on-surface-variant);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-4 h-4 text-[#444]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                 </svg>
-                <span class="md-body-small" style="color: var(--md-on-surface-variant);">
+                <span class="text-xs text-[#555]">
                   埋设于第{{ item.planted_chapter }}章《{{ item.planted_chapter_title }}》
                 </span>
               </div>
               <div v-if="item.expected_payoff_chapter" class="flex items-center gap-1">
-                <svg class="w-4 h-4" style="color: var(--md-on-surface-variant);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-4 h-4 text-[#444]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <span class="md-body-small" style="color: var(--md-on-surface-variant);">
+                <span class="text-xs text-[#555]">
                   预期回收于第{{ item.expected_payoff_chapter }}章
                 </span>
               </div>
               <div v-if="item.actual_payoff_chapter" class="flex items-center gap-1">
-                <svg class="w-4 h-4" style="color: var(--md-success);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-4 h-4 text-[#2ED573]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
-                <span class="md-body-small" style="color: var(--md-success);">
+                <span class="text-xs text-[#2ED573]">
                   实际回收于第{{ item.actual_payoff_chapter }}章
                 </span>
               </div>
             </div>
             <p
               v-if="item.author_note"
-              class="md-body-small mt-2"
-              style="color: var(--md-on-surface-variant);"
+              class="text-xs text-[#444] mt-2"
             >
               备注：{{ item.author_note }}
             </p>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1.5 flex-shrink-0">
             <button
               @click="startEdit(item)"
-              class="md-btn md-btn-text md-ripple px-3 py-1 md-label-medium"
+              class="px-2.5 py-1 text-xs font-medium text-[#888] hover:text-white hover:bg-[#1C1C1C] rounded-lg transition-colors"
               :disabled="isSubmitting"
             >
               编辑
             </button>
             <button
               @click="deleteForeshadowing(item)"
-              class="md-btn md-ripple px-3 py-1 md-label-medium"
-              style="background-color: var(--md-error-container); color: var(--md-error);"
+              class="px-2.5 py-1 text-xs font-medium text-[#FF4757] bg-[rgba(255,71,87,0.08)] hover:bg-[rgba(255,71,87,0.15)] rounded-lg transition-colors"
               :disabled="isSubmitting"
             >
               删除
@@ -198,38 +197,35 @@
           </div>
         </div>
 
+        <!-- Edit Form -->
         <div
           v-if="editingId === item.id"
-          class="mt-4 pt-4 border-t space-y-3"
-          style="border-color: var(--md-outline-variant);"
+          class="mt-4 pt-4 border-t border-[#2A2A2A] space-y-3"
         >
           <div>
-            <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">伏笔描述</label>
+            <label class="block text-xs font-medium text-[#666] mb-1">伏笔描述</label>
             <textarea
               v-model="editForm.description"
               rows="3"
-              class="w-full px-3 py-2 border rounded-md md-body-medium"
-              style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+              class="w-full px-3 py-2 border border-[#2A2A2A] rounded-lg text-sm bg-[#0A0A0A] text-white placeholder-[#444] focus:border-[#FFE500] focus:outline-none transition-colors resize-none"
             ></textarea>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">预期回收章节</label>
+              <label class="block text-xs font-medium text-[#666] mb-1">预期回收章节</label>
               <input
                 v-model.number="editForm.expected_payoff_chapter"
                 type="number"
                 min="1"
-                class="w-full px-3 py-2 border rounded-md md-body-medium"
-                style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+                class="w-full px-3 py-2 border border-[#2A2A2A] rounded-lg text-sm bg-[#0A0A0A] text-white placeholder-[#444] focus:border-[#FFE500] focus:outline-none transition-colors"
                 placeholder="留空表示不限制"
               />
             </div>
             <div>
-              <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">重要性</label>
+              <label class="block text-xs font-medium text-[#666] mb-1">重要性</label>
               <select
                 v-model="editForm.importance"
-                class="w-full px-3 py-2 border rounded-md md-body-medium"
-                style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+                class="w-full px-3 py-2 border border-[#2A2A2A] rounded-lg text-sm bg-[#0A0A0A] text-white focus:border-[#FFE500] focus:outline-none transition-colors"
               >
                 <option value="short">短期伏笔</option>
                 <option value="medium">中期伏笔</option>
@@ -238,26 +234,25 @@
             </div>
           </div>
           <div>
-            <label class="md-label-medium block mb-1" style="color: var(--md-on-surface-variant);">备注</label>
+            <label class="block text-xs font-medium text-[#666] mb-1">备注</label>
             <textarea
               v-model="editForm.author_note"
               rows="2"
-              class="w-full px-3 py-2 border rounded-md md-body-medium"
-              style="border-color: var(--md-outline-variant); background-color: var(--md-surface); color: var(--md-on-surface);"
+              class="w-full px-3 py-2 border border-[#2A2A2A] rounded-lg text-sm bg-[#0A0A0A] text-white placeholder-[#444] focus:border-[#FFE500] focus:outline-none transition-colors resize-none"
               placeholder="可选"
             ></textarea>
           </div>
           <div class="flex items-center justify-end gap-2">
             <button
               @click="cancelEdit"
-              class="md-btn md-btn-text md-ripple px-3 py-1.5 md-label-medium"
+              class="px-3 py-1.5 text-sm text-[#666] hover:text-[#888] transition-colors"
               :disabled="isSubmitting"
             >
               取消
             </button>
             <button
               @click="updateForeshadowing(item.id)"
-              class="md-btn md-btn-filled md-ripple px-3 py-1.5 md-label-medium"
+              class="px-4 py-1.5 text-sm font-semibold bg-[#FFE500] text-black rounded-lg hover:bg-[#FFC300] transition-colors disabled:opacity-50"
               :disabled="isSubmitting"
             >
               {{ isSubmitting ? '保存中...' : '保存修改' }}
@@ -319,10 +314,10 @@ const editForm = ref({
 })
 
 const statusTabs = [
-  { key: 'all', label: '全部', color: '#5F6368' },
-  { key: 'planted', label: '已埋设', color: '#FBBC04' },
-  { key: 'paid_off', label: '已回收', color: '#34A853' },
-  { key: 'overdue', label: '待回收', color: '#EA4335' }
+  { key: 'all', label: '全部', color: '#888888' },
+  { key: 'planted', label: '已埋设', color: '#FFE500' },
+  { key: 'paid_off', label: '已回收', color: '#2ED573' },
+  { key: 'overdue', label: '待回收', color: '#FF4757' }
 ]
 
 const filteredForeshadowing = computed(() => {
@@ -342,11 +337,11 @@ const getCountByStatus = (status: string) => {
 
 const getStatusColor = (status: string) => {
   const colors: Record<string, string> = {
-    'planted': '#FBBC04',
-    'paid_off': '#34A853',
-    'overdue': '#EA4335'
+    'planted': '#FFE500',
+    'paid_off': '#2ED573',
+    'overdue': '#FF4757'
   }
-  return colors[status] || '#5F6368'
+  return colors[status] || '#888888'
 }
 
 const getStatusLabel = (status: string) => {
@@ -385,7 +380,7 @@ const parseErrorMessage = async (response: Response, fallback: string) => {
 const fetchData = async () => {
   isLoading.value = true
   error.value = null
-  
+
   try {
     const response = await fetch(`/api/novels/${projectId}/foreshadowings/summary`, {
       headers: {
@@ -393,16 +388,14 @@ const fetchData = async () => {
         'Content-Type': 'application/json'
       }
     })
-    
+
     if (!response.ok) {
       let errorMessage = '获取伏笔数据失败'
       try {
         const errorData = await response.json()
-        // 处理 422 错误（参数校验失败）
         if (response.status === 422 && errorData.detail) {
           if (Array.isArray(errorData.detail)) {
-            // FastAPI验证错误格式
-            const errors = errorData.detail.map((err: any) => 
+            const errors = errorData.detail.map((err: any) =>
               `${err.loc?.join('.')} - ${err.msg}`
             ).join('; ')
             errorMessage = `参数校验失败: ${errors}`
@@ -417,7 +410,7 @@ const fetchData = async () => {
       }
       throw new Error(errorMessage)
     }
-    
+
     const data: ForeshadowingResponse = await response.json()
     foreshadowingList.value = data.foreshadowings || []
     totalForeshadowings.value = data.total_foreshadowings
@@ -466,7 +459,6 @@ const generateForeshadowings = async () => {
       throw new Error(errorMessage)
     }
 
-    // 生成成功后刷新列表
     await fetchData()
   } catch (e: any) {
     console.error('伏笔生成错误:', e)

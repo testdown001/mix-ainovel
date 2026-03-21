@@ -37,7 +37,7 @@
     </div>
 
     <!-- 消息提示 -->
-    <div v-if="msg" class="mb-2 p-2 rounded text-xs" :class="msgType === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
+    <div v-if="msg" class="mb-2 p-2 rounded text-xs" :class="msgType === 'success' ? 'bg-[#2ED573]/10 text-[#2ED573]' : 'bg-[#FF4757]/10 text-[#FF4757]'">
       {{ msg }}
     </div>
 
@@ -84,11 +84,11 @@
               @blur="saveScenes"
             ></textarea>
             <div class="flex flex-wrap gap-2 mt-1.5">
-              <span v-if="scene.location" class="text-xs px-1.5 py-0.5 rounded bg-green-50 text-green-600">📍 {{ scene.location }}</span>
-              <span v-if="scene.mood" class="text-xs px-1.5 py-0.5 rounded" :style="`background: ${moodColors[scene.mood] || '#f1f5f9'}20; color: ${moodColors[scene.mood] || '#64748b'};`">
+              <span v-if="scene.location" class="text-xs px-1.5 py-0.5 rounded bg-[#2ED573]/10 text-[#2ED573]">📍 {{ scene.location }}</span>
+              <span v-if="scene.mood" class="text-xs px-1.5 py-0.5 rounded" :style="`background: ${moodColors[scene.mood] || '#888888'}20; color: ${moodColors[scene.mood] || '#888888'};`">
                 🎭 {{ scene.mood }}
               </span>
-              <span v-for="char in (scene.characters || [])" :key="char" class="text-xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600">
+              <span v-for="char in (scene.characters || [])" :key="char" class="text-xs px-1.5 py-0.5 rounded bg-[#1C1C1C] text-[#CCCCCC]">
                 👤 {{ char }}
               </span>
             </div>

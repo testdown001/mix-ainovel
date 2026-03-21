@@ -1,17 +1,17 @@
 <!-- AIMETA P=章节大纲区_大纲展示|R=大纲列表_重新生成|NR=不含编辑功能|E=component:ChapterOutlineSection|X=ui|A=大纲组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="space-y-6">
+  <div class="space-y-5">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-2xl font-bold text-slate-900">章节大纲</h2>
-        <p class="text-sm text-slate-500">故事结构与章节节奏一目了然</p>
+        <h2 class="text-xl font-bold text-white">章节大纲</h2>
+        <p class="text-sm text-[#666] mt-0.5">故事结构与章节节奏一目了然</p>
       </div>
       <div v-if="editable" class="flex items-center gap-2 flex-wrap">
         <template v-if="!batchMode">
           <!-- 生成大纲（新增/续写） -->
           <button
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#2ED573] bg-[rgba(46,213,115,0.08)] hover:bg-[rgba(46,213,115,0.14)] rounded-lg transition-colors"
             :disabled="regenerating"
             @click="handleGenerateFresh"
           >
@@ -27,7 +27,7 @@
           <button
             v-if="uncompletedCount > 0"
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#FFE500] bg-[rgba(255,229,0,0.06)] hover:bg-[rgba(255,229,0,0.12)] rounded-lg transition-colors"
             :disabled="regenerating"
             @click="handleRegenerateUncompleted"
           >
@@ -42,7 +42,7 @@
           <button
             v-if="regeneratedNumbers.size > 0"
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-sky-600 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#06B6D4] bg-[rgba(6,182,212,0.08)] hover:bg-[rgba(6,182,212,0.14)] rounded-lg transition-colors"
             @click="clearRegenerated"
           >
             <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -53,7 +53,7 @@
           <button
             v-if="unpredictedCount > 0"
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-sky-700 bg-sky-50 hover:bg-sky-100 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#06B6D4] bg-[rgba(6,182,212,0.08)] hover:bg-[rgba(6,182,212,0.14)] rounded-lg transition-colors"
             :disabled="regenerating || predictGenerating"
             @click="handleBatchPredict"
           >
@@ -68,7 +68,7 @@
           <button
             v-if="uncompletedCount > 0"
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#A855F7] bg-[rgba(168,85,247,0.08)] hover:bg-[rgba(168,85,247,0.14)] rounded-lg transition-colors"
             :disabled="regenerating || batchGenerating"
             @click="handleBatchGenerate"
           >
@@ -83,7 +83,7 @@
           <button
             v-if="uncompletedCount > 0"
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#FF4757] bg-[rgba(255,71,87,0.08)] hover:bg-[rgba(255,71,87,0.14)] rounded-lg transition-colors"
             @click="enterBatchMode"
           >
             <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -93,7 +93,7 @@
           </button>
           <button
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#FFE500] bg-[rgba(255,229,0,0.08)] hover:bg-[rgba(255,229,0,0.14)] rounded-lg"
             @click="$emit('add')"
           >
             <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
@@ -103,7 +103,7 @@
           </button>
           <button
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 hover:text-indigo-600 transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm text-[#555] hover:text-[#FFE500] transition-colors"
             @click="emitEdit('chapter_outline', '章节大纲', outline)"
           >
             <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -115,10 +115,10 @@
         </template>
         <!-- 批量删除模式工具栏 -->
         <template v-else>
-          <label class="flex items-center gap-2 px-3 py-2 text-sm text-slate-700 cursor-pointer select-none">
+          <label class="flex items-center gap-2 px-3 py-2 text-sm text-[#888] cursor-pointer select-none">
             <input
               type="checkbox"
-              class="h-4 w-4 rounded border-slate-300 text-red-600 focus:ring-red-500"
+              class="h-4 w-4 rounded border-[#2A2A2A] text-red-600 focus:ring-red-500"
               :checked="isAllUncompletedSelected"
               @change="toggleSelectAll"
             />
@@ -126,7 +126,7 @@
           </label>
           <button
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-[#FF4757] hover:bg-[rgba(255,71,87,0.85)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             :disabled="selectedNumbers.size === 0 || deleting"
             @click="handleDeleteSelected"
           >
@@ -140,7 +140,7 @@
           </button>
           <button
             type="button"
-            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            class="flex items-center gap-1 px-3 py-2 text-sm font-medium text-[#888] bg-[#1C1C1C] hover:bg-[#222] rounded-lg transition-colors"
             :disabled="deleting"
             @click="exitBatchMode"
           >
@@ -155,8 +155,8 @@
       v-if="regenerateResult"
       class="flex items-start gap-3 px-4 py-3 rounded-lg text-sm"
       :class="regenerateResult.updated === regenerateResult.total
-        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-        : 'bg-amber-50 text-amber-800 border border-amber-200'"
+        ? 'bg-[rgba(46,213,115,0.06)] text-[#2ED573] border border-[rgba(46,213,115,0.2)]'
+        : 'bg-[rgba(255,229,0,0.06)] text-[#FFE500] border border-[rgba(255,229,0,0.2)]'"
     >
       <svg class="h-5 w-5 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
         <path v-if="regenerateResult.updated === regenerateResult.total" fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
@@ -167,7 +167,7 @@
         <template v-if="regenerateResult.updated < regenerateResult.total">
           有 {{ regenerateResult.total - regenerateResult.updated }} 个章节未能生成，可尝试再次重新生成。
         </template>
-        带有 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-sky-100 text-sky-700">新</span> 标记的是本次更新的大纲。
+        带有 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-[rgba(6,182,212,0.15)] text-[#06B6D4]">新</span> 标记的是本次更新的大纲。
       </span>
       <button
         type="button"
@@ -180,15 +180,15 @@
       </button>
     </div>
 
-    <ol class="relative border-l border-slate-200 ml-3 space-y-8">
+    <ol class="relative border-l border-[#2A2A2A] ml-3 space-y-6">
       <li
         v-for="chapter in sortedOutline"
         :key="chapter.chapter_number"
         class="ml-6"
       >
         <span
-          class="absolute -left-3 mt-1 flex h-6 w-6 items-center justify-center rounded-full text-white text-xs font-semibold"
-          :class="isCompleted(chapter.chapter_number) ? 'bg-emerald-500' : 'bg-indigo-500'"
+          class="absolute -left-3 mt-1 flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold"
+          :class="isCompleted(chapter.chapter_number) ? 'bg-[#2ED573] text-black' : 'bg-[#FFE500] text-black'"
         >
           <template v-if="isCompleted(chapter.chapter_number)">
             <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
@@ -198,15 +198,15 @@
           <template v-else>{{ chapter.chapter_number }}</template>
         </span>
         <div
-          class="rounded-2xl border shadow-sm p-5 transition-all duration-300"
+          class="rounded-2xl border p-5 transition-all duration-300"
           :class="[
             isCompleted(chapter.chapter_number)
-              ? 'bg-emerald-50/50 border-emerald-200'
+              ? 'bg-[rgba(46,213,115,0.04)] border-[rgba(46,213,115,0.18)]'
               : isSelected(chapter.chapter_number)
-                ? 'bg-red-50/60 border-red-300 ring-2 ring-red-200'
+                ? 'bg-[rgba(255,71,87,0.04)] border-[rgba(255,71,87,0.25)] ring-1 ring-[rgba(255,71,87,0.15)]'
                 : isRegenerated(chapter.chapter_number)
-                  ? 'bg-sky-50/60 border-sky-300 ring-2 ring-sky-200'
-                  : 'bg-white/95 border-slate-200'
+                  ? 'bg-[rgba(6,182,212,0.04)] border-[rgba(6,182,212,0.25)] ring-1 ring-[rgba(6,182,212,0.15)]'
+                  : 'bg-[#141414] border-[#2A2A2A]'
           ]"
         >
           <div class="flex items-center justify-between gap-4">
@@ -214,20 +214,20 @@
               <input
                 v-if="batchMode && !isCompleted(chapter.chapter_number)"
                 type="checkbox"
-                class="h-4 w-4 flex-shrink-0 rounded border-slate-300 text-red-600 focus:ring-red-500 cursor-pointer"
+                class="h-4 w-4 flex-shrink-0 rounded border-[#2A2A2A] text-red-600 focus:ring-red-500 cursor-pointer"
                 :checked="isSelected(chapter.chapter_number)"
                 @change="toggleSelect(chapter.chapter_number)"
               />
-              <h3 class="text-lg font-semibold text-slate-900 truncate">{{ chapter.title || `第${chapter.chapter_number}章` }}</h3>
+              <h3 class="text-base font-semibold text-white truncate">{{ chapter.title || `第${chapter.chapter_number}章` }}</h3>
               <span
                 v-if="isCompleted(chapter.chapter_number)"
-                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700"
+                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[rgba(46,213,115,0.12)] text-[#2ED573]"
               >
                 已完成
               </span>
               <span
                 v-if="isRegenerated(chapter.chapter_number)"
-                class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-sky-100 text-sky-700 animate-pulse"
+                class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[rgba(6,182,212,0.12)] text-[#06B6D4] animate-pulse"
               >
                 <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5 2a1 1 0 011 1v1h1a1 1 0 010 2H6v1a1 1 0 01-2 0V6H3a1 1 0 010-2h1V3a1 1 0 011-1zm0 10a1 1 0 011 1v1h1a1 1 0 110 2H6v1a1 1 0 11-2 0v-1H3a1 1 0 110-2h1v-1a1 1 0 011-1zM12 2a1 1 0 01.967.744L14.146 7.2 17.5 9.134a1 1 0 010 1.732l-3.354 1.935-1.18 4.455a1 1 0 01-1.933 0L9.854 12.8 6.5 10.866a1 1 0 010-1.732l3.354-1.935 1.18-4.455A1 1 0 0112 2z" clip-rule="evenodd" />
@@ -236,13 +236,13 @@
               </span>
               <span
                 v-if="chapter.metadata?.prediction"
-                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700"
+                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[rgba(168,85,247,0.12)] text-[#A855F7]"
               >
                 已推演
               </span>
               <span
                 v-else
-                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500"
+                class="flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-[#1C1C1C] text-[#555]"
               >
                 未推演
               </span>
@@ -251,7 +251,7 @@
               <button
                 v-if="editable && !isCompleted(chapter.chapter_number)"
                 type="button"
-                class="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                class="p-1.5 text-[#555] hover:text-[#FFE500] hover:bg-[rgba(255,229,0,0.08)] rounded-lg transition-colors"
                 title="重新生成此章大纲"
                 :disabled="regenerating"
                 @click="handleRegenerateSingle(chapter.chapter_number)"
@@ -260,21 +260,21 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
               </button>
-              <span class="text-xs text-slate-400">#{{ chapter.chapter_number }}</span>
+              <span class="text-xs text-[#444]">#{{ chapter.chapter_number }}</span>
             </div>
           </div>
-          <p class="mt-3 text-sm text-slate-600 leading-6 whitespace-pre-line">{{ chapter.summary || '暂无摘要' }}</p>
+          <p class="mt-3 text-sm text-[#888] leading-6 whitespace-pre-line">{{ chapter.summary || '暂无摘要' }}</p>
 
           <!-- 推演标签和展开按钮 -->
           <div v-if="chapter.metadata?.prediction" class="mt-3">
             <div class="flex items-center gap-1.5 flex-wrap">
-              <span v-if="chapter.metadata.prediction.cool_points?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #F59E0B;">爽</span>
+              <span v-if="chapter.metadata.prediction.cool_points?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-black" style="background-color: #FFE500;">爽</span>
               <span v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #3B82F6;">伏</span>
-              <span v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #10B981;">收</span>
-              <span v-if="getLastBeatType(chapter.metadata.prediction) === 'payoff'" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #EF4444;">爆</span>
+              <span v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-black" style="background-color: #2ED573;">收</span>
+              <span v-if="getLastBeatType(chapter.metadata.prediction) === 'payoff'" class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-semibold text-white" style="background-color: #FF4757;">爆</span>
               <button
                 type="button"
-                class="text-xs text-indigo-600 hover:text-indigo-800 font-medium ml-1 transition-colors"
+                class="text-xs text-[#FFE500] hover:text-[#FFC300] font-medium ml-1 transition-colors"
                 @click="togglePrediction(chapter.chapter_number)"
               >
                 {{ expandedPrediction === chapter.chapter_number ? '收起推演' : '查看推演' }}
@@ -283,61 +283,61 @@
 
             <!-- 推演详情展开区 -->
             <div v-if="expandedPrediction === chapter.chapter_number" class="mt-3 space-y-2 animate-slideDown">
-              <div v-if="chapter.metadata.prediction.key_points?.length" class="bg-blue-50 border border-blue-100 rounded-lg p-3">
-                <h5 class="text-xs font-semibold text-blue-800 mb-1.5">章节要点</h5>
+              <div v-if="chapter.metadata.prediction.key_points?.length" class="bg-[rgba(6,182,212,0.05)] border border-[rgba(6,182,212,0.15)] rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-[#06B6D4] mb-1.5">章节要点</h5>
                 <ul class="space-y-0.5">
-                  <li v-for="(item, i) in chapter.metadata.prediction.key_points" :key="i" class="text-xs text-blue-700 flex gap-1.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.key_points" :key="i" class="text-xs text-[#88CFDA] flex gap-1.5">
                     <span class="shrink-0">•</span>
                     <span>{{ item }}</span>
                   </li>
                 </ul>
               </div>
-              <div v-if="chapter.metadata.prediction.cool_points?.length" class="bg-amber-50 border border-amber-100 rounded-lg p-3">
-                <h5 class="text-xs font-semibold text-amber-800 mb-1.5">✨ 爽点设计</h5>
+              <div v-if="chapter.metadata.prediction.cool_points?.length" class="bg-[rgba(255,229,0,0.04)] border border-[rgba(255,229,0,0.15)] rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-[#FFE500] mb-1.5">✨ 爽点设计</h5>
                 <ul class="space-y-0.5">
-                  <li v-for="(item, i) in chapter.metadata.prediction.cool_points" :key="i" class="text-xs text-amber-700 flex gap-1.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.cool_points" :key="i" class="text-xs text-[#D4BA00] flex gap-1.5">
                     <span class="shrink-0">⚡</span>
                     <span>{{ item }}</span>
                   </li>
                 </ul>
               </div>
-              <div v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="bg-indigo-50 border border-indigo-100 rounded-lg p-3">
-                <h5 class="text-xs font-semibold text-indigo-800 mb-1.5">🪝 伏笔/钩子</h5>
+              <div v-if="chapter.metadata.prediction.foreshadowing_hooks?.length" class="bg-[rgba(99,102,241,0.05)] border border-[rgba(99,102,241,0.15)] rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-[#818CF8] mb-1.5">🪝 伏笔/钩子</h5>
                 <ul class="space-y-0.5">
-                  <li v-for="(item, i) in chapter.metadata.prediction.foreshadowing_hooks" :key="i" class="text-xs text-indigo-700 flex gap-1.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.foreshadowing_hooks" :key="i" class="text-xs text-[#7C83E0] flex gap-1.5">
                     <span class="shrink-0">🪝</span>
                     <span>{{ item }}</span>
                   </li>
                 </ul>
               </div>
-              <div v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="bg-green-50 border border-green-100 rounded-lg p-3">
-                <h5 class="text-xs font-semibold text-green-800 mb-1.5">🎯 需回收伏笔</h5>
+              <div v-if="chapter.metadata.prediction.foreshadowing_targets?.length" class="bg-[rgba(46,213,115,0.04)] border border-[rgba(46,213,115,0.15)] rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-[#2ED573] mb-1.5">🎯 需回收伏笔</h5>
                 <ul class="space-y-0.5">
-                  <li v-for="(item, i) in chapter.metadata.prediction.foreshadowing_targets" :key="i" class="text-xs text-green-700 flex gap-1.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.foreshadowing_targets" :key="i" class="text-xs text-[#27BE65] flex gap-1.5">
                     <span class="shrink-0">🎯</span>
                     <span>{{ item }}</span>
                   </li>
                 </ul>
               </div>
-              <div v-if="chapter.metadata.prediction.limitations?.length" class="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                <h5 class="text-xs font-semibold text-slate-700 mb-1.5">⚠️ 章节限制</h5>
+              <div v-if="chapter.metadata.prediction.limitations?.length" class="bg-[#1C1C1C] border border-[#2A2A2A] rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-[#bbb] mb-1.5">⚠️ 章节限制</h5>
                 <ul class="space-y-0.5">
-                  <li v-for="(item, i) in chapter.metadata.prediction.limitations" :key="i" class="text-xs text-slate-600 flex gap-1.5">
+                  <li v-for="(item, i) in chapter.metadata.prediction.limitations" :key="i" class="text-xs text-[#888] flex gap-1.5">
                     <span class="shrink-0">⚠</span>
                     <span>{{ item }}</span>
                   </li>
                 </ul>
               </div>
-              <div v-if="chapter.metadata.prediction.beats?.length" class="bg-purple-50 border border-purple-100 rounded-lg p-3">
-                <h5 class="text-xs font-semibold text-purple-800 mb-1.5">节拍编排</h5>
+              <div v-if="chapter.metadata.prediction.beats?.length" class="bg-[rgba(168,85,247,0.04)] border border-[rgba(168,85,247,0.15)] rounded-lg p-3">
+                <h5 class="text-xs font-semibold text-[#A855F7] mb-1.5">节拍编排</h5>
                 <div class="space-y-1">
                   <div v-for="(beat, i) in chapter.metadata.prediction.beats" :key="i" class="flex items-start gap-1.5 text-xs">
                     <span class="shrink-0 w-4 h-4 rounded-full text-[9px] flex items-center justify-center text-white font-medium"
                           :style="{ backgroundColor: beatColorMap[beat.type] || '#6B7280' }">{{ i + 1 }}</span>
                     <div>
-                      <span class="font-medium" :style="{ color: beatColorMap[beat.type] || '#6B7280' }">{{ beatLabelMap[beat.type] || beat.type }}</span>
-                      <span class="text-slate-600 ml-1">{{ beat.content }}</span>
-                      <span class="text-slate-400 ml-1">({{ beat.emotion }})</span>
+                      <span class="font-medium" :style="{ color: beatColorMap[beat.type] || '#888' }">{{ beatLabelMap[beat.type] || beat.type }}</span>
+                      <span class="text-[#888] ml-1">{{ beat.content }}</span>
+                      <span class="text-[#555] ml-1">({{ beat.emotion }})</span>
                     </div>
                   </div>
                 </div>
@@ -353,7 +353,7 @@
           />
         </div>
       </li>
-      <li v-if="!sortedOutline.length" class="ml-6 text-slate-400 text-sm">暂无章节大纲</li>
+      <li v-if="!sortedOutline.length" class="ml-6 text-[#555] text-sm">暂无章节大纲</li>
     </ol>
   </div>
 </template>
@@ -394,7 +394,7 @@ const props = defineProps<{
 }>()
 
 const regenerating = ref(false)
-const freshGenerating = ref(false) // 区分是"生成"还是"重新生成"
+const freshGenerating = ref(false)
 const regeneratedNumbers = ref<Set<number>>(new Set())
 const regenerateResult = ref<{ updated: number; total: number } | null>(null)
 const batchMode = ref(false)
@@ -406,7 +406,7 @@ const deleting = ref(false)
 const expandedPrediction = ref<number | null>(null)
 
 const beatColorMap: Record<string, string> = {
-  setup: '#6B7280', provoke: '#F59E0B', twist: '#8B5CF6', payoff: '#EF4444', hook: '#3B82F6'
+  setup: '#6B7280', provoke: '#FFE500', twist: '#A855F7', payoff: '#FF4757', hook: '#3B82F6'
 }
 const beatLabelMap: Record<string, string> = {
   setup: '铺垫', provoke: '激化', twist: '转折', payoff: '爆发', hook: '悬念'
@@ -421,7 +421,6 @@ const togglePrediction = (chapterNumber: number) => {
   expandedPrediction.value = expandedPrediction.value === chapterNumber ? null : chapterNumber
 }
 
-// 按 chapter_number 排序，防止显示乱序
 const sortedOutline = computed(() =>
   [...props.outline].sort((a, b) => a.chapter_number - b.chapter_number)
 )
@@ -511,7 +510,6 @@ const handleBatchGenerate = () => {
     alert(`请输入 1-${maxCount} 之间的正整数`)
     return
   }
-  // 取前 count 个未完成章节
   const chapters = uncompletedNumbers.value.slice(0, count)
   emit('batch-generate', { chapterNumbers: chapters })
 }
@@ -526,7 +524,6 @@ const markRegenerated = (updatedChapters: number[], totalTarget: number) => {
   regenerateResult.value = { updated: updatedChapters.length, total: totalTarget }
 }
 
-// 批量删除相关
 const uncompletedNumbers = computed(() =>
   sortedOutline.value
     .filter(o => !completedNumbers.value.has(o.chapter_number))
@@ -613,13 +610,7 @@ export default defineComponent({
 }
 
 @keyframes slideDown {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

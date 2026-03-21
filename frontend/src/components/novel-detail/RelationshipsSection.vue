@@ -1,24 +1,24 @@
 <!-- AIMETA P=关系区_角色关系展示|R=关系图谱|NR=不含编辑功能|E=component:RelationshipsSection|X=ui|A=关系组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="space-y-6">
+  <div class="space-y-5">
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="text-2xl font-bold text-slate-900">人物关系</h2>
-        <p class="text-sm text-slate-500">角色之间的纽带与冲突</p>
+        <h2 class="text-xl font-bold text-white">人物关系</h2>
+        <p class="text-sm text-[#666] mt-0.5">角色之间的纽带与冲突</p>
       </div>
       <div class="flex items-center gap-2">
         <!-- 视图切换 -->
-        <div class="flex rounded-lg overflow-hidden border border-slate-200">
+        <div class="flex rounded-lg overflow-hidden border border-[#2A2A2A]">
           <button
             class="px-3 py-1.5 text-sm font-medium transition-colors"
-            :class="viewMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            :class="viewMode === 'list' ? 'bg-[#FFE500] text-black' : 'bg-[#141414] text-[#666] hover:bg-[#1C1C1C]'"
             @click="viewMode = 'list'"
           >
             📋 列表
           </button>
           <button
             class="px-3 py-1.5 text-sm font-medium transition-colors"
-            :class="viewMode === 'graph' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+            :class="viewMode === 'graph' ? 'bg-[#FFE500] text-black' : 'bg-[#141414] text-[#666] hover:bg-[#1C1C1C]'"
             @click="viewMode = 'graph'"
           >
             🔗 图谱
@@ -27,7 +27,7 @@
         <button
           v-if="editable"
           type="button"
-          class="text-gray-400 hover:text-indigo-600 transition-colors"
+          class="text-[#555] hover:text-[#FFE500] transition-colors"
           @click="emitEdit('relationships', '人物关系', data?.relationships)">
           <svg class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
             <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
@@ -39,32 +39,32 @@
 
     <!-- 列表视图 -->
     <template v-if="viewMode === 'list'">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div
           v-for="(relation, index) in relationships"
           :key="index"
-          class="bg-white/95 rounded-2xl border border-slate-200 shadow-sm p-6">
+          class="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6">
           <div class="flex items-center justify-between">
             <div class="flex items-center space-x-3">
-              <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-semibold">
+              <div class="w-10 h-10 rounded-full bg-[#1C1C1C] border border-[#2A2A2A] flex items-center justify-center text-[#FFE500] font-semibold text-sm">
                 {{ relation.character_from?.slice(0, 1) || '角' }}
               </div>
-              <span class="font-semibold text-slate-900 truncate">{{ relation.character_from || '未知角色' }}</span>
+              <span class="font-semibold text-white truncate text-sm">{{ relation.character_from || '未知角色' }}</span>
             </div>
-            <svg class="text-slate-400" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            <svg class="text-[#444] flex-shrink-0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
             <div class="flex items-center space-x-3">
-              <span class="font-semibold text-slate-900 truncate">{{ relation.character_to || '未知角色' }}</span>
-              <div class="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 font-semibold">
+              <span class="font-semibold text-white truncate text-sm">{{ relation.character_to || '未知角色' }}</span>
+              <div class="w-10 h-10 rounded-full bg-[rgba(46,213,115,0.1)] border border-[rgba(46,213,115,0.2)] flex items-center justify-center text-[#2ED573] font-semibold text-sm">
                 {{ relation.character_to?.slice(0, 1) || '角' }}
               </div>
             </div>
           </div>
-          <div class="mt-4 bg-slate-50 border border-slate-100 rounded-xl p-4 text-center">
-            <p class="text-sm font-semibold text-slate-700">{{ relation.relationship_type || '关系' }}</p>
-            <p class="text-xs text-slate-500 leading-5 mt-1">{{ relation.description || '暂无描述' }}</p>
+          <div class="mt-4 bg-[#1C1C1C] border border-[#2A2A2A] rounded-xl p-4 text-center">
+            <p class="text-sm font-semibold text-white">{{ relation.relationship_type || '关系' }}</p>
+            <p class="text-xs text-[#888] leading-5 mt-1">{{ relation.description || '暂无描述' }}</p>
           </div>
         </div>
-        <div v-if="!relationships.length" class="bg-white/95 rounded-2xl border border-dashed border-slate-300 p-10 text-center text-slate-400">
+        <div v-if="!relationships.length" class="bg-[#141414] rounded-2xl border border-dashed border-[#2A2A2A] p-10 text-center text-[#555]">
           暂无人际关系信息
         </div>
       </div>
