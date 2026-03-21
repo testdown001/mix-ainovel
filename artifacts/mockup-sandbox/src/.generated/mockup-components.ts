@@ -4,6 +4,7 @@ export const modules: ModuleMap = {
   "./components/mockups/novel-ui/Login.tsx": () => import("../components/mockups/novel-ui/Login.tsx"),
   "./components/mockups/novel-ui/NovelDetail.tsx": () => import("../components/mockups/novel-ui/NovelDetail.tsx"),
   "./components/mockups/novel-ui/NovelWorkspace.tsx": () => import("../components/mockups/novel-ui/NovelWorkspace.tsx"),
+  "./components/mockups/novel-ui/Pricing.tsx": () => import("../components/mockups/novel-ui/Pricing.tsx"),
   "./components/mockups/novel-ui/Register.tsx": () => import("../components/mockups/novel-ui/Register.tsx"),
   "./components/mockups/novel-ui/Settings.tsx": () => import("../components/mockups/novel-ui/Settings.tsx"),
   "./components/mockups/novel-ui/WorkspaceArcMap.tsx": () => import("../components/mockups/novel-ui/WorkspaceArcMap.tsx"),
