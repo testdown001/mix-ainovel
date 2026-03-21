@@ -1,123 +1,134 @@
 <!-- AIMETA P=灵感模式_AI对话创作|R=对话创作界面|NR=不含写作台功能|E=route:/inspiration#component:InspirationMode|X=ui|A=对话界面|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="flex items-center justify-center min-h-screen p-4">
+  <div class="flex items-center justify-center min-h-screen p-4" style="background: #0A0A0A;">
     <div class="w-full max-w-6xl mx-auto">
       <!-- 灵感模式入口界面 -->
-      <div v-if="!conversationStarted" class="text-center p-8 bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg fade-in">
-        <h1 class="text-4xl md:text-5xl font-bold text-gray-800">小说家的新篇章</h1>
-        <p class="text-lg text-gray-600 mt-4 mb-8">
-          准备好释放你的创造力了吗？让AI引导你，一步步构建出独一无二的故事世界。
-        </p>
+      <div v-if="!conversationStarted" class="fade-in" style="background: #141414; border: 1px solid #2A2A2A; border-radius: 20px; padding: 48px 40px; max-width: 760px; margin: 0 auto;">
+        <!-- Header -->
+        <div class="text-center mb-10">
+          <div style="display: inline-flex; align-items: center; gap: 10px; margin-bottom: 20px; padding: 8px 20px; background: #1C1C1C; border: 1px solid #2A2A2A; border-radius: 999px;">
+            <span style="color: #FFE500; font-size: 16px;">💡</span>
+            <span style="color: #888; font-size: 13px; font-weight: 500;">灵感模式</span>
+          </div>
+          <h1 style="font-family: 'Space Grotesk', sans-serif; font-size: 40px; font-weight: 900; color: #fff; line-height: 1.15; margin-bottom: 12px;">
+            小说家的<span style="color: #FFE500;">新篇章</span>
+          </h1>
+          <p style="color: #888; font-size: 15px; line-height: 1.7; max-width: 480px; margin: 0 auto;">
+            准备好释放你的创造力了吗？让AI引导你，一步步构建出独一无二的故事世界。
+          </p>
+        </div>
+
+        <!-- Reference novel input -->
         <ReferenceNovelInput
           v-model="referenceNovels"
           :search-status="referenceSearchStatus"
           :status-message="referenceSearchMessage"
           @library-selection-change="handleLibrarySelectionChange"
         />
-        <div v-if="librarySelectionsWithNames.length" class="reference-selection-hint">
+
+        <div v-if="librarySelectionsWithNames.length" style="margin-top: 8px; font-size: 13px; color: #888;">
           已从库中选择参考小说：
-          <strong>{{ librarySelectionsWithNames.join(' / ') }}</strong>
+          <strong style="color: #FFE500;">{{ librarySelectionsWithNames.join(' / ') }}</strong>
         </div>
-        <div v-if="boundReferenceNovels.length" class="reference-bound-panel">
-          <p>当前项目已绑定的参考小说：</p>
-          <div class="reference-bound-list">
-            <span v-for="novel in boundReferenceNovels" :key="novel.id" class="reference-chip">
-              <span class="reference-chip-title">{{ novel.title }}</span>
-              <span class="reference-chip-status">{{ novel.status }}</span>
+
+        <div v-if="boundReferenceNovels.length" style="margin-top: 12px; background: #1C1C1C; border: 1px dashed #2A2A2A; padding: 12px 14px; border-radius: 12px;">
+          <p style="margin: 0 0 6px; font-size: 12px; color: #888;">当前项目已绑定的参考小说：</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <span v-for="novel in boundReferenceNovels" :key="novel.id" style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px; background: #141414; border: 1px solid #2A2A2A; font-size: 13px; color: #fff;">
+              <span style="font-weight: 600;">{{ novel.title }}</span>
+              <span style="font-size: 11px; padding: 1px 6px; border-radius: 999px; background: #FFE50022; color: #FFE500;">{{ novel.status }}</span>
             </span>
           </div>
         </div>
-        <!-- 创作禁区（可折叠） -->
-        <div class="mt-4 mb-6 max-w-xl mx-auto text-left">
+
+        <!-- 创作禁区 (collapsible) -->
+        <div style="margin-top: 20px; margin-bottom: 28px;">
           <button
             @click="showExclusions = !showExclusions"
-            class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            style="display: flex; align-items: center; gap: 6px; background: none; border: none; cursor: pointer; color: #888; font-size: 14px; padding: 0;"
           >
             <svg
-              class="w-4 h-4 transition-transform duration-200"
-              :class="{ 'rotate-90': showExclusions }"
-              fill="currentColor"
-              viewBox="0 0 20 20"
+              style="width: 14px; height: 14px; transition: transform 0.2s; flex-shrink: 0;"
+              :style="{ transform: showExclusions ? 'rotate(90deg)' : 'rotate(0deg)' }"
+              fill="currentColor" viewBox="0 0 20 20"
             >
               <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
             </svg>
             创作禁区（可选）
           </button>
-          <div v-if="showExclusions" class="mt-2">
+          <div v-if="showExclusions" style="margin-top: 10px;">
             <textarea
               v-model="exclusions"
               placeholder="例如：不要后宫、不要重生穿越、禁止无脑打脸升级..."
               rows="3"
-              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 resize-none bg-white/80 placeholder-gray-400"
+              style="width: 100%; padding: 12px 14px; font-size: 13px; background: #1C1C1C; border: 1px solid #2A2A2A; border-radius: 12px; color: #fff; outline: none; resize: none; box-sizing: border-box;"
             />
-            <p class="mt-1 text-xs text-gray-400">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
+            <p style="margin-top: 6px; font-size: 12px; color: #888;">AI 将在整个概念对话和蓝图生成中遵守这些限制</p>
           </div>
         </div>
-        <button
-          @click="startConversation"
-          :disabled="novelStore.isLoading || isPreparingConversation"
-          class="bg-indigo-500 text-white font-bold py-3 px-8 rounded-full hover:bg-indigo-600 transition-all duration-300 transform hover:scale-105 shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-300 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
-        </button>
-        <button
-          @click="goBack"
-          class="mt-4 block mx-auto text-gray-500 hover:text-gray-800 transition-colors"
-        >
-          返回
-        </button>
+
+        <!-- CTA -->
+        <div class="text-center">
+          <button
+            @click="startConversation"
+            :disabled="novelStore.isLoading || isPreparingConversation"
+            style="background: #FFE500; color: #000; font-weight: 700; font-size: 16px; padding: 14px 48px; border-radius: 999px; border: none; cursor: pointer; transition: opacity 0.2s; font-family: 'Space Grotesk', sans-serif;"
+            :style="{ opacity: (novelStore.isLoading || isPreparingConversation) ? 0.5 : 1, cursor: (novelStore.isLoading || isPreparingConversation) ? 'not-allowed' : 'pointer' }"
+          >
+            {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '⚡ 开启灵感模式' }}
+          </button>
+          <br>
+          <button
+            @click="goBack"
+            style="margin-top: 16px; background: none; border: none; cursor: pointer; color: #888; font-size: 14px; display: inline-block;"
+          >
+            返回
+          </button>
+        </div>
       </div>
 
       <!-- 灵感模式交互界面 -->
       <div
         v-else-if="!showBlueprintConfirmation && !showBlueprint"
-        class="h-[90vh] max-h-[950px] flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden fade-in"
+        class="fade-in"
+        style="height: 90vh; max-height: 950px; display: flex; flex-direction: column; background: #141414; border: 1px solid #2A2A2A; border-radius: 20px; overflow: hidden;"
       >
         <!-- 头部 -->
-        <div class="p-4 border-b border-gray-200">
-          <div class="flex justify-between items-center">
-            <div class="flex items-center gap-2">
-              <span class="relative flex h-3 w-3">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-              </span>
-              <span class="text-sm font-medium text-indigo-600">与“文思”对话中...</span>
-            </div>
-            <div class="flex items-center gap-4">
-              <span v-if="currentTurn > 0" class="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
-                第 {{ currentTurn }} 轮
-              </span>
-              <button
-                @click="handleRestart"
-                title="重新开始"
-                class="text-gray-400 hover:text-indigo-600 transition-colors"
-              >
-                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-                </svg>
-              </button>
-              <button
-                @click="exitConversation"
-                title="返回首页"
-                class="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+        <div style="padding: 14px 20px; border-bottom: 1px solid #1C1C1C; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="position: relative; display: inline-flex; width: 10px; height: 10px;">
+              <span style="position: absolute; inset: 0; border-radius: 50%; background: #FFE500; opacity: 0.6; animation: ping 1.5s ease-in-out infinite;"></span>
+              <span style="position: relative; border-radius: 50%; width: 10px; height: 10px; background: #FFE500; display: block;"></span>
+            </span>
+            <span style="font-size: 14px; font-weight: 600; color: #FFE500;">与"文思"对话中...</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span v-if="currentTurn > 0" style="font-size: 13px; color: #888; background: #1C1C1C; padding: 4px 10px; border-radius: 8px;">
+              第 {{ currentTurn }} 轮
+            </span>
+            <button
+              @click="handleRestart"
+              title="重新开始"
+              style="background: none; border: none; cursor: pointer; color: #888; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px;"
+            >
+              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+              </svg>
+            </button>
+            <button
+              @click="exitConversation"
+              title="返回首页"
+              style="background: none; border: none; cursor: pointer; color: #888; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px;"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
 
         <!-- 聊天区域 -->
-        <div class="flex-1 p-6 overflow-y-auto space-y-6 relative" ref="chatArea">
+        <div style="flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px;" ref="chatArea">
           <transition name="fade">
             <InspirationLoading v-if="isInitialLoading" />
           </transition>
@@ -130,7 +141,7 @@
         </div>
 
         <!-- 输入区域 -->
-        <div class="p-4 border-t border-gray-200 bg-gray-50">
+        <div style="padding: 16px 20px; border-top: 1px solid #1C1C1C; background: #0D0D0D; flex-shrink: 0;">
           <ConversationInput
             :ui-control="currentUIControl"
             :loading="novelStore.isLoading"
@@ -278,7 +289,6 @@ const bindReferencesIfNeeded = async () => {
   }
 }
 
-// 清空所有状态，开始新的灵感对话
 const resetInspirationMode = (options: { keepReferenceNovels?: boolean } = {}) => {
   conversationStarted.value = false
   isPreparingConversation.value = false
@@ -300,7 +310,6 @@ const resetInspirationMode = (options: { keepReferenceNovels?: boolean } = {}) =
   exclusions.value = ''
   showExclusions.value = false
 
-  // 清空 store 中的当前项目和对话状态
   novelStore.setCurrentProject(null)
   novelStore.currentConversationState = {}
 }
@@ -327,7 +336,6 @@ const backToConversation = () => {
 const startConversation = async () => {
   const selectedReferenceNovels = [...normalizedReferenceNovels.value]
 
-  // 重置所有状态，开始全新的对话
   resetInspirationMode({ keepReferenceNovels: true })
   isPreparingConversation.value = true
 
@@ -359,7 +367,6 @@ const startConversation = async () => {
     conversationStarted.value = true
     isInitialLoading.value = true
 
-    // 发起第一次对话
     await handleUserInput(null, {
       referenceNovels: selectedReferenceNovels,
       referenceContext: referenceContext.value
@@ -367,7 +374,7 @@ const startConversation = async () => {
   } catch (error) {
     console.error('启动灵感模式失败:', error)
     globalAlert.showError(`无法开始灵感模式: ${error instanceof Error ? error.message : '未知错误'}`, '启动失败')
-    resetInspirationMode({ keepReferenceNovels: true }) // 失败时保留参考小说输入
+    resetInspirationMode({ keepReferenceNovels: true })
   } finally {
     isPreparingConversation.value = false
   }
@@ -387,7 +394,7 @@ const restoreConversation = async (projectId: string) => {
           } catch {
             return { content: item.content, type: 'user' }
           }
-        } else { // assistant
+        } else {
           try {
             const assistantOutput = JSON.parse(item.content)
             return { content: assistantOutput.ai_message, type: 'ai' }
@@ -395,22 +402,19 @@ const restoreConversation = async (projectId: string) => {
             return { content: item.content, type: 'ai' }
           }
         }
-      }).filter((msg): msg is ChatMessage => msg !== null && msg.content !== null) // 过滤掉空的 user message
+      }).filter((msg): msg is ChatMessage => msg !== null && msg.content !== null)
 
       const lastAssistantMsgStr = project.conversation_history.filter(m => m.role === 'assistant').pop()?.content
       if (lastAssistantMsgStr) {
         const lastAssistantMsg = JSON.parse(lastAssistantMsgStr)
         
         if (lastAssistantMsg.is_complete) {
-          // 如果对话已完成，直接显示蓝图确认界面
           confirmationMessage.value = lastAssistantMsg.ai_message
           showBlueprintConfirmation.value = true
         } else {
-          // 否则，恢复对话
           currentUIControl.value = lastAssistantMsg.ui_control
         }
       }
-      // 计算当前轮次
       currentTurn.value = project.conversation_history.filter(m => m.role === 'assistant').length
       await scrollToBottom()
     }
@@ -430,7 +434,6 @@ const handleUserInput = async (
   } = {}
 ) => {
   try {
-    // 如果有用户输入，添加到聊天记录
     if (userInput && userInput.value) {
       chatMessages.value.push({
         content: userInput.value,
@@ -446,12 +449,10 @@ const handleUserInput = async (
     }
     const response = await novelStore.sendConversation(userInput, mergedOptions)
 
-    // 首次加载完成后，关闭加载动画
     if (isInitialLoading.value) {
       isInitialLoading.value = false
     }
 
-    // 添加AI回复到聊天记录
     chatMessages.value.push({
       content: response.ai_message,
       type: 'ai'
@@ -461,24 +462,19 @@ const handleUserInput = async (
     await scrollToBottom()
 
     if (response.is_complete && response.ready_for_blueprint) {
-      // 对话完成，显示蓝图确认界面
       confirmationMessage.value = response.ai_message
       showBlueprintConfirmation.value = true
     } else if (response.is_complete) {
-      // 向后兼容：直接生成蓝图（如果后端还没更新）
       await handleGenerateBlueprint()
     } else {
-      // 继续对话
       currentUIControl.value = response.ui_control
     }
   } catch (error) {
     console.error('对话失败:', error)
-    // 确保在出错时也停止初始加载状态
     if (isInitialLoading.value) {
       isInitialLoading.value = false
     }
     globalAlert.showError(`抱歉，与AI连接时遇到问题: ${error instanceof Error ? error.message : '未知错误'}`, '通信失败')
-    // 停止加载并返回初始界面
     resetInspirationMode()
   }
 }
@@ -514,7 +510,6 @@ const handleConfirmBlueprint = async () => {
   }
   try {
     await novelStore.saveBlueprint(completedBlueprint.value)
-    // 跳转到写作工作台
     if (novelStore.currentProject) {
       router.push(`/novel/${novelStore.currentProject.id}`)
     }
@@ -536,65 +531,14 @@ onMounted(() => {
   if (projectId) {
     restoreConversation(projectId)
   } else {
-    // 每次进入灵感模式都重置状态，确保没有缓存
     resetInspirationMode()
   }
 })
 </script>
 
 <style scoped>
-.reference-selection-hint {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: #475569;
-}
-
-.reference-selection-hint strong {
-  color: #0f172a;
-}
-
-.reference-bound-panel {
-  margin-top: 0.75rem;
-  background: #f8fafc;
-  border: 1px dashed #cbd5f5;
-  padding: 0.75rem;
-  border-radius: 0.75rem;
-}
-
-.reference-bound-panel p {
-  margin: 0 0 0.25rem;
-  font-size: 0.75rem;
-  color: #475569;
-}
-
-.reference-bound-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.reference-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: 999px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  font-size: 0.8rem;
-  color: #0f172a;
-}
-
-.reference-chip-title {
-  font-weight: 600;
-}
-
-.reference-chip-status {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.4rem;
-  border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
-  text-transform: capitalize;
+@keyframes ping {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.6); opacity: 0; }
 }
 </style>

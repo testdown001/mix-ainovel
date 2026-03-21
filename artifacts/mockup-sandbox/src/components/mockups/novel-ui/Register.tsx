@@ -1,137 +1,130 @@
 export default function Register() {
   const features = [
-    { icon: '🤖', title: 'AI编辑团队，全程陪伴', desc: '智能AI助手贯穿整个创作流程，随时提供灵感与建议' },
-    { icon: '⚡', title: '章节自动生成', desc: '一键生成高质量章节内容，保持风格一致性' },
-    { icon: '🌍', title: '角色/世界观管理', desc: '结构化管理你的人物关系与世界设定，不再混乱' },
+    { icon: '🤖', check: true, title: 'AI编辑团队，全程陪伴', desc: '智能AI助手贯穿整个创作流程，随时提供灵感与建议' },
+    { icon: '⚡', check: true, title: '章节自动生成', desc: '一键生成高质量章节内容，风格统一，逻辑连贯' },
+    { icon: '🌍', check: true, title: '角色/世界观管理', desc: '结构化管理你的人物关系与世界设定，不再混乱' },
   ]
-
   return (
-    <div className="flex h-screen w-full overflow-hidden" style={{ background: '#0A0A0A', fontFamily: 'Inter, sans-serif' }}>
-      {/* Left feature panel */}
-      <div className="relative hidden lg:flex lg:w-3/5 flex-col justify-between p-14 overflow-hidden" style={{ background: '#0F0F0F' }}>
-        {/* Grid */}
-        <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.07 }} xmlns="http://www.w3.org/2000/svg">
+    <div style={{ display: 'flex', height: '100vh', background: '#0A0A0A', fontFamily: "'Inter', sans-serif", overflow: 'hidden' }}>
+      {/* Left Features Panel 60% */}
+      <div style={{ flex: '0 0 60%', position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '64px 72px', overflow: 'hidden' }}>
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="grid2" width="60" height="60" patternUnits="userSpaceOnUse">
-              <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#FFE500" strokeWidth="0.8"/>
+              <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#FFE500" strokeWidth="0.4" opacity="0.1"/>
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#grid2)"/>
+          <rect width="100%" height="100%" fill="url(#grid2)" />
         </svg>
-        <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.12 }} xmlns="http://www.w3.org/2000/svg">
-          <line x1="100%" y1="100%" x2="0" y2="0" stroke="#FFE500" strokeWidth="1.5"/>
-          <line x1="110%" y1="80%" x2="20%" y2="-10%" stroke="#FFE500" strokeWidth="0.6"/>
-        </svg>
-        <div className="absolute" style={{ top: '35%', left: '55%', width: 360, height: 360, borderRadius: '50%', background: 'radial-gradient(circle, #FFE500 0%, transparent 70%)', opacity: 0.07, transform: 'translate(-50%, -50%)' }}/>
+        <div style={{ position: 'absolute', top: -80, right: -80, width: 350, height: 350, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,229,0,0.07) 0%, transparent 70%)' }}/>
+        <div style={{ position: 'absolute', bottom: -60, left: -60, width: 280, height: 280, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,229,0,0.05) 0%, transparent 70%)' }}/>
 
-        {/* Brand */}
-        <div className="relative z-10 flex items-center gap-3">
-          <span style={{ color: '#FFE500', fontSize: 26, fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700 }}>✦</span>
-          <span style={{ color: '#fff', fontSize: 20, fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700 }}>Arboris Novel</span>
-        </div>
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          {/* Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 64 }}>
+            <div style={{ width: 44, height: 44, background: '#FFE500', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: '#000', fontFamily: "'Space Grotesk', sans-serif" }}>✦</div>
+            <div>
+              <div style={{ color: '#fff', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 18, lineHeight: 1 }}>Arboris Novel</div>
+              <div style={{ color: '#FFE500', fontSize: 11, fontWeight: 600, letterSpacing: 1 }}>AI创作助手</div>
+            </div>
+          </div>
 
-        {/* Heading */}
-        <div className="relative z-10 flex-1 flex flex-col justify-center">
-          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 900, fontSize: 52, lineHeight: 1.1, color: '#fff', marginBottom: 12 }}>
-            开始你的<br/>
-            <span style={{ color: '#FFE500' }}>创作之旅</span>
+          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, fontSize: 52, lineHeight: 1.1, color: '#fff', margin: '0 0 16px', letterSpacing: -1 }}>
+            开始你的<br/><span style={{ color: '#FFE500' }}>创作之旅</span>
           </h1>
-          <p style={{ color: '#888', fontSize: 16, marginBottom: 48, maxWidth: 380, lineHeight: 1.7 }}>
-            加入 10,000+ 创作者，用 AI 的力量让故事鲜活起来。
+          <p style={{ color: '#777', fontSize: 16, lineHeight: 1.7, margin: '0 0 48px', maxWidth: 400 }}>
+            加入数千名创作者，用AI的力量让每个故事成真。注册即可免费开始。
           </p>
 
-          {/* Feature list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+          {/* Feature cards */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
             {features.map((f, i) => (
-              <div key={i} className="flex items-start gap-5">
-                {/* Yellow check */}
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: 20 }}>{f.icon}</span>
-                </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span style={{ color: '#FFE500', fontSize: 14, fontWeight: 700 }}>✓</span>
-                    <span style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>{f.title}</span>
+              <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start', padding: '20px 22px', background: '#141414', border: '1px solid #1C1C1C', borderRadius: 16 }}>
+                <div style={{ width: 42, height: 42, borderRadius: 12, background: '#1C1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{f.icon}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ color: '#fff', fontWeight: 700, fontSize: 15, fontFamily: "'Space Grotesk', sans-serif" }}>{f.title}</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 18, height: 18, borderRadius: '50%', background: '#FFE500', color: '#000', fontSize: 10, fontWeight: 800 }}>✓</span>
                   </div>
-                  <p style={{ color: '#888', fontSize: 14, lineHeight: 1.6 }}>{f.desc}</p>
+                  <p style={{ color: '#666', fontSize: 13, lineHeight: 1.6, margin: 0 }}>{f.desc}</p>
                 </div>
               </div>
             ))}
           </div>
-        </div>
 
-        {/* Testimonial */}
-        <div className="relative z-10 p-5 rounded-2xl" style={{ background: '#1C1C1C', border: '1px solid #2A2A2A' }}>
-          <p style={{ color: '#ccc', fontSize: 14, lineHeight: 1.7, fontStyle: 'italic', marginBottom: 12 }}>
-            "用了Arboris Novel之后，我终于完成了拖延了三年的玄幻小说。AI真的能理解我想写什么。"
-          </p>
-          <div className="flex items-center gap-3">
-            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: 14 }}>李</div>
-            <div>
-              <div style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>李晓明</div>
-              <div style={{ color: '#888', fontSize: 12 }}>玄幻小说作者 · 已完成2部作品</div>
-            </div>
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
-              {[1,2,3,4,5].map(s => <span key={s} style={{ color: '#FFE500', fontSize: 14 }}>★</span>)}
-            </div>
+          {/* Stats */}
+          <div style={{ display: 'flex', gap: 32, marginTop: 36 }}>
+            {[['5,000+','注册用户'],['120万+','AI生成字数'],['98%','用户满意度']].map(([num,label],i)=>(
+              <div key={i}>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 22, color: '#FFE500' }}>{num}</div>
+                <div style={{ color: '#555', fontSize: 12, marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Right register panel */}
-      <div className="flex flex-col justify-center w-full lg:w-2/5 px-10 lg:px-16">
-        <div style={{ maxWidth: 360, width: '100%', margin: '0 auto' }}>
-          <div className="lg:hidden flex items-center gap-2 mb-10">
-            <span style={{ color: '#FFE500', fontSize: 22, fontWeight: 700 }}>✦</span>
-            <span style={{ color: '#fff', fontSize: 18, fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700 }}>Arboris Novel</span>
-          </div>
+      {/* Right Register Panel 40% */}
+      <div style={{ flex: '0 0 40%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px', background: '#0D0D0D', borderLeft: '1px solid #141414' }}>
+        <div style={{ width: '100%', maxWidth: 360 }}>
+          <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 26, color: '#fff', margin: '0 0 6px' }}>创建账号</h2>
+          <p style={{ color: '#666', fontSize: 14, margin: '0 0 32px' }}>免费注册，立即开始创作</p>
 
-          <h2 style={{ color: '#fff', fontSize: 30, fontWeight: 700, fontFamily: 'Space Grotesk, sans-serif', marginBottom: 6 }}>创建账号</h2>
-          <p style={{ color: '#888', marginBottom: 32 }}>免费开始，无需信用卡</p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label style={{ display: 'block', color: '#fff', fontSize: 14, fontWeight: 500, marginBottom: 8 }}>用户名</label>
-              <input type="text" placeholder="请设置用户名" style={{ width: '100%', padding: '12px 16px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
-            </div>
-            <div>
-              <label style={{ display: 'block', color: '#fff', fontSize: 14, fontWeight: 500, marginBottom: 8 }}>密码</label>
-              <input type="password" placeholder="请设置密码（至少8位）" style={{ width: '100%', padding: '12px 16px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
-            </div>
-            <div>
-              <label style={{ display: 'block', color: '#fff', fontSize: 14, fontWeight: 500, marginBottom: 8 }}>确认密码</label>
-              <input type="password" placeholder="再次输入密码" style={{ width: '100%', padding: '12px 16px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
-            </div>
-
-            {/* Agreement */}
-            <div className="flex items-start gap-3">
-              <div style={{ width: 18, height: 18, border: '2px solid #FFE500', borderRadius: 4, flexShrink: 0, marginTop: 2, background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ color: '#000', fontSize: 11, fontWeight: 700 }}>✓</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 24 }}>
+            {[
+              { label: '用户名', placeholder: '设置你的用户名', type: 'text', active: false },
+              { label: '密码', placeholder: '设置密码（至少8位）', type: 'password', active: true },
+              { label: '确认密码', placeholder: '再次输入密码', type: 'password', active: false },
+            ].map((field, i) => (
+              <div key={i}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>{field.label}</label>
+                <input
+                  readOnly
+                  type={field.type}
+                  placeholder={field.placeholder}
+                  defaultValue={field.type === 'password' ? 'password' : ''}
+                  style={{
+                    width: '100%', padding: '12px 14px',
+                    background: '#141414',
+                    border: field.active ? '1px solid #FFE500' : '1px solid #2A2A2A',
+                    borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none',
+                    boxSizing: 'border-box',
+                    boxShadow: field.active ? '0 0 0 3px rgba(255,229,0,0.1)' : 'none',
+                  }}
+                />
               </div>
-              <p style={{ color: '#888', fontSize: 13, lineHeight: 1.5 }}>
-                我已阅读并同意 <span style={{ color: '#FFE500' }}>服务条款</span> 与 <span style={{ color: '#FFE500' }}>隐私政策</span>
-              </p>
-            </div>
-
-            <button style={{ width: '100%', padding: '13px', background: '#FFE500', borderRadius: 12, fontWeight: 700, fontSize: 15, color: '#000', border: 'none', cursor: 'pointer', marginTop: 4 }}>
-              注册账号
-            </button>
-
-            <div className="flex items-center gap-4">
-              <div style={{ flex: 1, height: 1, background: '#2A2A2A' }}/>
-              <span style={{ color: '#888', fontSize: 13 }}>或</span>
-              <div style={{ flex: 1, height: 1, background: '#2A2A2A' }}/>
-            </div>
-
-            <button style={{ width: '100%', padding: '12px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-              <span style={{ fontSize: 18 }}>🐧</span>
-              使用 LinuxDO 账号注册
-            </button>
+            ))}
           </div>
 
-          <p style={{ textAlign: 'center', marginTop: 28, color: '#888', fontSize: 14 }}>
+          {/* Password strength */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ color: '#666', fontSize: 12 }}>密码强度</span>
+              <span style={{ color: '#2ED573', fontSize: 12, fontWeight: 600 }}>强</span>
+            </div>
+            <div style={{ height: 4, background: '#1C1C1C', borderRadius: 999, overflow: 'hidden' }}>
+              <div style={{ width: '75%', height: '100%', background: '#2ED573', borderRadius: 999 }}/>
+            </div>
+          </div>
+
+          <button style={{ width: '100%', padding: '13px', background: '#FFE500', color: '#000', fontWeight: 800, fontSize: 15, borderRadius: 12, border: 'none', cursor: 'pointer', fontFamily: "'Space Grotesk', sans-serif", marginBottom: 16, letterSpacing: 0.3 }}>
+            立即注册
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 16px' }}>
+            <div style={{ flex: 1, height: 1, background: '#1C1C1C' }}/>
+            <span style={{ color: '#444', fontSize: 12 }}>或通过第三方注册</span>
+            <div style={{ flex: 1, height: 1, background: '#1C1C1C' }}/>
+          </div>
+
+          <button style={{ width: '100%', padding: '12px 16px', background: 'transparent', border: '1px solid #2A2A2A', borderRadius: 12, color: '#ccc', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>🐧</span>
+            通过 LinuxDO 注册
+          </button>
+
+          <p style={{ textAlign: 'center', marginTop: 28, color: '#666', fontSize: 14 }}>
             已有账号？{' '}
-            <span style={{ color: '#FFE500', fontWeight: 600, cursor: 'pointer' }}>立即登录</span>
+            <a href="#" style={{ color: '#FFE500', fontWeight: 700, textDecoration: 'none' }}>立即登录 →</a>
           </p>
         </div>
       </div>

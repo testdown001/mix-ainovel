@@ -1,117 +1,101 @@
 export default function Login() {
   return (
-    <div className="flex h-screen w-full overflow-hidden" style={{ background: '#0A0A0A', fontFamily: 'Inter, sans-serif' }}>
-      {/* Left hero panel */}
-      <div className="relative hidden lg:flex lg:w-3/5 flex-col justify-between p-14 overflow-hidden" style={{ background: '#0F0F0F' }}>
+    <div style={{ display: 'flex', height: '100vh', background: '#0A0A0A', fontFamily: "'Inter', sans-serif", overflow: 'hidden' }}>
+      {/* Left Hero Panel 60% */}
+      <div style={{ flex: '0 0 60%', position: 'relative', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '64px 72px', overflow: 'hidden' }}>
         {/* Grid background */}
-        <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.07 }} xmlns="http://www.w3.org/2000/svg">
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-              <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#FFE500" strokeWidth="0.8"/>
+              <path d="M 60 0 L 0 0 0 60" fill="none" stroke="#FFE500" strokeWidth="0.4" opacity="0.12"/>
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#grid)"/>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+          {/* Diagonal accent lines */}
+          <line x1="-100" y1="800" x2="600" y2="-100" stroke="#FFE500" strokeWidth="0.6" opacity="0.1"/>
+          <line x1="100" y1="800" x2="800" y2="-100" stroke="#FFE500" strokeWidth="0.6" opacity="0.1"/>
+          <line x1="300" y1="800" x2="1000" y2="-100" stroke="#FFE500" strokeWidth="0.6" opacity="0.07"/>
         </svg>
-        {/* Diagonal accent */}
-        <svg className="absolute inset-0 w-full h-full" style={{ opacity: 0.15 }} xmlns="http://www.w3.org/2000/svg">
-          <line x1="0" y1="100%" x2="100%" y2="0" stroke="#FFE500" strokeWidth="1.5"/>
-          <line x1="-5%" y1="85%" x2="85%" y2="-5%" stroke="#FFE500" strokeWidth="0.6"/>
-        </svg>
-        {/* Yellow glow */}
-        <div className="absolute" style={{ top: '30%', left: '40%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, #FFE500 0%, transparent 70%)', opacity: 0.08, transform: 'translate(-50%, -50%)' }}/>
+        {/* Glow blobs */}
+        <div style={{ position: 'absolute', bottom: -100, left: -100, width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,229,0,0.06) 0%, transparent 70%)' }}/>
+        <div style={{ position: 'absolute', top: 50, right: 50, width: 250, height: 250, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,229,0,0.04) 0%, transparent 70%)' }}/>
         {/* Floating dots */}
-        {[
-          { top: '12%', left: '8%', s: 9 }, { top: '22%', left: '78%', s: 5 },
-          { top: '55%', left: '12%', s: 6 }, { top: '68%', left: '82%', s: 4 },
-          { top: '82%', left: '48%', s: 7 }, { top: '38%', left: '65%', s: 5 },
-          { top: '75%', left: '30%', s: 4 }, { top: '48%', left: '88%', s: 6 },
-        ].map((d, i) => (
-          <div key={i} className="absolute rounded-full" style={{ top: d.top, left: d.left, width: d.s, height: d.s, background: '#FFE500', opacity: 0.55 }}/>
+        {[[80,90],[200,180],[120,400],[350,320],[450,100],[500,450]].map(([x,y],i)=>(
+          <div key={i} style={{ position: 'absolute', left: x, top: y, width: i%2===0?5:3, height: i%2===0?5:3, borderRadius: '50%', background: '#FFE500', opacity: [0.8,0.5,0.6,0.4,0.7,0.5][i] }}/>
         ))}
 
-        {/* Brand */}
-        <div className="relative z-10 flex items-center gap-3">
-          <span style={{ color: '#FFE500', fontSize: 26, fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700 }}>✦</span>
-          <span style={{ color: '#fff', fontSize: 20, fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700 }}>Arboris Novel</span>
-        </div>
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          {/* Logo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 72 }}>
+            <div style={{ width: 44, height: 44, background: '#FFE500', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: '#000', fontFamily: "'Space Grotesk', sans-serif" }}>✦</div>
+            <div>
+              <div style={{ color: '#fff', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 18, lineHeight: 1 }}>Arboris Novel</div>
+              <div style={{ color: '#FFE500', fontSize: 11, fontWeight: 600, letterSpacing: 1 }}>AI创作助手</div>
+            </div>
+          </div>
 
-        {/* Hero */}
-        <div className="relative z-10 flex-1 flex flex-col justify-center">
-          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 900, fontSize: 68, lineHeight: 1.05, color: '#fff', marginBottom: 24 }}>
-            用AI，<br/>
-            <span style={{ color: '#FFE500' }}>释放你的</span><br/>
-            故事
+          {/* Hero text */}
+          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, fontSize: 62, lineHeight: 1.08, color: '#fff', margin: '0 0 20px', letterSpacing: -1 }}>
+            用 <span style={{ color: '#FFE500' }}>AI</span>，<br/>释放你的<br/>故事
           </h1>
-          <p style={{ color: '#888', fontSize: 17, maxWidth: 360, lineHeight: 1.7 }}>
-            从灵感到完稿，Arboris Novel 陪你走过每一章节的创作旅程。
+          <p style={{ color: '#777', fontSize: 17, lineHeight: 1.75, maxWidth: 420, margin: '0 0 52px' }}>
+            从一个想法出发，让AI陪你完成一部属于自己的小说。灵感、蓝图、章节，全程守护。
           </p>
-          <div className="flex flex-wrap gap-3 mt-8">
-            {['AI章节生成', '智能角色管理', '世界观构建', '伏笔追踪'].map(f => (
-              <span key={f} style={{ background: '#1C1C1C', border: '1px solid #2A2A2A', color: '#888', fontSize: 13, fontWeight: 500, padding: '6px 14px', borderRadius: 999 }}>{f}</span>
+
+          {/* Feature list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {[
+              ['✦', 'AI编辑团队，全程陪伴创作'],
+              ['⚡', '章节自动生成，一键续写'],
+              ['◎', '角色·世界观·大纲，全面管理'],
+            ].map(([icon, text], i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <span style={{ color: '#FFE500', fontSize: 14, width: 20, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
+                <span style={{ color: '#aaa', fontSize: 15 }}>{text}</span>
+              </div>
             ))}
           </div>
         </div>
-
-        {/* Stats */}
-        <div className="relative z-10 flex gap-10">
-          {[['10,000+', '创作者'], ['500万+', '字数生成'], ['98%', '用户满意']].map(([n, l]) => (
-            <div key={l}>
-              <div style={{ color: '#FFE500', fontSize: 24, fontWeight: 700, fontFamily: 'Space Grotesk, sans-serif' }}>{n}</div>
-              <div style={{ color: '#888', fontSize: 13 }}>{l}</div>
-            </div>
-          ))}
-        </div>
       </div>
 
-      {/* Right login panel */}
-      <div className="flex flex-col justify-center w-full lg:w-2/5 px-10 lg:px-16">
-        <div style={{ maxWidth: 360, width: '100%', margin: '0 auto' }}>
-          {/* Mobile brand */}
-          <div className="lg:hidden flex items-center gap-2 mb-10">
-            <span style={{ color: '#FFE500', fontSize: 22, fontWeight: 700 }}>✦</span>
-            <span style={{ color: '#fff', fontSize: 18, fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700 }}>Arboris Novel</span>
-          </div>
+      {/* Right Login Panel 40% */}
+      <div style={{ flex: '0 0 40%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px', background: '#0D0D0D', borderLeft: '1px solid #141414' }}>
+        <div style={{ width: '100%', maxWidth: 360 }}>
+          <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 26, color: '#fff', margin: '0 0 6px' }}>欢迎回来</h2>
+          <p style={{ color: '#666', fontSize: 14, margin: '0 0 32px' }}>登录继续你的创作旅程</p>
 
-          <h2 style={{ color: '#fff', fontSize: 30, fontWeight: 700, fontFamily: 'Space Grotesk, sans-serif', marginBottom: 6 }}>欢迎回来</h2>
-          <p style={{ color: '#888', marginBottom: 32 }}>登录以继续你的创作之旅</p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginBottom: 8 }}>
             <div>
-              <label style={{ display: 'block', color: '#fff', fontSize: 14, fontWeight: 500, marginBottom: 8 }}>用户名</label>
-              <input
-                type="text" placeholder="请输入用户名"
-                style={{ width: '100%', padding: '12px 16px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-              />
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>用户名</label>
+              <input readOnly placeholder="输入用户名" style={{ width: '100%', padding: '12px 14px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box', transition: 'border-color 0.2s' }}/>
             </div>
             <div>
-              <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-                <label style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>密码</label>
-                <span style={{ color: '#FFE500', fontSize: 13, cursor: 'pointer' }}>忘记密码？</span>
-              </div>
-              <input
-                type="password" placeholder="请输入密码"
-                style={{ width: '100%', padding: '12px 16px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-              />
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 7, letterSpacing: 0.5, textTransform: 'uppercase' }}>密码</label>
+              <input readOnly type="password" defaultValue="password" style={{ width: '100%', padding: '12px 14px', background: '#141414', border: '1px solid #FFE500', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box', boxShadow: '0 0 0 3px rgba(255,229,0,0.1)' }}/>
             </div>
-            <button style={{ width: '100%', padding: '13px', background: '#FFE500', borderRadius: 12, fontWeight: 700, fontSize: 15, color: '#000', border: 'none', cursor: 'pointer', marginTop: 4 }}>
-              登录
-            </button>
-
-            <div className="flex items-center gap-4">
-              <div style={{ flex: 1, height: 1, background: '#2A2A2A' }}/>
-              <span style={{ color: '#888', fontSize: 13 }}>或</span>
-              <div style={{ flex: 1, height: 1, background: '#2A2A2A' }}/>
+            <div style={{ textAlign: 'right', marginTop: -6 }}>
+              <a href="#" style={{ color: '#FFE500', fontSize: 13, textDecoration: 'none', fontWeight: 500 }}>忘记密码？</a>
             </div>
-
-            <button style={{ width: '100%', padding: '12px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-              <span style={{ fontSize: 18 }}>🐧</span>
-              使用 LinuxDO 账号登录
-            </button>
           </div>
 
-          <p style={{ textAlign: 'center', marginTop: 32, color: '#888', fontSize: 14 }}>
+          <button style={{ width: '100%', padding: '13px', background: '#FFE500', color: '#000', fontWeight: 800, fontSize: 15, borderRadius: 12, border: 'none', cursor: 'pointer', fontFamily: "'Space Grotesk', sans-serif", marginBottom: 20, letterSpacing: 0.3 }}>
+            登 录
+          </button>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 16px' }}>
+            <div style={{ flex: 1, height: 1, background: '#1C1C1C' }}/>
+            <span style={{ color: '#444', fontSize: 12 }}>或通过第三方登录</span>
+            <div style={{ flex: 1, height: 1, background: '#1C1C1C' }}/>
+          </div>
+
+          <button style={{ width: '100%', padding: '12px 16px', background: 'transparent', border: '1px solid #2A2A2A', borderRadius: 12, color: '#ccc', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>🐧</span>
+            通过 LinuxDO 登录
+          </button>
+
+          <p style={{ textAlign: 'center', marginTop: 28, color: '#666', fontSize: 14 }}>
             还没有账号？{' '}
-            <span style={{ color: '#FFE500', fontWeight: 600, cursor: 'pointer' }}>立即注册</span>
+            <a href="#" style={{ color: '#FFE500', fontWeight: 700, textDecoration: 'none' }}>立即注册 →</a>
           </p>
         </div>
       </div>

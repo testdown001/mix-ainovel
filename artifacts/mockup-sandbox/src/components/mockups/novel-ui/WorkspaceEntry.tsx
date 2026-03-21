@@ -2,134 +2,134 @@ import { useState } from 'react'
 
 const NAV_ITEMS = ['灵感模式', '我的小说', '写作台', '设置']
 
-const RECENT_NOVELS = [
-  { title: '剑域苍穹', genre: '玄幻', chapters: 12, total: 30, updated: '2小时前', pct: 40 },
-  { title: '都市修真记', genre: '都市', chapters: 8, total: 20, updated: '昨天', pct: 40 },
-  { title: '星际迷途', genre: '科幻', chapters: 5, total: 25, updated: '3天前', pct: 20 },
-  { title: '锦绣山河', genre: '历史', chapters: 18, total: 40, updated: '1周前', pct: 45 },
+const RECENT = [
+  { title: '星际边疆', chapter: '第12章：未知信号', time: '2小时前', genre: '科幻', icon: '🚀' },
+  { title: '剑破九霄', chapter: '第28章：破境', time: '昨天', genre: '仙侠', icon: '⚔️' },
+  { title: '都市修仙录', chapter: '第5章：初入师门', time: '3天前', genre: '都市', icon: '🏙️' },
 ]
 
 const UPDATES = [
-  { tag: '更新', text: 'v2.1 上线：批量生成模式效率提升 40%', time: '今天' },
-  { tag: '活动', text: '限时活动：高级版免费体验7天，立即领取', time: '昨天' },
-  { tag: '提示', text: '新功能：伏笔追踪器已支持跨章节分析', time: '3天前' },
+  { text: 'AI模型升级至 GPT-4o，写作质量大幅提升', time: '今天', tag: '升级' },
+  { text: '新增情感曲线分析功能', time: '2天前', tag: '新功能' },
+  { text: '参考小说库新增300+热门网文', time: '1周前', tag: '内容' },
 ]
 
 export default function WorkspaceEntry() {
   const [activeNav, setActiveNav] = useState('灵感模式')
-
   return (
-    <div style={{ minHeight: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff' }}>
+    <div style={{ minHeight: '100vh', background: '#0A0A0A', fontFamily: "'Inter', sans-serif", display: 'flex', flexDirection: 'column' }}>
       {/* Nav */}
-      <nav style={{ background: '#0A0A0A', borderBottom: '1px solid #1C1C1C', padding: '0 32px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ color: '#FFE500', fontSize: 22, fontWeight: 700 }}>✦</span>
-          <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18 }}>Arboris Novel</span>
+      <nav style={{ display: 'flex', alignItems: 'center', padding: '0 40px', height: 64, borderBottom: '1px solid #141414', background: '#0A0A0A', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 'auto' }}>
+          <div style={{ width: 32, height: 32, background: '#FFE500', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, color: '#000', fontSize: 16 }}>✦</div>
+          <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, color: '#fff', fontSize: 16 }}>Arboris Novel</span>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
           {NAV_ITEMS.map(item => (
-            <button key={item} onClick={() => setActiveNav(item)} style={{ padding: '6px 16px', borderRadius: 8, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer', background: activeNav === item ? '#1C1C1C' : 'transparent', color: activeNav === item ? '#FFE500' : '#888' }}>
+            <button key={item} onClick={() => setActiveNav(item)}
+              style={{ padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 500, background: activeNav === item ? '#141414' : 'transparent', color: activeNav === item ? '#FFE500' : '#888', transition: 'all 0.15s' }}>
               {item}
             </button>
           ))}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: 15, cursor: 'pointer' }}>创</div>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #FFE500, #e6ce00)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#000', fontSize: 15 }}>云</div>
+          <span style={{ color: '#aaa', fontSize: 14 }}>云中君</span>
         </div>
       </nav>
 
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '48px 32px' }}>
-        {/* Greeting */}
+      <div style={{ flex: 1, padding: '48px 40px', maxWidth: 1200, margin: '0 auto', width: '100%', boxSizing: 'border-box' }}>
+        {/* Hero greeting */}
         <div style={{ marginBottom: 48 }}>
-          <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 900, fontSize: 48, marginBottom: 8 }}>
+          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 900, fontSize: 44, color: '#fff', margin: '0 0 12px', letterSpacing: -1 }}>
             下午好，<span style={{ color: '#FFE500' }}>创作者</span> 👋
           </h1>
-          <p style={{ color: '#888', fontSize: 16 }}>今天想写点什么？你的故事正在等待。</p>
+          <p style={{ color: '#666', fontSize: 16, margin: '0 0 28px' }}>你的故事在等待，今天继续写几章？</p>
 
           {/* Stats row */}
-          <div style={{ display: 'flex', gap: 32, marginTop: 28 }}>
-            {[['4', '部小说'], ['43', '章节'], ['8.6万', '字数']].map(([n, l]) => (
-              <div key={l} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 28, color: '#FFE500' }}>{n}</span>
-                <span style={{ color: '#888', fontSize: 14 }}>{l}</span>
+          <div style={{ display: 'flex', gap: 20 }}>
+            {[
+              { label: '创建小说', value: '3', unit: '部' },
+              { label: '已写章节', value: '47', unit: '章' },
+              { label: 'AI生成字数', value: '23.4万', unit: '字' },
+              { label: '今日写作', value: '2,840', unit: '字' },
+            ].map((stat, i) => (
+              <div key={i} style={{ padding: '16px 24px', background: '#141414', border: '1px solid #1C1C1C', borderRadius: 14, display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                <span style={{ color: '#555', fontSize: 12, fontWeight: 500 }}>{stat.label}</span>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 26, color: '#FFE500' }}>{stat.value}</span>
+                  <span style={{ color: '#555', fontSize: 13 }}>{stat.unit}</span>
+                </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Action cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 48 }}>
-          {/* Inspiration card */}
-          <div style={{ background: '#FFE500', borderRadius: 20, padding: 32, cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: -20, right: -20, width: 120, height: 120, background: 'rgba(0,0,0,0.08)', borderRadius: '50%' }}/>
-            <div style={{ position: 'absolute', bottom: -30, right: 20, width: 80, height: 80, background: 'rgba(0,0,0,0.05)', borderRadius: '50%' }}/>
-            <div style={{ fontSize: 36, marginBottom: 16 }}>💡</div>
-            <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 800, fontSize: 24, color: '#000', marginBottom: 8 }}>灵感模式</h3>
-            <p style={{ color: '#333', fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>还没有故事？让AI引导你从零开始，一步步构建你的世界。</p>
-            <button style={{ background: '#000', color: '#FFE500', border: 'none', borderRadius: 10, padding: '10px 20px', fontWeight: 700, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-              开始创作 →
-            </button>
+        {/* Action cards 2-col */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 44 }}>
+          {/* Inspiration mode */}
+          <div style={{ padding: '36px', background: 'linear-gradient(135deg, #1A1800 0%, #141414 100%)', border: '1px solid #FFE50033', borderRadius: 20, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}>
+            <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,229,0,0.12) 0%, transparent 70%)' }}/>
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, marginBottom: 20 }}>💡</div>
+            <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 22, color: '#fff', margin: '0 0 8px' }}>灵感模式</h3>
+            <p style={{ color: '#888', fontSize: 14, lineHeight: 1.6, margin: '0 0 24px' }}>还没有故事？让AI引导你从零开始，一步步构建你的小说世界。</p>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px', background: '#FFE500', color: '#000', borderRadius: 999, fontWeight: 700, fontSize: 14, fontFamily: "'Space Grotesk', sans-serif" }}>
+              ⚡ 开启灵感模式
+            </div>
           </div>
 
-          {/* Library card */}
-          <div style={{ background: '#141414', borderRadius: 20, padding: 32, cursor: 'pointer', border: '1px solid #2A2A2A', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', top: -20, right: -20, width: 120, height: 120, background: '#1C1C1C', borderRadius: '50%' }}/>
-            <div style={{ fontSize: 36, marginBottom: 16 }}>📚</div>
-            <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 800, fontSize: 24, color: '#fff', marginBottom: 8 }}>我的小说库</h3>
-            <p style={{ color: '#888', fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>查看并管理你所有的小说项目，随时继续上次的创作。</p>
-            <button style={{ background: '#2A2A2A', color: '#fff', border: '1px solid #3A3A3A', borderRadius: 10, padding: '10px 20px', fontWeight: 600, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-              进入书库 →
-            </button>
+          {/* Novel library */}
+          <div style={{ padding: '36px', background: '#141414', border: '1px solid #1C1C1C', borderRadius: 20, cursor: 'pointer', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: -20, right: -20, width: 100, height: 100, borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 70%)' }}/>
+            <div style={{ width: 52, height: 52, borderRadius: 14, background: '#1C1C1C', border: '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, marginBottom: 20 }}>📚</div>
+            <h3 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 22, color: '#fff', margin: '0 0 8px' }}>我的小说库</h3>
+            <p style={{ color: '#888', fontSize: 14, lineHeight: 1.6, margin: '0 0 24px' }}>查看并管理你所有的小说项目，章节进度一目了然。</p>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px', background: 'transparent', color: '#fff', border: '1px solid #2A2A2A', borderRadius: 999, fontWeight: 600, fontSize: 14 }}>
+              📖 进入小说库
+            </div>
           </div>
         </div>
 
-        {/* Bottom row: Recent + Updates */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 24 }}>
-          {/* Recent novels */}
+        {/* Bottom: Recent + Updates */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 20 }}>
+          {/* Recent activity */}
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18 }}>最近创作</h2>
-              <span style={{ color: '#888', fontSize: 13, cursor: 'pointer' }}>查看全部 →</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {RECENT_NOVELS.map((n, i) => (
-                <div key={i} style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 14, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
-                  <div style={{ width: 44, height: 44, borderRadius: 10, background: '#1C1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 20 }}>📖</span>
-                  </div>
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 16, color: '#fff', margin: '0 0 16px' }}>最近创作</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {RECENT.map((item, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', background: '#141414', border: '1px solid #1C1C1C', borderRadius: 14, cursor: 'pointer' }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 12, background: '#1C1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{item.icon}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: 15 }}>{n.title}</span>
-                      <span style={{ background: '#FFE500', color: '#000', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999 }}>{n.genre}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                      <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>{item.title}</span>
+                      <span style={{ padding: '1px 7px', background: '#FFE50022', color: '#FFE500', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>{item.genre}</span>
                     </div>
-                    <div style={{ height: 4, background: '#2A2A2A', borderRadius: 999, marginBottom: 4 }}>
-                      <div style={{ height: '100%', width: `${n.pct}%`, background: '#FFE500', borderRadius: 999 }}/>
-                    </div>
-                    <span style={{ color: '#888', fontSize: 12 }}>{n.chapters}/{n.total} 章 · {n.updated}</span>
+                    <span style={{ color: '#666', fontSize: 13 }}>{item.chapter}</span>
                   </div>
-                  <span style={{ color: '#888', fontSize: 18 }}>›</span>
+                  <span style={{ color: '#444', fontSize: 12, flexShrink: 0 }}>{item.time}</span>
+                  <span style={{ color: '#FFE500', fontSize: 16 }}>→</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Update log */}
+          {/* Updates */}
           <div>
-            <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>平台动态</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 16, color: '#fff', margin: '0 0 16px' }}>更新日志</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {UPDATES.map((u, i) => (
-                <div key={i} style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 12, padding: '14px 16px' }}>
+                <div key={i} style={{ padding: '14px 18px', background: '#141414', border: '1px solid #1C1C1C', borderRadius: 14 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{ background: u.tag === '活动' ? '#FFE500' : '#2A2A2A', color: u.tag === '活动' ? '#000' : '#888', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999 }}>{u.tag}</span>
-                    <span style={{ color: '#888', fontSize: 12 }}>{u.time}</span>
+                    <span style={{ padding: '2px 8px', background: i === 0 ? '#0A2A1A' : '#1C1C1C', color: i === 0 ? '#2ED573' : '#888', borderRadius: 6, fontSize: 11, fontWeight: 600 }}>{u.tag}</span>
+                    <span style={{ color: '#444', fontSize: 11 }}>{u.time}</span>
                   </div>
-                  <p style={{ color: '#ccc', fontSize: 13, lineHeight: 1.5 }}>{u.text}</p>
+                  <p style={{ color: '#aaa', fontSize: 13, lineHeight: 1.5, margin: 0 }}>{u.text}</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

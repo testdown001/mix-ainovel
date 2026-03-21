@@ -13,13 +13,13 @@
           v-for="option in uiControl.options"
           :key="option.id"
           @click="handleOptionSelect(option.id, option.label)"
-          class="p-3 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          class="choice-btn"
         >
           {{ option.label }}
         </button>
         <button
           @click="isManualInput = true"
-          class="p-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          class="choice-btn-secondary"
         >
           我要输入
         </button>
@@ -27,8 +27,8 @@
       <form @submit.prevent="handleTextSubmit" class="flex items-center gap-3">
         <textarea
           v-model="textInput"
-          :placeholder="isManualInput ? '请输入您的想法...' : '选择上方选项或点击“我要输入”'"
-          class="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition-all disabled:bg-gray-100 resize-none overflow-y-auto leading-relaxed"
+          :placeholder="isManualInput ? '请输入您的想法...' : '选择上方选项或点击「我要输入」'"
+          class="conv-textarea"
           :disabled="!isManualInput"
           rows="5"
           ref="textInputRef"
@@ -36,21 +36,11 @@
         ></textarea>
         <button
           type="submit"
-          class="flex-shrink-0 w-12 h-12 bg-indigo-500 rounded-full flex items-center justify-center hover:bg-indigo-600 transition-all shadow-md disabled:bg-gray-300"
+          class="send-btn"
           :disabled="!isManualInput"
+          :style="{ opacity: !isManualInput ? 0.4 : 1 }"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="text-white"
-          >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"></line>
             <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
           </svg>
@@ -63,28 +53,14 @@
       <textarea
         v-model="textInput"
         :placeholder="uiControl.placeholder || '请输入...'"
-        class="w-full px-4 py-3 border border-gray-300 rounded-2xl focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 outline-none transition-all resize-none overflow-y-auto leading-relaxed"
+        class="conv-textarea"
         required
         ref="textInputRef"
         rows="5"
         @input="handleTextareaInput"
       ></textarea>
-      <button
-        type="submit"
-        class="flex-shrink-0 w-12 h-12 bg-indigo-500 rounded-full flex items-center justify-center hover:bg-indigo-600 transition-all shadow-md"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="24"
-          height="24"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          class="text-white"
-        >
+      <button type="submit" class="send-btn">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"></line>
           <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
         </svg>
@@ -116,12 +92,8 @@ const MAX_ROWS = 5
 
 const adjustTextareaHeight = () => {
   const textarea = textInputRef.value
-  if (!textarea) {
-    return
-  }
-  if (typeof window === 'undefined') {
-    return
-  }
+  if (!textarea) return
+  if (typeof window === 'undefined') return
 
   const lineHeight = parseFloat(window.getComputedStyle(textarea).lineHeight || '0') || 20
   const minHeight = lineHeight * MIN_ROWS
@@ -148,11 +120,9 @@ const handleTextSubmit = () => {
   }
 }
 
-// 当输入控件变为文本输入时，自动聚焦
 watch(
   () => props.uiControl,
   async (newControl) => {
-    // 每次控件更新时，都重置手动输入状态和文本内容
     isManualInput.value = false
     textInput.value = ''
 
@@ -163,10 +133,9 @@ watch(
       textInputRef.value?.focus()
     }
   },
-  { deep: true } // 使用 deep watch 确保即使是相同类型的控件也能触发
+  { deep: true }
 )
 
-// 监听手动输入状态的变化，以聚焦输入框
 watch(isManualInput, async (newValue) => {
   if (newValue) {
     await nextTick()
@@ -174,5 +143,95 @@ watch(isManualInput, async (newValue) => {
     textInputRef.value?.focus()
   }
 })
-
 </script>
+
+<style scoped>
+.choice-btn {
+  padding: 10px 12px;
+  background: #1C1C1C;
+  color: #FFE500;
+  border: 1px solid #FFE50033;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.choice-btn:hover {
+  background: #FFE50011;
+  border-color: #FFE50066;
+}
+
+.choice-btn-secondary {
+  padding: 10px 12px;
+  background: #1C1C1C;
+  color: #888;
+  border: 1px solid #2A2A2A;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.choice-btn-secondary:hover {
+  background: #2A2A2A;
+  color: #fff;
+}
+
+.conv-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid #2A2A2A;
+  border-radius: 14px;
+  background: #1C1C1C;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.6;
+  transition: border-color 0.15s;
+}
+
+.conv-textarea:focus {
+  border-color: #FFE500;
+  box-shadow: 0 0 0 2px rgba(255, 229, 0, 0.1);
+}
+
+.conv-textarea:disabled {
+  background: #141414;
+  color: #555;
+  cursor: not-allowed;
+}
+
+.conv-textarea::placeholder {
+  color: #555;
+}
+
+.send-btn {
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  background: #FFE500;
+  border-radius: 50%;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #000;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.send-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+.send-btn:disabled {
+  cursor: not-allowed;
+}
+</style>
