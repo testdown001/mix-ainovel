@@ -8,7 +8,10 @@ export const modules: ModuleMap = {
   "./components/mockups/novel-ui/Settings.tsx": () => import("../components/mockups/novel-ui/Settings.tsx"),
   "./components/mockups/novel-ui/WorkspaceArcMap.tsx": () => import("../components/mockups/novel-ui/WorkspaceArcMap.tsx"),
   "./components/mockups/novel-ui/WorkspaceEntry.tsx": () => import("../components/mockups/novel-ui/WorkspaceEntry.tsx"),
+  "./components/mockups/novel-ui/WorkspaceGlass.tsx": () => import("../components/mockups/novel-ui/WorkspaceGlass.tsx"),
+  "./components/mockups/novel-ui/WorkspaceInkPaper.tsx": () => import("../components/mockups/novel-ui/WorkspaceInkPaper.tsx"),
   "./components/mockups/novel-ui/WorkspaceMomentum.tsx": () => import("../components/mockups/novel-ui/WorkspaceMomentum.tsx"),
   "./components/mockups/novel-ui/WorkspaceShelf.tsx": () => import("../components/mockups/novel-ui/WorkspaceShelf.tsx"),
+  "./components/mockups/novel-ui/WorkspaceTerminal.tsx": () => import("../components/mockups/novel-ui/WorkspaceTerminal.tsx"),
   "./components/mockups/novel-ui/WritingDesk.tsx": () => import("../components/mockups/novel-ui/WritingDesk.tsx")
 };
