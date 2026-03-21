@@ -1,184 +1,149 @@
-import React, { useState } from 'react';
-import { ArrowLeft, BookOpen, ChevronRight, FileText, List, Loader2, MoreVertical, Play, RefreshCw, Settings, Star, History, Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Progress } from '@/components/ui/progress';
-import { Skeleton } from '@/components/ui/skeleton';
+import { useState } from 'react'
 
-const chapters = [
-  { id: 1, title: '第一章 序幕：风起云涌', status: 'generated' },
-  { id: 2, title: '第二章 命运的齿轮', status: 'generated' },
-  { id: 3, title: '第三章 觉醒', status: 'generating' },
-  { id: 4, title: '第四章 黑暗中的低语', status: 'pending' },
-  { id: 5, title: '第五章 初入江湖', status: 'empty' },
-  { id: 6, title: '第六章 神秘老者', status: 'empty' },
-  { id: 7, title: '第七章 遗迹之谜', status: 'empty' },
-  { id: 8, title: '第八章 险象环生', status: 'empty' },
-  { id: 9, title: '第九章 突破', status: 'empty' },
-  { id: 10, title: '第十章 新的征程', status: 'empty' },
-];
+type ChapterStatus = 'done' | 'pending' | 'empty'
+
+const CHAPTERS: { num: number; title: string; status: ChapterStatus }[] = [
+  { num: 1, title: '序章：命运的起点', status: 'done' },
+  { num: 2, title: '初入江湖', status: 'done' },
+  { num: 3, title: '师门危机', status: 'done' },
+  { num: 4, title: '破境之路', status: 'done' },
+  { num: 5, title: '山外有山', status: 'pending' },
+  { num: 6, title: '古剑出世', status: 'pending' },
+  { num: 7, title: '未命名章节', status: 'empty' },
+  { num: 8, title: '未命名章节', status: 'empty' },
+  { num: 9, title: '未命名章节', status: 'empty' },
+  { num: 10, title: '未命名章节', status: 'empty' },
+  { num: 11, title: '未命名章节', status: 'empty' },
+  { num: 12, title: '未命名章节', status: 'empty' },
+]
+
+const STATUS_COLOR: Record<ChapterStatus, string> = { done: '#2ED573', pending: '#FFE500', empty: '#3A3A3A' }
+const STATUS_LABEL: Record<ChapterStatus, string> = { done: '已生成', pending: '待生成', empty: '空白' }
+
+const CHAPTER_CONTENT = `剑鸣山巅，云雾弥漫。
+
+陆天远站在险峰之上，衣袂随风飘荡，眼神深邃而坚定。身后，千里江山如画卷般铺展，而眼前，却是一道横亘天地的剑气屏障。
+
+"终于到了。"他喃喃自语，声音低沉，带着几分疲惫与期待。
+
+三年。整整三年，他从一个名不见经传的山野小子，一路斩妖除魔，踏过无数尸山血海，终于站到了这里——传说中的剑域入口。
+
+"小子，你真的准备好了吗？"
+
+声音从虚空中传来，苍老而威严，如同天地之音。陆天远未曾转身，只是缓缓握紧了腰间那把历经岁月的古朴长剑。
+
+"准备好了，没有？"他反问，嘴角微微上扬，"不重要。"
+
+"不管准没准备好，我都要进去。"
+
+静默片刻，虚空中爆发出一阵朗笑声。`
 
 export default function WritingDesk() {
-  const [activeChapter, setActiveChapter] = useState(3);
-  
-  const currentChapter = chapters.find(c => c.id === activeChapter);
+  const [activeChapter, setActiveChapter] = useState(4)
+  const [generating, setGenerating] = useState(false)
+
+  const handleGenerate = () => {
+    setGenerating(true)
+    setTimeout(() => setGenerating(false), 2000)
+  }
 
   return (
-    <div className="flex h-screen w-full flex-col bg-[#0A0A0A] text-white overflow-hidden font-sans">
+    <div style={{ height: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Header */}
-      <header className="flex h-14 items-center justify-between border-b border-[#2A2A2A] bg-[#141414] px-4 shrink-0">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" className="text-[#888888] hover:text-white hover:bg-[#2A2A2A]">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex items-center gap-3">
-            <h1 className="font-display text-lg font-bold">星辰变：起源</h1>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-[#1C1C1C] text-[#888888] border border-[#2A2A2A]">
-              连载中
-            </span>
+      <header style={{ height: 56, background: '#0A0A0A', borderBottom: '1px solid #1C1C1C', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 16, flexShrink: 0, zIndex: 20 }}>
+        <button style={{ width: 34, height: 34, borderRadius: 8, background: '#141414', border: '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: 16 }}>←</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 16 }}>剑域苍穹</span>
+          <span style={{ color: '#2A2A2A' }}>·</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, maxWidth: 300 }}>
+            <div style={{ flex: 1, height: 4, background: '#1C1C1C', borderRadius: 999 }}>
+              <div style={{ width: '40%', height: '100%', background: '#FFE500', borderRadius: 999 }}/>
+            </div>
+            <span style={{ color: '#888', fontSize: 12, whiteSpace: 'nowrap' }}>12/30 章</span>
           </div>
         </div>
-        
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3 w-48">
-            <span className="text-xs text-[#888888]">进度 12/30章</span>
-            <Progress value={40} className="h-1.5 flex-1 bg-[#1C1C1C]" indicatorClassName="bg-[#FFE500]" />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="h-8 border-[#2A2A2A] bg-transparent text-[#888888] hover:text-white hover:bg-[#1C1C1C]">
-              查看详情
-            </Button>
-            <Button variant="outline" size="sm" className="h-8 border-[#2A2A2A] bg-transparent text-[#888888] hover:text-white hover:bg-[#1C1C1C]">
-              生成大纲
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-[#888888] hover:text-white hover:bg-[#2A2A2A]">
-              <Settings className="h-4 w-4" />
-            </Button>
-          </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button style={{ padding: '7px 16px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 8, color: '#fff', fontSize: 13, cursor: 'pointer' }}>查看详情</button>
+          <button style={{ padding: '7px 16px', background: '#FFE500', border: 'none', borderRadius: 8, color: '#000', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>生成大纲</button>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Sidebar - Chapter List */}
-        <aside className="w-[280px] flex flex-col border-r border-[#2A2A2A] bg-[#141414] shrink-0">
-          <div className="p-4 border-b border-[#2A2A2A] flex justify-between items-center">
-            <h2 className="font-medium text-sm text-[#888888]">章节列表</h2>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-[#888888] hover:text-white">
-              <List className="h-4 w-4" />
-            </Button>
-          </div>
-          
-          <ScrollArea className="flex-1">
-            <div className="p-2 space-y-1">
-              {chapters.map((chapter) => (
-                <button
-                  key={chapter.id}
-                  onClick={() => setActiveChapter(chapter.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors text-left
-                    ${activeChapter === chapter.id 
-                      ? 'bg-[#1C1C1C] text-white' 
-                      : 'text-[#888888] hover:bg-[#1C1C1C] hover:text-gray-300'
-                    }`}
-                >
-                  <div className="relative flex items-center justify-center w-4 h-4 shrink-0">
-                    {chapter.status === 'generated' && <div className="w-2 h-2 rounded-full bg-[#2ED573]" />}
-                    {chapter.status === 'generating' && <Loader2 className="w-3.5 h-3.5 text-[#FFE500] animate-spin" />}
-                    {chapter.status === 'pending' && <div className="w-2 h-2 rounded-full bg-[#FFE500]" />}
-                    {chapter.status === 'empty' && <div className="w-2 h-2 rounded-full bg-[#2A2A2A]" />}
-                  </div>
-                  <span className="truncate flex-1">{chapter.title}</span>
-                  {activeChapter === chapter.id && (
-                    <ChevronRight className="w-4 h-4 text-[#888888] shrink-0" />
-                  )}
-                </button>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Left sidebar */}
+        <aside style={{ width: 260, background: '#0D0D0D', borderRight: '1px solid #1C1C1C', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+          <div style={{ padding: '16px 16px 8px' }}>
+            <p style={{ color: '#888', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>章节列表</p>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+              {Object.entries(STATUS_LABEL).map(([s, l]) => (
+                <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLOR[s as ChapterStatus] }}/>
+                  <span style={{ color: '#888', fontSize: 11 }}>{l}</span>
+                </div>
               ))}
             </div>
-          </ScrollArea>
-          
-          <div className="p-4 border-t border-[#2A2A2A] bg-[#141414]">
-            <Button className="w-full bg-[#FFE500] text-black hover:bg-[#FFE500]/90 font-medium">
-              <Sparkles className="w-4 h-4 mr-2" />
-              批量生成章节
-            </Button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
+            {CHAPTERS.map(ch => (
+              <div key={ch.num} onClick={() => setActiveChapter(ch.num)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 10px', borderRadius: 10, marginBottom: 2, cursor: 'pointer', background: activeChapter === ch.num ? '#1C1C1C' : 'transparent' }}>
+                <div style={{ width: 7, height: 7, borderRadius: '50%', background: STATUS_COLOR[ch.status], flexShrink: 0 }}/>
+                <span style={{ color: '#888', fontSize: 12, flexShrink: 0, fontWeight: 600, width: 24 }}>{String(ch.num).padStart(2, '0')}</span>
+                <span style={{ color: activeChapter === ch.num ? '#fff' : (ch.status === 'empty' ? '#555' : '#aaa'), fontSize: 13, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ch.title}</span>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ padding: 12, borderTop: '1px solid #1C1C1C' }}>
+            <button style={{ width: '100%', padding: '10px', background: '#FFE500', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, color: '#000', cursor: 'pointer' }}>
+              ⚡ 批量生成章节
+            </button>
           </div>
         </aside>
 
-        {/* Main Content Area */}
-        <main className="flex-1 relative flex bg-[#0A0A0A]">
-          <div className="flex-1 flex flex-col items-center overflow-y-auto pt-12 pb-32 px-8">
-            <div className="w-full max-w-3xl">
-              <h1 className="text-3xl font-display font-bold mb-8 text-center">{currentChapter?.title}</h1>
-              
-              {currentChapter?.status === 'generating' ? (
-                <div className="space-y-8 animate-pulse">
-                  <div className="flex items-center justify-center py-12 flex-col gap-4">
-                    <div className="w-12 h-12 rounded-full bg-[#1C1C1C] flex items-center justify-center">
-                      <Loader2 className="w-6 h-6 text-[#FFE500] animate-spin" />
-                    </div>
-                    <p className="text-[#888888] text-sm">AI正在创作第3章，融入设定与伏笔...</p>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <Skeleton className="h-4 w-full bg-[#1C1C1C]" />
-                    <Skeleton className="h-4 w-[90%] bg-[#1C1C1C]" />
-                    <Skeleton className="h-4 w-[95%] bg-[#1C1C1C]" />
-                    <Skeleton className="h-4 w-[80%] bg-[#1C1C1C]" />
-                  </div>
-                  <div className="space-y-4">
-                    <Skeleton className="h-4 w-full bg-[#1C1C1C]" />
-                    <Skeleton className="h-4 w-[85%] bg-[#1C1C1C]" />
-                    <Skeleton className="h-4 w-[90%] bg-[#1C1C1C]" />
-                  </div>
-                </div>
-              ) : currentChapter?.status === 'generated' ? (
-                <div className="prose prose-invert prose-lg max-w-none text-gray-300 leading-relaxed">
-                  <p>夜色如墨，繁星隐没在厚重的云层之后。林风站在悬崖边缘，任由凛冽的寒风如刀般刮过面颊。他的目光穿透重重黑暗，死死地盯着深渊下方那隐约闪烁的幽蓝光芒。</p>
-                  <p>“这就是传说中的起源之地吗？”他喃喃自语，声音很快被风声吞噬。</p>
-                  <p>根据那张残破羊皮纸上的记载，这里埋藏着足以颠覆整个修真界格局的秘密。但他知道，盯上这块肥肉的，绝不止他一个人。就在半个时辰前，他已经察觉到了三股若有若无的杀气，正从不同方向悄然逼近。</p>
-                  <p>林风深吸一口气，体内的真气开始以一种奇异的韵律运转。这是他偶然得来的无名功法，虽然残缺不全，却能在关键时刻爆发出远超同阶修士的威力。</p>
-                  <p>“既然来了，何必藏头露尾！”林风突然暴喝一声，右手猛地拔出身后的玄铁重剑，顺势向后方一记横扫。</p>
-                  <p>铮——！</p>
-                  <p>刺耳的金铁交加声在夜空中激荡开来，火花四溅。一个身穿黑袍的干瘦身影从阴影中跌退而出，眼中满是不可思议：“你区区一个筑基期，怎么可能看破我的匿影术？”</p>
-                  <p>“死人不需要知道答案。”林风眼神冰冷，没有丝毫废话，提剑再次欺身而上。</p>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-32 text-center">
-                  <div className="w-16 h-16 rounded-full bg-[#1C1C1C] flex items-center justify-center mb-6 text-[#888888]">
-                    <FileText className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-xl font-medium mb-2">本章尚未生成</h3>
-                  <p className="text-[#888888] text-sm mb-8 max-w-md">
-                    你可以手动编写本章内容，或者让 AI 根据大纲和上下文自动生成。
-                  </p>
-                  <Button className="bg-[#FFE500] text-black hover:bg-[#FFE500]/90">
-                    <Sparkles className="w-4 h-4 mr-2" />
-                    立即生成本章
-                  </Button>
-                </div>
-              )}
+        {/* Main content area */}
+        <main style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+          {generating ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 24, padding: 40 }}>
+              <div style={{ width: 64, height: 64, borderRadius: '50%', border: '3px solid #2A2A2A', borderTopColor: '#FFE500', animation: 'spin 1s linear infinite' }}/>
+              <div style={{ textAlign: 'center' }}>
+                <p style={{ color: '#FFE500', fontWeight: 600, fontSize: 16, marginBottom: 8 }}>AI 正在创作第 {activeChapter} 章...</p>
+                <p style={{ color: '#888', fontSize: 14 }}>正在分析上下文，保持风格一致性</p>
+              </div>
+              <div style={{ width: '100%', maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {[100, 85, 70, 55].map((w, i) => (
+                  <div key={i} style={{ height: 14, background: '#1C1C1C', borderRadius: 999, width: `${w}%`, opacity: 0.4 + i * 0.15 }}/>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div style={{ flex: 1, overflowY: 'auto', padding: '48px 64px' }}>
+              <div style={{ maxWidth: 680, margin: '0 auto' }}>
+                <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 22, marginBottom: 8 }}>
+                  第 {activeChapter} 章 · {CHAPTERS[activeChapter - 1]?.title}
+                </h2>
+                <p style={{ color: '#888', fontSize: 13, marginBottom: 40 }}>约 1,240 字 · 质量评分 88</p>
+                <div style={{ color: '#ddd', fontSize: 16, lineHeight: 2.1, whiteSpace: 'pre-line' }}>{CHAPTER_CONTENT}</div>
+              </div>
+            </div>
+          )}
 
-          {/* AI Action Toolbar - Right Edge */}
-          <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3">
-            <div className="bg-[#1C1C1C] border border-[#2A2A2A] rounded-2xl p-2 flex flex-col gap-2 shadow-2xl backdrop-blur-sm bg-opacity-90">
-              <Button variant="ghost" size="icon" className="w-10 h-10 rounded-xl text-[#FFE500] hover:bg-[#FFE500]/10 hover:text-[#FFE500]" title="生成本章">
-                <Sparkles className="w-5 h-5" />
-              </Button>
-              <div className="h-px w-6 bg-[#2A2A2A] mx-auto" />
-              <Button variant="ghost" size="icon" className="w-10 h-10 rounded-xl text-[#888888] hover:text-white hover:bg-[#2A2A2A]" title="重写">
-                <RefreshCw className="w-5 h-5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="w-10 h-10 rounded-xl text-[#888888] hover:text-white hover:bg-[#2A2A2A]" title="评估质量">
-                <Star className="w-5 h-5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="w-10 h-10 rounded-xl text-[#888888] hover:text-white hover:bg-[#2A2A2A]" title="版本历史">
-                <History className="w-5 h-5" />
-              </Button>
-            </div>
+          {/* Right AI action panel */}
+          <div style={{ width: 64, background: '#0D0D0D', borderLeft: '1px solid #1C1C1C', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: 12, flexShrink: 0 }}>
+            {[
+              { icon: '⚡', label: '生成本章', yellow: true, onClick: handleGenerate },
+              { icon: '⭐', label: '质量评估', yellow: false },
+              { icon: '🕐', label: '版本历史', yellow: false },
+              { icon: '✏️', label: '编辑模式', yellow: false },
+            ].map((btn, i) => (
+              <button key={i} onClick={btn.onClick} title={btn.label} style={{ width: 44, height: 44, borderRadius: 12, background: btn.yellow ? '#FFE500' : '#1C1C1C', border: btn.yellow ? 'none' : '1px solid #2A2A2A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: 'pointer' }}>
+                {btn.icon}
+              </button>
+            ))}
           </div>
         </main>
       </div>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
-  );
+  )
 }

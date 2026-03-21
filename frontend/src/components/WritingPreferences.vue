@@ -1,112 +1,95 @@
 <!-- AIMETA P=写作偏好设置_风格配置界面|R=预设选择_自定义规则_禁用词|NR=不含LLM调用|E=component:WritingPreferences|X=ui|A=设置组件|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="bg-white/70 backdrop-blur-xl rounded-2xl shadow-lg p-8">
-    <h2 class="text-2xl font-bold text-gray-800 mb-2">写作风格偏好</h2>
-    <p class="text-sm text-gray-500 mb-6">选择预设风格或自定义规则，保存后所有项目的章节生成自动生效。</p>
+  <div>
+    <h2 class="text-base font-bold text-white mb-1">写作风格偏好</h2>
+    <p class="text-xs mb-6" style="color:#888888;">选择预设风格或自定义规则，保存后所有项目的章节生成自动生效。</p>
 
-    <div v-if="loading" class="text-center text-gray-400 py-12">加载中...</div>
+    <div v-if="loading" class="flex items-center justify-center py-16">
+      <div class="md-spinner"></div>
+    </div>
 
-    <div v-else class="space-y-8">
-      <!-- 预设选择 -->
+    <div v-else class="space-y-7">
+      <!-- Style presets -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-3">风格预设</label>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <!-- 无预设 -->
-          <div
-            @click="form.style_preset = null"
-            class="border-2 rounded-xl p-4 cursor-pointer transition-all"
-            :class="form.style_preset === null
-              ? 'border-indigo-500 bg-indigo-50'
-              : 'border-gray-200 hover:border-gray-300'"
-          >
-            <div class="font-medium text-gray-800">不使用预设</div>
-            <div class="text-xs text-gray-500 mt-1">仅使用自定义规则和禁用词</div>
+        <label class="block text-xs font-medium mb-3" style="color:#888888;">风格预设</label>
+        <div class="grid grid-cols-2 gap-3">
+          <div @click="form.style_preset = null"
+            class="border rounded-xl p-4 cursor-pointer transition-all"
+            :style="form.style_preset === null
+              ? 'border-color:#FFE500; background:#1A1600;'
+              : 'border-color:#2A2A2A; background:#141414;'">
+            <div class="text-sm font-medium text-white">不使用预设</div>
+            <div class="text-xs mt-1" style="color:#888888;">仅使用自定义规则和禁用词</div>
           </div>
-          <!-- 预设卡片 -->
-          <div
-            v-for="preset in presets"
-            :key="preset.key"
+          <div v-for="preset in presets" :key="preset.key"
             @click="selectPreset(preset.key)"
-            class="border-2 rounded-xl p-4 cursor-pointer transition-all"
-            :class="form.style_preset === preset.key
-              ? 'border-indigo-500 bg-indigo-50'
-              : 'border-gray-200 hover:border-gray-300'"
-          >
-            <div class="font-medium text-gray-800">{{ preset.name }}</div>
-            <div class="text-xs text-gray-500 mt-1">{{ preset.description }}</div>
+            class="border rounded-xl p-4 cursor-pointer transition-all"
+            :style="form.style_preset === preset.key
+              ? 'border-color:#FFE500; background:#1A1600;'
+              : 'border-color:#2A2A2A; background:#141414;'">
+            <div class="text-sm font-medium text-white">{{ preset.name }}</div>
+            <div class="text-xs mt-1" style="color:#888888;">{{ preset.description }}</div>
           </div>
         </div>
       </div>
 
-      <!-- 自定义规则 -->
+      <!-- Custom rules -->
       <div>
-        <label for="custom-rules" class="block text-sm font-medium text-gray-700 mb-1">自定义写作规则</label>
-        <p class="text-xs text-gray-400 mb-2">输入你希望 AI 在写作时遵守的额外规则，与预设叠加生效。</p>
-        <textarea
-          id="custom-rules"
-          v-model="form.custom_rules"
-          rows="5"
-          class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm resize-y"
+        <label for="custom-rules" class="block text-xs font-medium mb-1" style="color:#888888;">自定义写作规则</label>
+        <p class="text-[11px] mb-2" style="color:#555555;">输入你希望 AI 在写作时遵守的额外规则，与预设叠加生效。</p>
+        <textarea id="custom-rules" v-model="form.custom_rules" rows="5"
+          class="block w-full px-3 py-2.5 rounded-lg text-sm resize-y transition-colors"
+          style="background:#141414; border:1px solid #2A2A2A; color:#FFFFFF; outline:none;"
           placeholder="例如：对话占比不低于30%；避免连续三段以上的纯叙述..."
+          @focus="($event.target as HTMLElement).style.borderColor='#FFE500'"
+          @blur="($event.target as HTMLElement).style.borderColor='#2A2A2A'"
         ></textarea>
       </div>
 
-      <!-- 禁用词管理 -->
+      <!-- Banned phrases -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">自定义禁用词</label>
-        <p class="text-xs text-gray-400 mb-2">这些词汇/句式将被禁止在生成内容中出现（与预设自带禁用词叠加）。</p>
-        <div class="flex flex-wrap gap-2 mb-3">
-          <span
-            v-for="(phrase, index) in form.banned_phrases"
-            :key="index"
-            class="inline-flex items-center gap-1 px-3 py-1 bg-red-50 text-red-700 text-sm rounded-full border border-red-200"
-          >
+        <label class="block text-xs font-medium mb-1" style="color:#888888;">自定义禁用词</label>
+        <p class="text-[11px] mb-3" style="color:#555555;">这些词汇/句式将被禁止在生成内容中出现（与预设自带禁用词叠加）。</p>
+        <div class="flex flex-wrap gap-2 mb-3 min-h-[28px]">
+          <span v-for="(phrase, index) in form.banned_phrases" :key="index"
+            class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium"
+            style="background:#3D0A0A; color:#FF9EB8; border:1px solid #5A1515;">
             {{ phrase }}
-            <button
-              type="button"
-              @click="removePhrase(index)"
-              class="text-red-400 hover:text-red-600"
-            >
-              <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+            <button type="button" @click="removePhrase(index)"
+              class="transition-colors" style="color:#FF4757;">
+              <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
               </svg>
             </button>
           </span>
-          <span v-if="form.banned_phrases.length === 0" class="text-sm text-gray-400">暂无自定义禁用词</span>
+          <span v-if="form.banned_phrases.length === 0" class="text-xs" style="color:#555555;">暂无自定义禁用词</span>
         </div>
         <div class="flex gap-2">
-          <input
-            type="text"
-            v-model="newPhrase"
-            @keydown.enter.prevent="addPhrase"
-            class="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+          <input type="text" v-model="newPhrase" @keydown.enter.prevent="addPhrase"
+            class="flex-1 px-3 py-2.5 rounded-lg text-sm transition-colors"
+            style="background:#141414; border:1px solid #2A2A2A; color:#FFFFFF; outline:none;"
             placeholder="输入禁用词后按回车添加"
-          >
-          <button
-            type="button"
-            @click="addPhrase"
-            class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors text-sm"
-          >
+            @focus="($event.target as HTMLInputElement).style.borderColor='#FFE500'"
+            @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'"
+          />
+          <button type="button" @click="addPhrase"
+            class="px-4 py-2.5 rounded-lg text-sm font-medium flex-shrink-0 transition-colors"
+            style="background:#1C1C1C; border:1px solid #2A2A2A; color:#888888;">
             添加
           </button>
         </div>
       </div>
 
-      <!-- 操作按钮 -->
-      <div class="flex justify-end space-x-4 pt-4">
-        <button
-          type="button"
-          @click="handleReset"
-          class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-        >
+      <!-- Actions -->
+      <div class="flex justify-end gap-3 pt-2">
+        <button type="button" @click="handleReset"
+          class="px-4 py-2 rounded-lg text-sm font-medium"
+          style="background:transparent; border:1px solid #3D0A0A; color:#FF4757;">
           重置
         </button>
-        <button
-          type="button"
-          @click="handleSave"
-          :disabled="saving"
-          class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed"
-        >
+        <button type="button" @click="handleSave" :disabled="saving"
+          class="px-5 py-2 rounded-lg text-sm font-semibold transition-colors"
+          :style="saving ? 'background:#888;color:#000;' : 'background:#FFE500;color:#000;'">
           {{ saving ? '保存中...' : '保存' }}
         </button>
       </div>
@@ -151,21 +134,12 @@ onMounted(async () => {
   }
 });
 
-const selectPreset = (key: string) => {
-  form.style_preset = form.style_preset === key ? null : key;
-};
-
+const selectPreset = (key: string) => { form.style_preset = form.style_preset === key ? null : key; };
 const addPhrase = () => {
   const phrase = newPhrase.value.trim();
-  if (phrase && !form.banned_phrases.includes(phrase)) {
-    form.banned_phrases.push(phrase);
-    newPhrase.value = '';
-  }
+  if (phrase && !form.banned_phrases.includes(phrase)) { form.banned_phrases.push(phrase); newPhrase.value = ''; }
 };
-
-const removePhrase = (index: number) => {
-  form.banned_phrases.splice(index, 1);
-};
+const removePhrase = (index: number) => { form.banned_phrases.splice(index, 1); };
 
 const handleSave = async () => {
   saving.value = true;
@@ -176,8 +150,7 @@ const handleSave = async () => {
       banned_phrases: form.banned_phrases.length > 0 ? form.banned_phrases : null,
     });
     alert('写作偏好已保存！');
-  } catch (e) {
-    console.error('Failed to save:', e);
+  } catch {
     alert('保存失败，请重试');
   } finally {
     saving.value = false;
@@ -188,15 +161,10 @@ const handleReset = async () => {
   if (!confirm('确定要重置写作偏好吗？将清除所有已保存的设置。')) return;
   try {
     await deleteWritingPreference();
-    form.style_preset = null;
-    form.custom_rules = '';
-    form.banned_phrases = [];
-    alert('写作偏好已重置！');
-  } catch {
-    // 404 is fine — nothing to delete
-    form.style_preset = null;
-    form.custom_rules = '';
-    form.banned_phrases = [];
-  }
+  } catch { /* 404 is fine */ }
+  form.style_preset = null;
+  form.custom_rules = '';
+  form.banned_phrases = [];
+  alert('写作偏好已重置！');
 };
 </script>

@@ -1,371 +1,180 @@
-import React, { useState } from "react";
-import { 
-  BookOpen, 
-  Settings, 
-  User, 
-  ChevronLeft,
-  Calendar,
-  PenTool,
-  BarChart2,
-  List,
-  Users,
-  Globe,
-  Map,
-  Eye,
-  TrendingUp,
-  Database,
-  Star,
-  Clock,
-  ChevronRight,
-  Play
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState } from 'react'
+
+const NAV_ITEMS = ['灵感模式', '我的小说', '写作台', '设置']
+const TABS = ['概览', '章节列表', '人物', '世界观', '大纲', '伏笔', '情感曲线', '设定库']
+
+const CHAPTERS = [
+  { num: 1, title: '序章：命运的起点', words: 1240, quality: 92, status: '已生成' },
+  { num: 2, title: '初入江湖', words: 1520, quality: 88, status: '已生成' },
+  { num: 3, title: '师门危机', words: 1380, quality: 85, status: '已生成' },
+  { num: 4, title: '破境之路', words: 1610, quality: 91, status: '已生成' },
+  { num: 5, title: '山外有山', words: 1290, quality: 87, status: '已生成' },
+]
+
+const CHARACTERS = [
+  { name: '陆天远', role: '主角', color: '#FFE500', desc: '天才剑修，性格坚毅' },
+  { name: '苏晴雪', role: '女主', color: '#2ED573', desc: '冰雪宗传人，内敛温柔' },
+  { name: '玄剑老人', role: '导师', color: '#888', desc: '神秘强者，身世成谜' },
+  { name: '魔皇血炎', role: '反派', color: '#FF4757', desc: '千年魔修，野心勃勃' },
+]
 
 export default function NovelDetail() {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState('概览')
+  const [activeNav] = useState('我的小说')
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-[#FFFFFF] font-sans selection:bg-[#FFE500] selection:text-black">
-      {/* Top Navigation */}
-      <header className="sticky top-0 z-50 w-full border-b border-[#2A2A2A] bg-[#0A0A0A]/80 backdrop-blur">
-        <div className="container mx-auto flex h-16 items-center justify-between px-4">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded bg-[#FFE500] flex items-center justify-center text-black font-bold text-xl">
-                ✦
-              </div>
-              <span className="text-xl font-bold tracking-tight">Arboris Novel</span>
-            </div>
-            <nav className="hidden md:flex items-center gap-6 ml-6 text-sm font-medium text-[#888888]">
-              <a href="#" className="hover:text-white transition-colors">灵感模式</a>
-              <a href="#" className="text-white">我的小说</a>
-              <a href="#" className="hover:text-white transition-colors">写作台</a>
-            </nav>
-          </div>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" className="text-[#888888] hover:text-white">
-              <Settings className="h-5 w-5" />
-            </Button>
-            <Avatar className="h-9 w-9 border border-[#2A2A2A]">
-              <AvatarImage src="https://i.pravatar.cc/150?u=a042581f4e29026704d" />
-              <AvatarFallback className="bg-[#141414] text-[#FFE500]">AX</AvatarFallback>
-            </Avatar>
-          </div>
+    <div style={{ minHeight: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff' }}>
+      {/* Nav */}
+      <nav style={{ background: '#0A0A0A', borderBottom: '1px solid #1C1C1C', padding: '0 32px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: '#FFE500', fontSize: 22, fontWeight: 700 }}>✦</span>
+          <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18 }}>Arboris Novel</span>
         </div>
-      </header>
-
-      <main className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* Back button */}
-        <Button variant="ghost" className="mb-6 -ml-4 text-[#888888] hover:text-white">
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          返回小说库
-        </Button>
-
-        {/* Hero Header */}
-        <div className="bg-[#141414] border border-[#2A2A2A] rounded-2xl p-8 mb-8 relative overflow-hidden">
-          {/* Decorative background element */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-[#FFE500]/5 rounded-full blur-3xl transform translate-x-1/2 -translate-y-1/2"></div>
-          
-          <div className="relative z-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <Badge className="bg-[#FFE500]/10 text-[#FFE500] hover:bg-[#FFE500]/20 border-[#FFE500]/20 rounded-md px-3 py-1">
-                  赛博朋克
-                </Badge>
-                <Badge variant="outline" className="border-[#2A2A2A] text-[#888888] rounded-md px-3 py-1">
-                  科幻
-                </Badge>
-                <span className="text-xs text-[#888888] flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-[#2ED573]"></span>
-                  连载中
-                </span>
-              </div>
-              
-              <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-white">
-                霓虹下的暗影
-              </h1>
-              
-              <div className="flex flex-wrap items-center gap-6 text-sm text-[#888888]">
-                <div className="flex items-center gap-2">
-                  <PenTool className="h-4 w-4 text-[#FFE500]" />
-                  <span>作者: Alex Chen</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>创建于 2024-03-15</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <span>最后更新: 2小时前</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col items-center gap-4 bg-[#1C1C1C] p-5 rounded-xl border border-[#2A2A2A] min-w-[200px]">
-              <div className="relative w-20 h-20 flex items-center justify-center">
-                <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="45" fill="none" stroke="#2A2A2A" strokeWidth="10" />
-                  <circle 
-                    cx="50" cy="50" r="45" fill="none" stroke="#FFE500" strokeWidth="10" 
-                    strokeDasharray="282.7" strokeDashoffset="113.1" // 60% completion
-                    strokeLinecap="round" 
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-xl font-bold">60%</span>
-                </div>
-              </div>
-              <div className="text-center">
-                <div className="text-sm font-medium text-white">当前进度</div>
-                <div className="text-xs text-[#888888]">18 / 30 章</div>
-              </div>
-              <Button className="w-full bg-[#FFE500] text-black hover:bg-[#FFE500]/90 font-bold mt-2">
-                <Play className="mr-2 h-4 w-4 fill-black" /> 继续写作
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {/* Horizontal Tab Bar */}
-        <Tabs defaultValue="overview" className="w-full" onValueChange={setActiveTab}>
-          <div className="border-b border-[#2A2A2A] mb-8">
-            <TabsList className="bg-transparent h-12 p-0 space-x-8 overflow-x-auto flex-nowrap justify-start w-full border-none">
-              <TabsTrigger 
-                value="overview" 
-                className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white"
-              >
-                <BarChart2 className="w-4 h-4 mr-2" />
-                概览
-              </TabsTrigger>
-              <TabsTrigger value="chapters" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <List className="w-4 h-4 mr-2" /> 章节列表
-              </TabsTrigger>
-              <TabsTrigger value="characters" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <Users className="w-4 h-4 mr-2" /> 人物
-              </TabsTrigger>
-              <TabsTrigger value="world" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <Globe className="w-4 h-4 mr-2" /> 世界观
-              </TabsTrigger>
-              <TabsTrigger value="outline" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <Map className="w-4 h-4 mr-2" /> 大纲
-              </TabsTrigger>
-              <TabsTrigger value="foreshadowing" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <Eye className="w-4 h-4 mr-2" /> 伏笔
-              </TabsTrigger>
-              <TabsTrigger value="emotion" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <TrendingUp className="w-4 h-4 mr-2" /> 情感曲线
-              </TabsTrigger>
-              <TabsTrigger value="database" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-[#FFE500] data-[state=active]:text-[#FFE500] rounded-none px-0 h-12 text-[#888888] hover:text-white">
-                <Database className="w-4 h-4 mr-2" /> 设定库
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="overview" className="mt-0 outline-none">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Left Column (Main Content) */}
-              <div className="lg:col-span-2 space-y-8">
-                {/* Stats Cards Row */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <Card className="bg-[#141414] border-[#2A2A2A]">
-                    <CardContent className="p-5">
-                      <div className="text-[#888888] text-sm mb-2">总字数</div>
-                      <div className="text-2xl font-bold text-white">54.2k</div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-[#141414] border-[#2A2A2A]">
-                    <CardContent className="p-5">
-                      <div className="text-[#888888] text-sm mb-2">已完成章节</div>
-                      <div className="text-2xl font-bold text-white">18 <span className="text-sm text-[#888888] font-normal">/ 30</span></div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-[#141414] border-[#2A2A2A]">
-                    <CardContent className="p-5">
-                      <div className="text-[#888888] text-sm mb-2 flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full bg-[#FFE500]"></div>
-                        AI生成率
-                      </div>
-                      <div className="text-2xl font-bold text-white">92%</div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-[#141414] border-[#2A2A2A]">
-                    <CardContent className="p-5">
-                      <div className="text-[#888888] text-sm mb-2 flex items-center gap-1">
-                        <Star className="w-3 h-3 text-[#2ED573]" fill="#2ED573" />
-                        平均质量分
-                      </div>
-                      <div className="text-2xl font-bold text-[#2ED573]">8.5</div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Recent Chapters */}
-                <Card className="bg-[#141414] border-[#2A2A2A]">
-                  <CardHeader className="flex flex-row items-center justify-between pb-4">
-                    <CardTitle className="text-lg font-bold">最近更新章节</CardTitle>
-                    <Button variant="ghost" size="sm" className="text-[#FFE500] hover:text-[#FFE500]/80 hover:bg-[#FFE500]/10">
-                      查看全部 <ChevronRight className="w-4 h-4 ml-1" />
-                    </Button>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <div className="divide-y divide-[#2A2A2A]">
-                      {[
-                        { num: 18, title: "觉醒与背叛", status: "completed", date: "2小时前", words: 3200, score: 8.8 },
-                        { num: 17, title: "霓虹下的交易", status: "completed", date: "昨天", words: 2850, score: 8.5 },
-                        { num: 16, title: "赛博精神病", status: "completed", date: "2天前", words: 3100, score: 8.2 },
-                        { num: 19, title: "深渊凝视", status: "pending", date: "-", words: 0, score: 0 }
-                      ].map((chapter) => (
-                        <div key={chapter.num} className="p-4 flex items-center justify-between hover:bg-[#1C1C1C] transition-colors cursor-pointer group">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded bg-[#0A0A0A] border border-[#2A2A2A] flex items-center justify-center font-mono text-sm text-[#888888]">
-                              第{chapter.num}章
-                            </div>
-                            <div>
-                              <div className="font-medium text-white group-hover:text-[#FFE500] transition-colors">
-                                {chapter.title}
-                              </div>
-                              <div className="text-xs text-[#888888] mt-1 flex items-center gap-3">
-                                <span>{chapter.date}</span>
-                                {chapter.words > 0 && <span>{chapter.words} 字</span>}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            {chapter.score > 0 && (
-                              <Badge variant="outline" className="border-[#2A2A2A] bg-[#0A0A0A] text-[#888888]">
-                                <Star className="w-3 h-3 text-[#2ED573] mr-1" fill="#2ED573" />
-                                {chapter.score}
-                              </Badge>
-                            )}
-                            {chapter.status === "completed" ? (
-                              <Badge className="bg-[#2ED573]/10 text-[#2ED573] hover:bg-[#2ED573]/20 border-0">已完成</Badge>
-                            ) : (
-                              <Button size="sm" className="bg-[#2A2A2A] text-white hover:bg-[#FFE500] hover:text-black transition-colors">
-                                生成本章
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Key Characters */}
-                <Card className="bg-[#141414] border-[#2A2A2A]">
-                  <CardHeader className="flex flex-row items-center justify-between">
-                    <CardTitle className="text-lg font-bold">核心人物设定</CardTitle>
-                    <Button variant="ghost" size="sm" className="text-[#888888] hover:text-white">
-                      管理人物
-                    </Button>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {[
-                        { name: "Kael", role: "男主 · 赏金猎人", desc: "冷酷外表下的理想主义者" },
-                        { name: "Nova", role: "女主 · 黑客", desc: "拥有能够直连底层网络的特异体质" },
-                        { name: "Dr. Vance", role: "反派 · 财阀统领", desc: "试图通过义体控制全城" },
-                        { name: "J-09", role: "AI伴侣", desc: "产生了自我意识的服务型仿生人" }
-                      ].map((char, i) => (
-                        <div key={i} className="bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl p-4 flex flex-col items-center text-center hover:border-[#FFE500]/50 transition-colors cursor-pointer">
-                          <Avatar className="w-16 h-16 mb-3 border-2 border-[#1C1C1C]">
-                            <AvatarImage src={`https://i.pravatar.cc/150?u=char${i}`} />
-                            <AvatarFallback className="bg-[#1C1C1C] text-lg text-[#FFE500]">
-                              {char.name.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="font-bold text-sm text-white">{char.name}</div>
-                          <div className="text-xs text-[#FFE500] mt-1 mb-2">{char.role}</div>
-                          <div className="text-xs text-[#888888] line-clamp-2">{char.desc}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Right Column (Sidebar) */}
-              <div className="space-y-6">
-                {/* AI Analysis Card */}
-                <Card className="bg-[#141414] border-[#2A2A2A] overflow-hidden">
-                  <div className="bg-gradient-to-r from-[#FFE500]/20 to-transparent p-1"></div>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-md flex items-center gap-2">
-                      <div className="text-[#FFE500]">✦</div> AI 综合评估
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="text-sm text-[#888888] leading-relaxed">
-                      当前故事节奏紧凑，第16-18章的情感爆发点处理得当。建议在后续章节适当放缓节奏，深入描写男女主的内心变化。
-                    </div>
-                    
-                    <div className="space-y-3 pt-2">
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-[#888888]">剧情张力</span>
-                          <span className="text-white">85%</span>
-                        </div>
-                        <Progress value={85} className="h-1.5 bg-[#2A2A2A]" indicatorColor="bg-[#FFE500]" />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-[#888888]">人物塑造</span>
-                          <span className="text-white">90%</span>
-                        </div>
-                        <Progress value={90} className="h-1.5 bg-[#2A2A2A]" indicatorColor="bg-[#FFE500]" />
-                      </div>
-                      <div>
-                        <div className="flex justify-between text-xs mb-1">
-                          <span className="text-[#888888]">设定一致性</span>
-                          <span className="text-white">78%</span>
-                        </div>
-                        <Progress value={78} className="h-1.5 bg-[#2A2A2A]" indicatorColor="bg-[#FF4757]" />
-                        <div className="text-[10px] text-[#FF4757] mt-1 flex items-center">
-                          注意：第17章中Nova的黑客能力设定存在轻微偏差。
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <Button variant="outline" className="w-full mt-4 border-[#2A2A2A] text-white hover:bg-[#1C1C1C]">
-                      查看详细评估报告
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                {/* Quick Actions */}
-                <Card className="bg-[#141414] border-[#2A2A2A]">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-md font-bold">快捷操作</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button variant="ghost" className="w-full justify-start text-[#888888] hover:text-white hover:bg-[#1C1C1C]">
-                      <PenTool className="mr-2 h-4 w-4" /> 修改小说设定
-                    </Button>
-                    <Button variant="ghost" className="w-full justify-start text-[#888888] hover:text-white hover:bg-[#1C1C1C]">
-                      <Map className="mr-2 h-4 w-4" /> 导出当前大纲
-                    </Button>
-                    <Button variant="ghost" className="w-full justify-start text-[#888888] hover:text-white hover:bg-[#1C1C1C]">
-                      <Settings className="mr-2 h-4 w-4" /> 项目专属设置
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Placeholders for other tabs */}
-          {["chapters", "characters", "world", "outline", "foreshadowing", "emotion", "database"].map(tab => (
-            <TabsContent key={tab} value={tab} className="mt-8 text-center py-20 border border-dashed border-[#2A2A2A] rounded-xl bg-[#141414]/50">
-              <div className="text-[#888888]">内容开发中... ({tab})</div>
-            </TabsContent>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {NAV_ITEMS.map(item => (
+            <button key={item} style={{ padding: '6px 16px', borderRadius: 8, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer', background: activeNav === item ? '#1C1C1C' : 'transparent', color: activeNav === item ? '#FFE500' : '#888' }}>
+              {item}
+            </button>
           ))}
-        </Tabs>
-      </main>
+        </div>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: 15, cursor: 'pointer' }}>创</div>
+      </nav>
+
+      {/* Hero header */}
+      <div style={{ background: '#0D0D0D', borderBottom: '1px solid #1C1C1C', padding: '40px 32px' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 40, alignItems: 'center' }}>
+          {/* Novel icon */}
+          <div style={{ width: 100, height: 100, borderRadius: 20, background: '#1C1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, flexShrink: 0 }}>⚔️</div>
+
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+              <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 900, fontSize: 36 }}>剑域苍穹</h1>
+              <span style={{ background: '#FFE500', color: '#000', fontSize: 12, fontWeight: 700, padding: '3px 12px', borderRadius: 999 }}>玄幻</span>
+              <span style={{ background: '#1C1C1C', color: '#888', fontSize: 12, padding: '3px 12px', borderRadius: 999, border: '1px solid #2A2A2A' }}>进行中</span>
+            </div>
+            <div style={{ display: 'flex', gap: 20, color: '#888', fontSize: 14, marginBottom: 20 }}>
+              <span>作者：创作者</span>
+              <span>创建于：2024年1月15日</span>
+              <span>上次编辑：2小时前</span>
+            </div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <button style={{ background: '#FFE500', color: '#000', border: 'none', borderRadius: 10, padding: '10px 24px', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>进入写作台</button>
+              <button style={{ background: '#1C1C1C', color: '#fff', border: '1px solid #2A2A2A', borderRadius: 10, padding: '10px 24px', fontWeight: 500, fontSize: 14, cursor: 'pointer' }}>生成大纲</button>
+              <button style={{ background: 'transparent', color: '#888', border: '1px solid #2A2A2A', borderRadius: 10, padding: '10px 16px', cursor: 'pointer' }}>⋮</button>
+            </div>
+          </div>
+
+          {/* Progress ring */}
+          <div style={{ flexShrink: 0, textAlign: 'center' }}>
+            <svg width="100" height="100" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#1C1C1C" strokeWidth="8"/>
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#FFE500" strokeWidth="8" strokeDasharray={`${2 * Math.PI * 42 * 0.4} ${2 * Math.PI * 42 * 0.6}`} strokeLinecap="round" strokeDashoffset={2 * Math.PI * 42 * 0.25} style={{ transform: 'rotate(-90deg)', transformOrigin: '50px 50px' }}/>
+              <text x="50" y="46" textAnchor="middle" fill="#FFE500" fontSize="18" fontWeight="700" fontFamily="Space Grotesk, sans-serif">40%</text>
+              <text x="50" y="62" textAnchor="middle" fill="#888" fontSize="10">完成率</text>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div style={{ borderBottom: '1px solid #1C1C1C', padding: '0 32px' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', gap: 0 }}>
+          {TABS.map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: '16px 20px', fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer', background: 'transparent', color: activeTab === tab ? '#FFE500' : '#888', borderBottom: activeTab === tab ? '2px solid #FFE500' : '2px solid transparent' }}>
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '36px 32px', display: 'grid', gridTemplateColumns: '1fr 280px', gap: 32 }}>
+        <div>
+          {/* Stats row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 36 }}>
+            {[
+              { label: '总字数', value: '1.5万', icon: '📝', color: '#FFE500' },
+              { label: '章节数', value: '12', icon: '📚', color: '#2ED573' },
+              { label: 'AI生成率', value: '95%', icon: '🤖', color: '#888' },
+              { label: '平均质量', value: '88', icon: '⭐', color: '#FFE500' },
+            ].map((s, i) => (
+              <div key={i} style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 16, padding: '20px 20px' }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
+                <div style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 28, color: s.color, marginBottom: 4 }}>{s.value}</div>
+                <div style={{ color: '#888', fontSize: 13 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Recent chapters */}
+          <div style={{ marginBottom: 32 }}>
+            <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 16, marginBottom: 16 }}>最近章节</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {CHAPTERS.map(ch => (
+                <div key={ch.num} style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 16, cursor: 'pointer' }}>
+                  <span style={{ color: '#888', fontWeight: 600, fontSize: 13, width: 28 }}>#{ch.num}</span>
+                  <span style={{ flex: 1, fontWeight: 500, fontSize: 14 }}>{ch.title}</span>
+                  <span style={{ color: '#888', fontSize: 13 }}>{ch.words.toLocaleString()} 字</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ color: '#FFE500', fontSize: 13 }}>★</span>
+                    <span style={{ color: '#fff', fontSize: 13, fontWeight: 600 }}>{ch.quality}</span>
+                  </div>
+                  <span style={{ background: '#2ED57322', color: '#2ED573', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999 }}>{ch.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Characters grid */}
+          <div>
+            <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 16, marginBottom: 16 }}>关键人物</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+              {CHARACTERS.map(c => (
+                <div key={c.name} style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 14, padding: '18px 14px', textAlign: 'center', cursor: 'pointer' }}>
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', background: c.color + '22', border: `2px solid ${c.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px', fontSize: 20, fontWeight: 700, color: c.color }}>
+                    {c.name[0]}
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{c.name}</div>
+                  <div style={{ color: c.color, fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{c.role}</div>
+                  <div style={{ color: '#888', fontSize: 12, lineHeight: 1.4 }}>{c.desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Right AI analysis column */}
+        <div>
+          <div style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 16, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <span style={{ fontSize: 16 }}>🤖</span>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>AI 分析摘要</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                { label: '剧情节奏', score: 82, color: '#FFE500' },
+                { label: '人物塑造', score: 88, color: '#2ED573' },
+                { label: '世界观丰富度', score: 75, color: '#888' },
+                { label: '文笔质量', score: 91, color: '#FFE500' },
+              ].map(m => (
+                <div key={m.label}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ color: '#aaa', fontSize: 13 }}>{m.label}</span>
+                    <span style={{ color: m.color, fontWeight: 700, fontSize: 13 }}>{m.score}</span>
+                  </div>
+                  <div style={{ height: 4, background: '#2A2A2A', borderRadius: 999 }}>
+                    <div style={{ width: `${m.score}%`, height: '100%', background: m.color, borderRadius: 999 }}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 20, padding: 14, background: '#1C1C1C', borderRadius: 12 }}>
+              <p style={{ color: '#aaa', fontSize: 13, lineHeight: 1.7 }}>整体质量优秀。建议在第6章加强反派的动机描写，以增强冲突张力。伏笔"玄剑传承"需要在后续章节中及时回收。</p>
+            </div>
+            <button style={{ width: '100%', marginTop: 16, padding: '10px', background: '#FFE500', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, color: '#000', cursor: 'pointer' }}>深度分析报告</button>
+          </div>
+        </div>
+      </div>
     </div>
-  );
+  )
 }

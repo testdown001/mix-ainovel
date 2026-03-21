@@ -1,275 +1,132 @@
-import React, { useState } from "react";
-import { 
-  Search, 
-  Plus, 
-  BookOpen, 
-  Clock, 
-  MoreVertical, 
-  PenTool,
-  Library,
-  Lightbulb,
-  Settings,
-  Sparkles
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState } from 'react'
 
-// Mock data
-const mockNovels = [
-  {
-    id: "1",
-    title: "星际穿越：黑暗森林的余烬",
-    genre: "科幻",
-    progress: 45,
-    chaptersDone: 12,
-    chaptersTotal: 30,
-    lastEdited: "2小时前",
-    status: "进行中",
-    coverColor: "from-blue-900 to-indigo-900",
-  },
-  {
-    id: "2",
-    title: "修仙纪元：从凡人到道祖",
-    genre: "仙侠",
-    progress: 80,
-    chaptersDone: 80,
-    chaptersTotal: 100,
-    lastEdited: "1天前",
-    status: "进行中",
-    coverColor: "from-emerald-900 to-teal-900",
-  },
-  {
-    id: "3",
-    title: "赛博朋克：霓虹雨下的武士",
-    genre: "赛博朋克",
-    progress: 100,
-    chaptersDone: 50,
-    chaptersTotal: 50,
-    lastEdited: "3天前",
-    status: "已完成",
-    coverColor: "from-purple-900 to-fuchsia-900",
-  },
-  {
-    id: "4",
-    title: "迷雾纪元",
-    genre: "悬疑",
-    progress: 15,
-    chaptersDone: 3,
-    chaptersTotal: 20,
-    lastEdited: "1周前",
-    status: "进行中",
-    coverColor: "from-zinc-800 to-zinc-900",
-  },
-];
+const NAV_ITEMS = ['灵感模式', '我的小说', '写作台', '设置']
+
+const NOVELS = [
+  { title: '剑域苍穹', genre: '玄幻', done: 12, total: 30, updated: '2小时前', status: 'active' },
+  { title: '都市修真记', genre: '都市', done: 8, total: 20, updated: '昨天', status: 'active' },
+  { title: '星际迷途', genre: '科幻', done: 5, total: 25, updated: '3天前', status: 'active' },
+  { title: '锦绣山河', genre: '历史', done: 18, total: 40, updated: '1周前', status: 'done' },
+  { title: '末世求生', genre: '末世', done: 0, total: 20, updated: '从未编辑', status: 'empty' },
+  { title: '修仙问道', genre: '仙侠', done: 30, total: 30, updated: '1个月前', status: 'done' },
+]
+
+const FILTERS = ['全部', '进行中', '已完成']
+
+const GENRE_ICONS: Record<string, string> = { '玄幻': '⚔️', '都市': '🏙️', '科幻': '🚀', '历史': '🏯', '末世': '💀', '仙侠': '☁️' }
 
 export default function NovelWorkspace() {
-  const [activeTab, setActiveTab] = useState("全部");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [activeNav] = useState('我的小说')
+  const [filter, setFilter] = useState('全部')
+  const [query, setQuery] = useState('')
 
-  const filteredNovels = mockNovels.filter((novel) => {
-    if (activeTab !== "全部" && novel.status !== activeTab) return false;
-    if (searchQuery && !novel.title.includes(searchQuery)) return false;
-    return true;
-  });
+  const filtered = NOVELS.filter(n => {
+    if (filter === '进行中' && n.status !== 'active') return false
+    if (filter === '已完成' && n.status !== 'done') return false
+    if (query && !n.title.includes(query)) return false
+    return true
+  })
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white font-['Inter'] flex flex-col">
-      {/* Navigation Bar */}
-      <header className="sticky top-0 z-50 w-full border-b border-[#2A2A2A] bg-[#141414]/80 backdrop-blur-md">
-        <div className="container mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded bg-[#FFE500] flex items-center justify-center text-black">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <span className="font-['Space_Grotesk'] font-bold text-xl tracking-tight">
-              Arboris Novel
-            </span>
-          </div>
-          
-          <nav className="hidden md:flex items-center gap-8">
-            <a href="#" className="flex items-center gap-2 text-[#888888] hover:text-white transition-colors">
-              <Lightbulb className="w-4 h-4" />
-              <span className="text-sm font-medium">灵感模式</span>
-            </a>
-            <a href="#" className="flex items-center gap-2 text-[#FFE500] transition-colors">
-              <Library className="w-4 h-4" />
-              <span className="text-sm font-medium">我的小说</span>
-            </a>
-            <a href="#" className="flex items-center gap-2 text-[#888888] hover:text-white transition-colors">
-              <PenTool className="w-4 h-4" />
-              <span className="text-sm font-medium">写作台</span>
-            </a>
-            <a href="#" className="flex items-center gap-2 text-[#888888] hover:text-white transition-colors">
-              <Settings className="w-4 h-4" />
-              <span className="text-sm font-medium">设置</span>
-            </a>
-          </nav>
-          
-          <div className="flex items-center gap-4">
-            <Avatar className="w-9 h-9 border border-[#2A2A2A]">
-              <AvatarImage src="https://github.com/shadcn.png" />
-              <AvatarFallback className="bg-[#1C1C1C] text-[#FFE500]">AX</AvatarFallback>
-            </Avatar>
-          </div>
+    <div style={{ minHeight: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff' }}>
+      {/* Nav */}
+      <nav style={{ background: '#0A0A0A', borderBottom: '1px solid #1C1C1C', padding: '0 32px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: '#FFE500', fontSize: 22, fontWeight: 700 }}>✦</span>
+          <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18 }}>Arboris Novel</span>
         </div>
-      </header>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {NAV_ITEMS.map(item => (
+            <button key={item} style={{ padding: '6px 16px', borderRadius: 8, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer', background: activeNav === item ? '#1C1C1C' : 'transparent', color: activeNav === item ? '#FFE500' : '#888' }}>
+              {item}
+            </button>
+          ))}
+        </div>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: 15, cursor: 'pointer' }}>创</div>
+      </nav>
 
-      {/* Main Content */}
-      <main className="flex-1 container mx-auto px-6 py-8">
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '48px 32px' }}>
+        {/* Page header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 36 }}>
           <div>
-            <h1 className="text-3xl font-['Space_Grotesk'] font-bold text-white mb-2">我的小说库</h1>
-            <p className="text-[#888888]">查看并管理你所有的小说项目</p>
+            <h1 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 900, fontSize: 40, marginBottom: 6 }}>我的小说库</h1>
+            <p style={{ color: '#888', fontSize: 15 }}>共 {NOVELS.length} 部小说 · {NOVELS.reduce((s, n) => s + n.done, 0)} 章已生成</p>
           </div>
-          <Button className="bg-[#FFE500] text-black hover:bg-[#FFE500]/90 font-semibold gap-2">
-            <Plus className="w-4 h-4" />
-            新建小说
-          </Button>
+          <button style={{ background: '#FFE500', color: '#000', border: 'none', borderRadius: 12, padding: '12px 24px', fontWeight: 700, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 18, fontWeight: 400 }}>+</span> 新建小说
+          </button>
         </div>
 
-        {/* Filters and Search */}
-        <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-          <Tabs defaultValue="全部" className="w-full md:w-auto" onValueChange={setActiveTab}>
-            <TabsList className="bg-[#141414] border border-[#2A2A2A]">
-              <TabsTrigger 
-                value="全部" 
-                className="data-[state=active]:bg-[#1C1C1C] data-[state=active]:text-[#FFE500]"
-              >
-                全部
-              </TabsTrigger>
-              <TabsTrigger 
-                value="进行中"
-                className="data-[state=active]:bg-[#1C1C1C] data-[state=active]:text-[#FFE500]"
-              >
-                进行中
-              </TabsTrigger>
-              <TabsTrigger 
-                value="已完成"
-                className="data-[state=active]:bg-[#1C1C1C] data-[state=active]:text-[#FFE500]"
-              >
-                已完成
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          <div className="relative w-full md:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#888888]" />
-            <Input 
-              placeholder="搜索小说..." 
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-[#141414] border-[#2A2A2A] text-white focus-visible:ring-[#FFE500] placeholder:text-[#888888]"
+        {/* Search + filters */}
+        <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
+          <div style={{ position: 'relative', flex: 1, maxWidth: 400 }}>
+            <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: 16 }}>🔍</span>
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="搜索小说名称..."
+              style={{ width: '100%', padding: '10px 16px 10px 44px', background: '#141414', border: '1px solid #2A2A2A', borderRadius: 12, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
             />
           </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {FILTERS.map(f => (
+              <button key={f} onClick={() => setFilter(f)} style={{ padding: '10px 20px', borderRadius: 12, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer', background: filter === f ? '#FFE500' : '#141414', color: filter === f ? '#000' : '#888', borderColor: '#2A2A2A', borderWidth: filter === f ? 0 : 1, borderStyle: 'solid' }}>
+                {f}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Novel Grid */}
-        {filteredNovels.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredNovels.map((novel) => (
-              <Card key={novel.id} className="bg-[#141414] border-[#2A2A2A] overflow-hidden flex flex-col transition-all hover:border-[#FFE500]/50 hover:shadow-[0_0_15px_rgba(255,229,0,0.1)] group">
-                {/* Card Top "Cover" area */}
-                <div className={`h-24 bg-gradient-to-br ${novel.coverColor} relative p-4 flex flex-col justify-between`}>
-                  <div className="flex justify-between items-start">
-                    <Badge variant="secondary" className="bg-black/40 hover:bg-black/60 text-[#FFE500] border-none backdrop-blur-sm">
-                      {novel.genre}
-                    </Badge>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-white hover:bg-white/20">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="bg-[#1C1C1C] border-[#2A2A2A] text-white">
-                        <DropdownMenuItem className="hover:bg-[#2A2A2A] hover:text-[#FFE500] focus:bg-[#2A2A2A] focus:text-[#FFE500] cursor-pointer">
-                          重命名
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="hover:bg-[#2A2A2A] hover:text-[#FFE500] focus:bg-[#2A2A2A] focus:text-[#FFE500] cursor-pointer">
-                          导出配置
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-[#FF4757] hover:bg-[#FF4757]/10 focus:bg-[#FF4757]/10 cursor-pointer">
-                          删除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+        {/* Novel grid */}
+        {filtered.length > 0 ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
+            {filtered.map((n, i) => (
+              <div key={i} style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 18, padding: 24, cursor: 'pointer', transition: 'border-color 0.2s' }}>
+                {/* Card top */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+                  <div style={{ width: 52, height: 52, borderRadius: 14, background: '#1C1C1C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26 }}>
+                    {GENRE_ICONS[n.genre] || '📖'}
+                  </div>
+                  <span style={{ background: '#FFE500', color: '#000', fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999 }}>{n.genre}</span>
+                </div>
+
+                <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18, marginBottom: 6 }}>{n.title}</h3>
+                <p style={{ color: '#888', fontSize: 13, marginBottom: 16 }}>上次编辑：{n.updated}</p>
+
+                {/* Progress */}
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ color: '#888', fontSize: 12 }}>章节进度</span>
+                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 600 }}>{n.done}/{n.total} 章</span>
+                  </div>
+                  <div style={{ height: 6, background: '#2A2A2A', borderRadius: 999 }}>
+                    <div style={{ height: '100%', width: `${Math.round(n.done / n.total * 100)}%`, background: '#FFE500', borderRadius: 999 }}/>
                   </div>
                 </div>
-                
-                <CardHeader className="pt-4 pb-2">
-                  <h3 className="font-['Space_Grotesk'] font-bold text-lg text-white group-hover:text-[#FFE500] transition-colors line-clamp-1">
-                    {novel.title}
-                  </h3>
-                </CardHeader>
-                
-                <CardContent className="pb-4 flex-1">
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-sm text-[#888888]">
-                      <Clock className="w-4 h-4" />
-                      <span>上次编辑：{novel.lastEdited}</span>
-                    </div>
-                    
-                    <div className="space-y-1.5">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-[#888888]">创作进度</span>
-                        <span className="text-white font-medium">{novel.chaptersDone} / {novel.chaptersTotal} 章</span>
-                      </div>
-                      <Progress 
-                        value={novel.progress} 
-                        className="h-2 bg-[#1C1C1C]" 
-                        indicatorClassName={novel.progress === 100 ? "bg-[#2ED573]" : "bg-[#FFE500]"}
-                      />
-                    </div>
-                  </div>
-                </CardContent>
-                
-                <CardFooter className="pt-0 pb-4 flex gap-3">
-                  <Button className="flex-1 bg-[#1C1C1C] text-white hover:bg-[#2A2A2A] border border-[#2A2A2A]">
-                    <BookOpen className="w-4 h-4 mr-2" />
-                    查看详情
-                  </Button>
-                  <Button className="flex-1 bg-[#FFE500]/10 text-[#FFE500] hover:bg-[#FFE500]/20 border border-[#FFE500]/30">
-                    <PenTool className="w-4 h-4 mr-2" />
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button style={{ flex: 1, padding: '9px', background: '#FFE500', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 13, color: '#000', cursor: 'pointer' }}>
                     进入写作台
-                  </Button>
-                </CardFooter>
-              </Card>
+                  </button>
+                  <button style={{ flex: 1, padding: '9px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, fontWeight: 500, fontSize: 13, color: '#fff', cursor: 'pointer' }}>
+                    查看详情
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         ) : (
-          /* Empty State */
-          <div className="flex flex-col items-center justify-center py-20 px-4 border border-dashed border-[#2A2A2A] rounded-lg bg-[#141414]">
-            <div className="w-24 h-24 bg-[#1C1C1C] rounded-full flex items-center justify-center mb-6">
-              <Library className="w-10 h-10 text-[#888888]" />
-            </div>
-            <h3 className="text-xl font-bold text-white mb-2">没有找到相关小说</h3>
-            <p className="text-[#888888] mb-8 text-center max-w-md">
-              还没有小说，去灵感模式开始吧~ 让AI帮助你从零构建一个完整的世界。
-            </p>
-            <div className="flex gap-4">
-              <Button className="bg-[#FFE500] text-black hover:bg-[#FFE500]/90 font-semibold gap-2">
-                <Plus className="w-4 h-4" />
-                新建小说
-              </Button>
-              <Button variant="outline" className="border-[#2A2A2A] text-white hover:bg-[#1C1C1C] hover:text-white gap-2">
-                <Lightbulb className="w-4 h-4 text-[#FFE500]" />
-                进入灵感模式
-              </Button>
-            </div>
+          <div style={{ textAlign: 'center', padding: '80px 0' }}>
+            <div style={{ fontSize: 64, marginBottom: 20 }}>📭</div>
+            <h3 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 22, marginBottom: 10 }}>还没有小说</h3>
+            <p style={{ color: '#888', fontSize: 15, marginBottom: 28 }}>还没有小说，去灵感模式开始吧~</p>
+            <button style={{ background: '#FFE500', color: '#000', border: 'none', borderRadius: 12, padding: '12px 28px', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+              💡 进入灵感模式
+            </button>
           </div>
         )}
       </main>
     </div>
-  );
+  )
 }

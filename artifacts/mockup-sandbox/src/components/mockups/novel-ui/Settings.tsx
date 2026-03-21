@@ -1,260 +1,209 @@
-import React, { useState } from "react";
-import { 
-  Settings as SettingsIcon, 
-  User, 
-  Crown, 
-  Key, 
-  Sliders, 
-  CheckCircle2, 
-  LogOut, 
-  Zap, 
-  ChevronRight,
-  BookOpen,
-  PenTool,
-  Lightbulb,
-  Cpu
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useState } from 'react'
+
+const NAV_ITEMS = ['灵感模式', '我的小说', '写作台', '设置']
+const SIDEBAR_ITEMS = [
+  { id: 'llm', icon: '🤖', label: 'LLM 配置' },
+  { id: 'writing', icon: '✍️', label: '写作偏好' },
+  { id: 'account', icon: '👤', label: '账号信息' },
+  { id: 'membership', icon: '👑', label: '会员套餐' },
+]
+
+const PLANS = [
+  { name: '免费版', price: '¥0', period: '/月', current: true, features: ['每月 10 次AI生成', '最多 3 部小说', '基础角色管理'] },
+  { name: '专业版', price: '¥29', period: '/月', current: false, features: ['无限 AI 生成', '无限小说数量', '高级角色/世界观管理', '伏笔追踪', '优先客服'] },
+  { name: '旗舰版', price: '¥69', period: '/月', current: false, features: ['所有专业版功能', '多模型支持', '批量章节生成', '情感曲线分析', '专属客服'] },
+]
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState("llm");
-  const [temperature, setTemperature] = useState([0.7]);
-  const [testStatus, setTestStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
-
-  const handleTestConnection = () => {
-    setTestStatus("testing");
-    setTimeout(() => {
-      setTestStatus("success");
-      setTimeout(() => setTestStatus("idle"), 3000);
-    }, 1500);
-  };
+  const [activeNav] = useState('设置')
+  const [activeSection, setActiveSection] = useState('llm')
+  const [temp, setTemp] = useState(0.7)
+  const [apiKey, setApiKey] = useState('')
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white font-sans">
-      {/* Top Navigation */}
-      <nav className="h-16 border-b border-[#2A2A2A] bg-[#141414]/80 backdrop-blur-md sticky top-0 z-50 px-6 flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <div className="flex items-center gap-2 text-xl font-bold font-display tracking-tight">
-            <div className="w-8 h-8 rounded-lg bg-[#FFE500] flex items-center justify-center text-black">
-              ✦
-            </div>
-            Arboris Novel
-          </div>
-          
-          <div className="hidden md:flex items-center gap-6 text-sm">
-            <a href="#" className="text-[#888888] hover:text-white transition-colors flex items-center gap-2">
-              <Lightbulb className="w-4 h-4" /> 灵感模式
-            </a>
-            <a href="#" className="text-[#888888] hover:text-white transition-colors flex items-center gap-2">
-              <BookOpen className="w-4 h-4" /> 我的小说
-            </a>
-            <a href="#" className="text-[#888888] hover:text-white transition-colors flex items-center gap-2">
-              <PenTool className="w-4 h-4" /> 写作台
-            </a>
-            <a href="#" className="text-[#FFE500] flex items-center gap-2">
-              <SettingsIcon className="w-4 h-4" /> 设置
-            </a>
-          </div>
+    <div style={{ minHeight: '100vh', background: '#0A0A0A', fontFamily: 'Inter, sans-serif', color: '#fff' }}>
+      {/* Nav */}
+      <nav style={{ background: '#0A0A0A', borderBottom: '1px solid #1C1C1C', padding: '0 32px', height: 60, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ color: '#FFE500', fontSize: 22, fontWeight: 700 }}>✦</span>
+          <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 18 }}>Arboris Novel</span>
         </div>
-        
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 pl-4 border-l border-[#2A2A2A]">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#FFE500] to-orange-500 p-[2px]">
-              <div className="w-full h-full rounded-full bg-[#141414] border border-[#2A2A2A] overflow-hidden">
-                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" />
-              </div>
-            </div>
-            <span className="text-sm font-medium hidden sm:block">林克创作中</span>
-          </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {NAV_ITEMS.map(item => (
+            <button key={item} style={{ padding: '6px 16px', borderRadius: 8, fontSize: 14, fontWeight: 500, border: 'none', cursor: 'pointer', background: activeNav === item ? '#1C1C1C' : 'transparent', color: activeNav === item ? '#FFE500' : '#888' }}>
+              {item}
+            </button>
+          ))}
         </div>
+        <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: 15, cursor: 'pointer' }}>创</div>
       </nav>
 
-      {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-6 py-10">
-        <div className="mb-8">
-          <h1 className="text-3xl font-display font-bold">账号设置</h1>
-          <p className="text-[#888888] mt-2">管理您的系统偏好、大模型配置与账号信息</p>
-        </div>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '48px 32px', display: 'grid', gridTemplateColumns: '240px 1fr', gap: 32 }}>
+        {/* Left sidebar */}
+        <aside>
+          {/* User card */}
+          <div style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 16, padding: 20, marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#FFE500', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#000', fontSize: 22, margin: '0 auto 12px' }}>创</div>
+            <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>创作者</div>
+            <div style={{ color: '#888', fontSize: 12, marginBottom: 10 }}>creator@example.com</div>
+            <span style={{ background: '#2A2A2A', color: '#888', fontSize: 11, padding: '3px 10px', borderRadius: 999 }}>免费版</span>
+          </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-          {/* Sidebar */}
-          <div className="md:col-span-3 space-y-6">
-            <div className="p-4 rounded-xl bg-[#141414] border border-[#2A2A2A] flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-[#2A2A2A] overflow-hidden flex-shrink-0">
-                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix" alt="User" />
-              </div>
-              <div className="min-w-0">
-                <div className="font-medium truncate">林克创作中</div>
-                <div className="text-xs text-[#888888] truncate mt-0.5">user@example.com</div>
-                <Badge variant="outline" className="mt-1.5 border-[#FFE500]/30 text-[#FFE500] bg-[#FFE500]/10 text-[10px] px-1.5 py-0">
-                  免费版
-                </Badge>
-              </div>
-            </div>
-
-            <nav className="space-y-1">
-              {[
-                { id: "llm", icon: Cpu, label: "LLM配置" },
-                { id: "writing", icon: Sliders, label: "写作偏好" },
-                { id: "account", icon: User, label: "账号信息" },
-                { id: "billing", icon: Crown, label: "会员套餐" },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                    activeTab === item.id 
-                      ? "bg-[#FFE500]/10 text-[#FFE500]" 
-                      : "text-[#888888] hover:bg-[#1C1C1C] hover:text-white"
-                  }`}
-                >
-                  <item.icon className="w-4 h-4" />
-                  {item.label}
-                  {activeTab === item.id && (
-                    <ChevronRight className="w-4 h-4 ml-auto" />
-                  )}
-                </button>
-              ))}
-            </nav>
-
-            <div className="pt-4 border-t border-[#2A2A2A]">
-              <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-[#FF4757] hover:bg-[#FF4757]/10 transition-colors">
-                <LogOut className="w-4 h-4" />
-                退出登录
+          {/* Nav items */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {SIDEBAR_ITEMS.map(item => (
+              <button key={item.id} onClick={() => setActiveSection(item.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: 12, border: 'none', cursor: 'pointer', background: activeSection === item.id ? '#1C1C1C' : 'transparent', color: activeSection === item.id ? '#FFE500' : '#888', textAlign: 'left', fontWeight: activeSection === item.id ? 600 : 400, fontSize: 14 }}>
+                <span style={{ fontSize: 16 }}>{item.icon}</span>
+                {item.label}
               </button>
+            ))}
+          </div>
+        </aside>
+
+        {/* Right content */}
+        <div>
+          {activeSection === 'llm' && (
+            <div>
+              <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 24, marginBottom: 8 }}>LLM 配置</h2>
+              <p style={{ color: '#888', fontSize: 14, marginBottom: 32 }}>配置你的 AI 语言模型接入参数</p>
+
+              <div style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 18, padding: 28 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  <div>
+                    <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>模型 API 地址</label>
+                    <input type="url" defaultValue="https://api.openai.com/v1" style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>API Key</label>
+                    <div style={{ position: 'relative' }}>
+                      <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-••••••••••••••••••••" style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
+                    </div>
+                    <p style={{ color: '#888', fontSize: 12, marginTop: 6 }}>API Key 经过加密存储，不会明文传输</p>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>模型名称</label>
+                    <select style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none' }}>
+                      <option>gpt-4o</option>
+                      <option>gpt-4-turbo</option>
+                      <option>gpt-3.5-turbo</option>
+                      <option>claude-3-5-sonnet</option>
+                      <option>deepseek-chat</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+                      <label style={{ color: '#aaa', fontSize: 13, fontWeight: 500 }}>Temperature（创意度）</label>
+                      <span style={{ color: '#FFE500', fontWeight: 700, fontFamily: 'Space Grotesk, sans-serif' }}>{temp.toFixed(1)}</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.1" value={temp} onChange={e => setTemp(Number(e.target.value))} style={{ width: '100%', accentColor: '#FFE500' }}/>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                      <span style={{ color: '#888', fontSize: 11 }}>保守 (0.0)</span>
+                      <span style={{ color: '#888', fontSize: 11 }}>创意 (1.0)</span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 14 }}>
+                    <button style={{ flex: 1, padding: '12px', background: '#FFE500', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, color: '#000', cursor: 'pointer' }}>保存配置</button>
+                    <button style={{ padding: '12px 20px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, cursor: 'pointer' }}>测试连接</button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Membership upsell card */}
+              <div style={{ marginTop: 24, background: 'linear-gradient(135deg, #1A1800 0%, #141414 100%)', border: '1px solid #FFE50033', borderRadius: 18, padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 18 }}>👑</span>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>当前套餐：<span style={{ color: '#888' }}>免费版</span></span>
+                  </div>
+                  <p style={{ color: '#888', fontSize: 13 }}>升级后可使用更强的模型与无限生成次数</p>
+                </div>
+                <button onClick={() => setActiveSection('membership')} style={{ background: '#FFE500', color: '#000', border: 'none', borderRadius: 10, padding: '10px 22px', fontWeight: 700, fontSize: 14, cursor: 'pointer', whiteSpace: 'nowrap' }}>升级会员 →</button>
+              </div>
             </div>
-          </div>
+          )}
 
-          {/* Content Area */}
-          <div className="md:col-span-9 space-y-6">
-            {activeTab === "llm" && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <Card className="bg-[#141414] border-[#2A2A2A] text-white shadow-xl">
-                  <CardHeader>
-                    <CardTitle className="text-xl flex items-center gap-2">
-                      <Cpu className="w-5 h-5 text-[#FFE500]" />
-                      核心驱动配置
-                    </CardTitle>
-                    <CardDescription className="text-[#888888]">
-                      设置 Arboris Novel 使用的大语言模型 API。支持 OpenAI 兼容格式。
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="api-url" className="text-[#888888]">API 接口地址</Label>
-                      <Input 
-                        id="api-url" 
-                        defaultValue="https://api.openai.com/v1" 
-                        className="bg-[#0A0A0A] border-[#2A2A2A] focus-visible:ring-[#FFE500] text-white"
-                      />
+          {activeSection === 'writing' && (
+            <div>
+              <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 24, marginBottom: 8 }}>写作偏好</h2>
+              <p style={{ color: '#888', fontSize: 14, marginBottom: 32 }}>配置 AI 的写作风格与生成偏好</p>
+              <div style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 18, padding: 28 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  {[
+                    { label: '默认写作风格', options: ['玄幻武侠', '都市现代', '科幻奇幻', '历史言情'], type: 'select' },
+                    { label: '每章字数目标', options: ['1000字', '1500字', '2000字', '3000字'], type: 'select' },
+                    { label: '叙事视角', options: ['第一人称', '第三人称全知', '第三人称有限'], type: 'select' },
+                  ].map(field => (
+                    <div key={field.label}>
+                      <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>{field.label}</label>
+                      <select style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none' }}>
+                        {field.options.map(o => <option key={o}>{o}</option>)}
+                      </select>
                     </div>
-                    
-                    <div className="space-y-2">
-                      <Label htmlFor="api-key" className="text-[#888888]">API Key</Label>
-                      <div className="relative">
-                        <Input 
-                          id="api-key" 
-                          type="password" 
-                          defaultValue="sk-................................" 
-                          className="bg-[#0A0A0A] border-[#2A2A2A] focus-visible:ring-[#FFE500] text-white pr-10"
-                        />
-                        <Key className="w-4 h-4 absolute right-3 top-3 text-[#888888]" />
-                      </div>
-                      <p className="text-xs text-[#888888]">您的密钥将安全地存储在本地，不会上传至我们的服务器。</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-6">
-                      <div className="space-y-2">
-                        <Label className="text-[#888888]">默认推理模型</Label>
-                        <Select defaultValue="gpt-4-turbo">
-                          <SelectTrigger className="bg-[#0A0A0A] border-[#2A2A2A] focus:ring-[#FFE500]">
-                            <SelectValue placeholder="选择模型" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-[#1C1C1C] border-[#2A2A2A] text-white">
-                            <SelectItem value="gpt-4-turbo">GPT-4 Turbo (推荐)</SelectItem>
-                            <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                            <SelectItem value="claude-3-opus">Claude 3 Opus</SelectItem>
-                            <SelectItem value="claude-3-sonnet">Claude 3.5 Sonnet</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="flex justify-between items-center">
-                          <Label className="text-[#888888]">创造力 (Temperature)</Label>
-                          <span className="text-sm font-mono text-[#FFE500]">{temperature[0]}</span>
-                        </div>
-                        <Slider 
-                          defaultValue={[0.7]} 
-                          max={2} 
-                          step={0.1}
-                          onValueChange={setTemperature}
-                          className="py-1"
-                        />
-                        <div className="flex justify-between text-xs text-[#888888]">
-                          <span>精确严谨</span>
-                          <span>天马行空</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                  <CardFooter className="bg-[#1C1C1C] border-t border-[#2A2A2A] flex justify-between rounded-b-xl">
-                    <Button 
-                      variant="outline" 
-                      onClick={handleTestConnection}
-                      disabled={testStatus === "testing"}
-                      className="border-[#2A2A2A] bg-transparent hover:bg-[#2A2A2A] text-white"
-                    >
-                      {testStatus === "idle" && "测试连接"}
-                      {testStatus === "testing" && "连接中..."}
-                      {testStatus === "success" && <><CheckCircle2 className="w-4 h-4 mr-2 text-[#2ED573]" /> 测试成功</>}
-                    </Button>
-                    <Button className="bg-[#FFE500] hover:bg-[#FFE500]/90 text-black font-medium">
-                      保存配置
-                    </Button>
-                  </CardFooter>
-                </Card>
-
-                <Card className="bg-gradient-to-br from-[#1C1C1C] to-[#0A0A0A] border-[#FFE500]/30 overflow-hidden relative shadow-2xl">
-                  {/* Decorative element */}
-                  <div className="absolute top-0 right-0 w-64 h-64 bg-[#FFE500] opacity-5 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
-                  
-                  <CardContent className="p-8 flex flex-col sm:flex-row items-center justify-between gap-6 relative z-10">
-                    <div className="flex items-center gap-5">
-                      <div className="w-16 h-16 rounded-full bg-[#FFE500]/10 flex items-center justify-center border border-[#FFE500]/20 shrink-0">
-                        <Crown className="w-8 h-8 text-[#FFE500]" />
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-bold text-white mb-1">当前套餐：免费版</h3>
-                        <p className="text-[#888888] text-sm max-w-md">
-                          享受基础 AI 创作辅助功能，每月 5 万字生成额度。升级专业版解锁无限创作潜力、高级模型权限与专属客服。
-                        </p>
-                      </div>
-                    </div>
-                    <Button className="bg-[#FFE500] hover:bg-[#FFE500]/90 text-black font-bold px-8 shadow-[0_0_15px_rgba(255,229,0,0.3)] shrink-0 group">
-                      <Zap className="w-4 h-4 mr-2 group-hover:scale-110 transition-transform" />
-                      升级会员
-                    </Button>
-                  </CardContent>
-                </Card>
+                  ))}
+                  <div>
+                    <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>写作风格备注</label>
+                    <textarea placeholder="描述你期望的写作风格..." rows={4} style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', resize: 'vertical', boxSizing: 'border-box' }}/>
+                  </div>
+                  <button style={{ padding: '12px', background: '#FFE500', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, color: '#000', cursor: 'pointer' }}>保存偏好</button>
+                </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {activeTab !== "llm" && (
-              <div className="h-64 flex flex-col items-center justify-center border border-dashed border-[#2A2A2A] rounded-xl bg-[#141414]/50 text-[#888888] animate-in fade-in">
-                <Sliders className="w-8 h-8 mb-4 opacity-50" />
-                <p>该模块设计正在赶工中...</p>
+          {activeSection === 'account' && (
+            <div>
+              <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 24, marginBottom: 8 }}>账号信息</h2>
+              <p style={{ color: '#888', fontSize: 14, marginBottom: 32 }}>管理你的个人信息与安全设置</p>
+              <div style={{ background: '#141414', border: '1px solid #1C1C1C', borderRadius: 18, padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
+                {[['用户名', '创作者', 'text'], ['邮箱地址', 'creator@example.com', 'email']].map(([l, v, t]) => (
+                  <div key={l as string}>
+                    <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>{l}</label>
+                    <input type={t as string} defaultValue={v as string} style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
+                  </div>
+                ))}
+                <div style={{ borderTop: '1px solid #2A2A2A', paddingTop: 20 }}>
+                  <label style={{ display: 'block', color: '#aaa', fontSize: 13, fontWeight: 500, marginBottom: 8 }}>修改密码</label>
+                  <input type="password" placeholder="输入新密码" style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }}/>
+                  <input type="password" placeholder="确认新密码" style={{ width: '100%', padding: '12px 16px', background: '#1C1C1C', border: '1px solid #2A2A2A', borderRadius: 10, color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}/>
+                </div>
+                <button style={{ padding: '12px', background: '#FFE500', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, color: '#000', cursor: 'pointer' }}>保存更改</button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {activeSection === 'membership' && (
+            <div>
+              <h2 style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 700, fontSize: 24, marginBottom: 8 }}>会员套餐</h2>
+              <p style={{ color: '#888', fontSize: 14, marginBottom: 32 }}>选择适合你的创作计划</p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                {PLANS.map((plan, i) => (
+                  <div key={plan.name} style={{ background: i === 1 ? '#1A1800' : '#141414', border: `1px solid ${i === 1 ? '#FFE50055' : '#1C1C1C'}`, borderRadius: 18, padding: 24, position: 'relative' }}>
+                    {i === 1 && <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', background: '#FFE500', color: '#000', fontSize: 11, fontWeight: 700, padding: '3px 14px', borderRadius: 999 }}>推荐</div>}
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ color: '#888', fontSize: 13, marginBottom: 4 }}>{plan.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                        <span style={{ fontFamily: 'Space Grotesk, sans-serif', fontWeight: 900, fontSize: 36, color: i === 1 ? '#FFE500' : '#fff' }}>{plan.price}</span>
+                        <span style={{ color: '#888', fontSize: 13 }}>{plan.period}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                      {plan.features.map(f => (
+                        <div key={f} style={{ display: 'flex', gap: 8 }}>
+                          <span style={{ color: '#FFE500', fontSize: 14 }}>✓</span>
+                          <span style={{ color: '#aaa', fontSize: 13 }}>{f}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button style={{ width: '100%', padding: '11px', background: plan.current ? '#2A2A2A' : (i === 1 ? '#FFE500' : '#1C1C1C'), border: plan.current ? 'none' : (i === 1 ? 'none' : '1px solid #2A2A2A'), borderRadius: 10, fontWeight: 700, fontSize: 13, color: plan.current ? '#888' : (i === 1 ? '#000' : '#fff'), cursor: plan.current ? 'default' : 'pointer' }}>
+                      {plan.current ? '当前套餐' : '升级'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
-  );
+  )
 }
