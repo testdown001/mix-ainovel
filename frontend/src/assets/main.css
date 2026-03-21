@@ -1,7 +1,7 @@
 /* AIMETA P=主CSS_全局样式和Tailwind导入|R=全局样式_Tailwind|NR=不含组件样式|E=-|X=internal|A=全局样式|D=tailwindcss|S=dom|RD=./README.ai */
 @import "tailwindcss";
-/* Google Fonts - Roboto */
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap');
+/* Google Fonts - Space Grotesk + Inter */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
 
 @plugin "@tailwindcss/typography";
 
@@ -14,68 +14,68 @@
    CSS Custom Properties (Design Tokens)
    ============================================ */
 :root {
-  /* Google Brand Colors */
+  /* Brand Accent Colors */
   --md-google-blue: #4285F4;
   --md-google-red: #EA4335;
-  --md-google-yellow: #FBBC04;
-  --md-google-green: #34A853;
-  
-  /* Primary Color System (Google Blue based) */
-  --md-primary: #4285F4;
-  --md-primary-light: #669DF6;
-  --md-primary-dark: #1A73E8;
-  --md-on-primary: #FFFFFF;
-  --md-primary-container: #D2E3FC;
-  --md-on-primary-container: #041E49;
-  
+  --md-google-yellow: #FFE500;
+  --md-google-green: #2ED573;
+
+  /* Primary Color System — Electric Yellow */
+  --md-primary: #FFE500;
+  --md-primary-light: #FFF062;
+  --md-primary-dark: #E6CE00;
+  --md-on-primary: #000000;
+  --md-primary-container: #2A2600;
+  --md-on-primary-container: #FFE500;
+
   /* Secondary Color System */
-  --md-secondary: #5F6368;
-  --md-secondary-light: #80868B;
-  --md-secondary-dark: #3C4043;
+  --md-secondary: #888888;
+  --md-secondary-light: #AAAAAA;
+  --md-secondary-dark: #666666;
   --md-on-secondary: #FFFFFF;
-  --md-secondary-container: #E8EAED;
-  --md-on-secondary-container: #202124;
-  
-  /* Surface Colors */
-  --md-surface: #FFFFFF;
-  --md-surface-dim: #F8F9FA;
-  --md-surface-bright: #FFFFFF;
-  --md-surface-container-lowest: #FFFFFF;
-  --md-surface-container-low: #F8F9FA;
-  --md-surface-container: #F1F3F4;
-  --md-surface-container-high: #E8EAED;
-  --md-surface-container-highest: #DADCE0;
-  --md-on-surface: #202124;
-  --md-on-surface-variant: #5F6368;
-  
+  --md-secondary-container: #1C1C1C;
+  --md-on-secondary-container: #CCCCCC;
+
+  /* Surface Colors — Dark */
+  --md-surface: #141414;
+  --md-surface-dim: #0A0A0A;
+  --md-surface-bright: #1C1C1C;
+  --md-surface-container-lowest: #0A0A0A;
+  --md-surface-container-low: #141414;
+  --md-surface-container: #1C1C1C;
+  --md-surface-container-high: #242424;
+  --md-surface-container-highest: #2A2A2A;
+  --md-on-surface: #FFFFFF;
+  --md-on-surface-variant: #888888;
+
   /* Background */
-  --md-background: #FFFFFF;
-  --md-on-background: #202124;
-  
+  --md-background: #0A0A0A;
+  --md-on-background: #FFFFFF;
+
   /* Outline */
-  --md-outline: #DADCE0;
-  --md-outline-variant: #E8EAED;
-  
+  --md-outline: #2A2A2A;
+  --md-outline-variant: #1C1C1C;
+
   /* Error Colors */
-  --md-error: #EA4335;
-  --md-error-container: #FCE8E6;
+  --md-error: #FF4757;
+  --md-error-container: #3D0A0A;
   --md-on-error: #FFFFFF;
-  --md-on-error-container: #5F2120;
-  
+  --md-on-error-container: #FF9EB8;
+
   /* Success Colors */
-  --md-success: #34A853;
-  --md-success-container: #E6F4EA;
-  --md-on-success: #FFFFFF;
-  --md-on-success-container: #0D652D;
-  
+  --md-success: #2ED573;
+  --md-success-container: #0A2A1A;
+  --md-on-success: #000000;
+  --md-on-success-container: #2ED573;
+
   /* Warning Colors */
-  --md-warning: #FBBC04;
-  --md-warning-container: #FEF7E0;
-  --md-on-warning: #202124;
-  --md-on-warning-container: #5F4B08;
-  
+  --md-warning: #FFE500;
+  --md-warning-container: #2A2600;
+  --md-on-warning: #000000;
+  --md-on-warning-container: #FFE500;
+
   /* Typography Scale */
-  --md-font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --md-font-family: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --md-font-mono: 'Roboto Mono', monospace;
   
   /* Display */
@@ -103,13 +103,13 @@
   --md-label-medium: 12px;
   --md-label-small: 11px;
   
-  /* Elevation (Shadow) */
+  /* Elevation (Shadow) — Dark mode */
   --md-elevation-0: none;
-  --md-elevation-1: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 1px 3px 1px rgba(60, 64, 67, 0.15);
-  --md-elevation-2: 0 1px 2px 0 rgba(60, 64, 67, 0.3), 0 2px 6px 2px rgba(60, 64, 67, 0.15);
-  --md-elevation-3: 0 1px 3px 0 rgba(60, 64, 67, 0.3), 0 4px 8px 3px rgba(60, 64, 67, 0.15);
-  --md-elevation-4: 0 2px 3px 0 rgba(60, 64, 67, 0.3), 0 6px 10px 4px rgba(60, 64, 67, 0.15);
-  --md-elevation-5: 0 4px 4px 0 rgba(60, 64, 67, 0.3), 0 8px 12px 6px rgba(60, 64, 67, 0.15);
+  --md-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.6), 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --md-elevation-2: 0 2px 6px 0 rgba(0, 0, 0, 0.6), 0 1px 4px 0 rgba(0, 0, 0, 0.4);
+  --md-elevation-3: 0 4px 12px 0 rgba(0, 0, 0, 0.6), 0 2px 6px 0 rgba(0, 0, 0, 0.4);
+  --md-elevation-4: 0 6px 16px 0 rgba(0, 0, 0, 0.6), 0 3px 8px 0 rgba(0, 0, 0, 0.4);
+  --md-elevation-5: 0 8px 24px 0 rgba(0, 0, 0, 0.6), 0 4px 12px 0 rgba(0, 0, 0, 0.4);
   
   /* Border Radius (8dp grid) */
   --md-radius-none: 0;
@@ -322,32 +322,34 @@ body {
 /* Outlined Button */
 .md-btn-outlined {
   background-color: transparent;
-  color: var(--md-primary);
+  color: var(--md-on-surface-variant);
   border: 1px solid var(--md-outline);
 }
 
 .md-btn-outlined:hover:not(:disabled) {
-  background-color: rgba(66, 133, 244, 0.08);
-  border-color: var(--md-primary);
+  background-color: rgba(255, 255, 255, 0.06);
+  border-color: var(--md-on-surface-variant);
+  color: var(--md-on-surface);
 }
 
 .md-btn-outlined:active:not(:disabled) {
-  background-color: rgba(66, 133, 244, 0.12);
+  background-color: rgba(255, 255, 255, 0.10);
 }
 
 /* Text Button */
 .md-btn-text {
   background-color: transparent;
-  color: var(--md-primary);
+  color: var(--md-on-surface-variant);
   padding: 0 12px;
 }
 
 .md-btn-text:hover:not(:disabled) {
-  background-color: rgba(66, 133, 244, 0.08);
+  background-color: rgba(255, 255, 255, 0.06);
+  color: var(--md-on-surface);
 }
 
 .md-btn-text:active:not(:disabled) {
-  background-color: rgba(66, 133, 244, 0.12);
+  background-color: rgba(255, 255, 255, 0.10);
 }
 
 /* Tonal Button */
@@ -388,11 +390,11 @@ body {
 }
 
 .md-icon-btn:hover:not(:disabled) {
-  background-color: rgba(95, 99, 104, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .md-icon-btn:active:not(:disabled) {
-  background-color: rgba(95, 99, 104, 0.12);
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 /* FAB (Floating Action Button) */
@@ -595,7 +597,7 @@ body {
 }
 
 .md-nav-rail-item:hover {
-  background-color: rgba(95, 99, 104, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .md-nav-rail-item.active {
@@ -637,7 +639,7 @@ body {
 }
 
 .md-nav-drawer-item:hover {
-  background-color: rgba(95, 99, 104, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .md-nav-drawer-item.active {
@@ -689,7 +691,7 @@ body {
 }
 
 .md-tab:hover {
-  background-color: rgba(66, 133, 244, 0.08);
+  background-color: rgba(255, 229, 0, 0.08);
   color: var(--md-primary);
 }
 
@@ -732,7 +734,7 @@ body {
 }
 
 .md-chip-assist:hover {
-  background-color: rgba(95, 99, 104, 0.08);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .md-chip-filter {
@@ -829,7 +831,7 @@ body {
 }
 
 .md-list-item:hover {
-  background-color: rgba(95, 99, 104, 0.08);
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
 .md-list-item-leading {

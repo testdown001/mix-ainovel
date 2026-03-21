@@ -6,6 +6,9 @@ export const modules: ModuleMap = {
   "./components/mockups/novel-ui/NovelWorkspace.tsx": () => import("../components/mockups/novel-ui/NovelWorkspace.tsx"),
   "./components/mockups/novel-ui/Register.tsx": () => import("../components/mockups/novel-ui/Register.tsx"),
   "./components/mockups/novel-ui/Settings.tsx": () => import("../components/mockups/novel-ui/Settings.tsx"),
+  "./components/mockups/novel-ui/WorkspaceArcMap.tsx": () => import("../components/mockups/novel-ui/WorkspaceArcMap.tsx"),
   "./components/mockups/novel-ui/WorkspaceEntry.tsx": () => import("../components/mockups/novel-ui/WorkspaceEntry.tsx"),
+  "./components/mockups/novel-ui/WorkspaceMomentum.tsx": () => import("../components/mockups/novel-ui/WorkspaceMomentum.tsx"),
+  "./components/mockups/novel-ui/WorkspaceShelf.tsx": () => import("../components/mockups/novel-ui/WorkspaceShelf.tsx"),
   "./components/mockups/novel-ui/WritingDesk.tsx": () => import("../components/mockups/novel-ui/WritingDesk.tsx")
 };
