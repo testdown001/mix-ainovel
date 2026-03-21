@@ -1,9 +1,9 @@
 <!-- AIMETA P=设置页_用户设置|R=用户设置表单|NR=不含管理员设置|E=route:/settings#component:SettingsView|X=ui|A=设置表单|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="min-h-screen" style="background-color: var(--md-background); color: var(--md-on-surface); font-family: var(--md-font-family);">
+  <div class="min-h-screen" style="background: #0A0A0A; color: #fff; font-family: 'Inter', sans-serif;">
 
     <!-- Top bar -->
-    <header class="sticky top-0 z-30 border-b flex items-center gap-4 px-6 h-14" style="background-color: #141414; border-color: #2A2A2A;">
+    <header class="sticky top-0 z-30 border-b flex items-center gap-4 px-6 h-14" style="background: #141414; border-color: #2A2A2A;">
       <router-link to="/" class="flex items-center gap-2 text-sm transition-colors" style="color: #888888;"
         @mouseenter="($event.target as HTMLElement).style.color='#fff'"
         @mouseleave="($event.target as HTMLElement).style.color='#888888'">
@@ -19,7 +19,20 @@
     <div class="flex max-w-5xl mx-auto px-6 py-8 gap-7">
 
       <!-- Sidebar -->
-      <aside class="w-52 flex-shrink-0">
+      <aside class="w-56 flex-shrink-0">
+        <!-- User Card -->
+        <div class="rounded-xl p-4 mb-4 flex items-center gap-3" style="background: #141414; border: 1px solid #2A2A2A;">
+          <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold" style="background: #FFE500; color: #000;">
+            {{ userInitial }}
+          </div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold text-white truncate">{{ authStore.user?.username || '创作者' }}</div>
+            <div class="text-xs truncate" style="color: #888;">
+              {{ authStore.user?.is_admin ? '管理员' : '创作者' }}
+            </div>
+          </div>
+        </div>
+
         <nav class="flex flex-col gap-1">
           <button
             v-for="tab in tabs" :key="tab.id"
@@ -28,7 +41,7 @@
             :style="activeTab === tab.id
               ? 'background-color:#2A2600; color:#FFE500;'
               : 'background-color:transparent; color:#888888;'"
-            @mouseenter="e => { if(activeTab !== tab.id) (e.currentTarget as HTMLElement).style.backgroundColor='#1C1C1C'; (e.currentTarget as HTMLElement).style.color='#fff' }"
+            @mouseenter="e => { if(activeTab !== tab.id) { (e.currentTarget as HTMLElement).style.backgroundColor='#1C1C1C'; (e.currentTarget as HTMLElement).style.color='#fff' } }"
             @mouseleave="e => { if(activeTab !== tab.id) { (e.currentTarget as HTMLElement).style.backgroundColor='transparent'; (e.currentTarget as HTMLElement).style.color='#888888' } }"
           >
             <span v-html="tab.icon" class="w-4 h-4 flex-shrink-0"></span>
@@ -48,10 +61,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import LLMSettings from '@/components/LLMSettings.vue'
 import WritingPreferences from '@/components/WritingPreferences.vue'
 import SubscriptionPanel from '@/components/SubscriptionPanel.vue'
+
+const authStore = useAuthStore()
+const userInitial = computed(() => {
+  const name = authStore.user?.username || ''
+  return name.charAt(0).toUpperCase() || 'U'
+})
 
 type TabId = 'llm' | 'writing' | 'subscription'
 

@@ -21,10 +21,23 @@
     
     <div class="w-full max-w-7xl mx-auto px-6 pt-10">
       <!-- Page Header -->
-      <div class="flex justify-between items-center mb-10">
+      <div class="flex justify-between items-center mb-6">
         <div>
-          <div class="flex items-center gap-4 mb-2">
-            <h1 style="font-family: 'Space Grotesk', sans-serif; font-weight: 900; font-size: 36px; color: #fff;">我的小说项目</h1>
+          <div class="flex items-center gap-4 mb-1.5">
+            <router-link
+              to="/"
+              class="flex items-center gap-1.5 text-sm transition-colors"
+              style="color: #888;"
+              @mouseenter="($event.target as HTMLElement).style.color='#fff'"
+              @mouseleave="($event.target as HTMLElement).style.color='#888'"
+            >
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              返回
+            </router-link>
+            <div class="h-4 w-px" style="background: #2A2A2A;"></div>
+            <h1 style="font-family: 'Space Grotesk', sans-serif; font-weight: 900; font-size: 32px; color: #fff;">我的小说库</h1>
             <router-link
               v-if="authStore.user?.is_admin"
               to="/admin"
@@ -38,20 +51,49 @@
               管理后台
             </router-link>
           </div>
-          <p style="color: #888; font-size: 15px;">
+          <p style="color: #888; font-size: 14px;">
             共 {{ novelStore.projects.length }} 部小说
           </p>
         </div>
         <button
-          @click="goBack"
-          class="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors"
-          style="background: #141414; border: 1px solid #2A2A2A; color: #888;"
+          @click="goToInspiration"
+          class="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
+          style="background: #FFE500; color: #000; border: none; cursor: pointer;"
         >
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          返回
+          新建小说
         </button>
+      </div>
+
+      <!-- Search + Filter Bar -->
+      <div class="flex flex-col sm:flex-row gap-3 mb-8">
+        <div class="relative flex-1">
+          <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: #555;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m0 0A7 7 0 1116.65 16.65z"/>
+          </svg>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="搜索小说标题..."
+            class="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm outline-none transition-colors"
+            style="background: #141414; border: 1px solid #2A2A2A; color: #fff;"
+            @focus="($event.target as HTMLElement).style.borderColor='#FFE500'"
+            @blur="($event.target as HTMLElement).style.borderColor='#2A2A2A'"
+          />
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button
+            v-for="chip in filterChips"
+            :key="chip.id"
+            @click="activeFilter = chip.id"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-all"
+            :style="activeFilter === chip.id
+              ? 'background: #2A2600; color: #FFE500; border: 1px solid #FFE50040;'
+              : 'background: #141414; color: #888; border: 1px solid #2A2A2A;'"
+          >{{ chip.label }}</button>
+        </div>
       </div>
 
       <!-- Loading State -->
@@ -80,7 +122,7 @@
       <!-- Project Grid -->
       <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         <!-- Empty State -->
-        <div v-if="novelStore.projects.length === 0" class="col-span-full flex flex-col items-center justify-center py-24">
+        <div v-if="filteredProjects.length === 0" class="col-span-full flex flex-col items-center justify-center py-24">
           <div class="text-6xl mb-5">📭</div>
           <p class="text-xl font-bold mb-2" style="color: #fff; font-family: 'Space Grotesk', sans-serif;">还没有项目</p>
           <p class="text-sm mb-8" style="color: #888;">快去开启灵感模式创建一个吧！</p>
@@ -98,7 +140,7 @@
 
         <!-- Project Cards -->
         <ProjectCard
-          v-for="project in novelStore.projects"
+          v-for="project in filteredProjects"
           :key="project.id"
           :project="project"
           @click="enterProject(project)"
@@ -214,7 +256,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
@@ -228,15 +270,36 @@ const authStore = useAuthStore()
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const isImporting = ref(false)
+const searchQuery = ref('')
+const activeFilter = ref('all')
+
+const filterChips = [
+  { id: 'all', label: '全部' },
+  { id: 'ongoing', label: '进行中' },
+  { id: 'completed', label: '已完成' },
+  { id: 'draft', label: '草稿' },
+]
+
+const filteredProjects = computed(() => {
+  let list = novelStore.projects
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.trim().toLowerCase()
+    list = list.filter(p => p.title.toLowerCase().includes(q))
+  }
+  if (activeFilter.value === 'completed') {
+    list = list.filter(p => p.total_chapters > 0 && p.completed_chapters >= p.total_chapters)
+  } else if (activeFilter.value === 'ongoing') {
+    list = list.filter(p => p.completed_chapters > 0 && p.completed_chapters < p.total_chapters)
+  } else if (activeFilter.value === 'draft') {
+    list = list.filter(p => p.completed_chapters === 0)
+  }
+  return list
+})
 
 const showDeleteDialog = ref(false)
 const projectToDelete = ref<NovelProjectSummary | null>(null)
 const isDeleting = ref(false)
 const deleteMessage = ref<{type: 'success' | 'error', text: string} | null>(null)
-
-const goBack = () => {
-  router.push('/')
-}
 
 const goToInspiration = () => {
   router.push('/inspiration')

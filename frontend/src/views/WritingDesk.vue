@@ -16,22 +16,22 @@
       <!-- 加载状态 -->
       <div v-if="novelStore.isLoading" class="h-full flex justify-center items-center">
         <div class="text-center">
-          <div class="md-spinner mx-auto mb-4"></div>
-          <p class="md-body-medium md-on-surface-variant">正在加载项目数据...</p>
+          <div class="w-10 h-10 mx-auto mb-4 rounded-full border-2 border-t-transparent animate-spin" style="border-color: #FFE500; border-top-color: transparent;"></div>
+          <p class="text-sm" style="color: #888;">正在加载项目数据...</p>
         </div>
       </div>
 
       <!-- 错误状态 -->
       <div v-else-if="novelStore.error" class="text-center py-20">
-        <div class="md-card md-card-outlined p-8 max-w-md mx-auto" style="border-radius: var(--md-radius-xl);">
-          <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center" style="background-color: var(--md-error-container);">
-            <svg class="w-6 h-6" style="color: var(--md-error);" fill="currentColor" viewBox="0 0 20 20">
+        <div class="p-8 max-w-md mx-auto rounded-2xl" style="background: #141414; border: 1px solid #2A2A2A;">
+          <div class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style="background: #3D0A0A;">
+            <svg class="w-6 h-6" style="color: #FF4757;" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
             </svg>
           </div>
-          <h3 class="md-title-large mb-2" style="color: var(--md-on-surface);">加载失败</h3>
-          <p class="md-body-medium mb-4" style="color: var(--md-error);">{{ novelStore.error }}</p>
-          <button @click="loadProject" class="md-btn md-btn-tonal md-ripple">重新加载</button>
+          <h3 class="text-lg font-bold mb-2 text-white">加载失败</h3>
+          <p class="text-sm mb-5" style="color: #FF4757;">{{ novelStore.error }}</p>
+          <button @click="loadProject" class="px-5 py-2 rounded-xl text-sm font-semibold" style="background: #FFE500; color: #000; border: none; cursor: pointer;">重新加载</button>
         </div>
       </div>
 
@@ -154,19 +154,20 @@
 
     <n-modal v-model:show="showPredictionRequestModal" preset="card" title="剧情推演设置" style="width: 640px; max-width: 92vw;">
       <div class="space-y-4">
-        <div class="text-sm text-[var(--md-on-surface-variant)]">
-          <span class="font-medium text-[var(--md-on-surface)]">目标章节：</span>
+        <div class="text-sm" style="color: #888;">
+          <span class="font-medium text-white">目标章节：</span>
           第 {{ predictionTargetChapter || '-' }} 章
         </div>
         <div>
-          <label class="mb-2 block text-sm font-medium text-[var(--md-on-surface)]">排除内容 / 创作禁区（可选）</label>
+          <label class="mb-2 block text-sm font-medium text-white">排除内容 / 创作禁区（可选）</label>
           <textarea
             v-model="predictionExclusions"
             rows="5"
-            class="md-textarea w-full resize-none"
+            class="w-full resize-none rounded-xl px-4 py-3 text-sm outline-none transition-colors"
+            style="background: #1C1C1C; border: 1px solid #2A2A2A; color: #fff;"
             placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
           ></textarea>
-          <p class="mt-2 text-xs text-[var(--md-on-surface-variant)]">
+          <p class="mt-2 text-xs" style="color: #888;">
             这些内容会作为 exclusions 一起传给后端剧情推演接口。
           </p>
         </div>
@@ -217,48 +218,48 @@
 
     <n-modal v-model:show="showSkillPreviewModal" preset="card" title="技能应用对比预览" style="width: 1100px; max-width: 96vw;">
       <div v-if="skillApplyPreview" class="space-y-4">
-        <div class="flex flex-wrap items-center gap-2 text-sm text-[var(--md-on-surface-variant)]">
-          <span class="font-medium text-[var(--md-on-surface)]">已应用技能：</span>
+        <div class="flex flex-wrap items-center gap-2 text-sm" style="color: #888;">
+          <span class="font-medium text-white">已应用技能：</span>
           <span
             v-for="skillName in skillApplyPreview.skillNames"
             :key="skillName"
             class="inline-flex items-center rounded-full px-3 py-1 text-xs"
-            style="background-color: var(--md-secondary-container); color: var(--md-on-secondary-container);"
+            style="background: #2A2A2A; color: #FFE500;"
           >
             {{ skillName }}
           </span>
         </div>
 
         <div class="grid gap-3 md:grid-cols-3">
-          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
-            <div class="text-xs text-[var(--md-on-surface-variant)]">原文字数</div>
-            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.originalLength }}</div>
+          <div class="rounded-lg border px-4 py-3" style="border-color: #2A2A2A; background: #1C1C1C;">
+            <div class="text-xs" style="color: #888;">原文字数</div>
+            <div class="mt-1 text-lg font-semibold text-white">{{ skillPreviewStats.originalLength }}</div>
           </div>
-          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
-            <div class="text-xs text-[var(--md-on-surface-variant)]">技能结果字数</div>
-            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.transformedLength }}</div>
+          <div class="rounded-lg border px-4 py-3" style="border-color: #2A2A2A; background: #1C1C1C;">
+            <div class="text-xs" style="color: #888;">技能结果字数</div>
+            <div class="mt-1 text-lg font-semibold text-white">{{ skillPreviewStats.transformedLength }}</div>
           </div>
-          <div class="rounded-lg border px-4 py-3" style="border-color: var(--md-outline-variant); background-color: var(--md-surface-container-low);">
-            <div class="text-xs text-[var(--md-on-surface-variant)]">变化段落</div>
-            <div class="mt-1 text-lg font-semibold text-[var(--md-on-surface)]">{{ skillPreviewStats.changedParagraphs }}</div>
+          <div class="rounded-lg border px-4 py-3" style="border-color: #2A2A2A; background: #1C1C1C;">
+            <div class="text-xs" style="color: #888;">变化段落</div>
+            <div class="mt-1 text-lg font-semibold text-white">{{ skillPreviewStats.changedParagraphs }}</div>
           </div>
         </div>
 
         <div class="grid gap-4 lg:grid-cols-2">
-          <div class="rounded-xl border" style="border-color: var(--md-outline-variant);">
-            <div class="border-b px-4 py-3 text-sm font-medium" style="border-bottom-color: var(--md-outline-variant); background-color: var(--md-surface-container-low); color: var(--md-on-surface);">
+          <div class="rounded-xl border overflow-hidden" style="border-color: #2A2A2A;">
+            <div class="border-b px-4 py-3 text-sm font-medium text-white" style="border-color: #2A2A2A; background: #1C1C1C;">
               原文
             </div>
-            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7" style="color: var(--md-on-surface);">
+            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 text-white" style="background: #141414;">
               {{ skillApplyPreview.originalContent }}
             </div>
           </div>
 
-          <div class="rounded-xl border" style="border-color: var(--md-outline-variant);">
-            <div class="border-b px-4 py-3 text-sm font-medium" style="border-bottom-color: var(--md-outline-variant); background-color: var(--md-secondary-container); color: var(--md-on-secondary-container);">
+          <div class="rounded-xl border overflow-hidden" style="border-color: #2A2A2A;">
+            <div class="border-b px-4 py-3 text-sm font-medium" style="border-color: #2A2A2A; background: #2A2600; color: #FFE500;">
               技能结果
             </div>
-            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7" style="color: var(--md-on-surface);">
+            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 text-white" style="background: #141414;">
               {{ skillApplyPreview.transformedContent }}
             </div>
           </div>
