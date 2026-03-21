@@ -1,18 +1,18 @@
 <!-- AIMETA P=写手人格配置界面_风格对齐_FewShot|R=写作风格_范文参考_人物模型|NR=不含LLM生成入口|E=component:WriterPersonaPanel|X=ui|A=组件|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="bg-white/70 backdrop-blur-xl rounded-2xl shadow-sm border border-gray-100 p-6 relative">
+  <div class="bg-[#141414] rounded-2xl border border-[#2A2A2A] p-6 relative">
     <div class="flex items-center justify-between mb-6">
-      <h3 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-800 to-gray-500">
-        Writer Persona 设定 (Beta)
+      <h3 class="text-lg font-bold text-white">
+        Writer Persona 设定 <span class="text-xs font-medium text-[#555] ml-1">(Beta)</span>
       </h3>
-      <div class="flex items-center space-x-2">
-        <span class="text-sm" :class="form.is_active ? 'text-green-600 font-medium' : 'text-gray-400'">
+      <div class="flex items-center gap-2.5">
+        <span class="text-sm" :class="form.is_active ? 'text-[#2ED573]' : 'text-[#555]'">
           {{ form.is_active ? '已启用' : '已停用' }}
         </span>
         <button
           @click="toggleActive"
-          class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-600 focus:ring-offset-2"
-          :class="form.is_active ? 'bg-indigo-600' : 'bg-gray-200'"
+          class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+          :class="form.is_active ? 'bg-[#FFE500]' : 'bg-[#2A2A2A]'"
           role="switch"
           :aria-checked="form.is_active"
         >
@@ -27,121 +27,134 @@
 
     <!-- 骨架屏加载状态 -->
     <div v-if="loading" class="animate-pulse space-y-4">
-      <div class="h-4 bg-gray-200 rounded w-1/4"></div>
+      <div class="h-4 bg-[#2A2A2A] rounded w-1/4"></div>
       <div class="space-y-3">
-        <div class="h-8 bg-gray-200 rounded"></div>
-        <div class="h-8 bg-gray-200 rounded w-5/6"></div>
+        <div class="h-8 bg-[#2A2A2A] rounded"></div>
+        <div class="h-8 bg-[#2A2A2A] rounded w-5/6"></div>
       </div>
     </div>
 
-    <div v-else class="space-y-6" :class="{ 'opacity-50 pointer-events-none': !form.is_active }">
-      <!-- 基础设定 -->
+    <div v-else class="space-y-6" :class="{ 'opacity-40 pointer-events-none': !form.is_active }">
+      <!-- 写手标识 -->
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-1">写手标识 / 别名</label>
+        <label class="block text-xs font-medium text-[#888] mb-1.5">写手标识 / 别名</label>
         <input
           type="text"
           v-model="form.name"
           placeholder="例如：起点爽文写手、诡秘之主同人作者"
-          class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-4 py-2 border bg-white/50"
+          class="block w-full rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] focus:border-[#FFE500] outline-none transition-colors text-sm px-4 py-2.5 text-white placeholder-[#444]"
         />
       </div>
 
-      <!-- Show, Don't Tell 设定 -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-gray-50/50 rounded-xl border border-gray-100">
-        <div class="md:col-span-2">
-          <h4 class="text-md font-semibold text-gray-800 mb-2 flex items-center">
-            <svg class="h-5 w-5 mr-1 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <!-- Show, Don't Tell -->
+      <div class="p-4 bg-[#1C1C1C] rounded-xl border border-[#2A2A2A] space-y-4">
+        <div>
+          <h4 class="text-sm font-semibold text-white mb-1 flex items-center gap-1.5">
+            <svg class="h-4 w-4 text-[#FFE500]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
             </svg>
             展示与叙述 (Show, Don't Tell)
           </h4>
-          <p class="text-xs text-gray-500">使用生理反应、物理现象来替代空洞的情绪形容词（如“他很生气”）。</p>
+          <p class="text-xs text-[#555]">使用生理反应、物理现象来替代空洞的情绪形容词（如"他很生气"）。</p>
         </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">描写风格</label>
-          <input
-             v-model="form.description_style"
-             placeholder="镜头语言，画面感强，少用形容词"
-             class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border bg-white/50"
-          />
-        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-[#888] mb-1.5">描写风格</label>
+            <input
+              v-model="form.description_style"
+              placeholder="镜头语言，画面感强，少用形容词"
+              class="block w-full rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] focus:border-[#FFE500] outline-none transition-colors text-sm px-3 py-2 text-white placeholder-[#444]"
+            />
+          </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">展示与叙述比例</label>
-          <input
-             v-model="form.show_vs_tell_ratio"
-             placeholder="7:3 展示为主"
-             class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-3 py-2 border bg-white/50"
-          />
-        </div>
+          <div>
+            <label class="block text-xs font-medium text-[#888] mb-1.5">展示与叙述比例</label>
+            <input
+              v-model="form.show_vs_tell_ratio"
+              placeholder="7:3 展示为主"
+              class="block w-full rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] focus:border-[#FFE500] outline-none transition-colors text-sm px-3 py-2 text-white placeholder-[#444]"
+            />
+          </div>
 
-        <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-gray-700 mb-1">感官词汇偏好 (用 Enter 添加)</label>
-          <ArrayInput v-model="form.sensory_focus!" placeholder="视觉、听觉、触觉..." />
-        </div>
+          <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-[#888] mb-1.5">感官词汇偏好 (用 Enter 添加)</label>
+            <ArrayInput v-model="form.sensory_focus!" placeholder="视觉、听觉、触觉..." />
+          </div>
 
-        <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-gray-700 mb-1">生理反应参照 (替代抽象情绪形容词)</label>
-          <ArrayInput v-model="form.physiological_reactions!" placeholder="瞳孔收缩、后背微发凉..." />
+          <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-[#888] mb-1.5">生理反应参照 (替代抽象情绪形容词)</label>
+            <ArrayInput v-model="form.physiological_reactions!" placeholder="瞳孔收缩、后背微发凉..." />
+          </div>
         </div>
       </div>
 
       <!-- Few-Shot 标杆对齐 -->
-      <div class="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/50">
-        <h4 class="text-md font-semibold text-gray-800 mb-2 flex items-center">
-          <svg class="h-5 w-5 mr-1 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-          </svg>
-          文本标杆 (Few-Shot Alignment)
-        </h4>
-        <p class="text-xs text-gray-500 mb-3">提供您认为的高密度、高质量文段。AI 将严格学习其动词节奏和画面质感。</p>
-        
+      <div class="p-4 bg-[#1C1C1C] rounded-xl border border-[#2A2A2A] space-y-3">
+        <div>
+          <h4 class="text-sm font-semibold text-white mb-1 flex items-center gap-1.5">
+            <svg class="h-4 w-4 text-[#FFE500]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+            文本标杆 (Few-Shot Alignment)
+          </h4>
+          <p class="text-xs text-[#555]">提供您认为的高密度、高质量文段。AI 将严格学习其动词节奏和画面质感。</p>
+        </div>
+
         <div class="space-y-3">
           <div v-for="(text, index) in (form.benchmark_texts || [])" :key="index" class="relative group">
             <textarea
               v-model="form.benchmark_texts![index]"
               rows="3"
-              class="block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm px-4 py-2 border bg-white/80 group-hover:bg-white transition-colors resize-y"
+              class="block w-full rounded-xl border border-[#2A2A2A] bg-[#0A0A0A] focus:border-[#FFE500] outline-none transition-colors text-sm px-4 py-2.5 text-[#CCCCCC] placeholder-[#444] resize-y"
               :placeholder="'标杆文段 ' + (index + 1)"
             ></textarea>
-            <button @click="removeBenchmark(index)" class="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-1 bg-white/80 rounded backdrop-blur opacity-0 group-hover:opacity-100 transition-opacity">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+            <button
+              @click="removeBenchmark(index)"
+              class="absolute top-2 right-2 text-[#555] hover:text-[#FF4757] p-1 bg-[#141414] rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-[#FF4757]/10"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
             </button>
           </div>
-          <button @click="addBenchmark" class="text-sm text-indigo-600 hover:text-indigo-800 flex items-center px-2 py-1 rounded hover:bg-indigo-50 transition-colors">
-            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>
+          <button
+            @click="addBenchmark"
+            class="text-sm text-[#FFE500] hover:text-white flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-[#FFE500]/8 transition-colors"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
             添加一段标杆文本
           </button>
         </div>
       </div>
 
-      <!-- 反 AI 探测机制 -->
+      <!-- 人类化特征 -->
       <div>
-        <h4 class="text-md font-medium text-gray-800 mb-2">人类化特征 (Anti-AI Detection)</h4>
+        <h4 class="text-sm font-semibold text-white mb-3">人类化特征 (Anti-AI Detection)</h4>
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">角色口头禅</label>
+            <label class="block text-xs font-medium text-[#888] mb-1.5">角色口头禅</label>
             <ArrayInput v-model="form.catchphrases!" placeholder="说实话、懂的都懂..." />
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">写手小习惯</label>
+            <label class="block text-xs font-medium text-[#888] mb-1.5">写手小习惯</label>
             <ArrayInput v-model="form.personal_quirks!" placeholder="关键对话后加一句内心吐槽..." />
           </div>
         </div>
       </div>
-
     </div>
 
     <!-- 底部操作区 -->
-    <div class="mt-6 flex justify-end space-x-3 border-t border-gray-100 pt-4">
+    <div class="mt-6 flex justify-end border-t border-[#2A2A2A] pt-4">
       <button
         @click="savePersona"
         :disabled="saving"
-        class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 transition-colors"
+        class="inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-black bg-[#FFE500] hover:bg-[#FFF176] focus:outline-none disabled:opacity-50 transition-colors"
       >
-        <svg v-if="saving" class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+        <svg v-if="saving" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
@@ -197,16 +210,13 @@ const loadPersona = async () => {
 const savePersona = async () => {
   saving.value = true;
   try {
-    // 过滤空的基准测试文本
     const payload = { ...form };
     if (payload.benchmark_texts) {
       payload.benchmark_texts = payload.benchmark_texts.filter(t => t && t.trim().length > 0);
     }
     await ProjectAPI.updatePersona(props.projectId, payload);
-    // 可选：添加 Toast 提示成功
   } catch (err) {
     console.error('保存 Writer Persona 失败：', err);
-    alert('保存失败，请重试');
   } finally {
     saving.value = false;
   }
@@ -215,7 +225,7 @@ const savePersona = async () => {
 const toggleActive = () => {
   form.is_active = !form.is_active;
   if (!form.is_active) {
-    savePersona(); // 停用时立即保存
+    savePersona();
   }
 };
 
