@@ -16,36 +16,42 @@
       <div
         v-for="(name, index) in rows"
         :key="`reference-${index}`"
-        class="input-row"
+        class="input-block"
       >
-        <input
-          :value="name"
-          type="text"
-          class="novel-input"
-          placeholder="例如：斗破苍穹"
-          @input="onInput(index, ($event.target as HTMLInputElement).value)"
-        />
+        <!-- Input + inline mini buttons -->
+        <div class="input-row">
+          <input
+            :value="name"
+            type="text"
+            class="novel-input"
+            placeholder="例如：斗破苍穹"
+            @input="onInput(index, ($event.target as HTMLInputElement).value)"
+          />
+          <button
+            v-if="name"
+            type="button"
+            class="clear-btn"
+            @click="clearRow(index)"
+            title="清空"
+          >✕</button>
+          <button
+            v-if="rows.length > 1"
+            type="button"
+            class="remove-btn"
+            @click="removeRow(index)"
+            title="删除该行"
+          >删除</button>
+        </div>
+
+        <!-- Library select link — sits below the input row -->
         <button
-          v-if="name"
           type="button"
-          class="clear-btn"
-          @click="clearRow(index)"
-        >
-          清空
-        </button>
-        <button
-          v-if="rows.length > 1"
-          type="button"
-          class="remove-btn"
-          @click="removeRow(index)"
-        >
-          删除
-        </button>
-        <button
-          type="button"
-          class="select-btn"
+          class="select-link"
           @click="openLibrary(index)"
         >
+          <svg class="select-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+          </svg>
           从库中选择
         </button>
       </div>
@@ -59,6 +65,7 @@
         {{ renderedStatus }}
       </p>
     </transition>
+
     <ReferenceNovelLibrary
       v-model:show="libraryVisible"
       @select="handleLibrarySelect"
@@ -204,7 +211,6 @@ const renderedStatus = computed(() => {
 <style scoped>
 .reference-input-wrap {
   margin: 0 auto 1.5rem;
-  max-width: 760px;
   text-align: left;
 }
 
@@ -212,27 +218,29 @@ const renderedStatus = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
 .title {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #fff;
 }
 
 .add-btn {
+  flex-shrink: 0;
   border: 1px solid #2A2A2A;
   border-radius: 9999px;
   background: #1C1C1C;
   color: #FFE500;
   font-size: 12px;
   font-weight: 600;
-  padding: 5px 14px;
+  padding: 4px 12px;
   cursor: pointer;
   transition: background 0.15s;
+  white-space: nowrap;
 }
 
 .add-btn:hover {
@@ -241,21 +249,29 @@ const renderedStatus = computed(() => {
 
 .rows {
   display: grid;
-  gap: 8px;
+  gap: 10px;
+}
+
+/* Each novel row is a column block: input row + library link */
+.input-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .input-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .novel-input {
   flex: 1;
+  min-width: 0;
   border: 1px solid #2A2A2A;
   border-radius: 10px;
-  padding: 10px 14px;
-  font-size: 14px;
+  padding: 9px 12px;
+  font-size: 13px;
   color: #fff;
   background: #1C1C1C;
   outline: none;
@@ -271,20 +287,21 @@ const renderedStatus = computed(() => {
   color: #555;
 }
 
-.clear-btn,
-.remove-btn {
+.clear-btn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid #2A2A2A;
   border-radius: 8px;
-  padding: 7px 10px;
+  background: #1C1C1C;
+  color: #666;
   font-size: 12px;
   cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s;
-}
-
-.clear-btn {
-  background: #1C1C1C;
-  color: #888;
+  transition: color 0.15s, background 0.15s;
+  padding: 0;
 }
 
 .clear-btn:hover {
@@ -293,80 +310,61 @@ const renderedStatus = computed(() => {
 }
 
 .remove-btn {
-  background: #3D0A0A;
-  color: #FF4757;
-  border-color: #FF475722;
-}
-
-.remove-btn:hover {
-  background: #FF475722;
-}
-
-.select-btn {
-  background: #1C1C1C;
-  color: #FFE500;
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 71, 87, 0.2);
   border-radius: 8px;
-  border: 1px solid #FFE50033;
-  padding: 7px 12px;
-  font-size: 12px;
+  padding: 4px 8px;
+  font-size: 11px;
   cursor: pointer;
   white-space: nowrap;
+  background: rgba(255, 71, 87, 0.08);
+  color: #FF4757;
   transition: background 0.15s;
 }
 
-.select-btn:hover {
-  background: #FFE50011;
+.remove-btn:hover {
+  background: rgba(255, 71, 87, 0.18);
+}
+
+/* Library link — sits below the input, left-aligned */
+.select-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #888;
+  font-size: 12px;
+  padding: 0 2px;
+  transition: color 0.15s;
+  text-align: left;
+}
+
+.select-link:hover {
+  color: #FFE500;
+}
+
+.select-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 
 .status-text {
   margin: 10px 0 0;
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.status-idle {
-  color: #888;
-}
+.status-idle  { color: #888; }
+.status-searching { color: #FFE500; }
+.status-success   { color: #2ED573; }
+.status-error     { color: #FF4757; }
+.status-skipped   { color: #888; }
 
-.status-searching {
-  color: #FFE500;
-}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 
-.status-success {
-  color: #2ED573;
-}
-
-.status-error {
-  color: #FF4757;
-}
-
-.status-skipped {
-  color: #888;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-  transition: all 0.22s ease;
-}
-
-.fade-slide-enter-from,
-.fade-slide-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-@media (max-width: 767px) {
-  .input-row {
-    flex-wrap: wrap;
-  }
-}
+.fade-slide-enter-active, .fade-slide-leave-active { transition: all 0.22s ease; }
+.fade-slide-enter-from, .fade-slide-leave-to { opacity: 0; transform: translateY(-6px); }
 </style>
