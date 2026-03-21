@@ -143,7 +143,8 @@ const handleSubmit = async () => {
 .card-title {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #FFFFFF;
+  font-family: 'Space Grotesk', sans-serif;
 }
 
 .password-form {

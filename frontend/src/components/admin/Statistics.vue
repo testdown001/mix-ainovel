@@ -112,7 +112,8 @@ onBeforeUnmount(() => {
 .card-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #FFFFFF;
+  font-family: 'Space Grotesk', sans-serif;
 }
 
 .stat-card {
@@ -120,8 +121,9 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 16px;
   padding: 20px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(79, 70, 229, 0));
+  border-radius: 12px;
+  background: #1C1C1C;
+  border: 1px solid #2A2A2A;
 }
 
 .stat-icon {

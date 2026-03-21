@@ -237,7 +237,8 @@ onBeforeUnmount(() => {
 .card-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #FFFFFF;
+  font-family: 'Space Grotesk', sans-serif;
 }
 
 .novel-table {
@@ -252,23 +253,25 @@ onBeforeUnmount(() => {
 
 .table-title {
   font-weight: 600;
-  color: #111827;
+  color: #FFFFFF;
 }
 
 .table-subtitle {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: #888888;
   word-break: break-all;
 }
 
 .table-owner,
 .table-progress,
 .table-date {
-  color: #374151;
+  color: #CCCCCC;
 }
 
 .novel-card {
-  border-radius: 16px;
+  border-radius: 12px;
+  background: #1C1C1C !important;
+  border: 1px solid #2A2A2A !important;
 }
 
 .mobile-card-header {
@@ -281,7 +284,7 @@ onBeforeUnmount(() => {
 .mobile-card-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #111827;
+  color: #FFFFFF;
 }
 
 .mobile-meta {
@@ -290,16 +293,16 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   margin-top: 10px;
   font-size: 0.875rem;
-  color: #4b5563;
+  color: #CCCCCC;
   word-break: break-word;
 }
 
 .mobile-label {
-  color: #6b7280;
+  color: #888888;
 }
 
 .mobile-value {
-  color: #111827;
+  color: #FFFFFF;
   font-weight: 500;
   text-align: right;
   margin-left: 12px;
