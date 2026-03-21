@@ -1,17 +1,17 @@
 <!-- AIMETA P=关系编辑器_角色关系编辑|R=关系CRUD|NR=不含角色编辑|E=component:RelationshipsEditor|X=internal|A=编辑器|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="space-y-4 max-h-[600px] overflow-y-auto p-1">
-    <!-- 从章节同步关系按钮 -->
-    <div v-if="projectId" class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-      <div class="flex items-center gap-2">
-        <span class="text-blue-600 text-lg">🔄</span>
-        <span class="text-sm text-blue-700 font-medium">从章节同步关系</span>
-        <span class="text-xs text-gray-500">从已生成章节中提取人物关系</span>
+  <div class="space-y-3 max-h-[600px] overflow-y-auto p-1">
+    <!-- 从章节同步关系 -->
+    <div v-if="projectId" class="flex items-center justify-between px-4 py-3 bg-[#06B6D4]/8 rounded-xl border border-[#06B6D4]/20">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <span class="text-[#06B6D4] text-base flex-shrink-0">🔄</span>
+        <span class="text-sm text-[#06B6D4] font-medium flex-shrink-0">从章节同步关系</span>
+        <span class="text-xs text-[#555] truncate">从已生成章节中提取人物关系</span>
       </div>
       <button
         @click="syncFromChapters"
         :disabled="isSyncing"
-        class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+        class="ml-3 px-4 py-1.5 text-sm font-semibold text-black bg-[#06B6D4] rounded-lg hover:bg-[#0891B2] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 flex-shrink-0"
       >
         <svg v-if="isSyncing" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -20,38 +20,71 @@
         <span>{{ isSyncing ? '同步中...' : '同步关系' }}</span>
       </button>
     </div>
+
     <!-- 同步状态提示 -->
-    <div v-if="syncMessage" class="p-3 rounded-lg text-sm" :class="syncMessageType === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : syncMessageType === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'">
+    <div
+      v-if="syncMessage"
+      class="px-4 py-2.5 rounded-lg text-sm border"
+      :class="{
+        'bg-[#2ED573]/8 text-[#2ED573] border-[#2ED573]/20': syncMessageType === 'success',
+        'bg-[#FF4757]/8 text-[#FF4757] border-[#FF4757]/20': syncMessageType === 'error',
+        'bg-[#06B6D4]/8 text-[#06B6D4] border-[#06B6D4]/20': syncMessageType === 'info',
+      }"
+    >
       {{ syncMessage }}
     </div>
 
-    <div v-for="(relationship, index) in localRelationships" :key="index" class="p-4 border border-gray-200 rounded-lg bg-gray-50 relative">
-      <button @click="removeRelationship(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 transition-colors p-1">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <!-- 关系列表 -->
+    <div
+      v-for="(relationship, index) in localRelationships"
+      :key="index"
+      class="relative p-4 border border-[#2A2A2A] rounded-xl bg-[#1C1C1C]"
+    >
+      <!-- 删除按钮 -->
+      <button
+        @click="removeRelationship(index)"
+        class="absolute top-3 right-3 text-[#555] hover:text-[#FF4757] transition-colors p-1 rounded-lg hover:bg-[#FF4757]/10"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
         </svg>
       </button>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3 pr-8">
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">从</label>
-          <input type="text" v-model="relationship.character_from" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" placeholder="例如：林远" />
+          <label class="block text-xs font-medium text-[#888] mb-1.5">从</label>
+          <input
+            type="text"
+            v-model="relationship.character_from"
+            class="w-full px-0 py-1 border-b border-[#2A2A2A] focus:border-[#FFE500] outline-none transition-colors bg-transparent text-white text-sm placeholder-[#444]"
+            placeholder="例如：林远"
+          />
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">到</label>
-          <input type="text" v-model="relationship.character_to" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" placeholder="例如：苏晴" />
+          <label class="block text-xs font-medium text-[#888] mb-1.5">到</label>
+          <input
+            type="text"
+            v-model="relationship.character_to"
+            class="w-full px-0 py-1 border-b border-[#2A2A2A] focus:border-[#FFE500] outline-none transition-colors bg-transparent text-white text-sm placeholder-[#444]"
+            placeholder="例如：苏晴"
+          />
         </div>
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-600 mb-1">关系描述</label>
+        <label class="block text-xs font-medium text-[#888] mb-1.5">关系描述</label>
         <textarea
           v-model="relationship.description"
-          class="w-full h-20 p-2 mt-1 border border-gray-300 rounded-md focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition text-sm"
+          class="w-full h-20 px-3 py-2 mt-0.5 border border-[#2A2A2A] rounded-lg bg-[#141414] focus:border-[#FFE500] outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444] resize-none"
           placeholder="关于这段关系的详细描述..."
         ></textarea>
       </div>
     </div>
-    <button @click="addRelationship" class="w-full mt-4 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+
+    <!-- 添加新关系 -->
+    <button
+      @click="addRelationship"
+      class="w-full mt-1 px-4 py-2.5 text-sm font-medium text-[#FFE500] bg-[#FFE500]/6 border border-[#FFE500]/20 rounded-xl hover:bg-[#FFE500]/12 hover:border-[#FFE500]/40 transition-all focus:outline-none"
+    >
       + 添加新关系
     </button>
   </div>
@@ -108,7 +141,6 @@ const removeRelationship = (index: number) => {
   localRelationships.value.splice(index, 1);
 };
 
-// 从章节同步关系
 const isSyncing = ref(false);
 const syncMessage = ref('');
 const syncMessageType = ref<'success' | 'error' | 'info'>('info');
