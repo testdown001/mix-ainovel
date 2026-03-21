@@ -356,6 +356,97 @@
       <li v-if="!sortedOutline.length" class="ml-6 text-[#555] text-sm">暂无章节大纲</li>
     </ol>
   </div>
+
+  <!-- 章节数量输入弹窗 -->
+  <teleport to="body">
+    <transition
+      enter-active-class="transition-all duration-200"
+      leave-active-class="transition-all duration-200"
+      enter-from-class="opacity-0"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="modal.show"
+        class="fixed inset-0 z-[999] flex items-center justify-center p-4"
+        style="background: rgba(0,0,0,0.75);"
+        @click.self="modal.show = false"
+      >
+        <div
+          class="w-full max-w-md bg-[#141414] border border-[#2A2A2A] rounded-2xl shadow-2xl overflow-hidden"
+          @click.stop
+        >
+          <!-- Header -->
+          <div class="px-6 pt-6 pb-4 border-b border-[#1C1C1C]">
+            <div class="flex items-center gap-3 mb-1">
+              <div class="w-9 h-9 rounded-xl bg-[#FFE500]/10 flex items-center justify-center flex-shrink-0">
+                <svg class="w-5 h-5 text-[#FFE500]" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-white">{{ modal.title }}</h3>
+                <p class="text-xs text-[#888] mt-0.5">{{ modal.subtitle }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Body -->
+          <div class="px-6 py-5 space-y-5">
+            <!-- Number input -->
+            <div>
+              <label class="block text-sm font-medium text-[#CCCCCC] mb-2">{{ modal.inputLabel }}</label>
+              <input
+                type="number"
+                v-model.number="modal.value"
+                :min="1"
+                :max="modal.max"
+                class="w-full bg-[#0A0A0A] border border-[#2A2A2A] rounded-xl px-4 py-3 text-white text-base font-semibold focus:outline-none focus:border-[#FFE500] transition-colors"
+                @keydown.enter="handleModalConfirm"
+              />
+              <p v-if="modal.error" class="mt-2 text-xs text-[#FF4757]">{{ modal.error }}</p>
+            </div>
+
+            <!-- Quick picks -->
+            <div>
+              <p class="text-xs text-[#555] mb-2">快速选择</p>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="q in modal.quickPicks"
+                  :key="q.value"
+                  type="button"
+                  class="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
+                  :class="modal.value === q.value
+                    ? 'bg-[#FFE500] text-black border-[#FFE500]'
+                    : 'bg-transparent text-[#888] border-[#2A2A2A] hover:border-[#FFE500]/40 hover:text-[#FFE500]'"
+                  @click="modal.value = q.value"
+                >
+                  {{ q.label }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer -->
+          <div class="px-6 pb-6 flex gap-3 justify-end">
+            <button
+              type="button"
+              class="px-5 py-2.5 rounded-xl text-sm font-medium text-[#888] bg-[#1C1C1C] hover:bg-[#222] transition-colors"
+              @click="modal.show = false"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              class="px-5 py-2.5 rounded-xl text-sm font-bold text-black bg-[#FFE500] hover:bg-[#FFC300] transition-colors"
+              @click="handleModalConfirm"
+            >
+              确认生成
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </teleport>
 </template>
 
 <script setup lang="ts">
@@ -404,6 +495,30 @@ const predictProgress = ref<{ total: number; completed: number; failed: number }
 const selectedNumbers = ref<Set<number>>(new Set())
 const deleting = ref(false)
 const expandedPrediction = ref<number | null>(null)
+
+type ModalMode = 'fresh' | 'batch'
+
+const modal = ref<{
+  show: boolean
+  mode: ModalMode
+  title: string
+  subtitle: string
+  inputLabel: string
+  value: number
+  max: number
+  error: string
+  quickPicks: { label: string; value: number }[]
+}>({
+  show: false,
+  mode: 'fresh',
+  title: '',
+  subtitle: '',
+  inputLabel: '',
+  value: 20,
+  max: 500,
+  error: '',
+  quickPicks: [],
+})
 
 const beatColorMap: Record<string, string> = {
   setup: '#6B7280', provoke: '#FFE500', twist: '#A855F7', payoff: '#FF4757', hook: '#3B82F6'
@@ -477,15 +592,22 @@ const emitEdit = (field: string, title: string, value: any) => {
 
 const handleGenerateFresh = () => {
   if (regenerating.value) return
-  const input = window.prompt('请输入要生成的章节数量（将自动分批生成）', '20')
-  if (!input) return
-  const total = parseInt(input, 10)
-  if (isNaN(total) || total < 1 || total > 500) {
-    alert('请输入 1-500 之间的正整数')
-    return
+  modal.value = {
+    show: true,
+    mode: 'fresh',
+    title: sortedOutline.value.length === 0 ? '基于简介生成大纲' : '生成后续大纲',
+    subtitle: '系统将自动分批生成，请稍候',
+    inputLabel: '要生成的章节数量',
+    value: 20,
+    max: 500,
+    error: '',
+    quickPicks: [
+      { label: '20 章', value: 20 },
+      { label: '50 章', value: 50 },
+      { label: '100 章', value: 100 },
+      { label: '200 章', value: 200 },
+    ],
   }
-  freshGenerating.value = true
-  emit('regenerate', { totalChapters: total })
 }
 
 const handleRegenerateUncompleted = () => {
@@ -503,15 +625,40 @@ const handleBatchGenerate = () => {
   if (batchGenerating.value || regenerating.value) return
   const maxCount = uncompletedCount.value
   const defaultCount = Math.min(5, maxCount)
-  const input = window.prompt(`要连续生成几个章节？（最多 ${maxCount}）`, String(defaultCount))
-  if (!input) return
-  const count = parseInt(input, 10)
-  if (isNaN(count) || count < 1 || count > maxCount) {
-    alert(`请输入 1-${maxCount} 之间的正整数`)
+  const picks: { label: string; value: number }[] = []
+  if (maxCount >= 3) picks.push({ label: '3 章', value: 3 })
+  if (maxCount >= 5) picks.push({ label: '5 章', value: 5 })
+  if (maxCount >= 10) picks.push({ label: '10 章', value: 10 })
+  if (maxCount >= 20) picks.push({ label: '20 章', value: 20 })
+  if (!picks.find(p => p.value === maxCount)) picks.push({ label: `全部 (${maxCount})`, value: maxCount })
+  modal.value = {
+    show: true,
+    mode: 'batch',
+    title: '连续生成章节',
+    subtitle: `将按顺序连续生成，最多可选 ${maxCount} 章`,
+    inputLabel: '生成章节数量',
+    value: defaultCount,
+    max: maxCount,
+    error: '',
+    quickPicks: picks,
+  }
+}
+
+const handleModalConfirm = () => {
+  const v = modal.value.value
+  if (isNaN(v) || v < 1 || v > modal.value.max) {
+    modal.value.error = `请输入 1–${modal.value.max} 之间的正整数`
     return
   }
-  const chapters = uncompletedNumbers.value.slice(0, count)
-  emit('batch-generate', { chapterNumbers: chapters })
+  modal.value.error = ''
+  modal.value.show = false
+  if (modal.value.mode === 'fresh') {
+    freshGenerating.value = true
+    emit('regenerate', { totalChapters: v })
+  } else {
+    const chapters = uncompletedNumbers.value.slice(0, v)
+    emit('batch-generate', { chapterNumbers: chapters })
+  }
 }
 
 const handleBatchPredict = () => {
