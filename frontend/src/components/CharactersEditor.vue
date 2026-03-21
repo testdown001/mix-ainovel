@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, defineProps, defineEmits, nextTick } from 'vue';
+import { ref, watch, nextTick } from 'vue';
 
 interface Character {
   name: string;

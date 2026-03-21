@@ -81,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, defineEmits, defineProps } from 'vue'
+import { computed, ref } from 'vue'
 import RelationshipGraph from './RelationshipGraph.vue'
 
 interface RelationshipItem {
