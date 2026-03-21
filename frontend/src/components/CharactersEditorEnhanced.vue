@@ -1,17 +1,17 @@
 <!-- AIMETA P=增强角色编辑器_增强版角色编辑|R=增强角色编辑|NR=不含基础功能|E=component:CharactersEditorEnhanced|X=internal|A=增强编辑器|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="space-y-4 max-h-[600px] overflow-y-auto p-1">
-    <!-- 从章节同步角色按钮 -->
-    <div v-if="projectId" class="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-      <div class="flex items-center gap-2">
-        <span class="text-blue-600 text-lg">🔄</span>
-        <span class="text-sm text-blue-700 font-medium">从章节同步角色</span>
-        <span class="text-xs text-gray-500">从已生成章节中提取新增人物</span>
+  <div class="space-y-3 max-h-[600px] overflow-y-auto p-1">
+    <!-- 从章节同步角色 -->
+    <div v-if="projectId" class="flex items-center justify-between px-4 py-3 bg-[#06B6D4]/8 rounded-xl border border-[#06B6D4]/20">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <span class="text-[#06B6D4] text-base flex-shrink-0">🔄</span>
+        <span class="text-sm text-[#06B6D4] font-medium flex-shrink-0">从章节同步角色</span>
+        <span class="text-xs text-[#555] truncate">从已生成章节中提取新增人物</span>
       </div>
       <button
         @click="syncFromChapters"
         :disabled="isSyncing"
-        class="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+        class="ml-3 px-4 py-1.5 text-sm font-semibold text-black bg-[#06B6D4] rounded-lg hover:bg-[#0891B2] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 flex-shrink-0"
       >
         <svg v-if="isSyncing" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -21,17 +21,17 @@
       </button>
     </div>
 
-    <!-- 批量生成DNA按钮 -->
-    <div v-if="projectId" class="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-200">
-      <div class="flex items-center gap-2">
-        <span class="text-purple-600 text-lg">🧬</span>
-        <span class="text-sm text-purple-700 font-medium">角色DNA档案</span>
-        <span class="text-xs text-gray-500">基于大纲和剧情自动推演角色心理档案</span>
+    <!-- 批量生成DNA -->
+    <div v-if="projectId" class="flex items-center justify-between px-4 py-3 bg-[#A855F7]/8 rounded-xl border border-[#A855F7]/20">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <span class="text-[#A855F7] text-base flex-shrink-0">🧬</span>
+        <span class="text-sm text-[#A855F7] font-medium flex-shrink-0">角色DNA档案</span>
+        <span class="text-xs text-[#555] truncate">基于大纲和剧情自动推演角色心理档案</span>
       </div>
       <button
         @click="generateAllDNA(false)"
         :disabled="isGeneratingDNA"
-        class="px-4 py-1.5 text-sm font-medium text-white bg-purple-600 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
+        class="ml-3 px-4 py-1.5 text-sm font-semibold text-white bg-[#A855F7] rounded-lg hover:bg-[#9333EA] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5 flex-shrink-0"
       >
         <svg v-if="isGeneratingDNA" class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -40,61 +40,77 @@
         <span>{{ isGeneratingDNA ? '推演中...' : '一键生成全部DNA' }}</span>
       </button>
     </div>
-    <!-- DNA生成状态提示 -->
-    <div v-if="dnaMessage" class="p-3 rounded-lg text-sm" :class="dnaMessageType === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : dnaMessageType === 'error' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'">
+
+    <!-- DNA / 同步状态提示 -->
+    <div
+      v-if="dnaMessage"
+      class="px-4 py-2.5 rounded-lg text-sm border"
+      :class="{
+        'bg-[#2ED573]/8 text-[#2ED573] border-[#2ED573]/20': dnaMessageType === 'success',
+        'bg-[#FF4757]/8 text-[#FF4757] border-[#FF4757]/20': dnaMessageType === 'error',
+        'bg-[#06B6D4]/8 text-[#06B6D4] border-[#06B6D4]/20': dnaMessageType === 'info',
+      }"
+    >
       {{ dnaMessage }}
     </div>
 
-    <div v-for="(character, index) in localCharacters" :key="index" class="p-4 border border-gray-200 rounded-lg bg-gray-50 relative">
-      <button @click="removeCharacter(index)" class="absolute top-2 right-2 text-red-400 hover:text-red-600 transition-colors p-1">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+    <!-- 角色列表 -->
+    <div
+      v-for="(character, index) in localCharacters"
+      :key="index"
+      class="border border-[#2A2A2A] rounded-xl bg-[#1C1C1C] relative"
+    >
+      <!-- 删除按钮 -->
+      <button
+        @click="removeCharacter(index)"
+        class="absolute top-3 right-3 text-[#555] hover:text-[#FF4757] transition-colors p-1 rounded-lg hover:bg-[#FF4757]/10 z-10"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm4 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
         </svg>
       </button>
-      
+
       <!-- 基础信息 -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">姓名</label>
-          <input type="text" v-model="character.name" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
+      <div class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4 pr-10">
+        <div v-for="field in [
+          { key: 'name', label: '姓名' },
+          { key: 'identity', label: '身份' },
+          { key: 'personality', label: '性格' },
+          { key: 'goals', label: '目标' },
+          { key: 'abilities', label: '能力' },
+          { key: 'relationship_to_protagonist', label: '与主角关系' },
+        ]" :key="field.key">
+          <label class="block text-xs font-medium text-[#888] mb-1.5">{{ field.label }}</label>
+          <input
+            type="text"
+            v-model="(character as any)[field.key]"
+            class="w-full px-0 py-1 border-b border-[#2A2A2A] focus:border-[#FFE500] outline-none transition-colors bg-transparent text-white text-sm placeholder-[#444]"
+          />
         </div>
+
+        <!-- 力量体系 -->
         <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">身份</label>
-          <input type="text" v-model="character.identity" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">性格</label>
-          <input type="text" v-model="character.personality" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">目标</label>
-          <input type="text" v-model="character.goals" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">能力</label>
-          <input type="text" v-model="character.abilities" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">与主角关系</label>
-          <input type="text" v-model="character.relationship_to_protagonist" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent" />
-        </div>
-        
-        <!-- 新增：力量体系选择 -->
-        <div>
-          <label class="block text-sm font-medium text-gray-600 mb-1">力量体系</label>
-          <select v-model="character.power_system_id" @change="character.current_power_level_id = null" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent h-[34px]">
-            <option :value="null">无</option>
-            <option v-for="ps in powerSystems" :key="ps.id" :value="ps.id">{{ ps.name }}</option>
+          <label class="block text-xs font-medium text-[#888] mb-1.5">力量体系</label>
+          <select
+            v-model="character.power_system_id"
+            @change="character.current_power_level_id = null"
+            class="w-full px-0 py-1 border-b border-[#2A2A2A] focus:border-[#FFE500] outline-none transition-colors bg-transparent text-white text-sm h-[34px]"
+          >
+            <option class="bg-[#1C1C1C]" :value="null">无</option>
+            <option class="bg-[#1C1C1C]" v-for="ps in powerSystems" :key="ps.id" :value="ps.id">{{ ps.name }}</option>
           </select>
         </div>
-        
-        <!-- 新增：当前境界选择 -->
+
+        <!-- 当前境界 -->
         <div v-if="character.power_system_id">
-          <label class="block text-sm font-medium text-gray-600 mb-1">当前境界</label>
-          <select v-model="character.current_power_level_id" class="w-full p-1 border-b-2 border-gray-300 focus:border-indigo-500 outline-none transition bg-transparent h-[34px]">
-            <option :value="null">未知</option>
+          <label class="block text-xs font-medium text-[#888] mb-1.5">当前境界</label>
+          <select
+            v-model="character.current_power_level_id"
+            class="w-full px-0 py-1 border-b border-[#2A2A2A] focus:border-[#FFE500] outline-none transition-colors bg-transparent text-white text-sm h-[34px]"
+          >
+            <option class="bg-[#1C1C1C]" :value="null">未知</option>
             <template v-if="powerSystems.find(ps => ps.id === character.power_system_id)">
-              <option v-for="lvl in powerSystems.find(ps => ps.id === character.power_system_id)?.levels || []" :key="lvl.id" :value="lvl.id">
+              <option class="bg-[#1C1C1C]" v-for="lvl in powerSystems.find(ps => ps.id === character.power_system_id)?.levels || []" :key="lvl.id" :value="lvl.id">
                 {{ lvl.name }}
               </option>
             </template>
@@ -102,30 +118,30 @@
         </div>
       </div>
 
-      <!-- DNA档案展开按钮 -->
-      <div class="mt-4 border-t border-gray-200 pt-3 flex items-center justify-between">
-        <button 
-          @click="toggleDNA(index)" 
-          class="flex items-center gap-2 text-sm font-medium text-purple-600 hover:text-purple-800 transition-colors"
+      <!-- DNA档案 toggle -->
+      <div class="px-4 pb-3 border-t border-[#2A2A2A] pt-3 flex items-center justify-between">
+        <button
+          @click="toggleDNA(index)"
+          class="flex items-center gap-2 text-sm font-medium text-[#A855F7] hover:text-[#C084FC] transition-colors"
         >
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            class="h-4 w-4 transition-transform" 
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4 transition-transform"
             :class="{ 'rotate-90': expandedDNA[index] }"
-            fill="none" 
-            viewBox="0 0 24 24" 
+            fill="none"
+            viewBox="0 0 24 24"
             stroke="currentColor"
           >
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
           </svg>
           <span>🧬 角色DNA档案</span>
-          <span class="text-xs text-gray-400">(让角色更立体)</span>
+          <span class="text-xs text-[#555]">(让角色更立体)</span>
         </button>
         <button
           v-if="projectId && character.name"
           @click.stop="generateSingleDNA(character.name)"
           :disabled="isGeneratingDNA"
-          class="px-3 py-1 text-xs font-medium text-purple-600 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          class="px-3 py-1 text-xs font-medium text-[#A855F7] bg-[#A855F7]/8 border border-[#A855F7]/20 rounded-lg hover:bg-[#A855F7]/15 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {{ isGeneratingDNA ? '推演中...' : 'AI推演' }}
         </button>
@@ -133,159 +149,156 @@
 
       <!-- DNA档案内容 -->
       <transition name="slide">
-        <div v-if="expandedDNA[index]" class="mt-3 p-4 bg-purple-50 rounded-lg border border-purple-200">
+        <div v-if="expandedDNA[index]" class="mx-4 mb-4 p-4 bg-[#A855F7]/5 rounded-xl border border-[#A855F7]/15">
           <div class="grid grid-cols-1 gap-4">
             <!-- 童年经历 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 童年经历/创伤
-                <span class="text-xs text-gray-500 font-normal ml-1">影响角色的防御机制和情感触发点</span>
+                <span class="text-[#555] font-normal ml-1">影响角色的防御机制和情感触发点</span>
               </label>
-              <textarea 
-                v-model="getDNAProfile(character).childhood_trauma" 
+              <textarea
+                v-model="getDNAProfile(character).childhood_trauma"
                 @input="updateDNA(character, 'childhood_trauma', ($event.target as HTMLTextAreaElement).value)"
                 placeholder="例如：父母离异后由祖母抚养，从小学会察言观色，害怕被抛弃"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444] resize-none"
                 rows="2"
               ></textarea>
             </div>
-
             <!-- 核心恐惧 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 核心恐惧
-                <span class="text-xs text-gray-500 font-normal ml-1">驱动角色行为的深层恐惧</span>
+                <span class="text-[#555] font-normal ml-1">驱动角色行为的深层恐惧</span>
               </label>
-              <input 
+              <input
                 type="text"
                 v-model="getDNAProfile(character).core_fear"
                 @input="updateDNA(character, 'core_fear', ($event.target as HTMLInputElement).value)"
                 placeholder="例如：害怕被抛弃、害怕失控、害怕不被爱"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444]"
               />
             </div>
-
             <!-- 内心渴望 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 内心渴望
-                <span class="text-xs text-gray-500 font-normal ml-1">角色真正想要的，可能连自己都不清楚</span>
+                <span class="text-[#555] font-normal ml-1">角色真正想要的，可能连自己都不清楚</span>
               </label>
-              <input 
+              <input
                 type="text"
                 v-model="getDNAProfile(character).inner_desire"
                 @input="updateDNA(character, 'inner_desire', ($event.target as HTMLInputElement).value)"
                 placeholder="例如：渴望被认可、渴望归属感、渴望证明自己"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444]"
               />
             </div>
-
             <!-- 说话习惯 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 说话习惯
-                <span class="text-xs text-gray-500 font-normal ml-1">口头禅、语气词、紧张时的变化</span>
+                <span class="text-[#555] font-normal ml-1">口头禅、语气词、紧张时的变化</span>
               </label>
-              <textarea 
+              <textarea
                 v-model="getDNAProfile(character).speech_habits"
                 @input="updateDNA(character, 'speech_habits', ($event.target as HTMLTextAreaElement).value)"
                 placeholder="例如：喜欢用反问句，紧张时语速加快，常说'怎么说呢...'"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444] resize-none"
                 rows="2"
               ></textarea>
             </div>
-
             <!-- 身体语言 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 身体语言
-                <span class="text-xs text-gray-500 font-normal ml-1">紧张时的小动作、特有的姿态</span>
+                <span class="text-[#555] font-normal ml-1">紧张时的小动作、特有的姿态</span>
               </label>
-              <textarea 
+              <textarea
                 v-model="getDNAProfile(character).body_language"
                 @input="updateDNA(character, 'body_language', ($event.target as HTMLTextAreaElement).value)"
                 placeholder="例如：紧张时会摸耳朵，思考时喜欢转笔，说谎时不敢直视对方"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444] resize-none"
                 rows="2"
               ></textarea>
             </div>
-
             <!-- 思维模式 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 思维模式
-                <span class="text-xs text-gray-500 font-normal ml-1">理性/感性、乐观/悲观</span>
+                <span class="text-[#555] font-normal ml-1">理性/感性、乐观/悲观</span>
               </label>
-              <select 
+              <select
                 v-model="getDNAProfile(character).thinking_pattern"
                 @change="updateDNA(character, 'thinking_pattern', ($event.target as HTMLSelectElement).value)"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC]"
               >
-                <option value="">请选择...</option>
-                <option value="理性分析型，遇事先冷静思考">理性分析型</option>
-                <option value="直觉感受型，跟着感觉走">直觉感受型</option>
-                <option value="乐观主义者，总能看到希望">乐观主义者</option>
-                <option value="悲观主义者，习惯做最坏打算">悲观主义者</option>
-                <option value="全局思考型，喜欢从大局出发">全局思考型</option>
-                <option value="细节关注型，注重每个细节">细节关注型</option>
+                <option class="bg-[#141414]" value="">请选择...</option>
+                <option class="bg-[#141414]" value="理性分析型，遇事先冷静思考">理性分析型</option>
+                <option class="bg-[#141414]" value="直觉感受型，跟着感觉走">直觉感受型</option>
+                <option class="bg-[#141414]" value="乐观主义者，总能看到希望">乐观主义者</option>
+                <option class="bg-[#141414]" value="悲观主义者，习惯做最坏打算">悲观主义者</option>
+                <option class="bg-[#141414]" value="全局思考型，喜欢从大局出发">全局思考型</option>
+                <option class="bg-[#141414]" value="细节关注型，注重每个细节">细节关注型</option>
               </select>
             </div>
-
             <!-- 决策方式 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 决策方式
-                <span class="text-xs text-gray-500 font-normal ml-1">如何做出选择</span>
+                <span class="text-[#555] font-normal ml-1">如何做出选择</span>
               </label>
-              <select 
+              <select
                 v-model="getDNAProfile(character).decision_style"
                 @change="updateDNA(character, 'decision_style', ($event.target as HTMLSelectElement).value)"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC]"
               >
-                <option value="">请选择...</option>
-                <option value="快速决断，不喜欢犹豫">快速决断型</option>
-                <option value="反复权衡，考虑各种可能">深思熟虑型</option>
-                <option value="依赖逻辑，用数据说话">逻辑驱动型</option>
-                <option value="依赖情感，跟着心走">情感驱动型</option>
-                <option value="喜欢独立决策，不爱听别人意见">独立决策型</option>
-                <option value="喜欢征求他人意见再做决定">群策群力型</option>
+                <option class="bg-[#141414]" value="">请选择...</option>
+                <option class="bg-[#141414]" value="快速决断，不喜欢犹豫">快速决断型</option>
+                <option class="bg-[#141414]" value="反复权衡，考虑各种可能">深思熟虑型</option>
+                <option class="bg-[#141414]" value="依赖逻辑，用数据说话">逻辑驱动型</option>
+                <option class="bg-[#141414]" value="依赖情感，跟着心走">情感驱动型</option>
+                <option class="bg-[#141414]" value="喜欢独立决策，不爱听别人意见">独立决策型</option>
+                <option class="bg-[#141414]" value="喜欢征求他人意见再做决定">群策群力型</option>
               </select>
             </div>
-
             <!-- 隐藏的秘密 -->
             <div>
-              <label class="block text-sm font-medium text-purple-700 mb-1">
+              <label class="block text-xs font-medium text-[#A855F7] mb-1">
                 隐藏的秘密
-                <span class="text-xs text-gray-500 font-normal ml-1">不愿让人知道的事</span>
+                <span class="text-[#555] font-normal ml-1">不愿让人知道的事</span>
               </label>
-              <textarea 
+              <textarea
                 v-model="getDNAProfile(character).hidden_secret"
                 @input="updateDNA(character, 'hidden_secret', ($event.target as HTMLTextAreaElement).value)"
                 placeholder="例如：曾经因为自己的失误导致好友受伤，一直心怀愧疚"
-                class="w-full p-2 border border-purple-200 rounded-md focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition bg-white text-sm"
+                class="w-full px-3 py-2 border border-[#A855F7]/20 rounded-lg bg-[#141414] focus:border-[#A855F7]/50 outline-none transition-colors text-sm text-[#CCCCCC] placeholder-[#444] resize-none"
                 rows="2"
               ></textarea>
             </div>
           </div>
 
-          <!-- DNA完成度提示 -->
-          <div class="mt-4 flex items-center gap-2">
-            <div class="flex-1 bg-gray-200 rounded-full h-2">
-              <div 
-                class="bg-purple-500 h-2 rounded-full transition-all duration-300"
+          <!-- DNA完成度 -->
+          <div class="mt-4 flex items-center gap-3">
+            <div class="flex-1 bg-[#2A2A2A] rounded-full h-1.5">
+              <div
+                class="bg-[#A855F7] h-1.5 rounded-full transition-all duration-300"
                 :style="{ width: getDNACompleteness(character) + '%' }"
               ></div>
             </div>
-            <span class="text-xs text-gray-500">{{ getDNACompleteness(character) }}% 完成</span>
+            <span class="text-xs text-[#555]">{{ getDNACompleteness(character) }}% 完成</span>
           </div>
-          <p class="mt-2 text-xs text-gray-500">
-            💡 提示：DNA档案越完整，AI生成的角色行为和对话就越真实立体
+          <p class="mt-2 text-xs text-[#555]">
+            💡 DNA档案越完整，AI生成的角色行为和对话就越真实立体
           </p>
         </div>
       </transition>
     </div>
-    
-    <button @click="addCharacter" class="w-full mt-4 px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-md hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+
+    <!-- 添加新角色 -->
+    <button
+      @click="addCharacter"
+      class="w-full mt-1 px-4 py-2.5 text-sm font-medium text-[#FFE500] bg-[#FFE500]/6 border border-[#FFE500]/20 rounded-xl hover:bg-[#FFE500]/12 hover:border-[#FFE500]/40 transition-all focus:outline-none"
+    >
       + 添加新角色
     </button>
   </div>
@@ -342,7 +355,6 @@ const localCharacters = ref<Character[]>([]);
 const expandedDNA = reactive<Record<number, boolean>>({});
 let syncing = false;
 
-// 初始化DNA档案
 const initDNAProfile = (): DNAProfile => ({
   childhood_trauma: '',
   core_fear: '',
@@ -354,26 +366,18 @@ const initDNAProfile = (): DNAProfile => ({
   hidden_secret: ''
 });
 
-// 获取角色的DNA档案
 const getDNAProfile = (character: Character): DNAProfile => {
-  if (!character.extra) {
-    character.extra = {};
-  }
-  if (!character.extra.dna_profile) {
-    character.extra.dna_profile = initDNAProfile();
-  }
+  if (!character.extra) character.extra = {};
+  if (!character.extra.dna_profile) character.extra.dna_profile = initDNAProfile();
   return character.extra.dna_profile;
 };
 
-// 更新DNA字段
 const updateDNA = (character: Character, field: keyof DNAProfile, value: string) => {
   const profile = getDNAProfile(character);
   profile[field] = value;
-  // 触发更新
   emit('update:modelValue', JSON.parse(JSON.stringify(localCharacters.value)));
 };
 
-// 计算DNA完成度
 const getDNACompleteness = (character: Character): number => {
   const profile = getDNAProfile(character);
   const fields = Object.values(profile);
@@ -381,7 +385,6 @@ const getDNACompleteness = (character: Character): number => {
   return Math.round((filledFields.length / fields.length) * 100);
 };
 
-// 切换DNA展开状态
 const toggleDNA = (index: number) => {
   expandedDNA[index] = !expandedDNA[index];
 };
@@ -389,9 +392,7 @@ const toggleDNA = (index: number) => {
 watch(() => props.modelValue, (newVal) => {
   syncing = true;
   localCharacters.value = JSON.parse(JSON.stringify(newVal || []));
-  nextTick(() => {
-    syncing = false;
-  });
+  nextTick(() => { syncing = false; });
 }, { immediate: true });
 
 watch(localCharacters, (newVal) => {
@@ -400,16 +401,14 @@ watch(localCharacters, (newVal) => {
 }, { deep: true });
 
 const addCharacter = () => {
-  localCharacters.value.push({ 
-    name: '', 
-    identity: '', 
-    personality: '', 
-    goals: '', 
-    abilities: '', 
+  localCharacters.value.push({
+    name: '',
+    identity: '',
+    personality: '',
+    goals: '',
+    abilities: '',
     relationship_to_protagonist: '',
-    extra: {
-      dna_profile: initDNAProfile()
-    }
+    extra: { dna_profile: initDNAProfile() }
   });
 };
 
@@ -418,12 +417,9 @@ const removeCharacter = (index: number) => {
   delete expandedDNA[index];
 };
 
-// DNA 自动推演
 const isGeneratingDNA = ref(false);
 const dnaMessage = ref('');
 const dnaMessageType = ref<'success' | 'error' | 'info'>('info');
-
-// 从章节同步角色
 const isSyncing = ref(false);
 
 const showDNAMessage = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -442,7 +438,6 @@ const generateAllDNA = async (overwrite: boolean = false) => {
       showDNAMessage(result.message, 'info');
     } else {
       showDNAMessage(result.message, 'success');
-      // 重新加载角色数据以获取更新后的DNA
       await refreshCharacters();
     }
   } catch (error: any) {
@@ -479,7 +474,6 @@ const refreshCharacters = async () => {
     syncing = true;
     localCharacters.value = JSON.parse(JSON.stringify(updatedCharacters));
     nextTick(() => { syncing = false; });
-    // 展开所有有DNA的角色面板
     updatedCharacters.forEach((char: any, idx: number) => {
       if (char?.extra?.dna_profile) {
         const profile = char.extra.dna_profile;
@@ -517,15 +511,13 @@ const syncFromChapters = async () => {
 .slide-enter-active,
 .slide-leave-active {
   transition: all 0.3s ease;
+  overflow: hidden;
 }
-
 .slide-enter-from,
 .slide-leave-to {
   opacity: 0;
   max-height: 0;
-  overflow: hidden;
 }
-
 .slide-enter-to,
 .slide-leave-from {
   opacity: 1;
