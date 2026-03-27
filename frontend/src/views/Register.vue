@@ -134,7 +134,14 @@
 
           <!-- Terms note -->
           <p class="text-center text-xs" style="color:#444;">
-            注册即表示您同意我们的服务条款与隐私政策
+            注册即表示同意
+            <router-link to="/terms" class="transition-colors" style="color:#555;"
+              @mouseenter="($event.target as HTMLElement).style.color='#FFE500'"
+              @mouseleave="($event.target as HTMLElement).style.color='#555'">服务条款</router-link>
+            与
+            <router-link to="/privacy" class="transition-colors" style="color:#555;"
+              @mouseenter="($event.target as HTMLElement).style.color='#FFE500'"
+              @mouseleave="($event.target as HTMLElement).style.color='#555'">隐私政策</router-link>
           </p>
         </form>
 

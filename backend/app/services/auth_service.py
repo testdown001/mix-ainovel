@@ -372,6 +372,17 @@ class AuthService:
             return False
         return verify_password(settings.admin_default_password, hashed_password)
 
+    async def reset_password_with_code(self, email: str, code: str, new_password: str) -> None:
+        user = await self.user_repo.get_by_email(email)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="该邮箱未注册")
+        if not self.verify_code(email, code):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码无效或已过期")
+        if len(new_password) < 8:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="密码至少需要8个字符")
+        user.hashed_password = hash_password(new_password)
+        await self.session.commit()
+
     async def change_password(self, username: str, old_password: str, new_password: str) -> None:
         user = await self.user_repo.get_by_username(username)
         if not user:

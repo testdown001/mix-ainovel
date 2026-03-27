@@ -1,12 +1,12 @@
 # AIMETA P=认证API_登录注册和令牌管理|R=用户认证_令牌生成|NR=不含用户管理|E=route:POST_/api/auth/*|X=http|A=登录_注册_令牌|D=fastapi,jose|S=db|RD=./README.ai
 import html
 import logging
-from datetime import timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
+class PasswordResetRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
+
 def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:
     return AuthService(session)
 
@@ -29,6 +35,20 @@ def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthServic
 async def send_verification_code(email: str, service: AuthService = Depends(get_auth_service)):
     await service.send_verification_code(email)
     logger.info("向 %s 发送验证码", email)
+
+
+@router.post("/send-reset-code", status_code=204)
+async def send_password_reset_code(email: str, service: AuthService = Depends(get_auth_service)):
+    """向邮箱发送密码重置验证码（复用注册验证码逻辑）"""
+    await service.send_verification_code(email)
+    logger.info("向 %s 发送密码重置验证码", email)
+
+
+@router.post("/reset-password", status_code=204)
+async def reset_password(payload: PasswordResetRequest, service: AuthService = Depends(get_auth_service)):
+    """使用邮箱验证码重置密码"""
+    await service.reset_password_with_code(payload.email, payload.code, payload.new_password)
+    logger.info("用户 %s 密码重置成功", payload.email)
 
 
 @router.get("/options", response_model=AuthOptions)
