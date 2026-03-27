@@ -155,6 +155,9 @@ type MenuKey =
   | 'logs'
   | 'settings'
   | 'password'
+  | 'membership_plans'
+  | 'payment_channels'
+  | 'payment_records'
 
 const components: Record<MenuKey, ReturnType<typeof defineAsyncComponent>> = {
   statistics: defineAsyncComponent(() => import('../components/admin/Statistics.vue')),
@@ -163,7 +166,10 @@ const components: Record<MenuKey, ReturnType<typeof defineAsyncComponent>> = {
   novels: defineAsyncComponent(() => import('../components/admin/NovelManagement.vue')),
   logs: defineAsyncComponent(() => import('../components/admin/UpdateLogManagement.vue')),
   settings: defineAsyncComponent(() => import('../components/admin/SettingsManagement.vue')),
-  password: defineAsyncComponent(() => import('../components/admin/PasswordManagement.vue'))
+  password: defineAsyncComponent(() => import('../components/admin/PasswordManagement.vue')),
+  membership_plans: defineAsyncComponent(() => import('../components/admin/MembershipPlans.vue')),
+  payment_channels: defineAsyncComponent(() => import('../components/admin/PaymentChannels.vue')),
+  payment_records: defineAsyncComponent(() => import('../components/admin/PaymentRecords.vue'))
 }
 
 const iconRenderers: Record<MenuKey, () => any> = {
@@ -173,7 +179,10 @@ const iconRenderers: Record<MenuKey, () => any> = {
   novels: () => h('span', { class: 'menu-icon' }, '📚'),
   logs: () => h('span', { class: 'menu-icon' }, '📝'),
   settings: () => h('span', { class: 'menu-icon' }, '⚙️'),
-  password: () => h('span', { class: 'menu-icon' }, '🔒')
+  password: () => h('span', { class: 'menu-icon' }, '🔒'),
+  membership_plans: () => h('span', { class: 'menu-icon' }, '💳'),
+  payment_channels: () => h('span', { class: 'menu-icon' }, '🏦'),
+  payment_records: () => h('span', { class: 'menu-icon' }, '🧾')
 }
 
 const menuOptions: MenuOption[] = [
@@ -183,7 +192,17 @@ const menuOptions: MenuOption[] = [
   { key: 'novels', label: '小说项目', icon: iconRenderers.novels },
   { key: 'logs', label: '更新日志', icon: iconRenderers.logs },
   { key: 'settings', label: '系统配置', icon: iconRenderers.settings },
-  { key: 'password', label: '安全中心', icon: iconRenderers.password }
+  { key: 'password', label: '安全中心', icon: iconRenderers.password },
+  {
+    key: 'payment-group',
+    label: '变现管理',
+    icon: () => h('span', { class: 'menu-icon' }, '💰'),
+    children: [
+      { key: 'membership_plans', label: '会员套餐', icon: iconRenderers.membership_plans },
+      { key: 'payment_channels', label: '支付渠道', icon: iconRenderers.payment_channels },
+      { key: 'payment_records', label: '支付记录', icon: iconRenderers.payment_records }
+    ]
+  }
 ]
 
 const isMenuKey = (key: string): key is MenuKey => key in components
@@ -205,8 +224,14 @@ const handleMenuSelect = (key: string) => {
 
 const activeComponent = computed(() => components[activeKey.value])
 const currentMenuLabel = computed(() => {
-  const match = menuOptions.find((option) => option.key === activeKey.value)
-  return match ? (match.label as string) : ''
+  for (const option of menuOptions) {
+    if (option.key === activeKey.value) return option.label as string
+    if ((option as any).children) {
+      const child = (option as any).children.find((c: any) => c.key === activeKey.value)
+      if (child) return child.label as string
+    }
+  }
+  return ''
 })
 
 const goBack = () => {
