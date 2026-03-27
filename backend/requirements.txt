@@ -2,6 +2,8 @@ fastapi==0.110.0
 uvicorn[standard]==0.29.0
 sqlalchemy==2.0.44
 asyncmy==0.2.9
+asyncpg
+aiosqlite
 mem0ai
 alembic==1.13.1
 passlib[bcrypt]==1.7.4

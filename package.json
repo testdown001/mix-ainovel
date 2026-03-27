@@ -1,0 +1,42 @@
+{
+  "name": "workspace",
+  "version": "1.0.0",
+  "description": "## 简介",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fontsource/noto-sans-sc": "^5.2.9",
+    "@headlessui/vue": "^1.7.23",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tsconfig/node22": "^22.0.5",
+    "@types/marked": "^5.0.2",
+    "@types/node": "^25.5.0",
+    "@vitejs/plugin-vue": "^6.0.5",
+    "@vitejs/plugin-vue-jsx": "^5.1.5",
+    "@vue/tsconfig": "^0.9.1",
+    "autoprefixer": "^10.4.27",
+    "chart.js": "^4.5.1",
+    "marked": "^17.0.5",
+    "naive-ui": "^2.44.1",
+    "npm-run-all2": "^8.0.4",
+    "pinia": "^3.0.4",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.2",
+    "vis-data": "^8.0.3",
+    "vis-network": "^10.0.2",
+    "vite": "^8.0.3",
+    "vue": "^3.5.31",
+    "vue-router": "^5.0.4",
+    "vue-tsc": "^3.2.6"
+  }
+}

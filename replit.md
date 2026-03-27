@@ -1,74 +1,52 @@
-# Arboris-Novel
+# Arboris Novel - AI Writing Platform
 
-An AI-assisted writing platform designed for Chinese web novel authors. Functions as an "AI editorial team" using a multi-agent architecture called "Three Provinces and Six Ministries" (三省六部).
+## Overview
+An AI-powered writing assistant platform for Chinese web novel authors. Features a "Triple Province and Six Ministry" (三省六部) Multi-Agent architecture for maintaining narrative consistency, managing world-settings, and generating high-quality drafts.
+
+## Architecture
+- **Backend**: Python 3.12 + FastAPI (port 8000)
+- **Frontend**: Vue 3 + Vite + TypeScript (port 5000)
+- **Database**: PostgreSQL (Replit managed via DATABASE_URL secret)
+- **AI/LLM**: OpenAI-compatible API via configurable base URL
 
 ## Project Structure
+- `backend/` - FastAPI application
+  - `app/agents/` - Multi-agent system implementation
+  - `app/services/` - Business logic (RAG, prompt assembly, etc.)
+  - `app/api/` - REST API endpoints
+  - `app/models/` - SQLAlchemy models
+  - `app/schemas/` - Pydantic schemas
+  - `prompts/` - Markdown prompt templates
+- `frontend/` - Vue 3 application
+  - `src/views/` - Main pages (Writing Desk, Inspiration Mode, Novel Workspace)
+  - `src/components/` - UI components
+  - `src/stores/` - Pinia state management
+- `gateway/` - Go-based LLM Gateway (optional, not used in dev)
 
-```
-/
-├── backend/          # FastAPI Python backend
-│   ├── app/         # Application code
-│   │   ├── api/     # API routers/endpoints
-│   │   ├── core/    # Config, security, middleware
-│   │   ├── db/      # Database session, init, models
-│   │   ├── models/  # SQLAlchemy ORM models
-│   │   ├── schemas/ # Pydantic schemas
-│   │   ├── services/# Business logic services
-│   │   └── tasks/   # Celery background tasks
-│   ├── prompts/     # Prompt template markdown files
-│   └── requirements.txt
-├── frontend/         # Vue 3 + Vite frontend
-│   ├── src/
-│   │   ├── components/
-│   │   ├── views/
-│   │   └── stores/
-│   └── package.json
-└── gateway/         # Go-based LLM API gateway (not used in dev)
-```
-
-## Tech Stack
-
-- **Frontend**: Vue 3, TypeScript, Vite, Naive UI, TailwindCSS 4, Pinia
-- **Backend**: Python FastAPI, SQLAlchemy (async), asyncpg (PostgreSQL)
-- **Database**: PostgreSQL (Replit managed via DATABASE_URL)
-- **Cache**: Redis (optional, cache service degrades gracefully)
-- **LLM**: OpenAI-compatible API
+## Key Configuration (Environment Variables)
+- `DATABASE_URL` - Replit-managed PostgreSQL (set automatically)
+- `SECRET_KEY` - JWT signing key (set in .replit userenv)
+- `DB_PROVIDER` - Set to "sqlite" but DATABASE_URL takes precedence
+- `OPENAI_API_KEY` - Required for LLM features (set as secret)
+- `CORS_ORIGINS` - Set to "*" for development
 
 ## Workflows
-
-- **Start application** (port 5000): Vue 3 frontend dev server
-- **Backend** (port 8000): FastAPI backend server
+- **Backend**: `cd backend && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000`
+- **Start application** (Frontend): `cd frontend && npm run dev` (port 5000)
+- **Project**: Runs both in parallel
 
 ## Database
+- Uses Replit's built-in PostgreSQL via `DATABASE_URL` secret
+- Schema auto-created via SQLAlchemy `create_all` on startup
+- Default admin: username=admin, password=ChangeMe123!
+- Prompts auto-synced from `backend/prompts/*.md` on startup
 
-Uses Replit's built-in PostgreSQL database via `DATABASE_URL` environment variable. The backend auto-creates all tables on startup via SQLAlchemy `create_all`.
-
-## Environment Variables
-
-Key variables set in Replit Secrets/Env:
-- `SECRET_KEY`: JWT signing key
-- `ADMIN_DEFAULT_PASSWORD`: Initial admin password (ChangeMe123!)
-- `ADMIN_DEFAULT_USERNAME`: admin
-- `DATABASE_URL`: Auto-provided by Replit PostgreSQL
-- `CORS_ORIGINS`: Set to `*` for development
-
-## Modifications from Original
-
-1. Added PostgreSQL support (project originally required MySQL)
-   - `backend/app/core/config.py`: Added asyncpg driver normalization, sslmode->ssl conversion, sqlite support
-   - `backend/app/db/session.py`: Updated to detect db type from URI
-   - `backend/app/db/init_db.py`: Skip MySQL-specific operations for PostgreSQL/SQLite
-
-2. Frontend configured for Replit proxy:
-   - `frontend/vite.config.ts`: Set host to 0.0.0.0, port to 5000, allowedHosts: true
-
-## Default Admin Credentials
-
-- Username: admin
-- Password: ChangeMe123!
+## Dependencies
+- Python: fastapi, uvicorn, sqlalchemy, asyncpg, aiosqlite, pydantic, openai, redis, qdrant-client, celery, mem0ai
+- Node: vue, vite, naive-ui, pinia, tailwindcss, vis-network, chart.js
 
 ## Notes
-
-- Redis/Celery are optional - the cache service handles Redis unavailability gracefully
-- Qdrant vector database is disabled by default (QDRANT_HOST not set)
-- LLM features require an `OPENAI_API_KEY` to be configured in the admin panel
+- Frontend proxies `/api/*` requests to backend at `http://127.0.0.1:8000`
+- Qdrant vector store is optional (disabled when QDRANT_HOST is empty)
+- Redis optional for Celery tasks (REDIS_URL defaults to localhost:6379)
+- LLM features require OPENAI_API_KEY secret to be configured
