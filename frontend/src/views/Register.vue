@@ -1,79 +1,161 @@
 <!-- AIMETA P=注册页_用户注册|R=注册表单|NR=不含登录功能|E=route:/register#component:Register|X=ui|A=注册表单|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div class="flex flex-col items-center justify-center min-h-screen p-4">
-    <div class="mb-12">
-      <TypewriterEffect text="拯救小说家" />
-    </div>
-    <div v-if="allowRegistration" class="w-full max-w-md p-8 space-y-8 bg-white/70 backdrop-blur-xl rounded-2xl shadow-xl">
-      <div>
-        <h2 class="text-2xl font-bold text-center text-gray-800">
-          加入我们
-        </h2>
-        <p class="mt-2 text-sm text-center text-gray-500">
-          开启您的创作新篇章
-        </p>
+  <div class="min-h-screen flex flex-col items-center justify-center p-4"
+    style="background:#0A0A0A; font-family:'Inter',sans-serif;">
+
+    <!-- Background subtle grid -->
+    <div class="fixed inset-0 pointer-events-none" style="background-image:linear-gradient(#161616 1px,transparent 1px),linear-gradient(90deg,#161616 1px,transparent 1px);background-size:48px 48px;opacity:0.6;"></div>
+    <!-- Top glow -->
+    <div class="fixed inset-0 pointer-events-none" style="background:radial-gradient(ellipse 60% 40% at 50% 0%,rgba(255,229,0,0.05) 0%,transparent 70%);"></div>
+
+    <div class="relative w-full max-w-md">
+
+      <!-- Logo -->
+      <div class="flex items-center justify-center gap-2.5 mb-8 cursor-pointer" @click="router.push('/')">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:#FFE500;">
+          <svg class="w-4.5 h-4.5 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#000;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+          </svg>
+        </div>
+        <span class="text-xl font-bold text-white tracking-tight" style="font-family:'Space Grotesk',sans-serif;">Arboris Novel</span>
       </div>
-      <form @submit.prevent="handleRegister" class="mt-8 space-y-6">
-        <div class="space-y-4">
-          <div>
-            <label for="username" class="sr-only">用户名</label>
-            <input v-model="username" id="username" name="username" type="text" required
-              class="w-full px-4 py-3 text-gray-700 bg-gray-100 border-2 border-gray-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-500 transition-all duration-300"
-              placeholder="用户名" />
-          </div>
-          <div>
-            <label for="email" class="sr-only">邮箱</label>
-            <input v-model="email" id="email" name="email" type="email" required
-              class="w-full px-4 py-3 text-gray-700 bg-gray-100 border-2 border-gray-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-500 transition-all duration-300"
-              placeholder="邮箱" />
-          </div>
-          <div class="flex space-x-2 items-center">
-            <input v-model="verificationCode" id="verificationCode" name="verificationCode" type="text" required
-              class="flex-1 px-4 py-3 text-gray-700 bg-gray-100 border-2 border-gray-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-500 transition-all duration-300"
-              placeholder="验证码" />
-            <button type="button" @click="sendCode" :disabled="countdown > 0 || sending"
-              class="px-4 py-3 text-sm font-bold text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-4 focus:ring-green-300 disabled:opacity-60 transition-all duration-300">
-              <span v-if="sending">发送中...</span>
-              <span v-else>{{ countdown > 0 ? countdown + '秒后重试' : '发送验证码' }}</span>
-            </button>
-          </div>
-          <div>
-            <label for="password" class="sr-only">密码</label>
-            <input v-model="password" id="password" name="password" type="password" required
-              class="w-full px-4 py-3 text-gray-700 bg-gray-100 border-2 border-gray-200 rounded-lg focus:outline-none focus:bg-white focus:border-blue-500 transition-all duration-300"
-              placeholder="密码" />
-          </div>
+
+      <!-- Card -->
+      <div class="rounded-2xl border p-8" style="background:#111111; border-color:#222222;">
+
+        <!-- Header -->
+        <div class="text-center mb-8">
+          <h1 class="text-2xl font-bold text-white mb-1.5" style="font-family:'Space Grotesk',sans-serif;">
+            开始你的创作之旅
+          </h1>
+          <p class="text-sm" style="color:#666;">注册后立享 3 天创作者版完整体验</p>
         </div>
 
-        <div v-if="error" class="text-sm font-medium text-center text-red-500">
-          {{ error }}
-        </div>
-        <div v-if="success" class="text-sm font-medium text-center text-green-500">
-          {{ success }}
+        <!-- Registration closed notice -->
+        <div v-if="!allowRegistration" class="text-center py-6">
+          <div class="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style="background:#1A1A1A;">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color:#555;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+            </svg>
+          </div>
+          <p class="font-medium text-white mb-1">暂未开放注册</p>
+          <p class="text-sm mb-6" style="color:#555;">请联系管理员或稍后再试。</p>
+          <router-link to="/login" class="text-sm font-medium transition-colors" style="color:#FFE500;">
+            返回登录
+          </router-link>
         </div>
 
-        <div>
+        <!-- Registration form -->
+        <form v-else @submit.prevent="handleRegister" class="space-y-4">
+
+          <!-- Username -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:#888;">用户名</label>
+            <input v-model="username" type="text" required
+              class="w-full px-4 py-3 rounded-xl text-sm text-white transition-all outline-none"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+              placeholder="至少 7 个字符或 2 个汉字"
+              @focus="($event.target as HTMLInputElement).style.borderColor='#FFE500'"
+              @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'" />
+          </div>
+
+          <!-- Email -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:#888;">邮箱</label>
+            <input v-model="email" type="email" required
+              class="w-full px-4 py-3 rounded-xl text-sm transition-all outline-none"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+              placeholder="your@email.com"
+              @focus="($event.target as HTMLInputElement).style.borderColor='#FFE500'"
+              @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'" />
+          </div>
+
+          <!-- Verification code -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:#888;">邮箱验证码</label>
+            <div class="flex gap-2">
+              <input v-model="verificationCode" type="text" required
+                class="flex-1 px-4 py-3 rounded-xl text-sm transition-all outline-none"
+                style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+                placeholder="6 位验证码"
+                @focus="($event.target as HTMLInputElement).style.borderColor='#FFE500'"
+                @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'" />
+              <button type="button" @click="sendCode" :disabled="countdown > 0 || sending"
+                class="flex-shrink-0 px-4 py-3 rounded-xl text-xs font-semibold transition-all whitespace-nowrap"
+                :style="countdown > 0 || sending
+                  ? 'background:#1A1A1A; color:#444; border:1px solid #2A2A2A; cursor:not-allowed;'
+                  : 'background:#FFE500; color:#000; border:1px solid #FFE500; cursor:pointer;'"
+                @mouseenter="(e) => { if(!(countdown > 0 || sending)) (e.currentTarget as HTMLElement).style.background='#FFF000' }"
+                @mouseleave="(e) => { if(!(countdown > 0 || sending)) (e.currentTarget as HTMLElement).style.background='#FFE500' }">
+                <span v-if="sending">发送中…</span>
+                <span v-else-if="countdown > 0">{{ countdown }}s 后重试</span>
+                <span v-else>发送验证码</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Password -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:#888;">密码</label>
+            <input v-model="password" type="password" required
+              class="w-full px-4 py-3 rounded-xl text-sm transition-all outline-none"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+              placeholder="至少 8 位字符"
+              @focus="($event.target as HTMLInputElement).style.borderColor='#FFE500'"
+              @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'" />
+          </div>
+
+          <!-- Error message -->
+          <div v-if="error" class="flex items-center gap-2 px-4 py-3 rounded-xl text-sm"
+            style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.2); color:#F87171;">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            {{ error }}
+          </div>
+
+          <!-- Success message -->
+          <div v-if="success" class="flex items-center gap-2 px-4 py-3 rounded-xl text-sm"
+            style="background:rgba(52,211,153,0.08); border:1px solid rgba(52,211,153,0.2); color:#34D399;">
+            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            {{ success }}
+          </div>
+
+          <!-- Submit -->
           <button type="submit"
-            class="w-full px-4 py-3 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:opacity-60 transition-all duration-300">
-            注册
+            class="w-full py-3.5 rounded-xl font-bold text-sm transition-all mt-2"
+            style="background:#FFE500; color:#000;"
+            @mouseenter="($event.currentTarget as HTMLElement).style.background='#FFF000'"
+            @mouseleave="($event.currentTarget as HTMLElement).style.background='#FFE500'">
+            免费注册
           </button>
-        </div>
-      </form>
-      
-      <p class="mt-8 text-sm text-center text-gray-500">
+
+          <!-- Terms note -->
+          <p class="text-center text-xs" style="color:#444;">
+            注册即表示您同意我们的服务条款与隐私政策
+          </p>
+        </form>
+
+      </div>
+
+      <!-- Login link -->
+      <p class="text-center text-sm mt-6" style="color:#555;">
         已有账户？
-        <router-link to="/login" class="font-medium text-blue-600 hover:underline">
+        <router-link to="/login" class="font-medium transition-colors" style="color:#FFE500;"
+          @mouseenter="($event.target as HTMLElement).style.opacity='0.8'"
+          @mouseleave="($event.target as HTMLElement).style.opacity='1'">
           立即登录
         </router-link>
       </p>
-    </div>
 
-    <div v-else class="w-full max-w-md p-8 space-y-6 text-center bg-white/70 backdrop-blur-xl rounded-2xl shadow-xl">
-      <h2 class="text-xl font-bold text-gray-800">暂未开放注册</h2>
-      <p class="text-sm text-gray-500">请联系管理员或稍后再试。</p>
-      <router-link to="/login" class="inline-block px-4 py-2 text-sm font-medium text-blue-600 hover:underline">
-        返回登录
-      </router-link>
+      <!-- Trial badge -->
+      <div class="flex items-center justify-center gap-2 mt-5 text-xs" style="color:#444;">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#FFE500;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <span>注册免费 · 3天创作者版体验 · 无需绑卡</span>
+      </div>
+
     </div>
   </div>
 </template>
@@ -82,7 +164,6 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
-import TypewriterEffect from '@/components/TypewriterEffect.vue';
 
 const username = ref('');
 const email = ref('');
@@ -96,12 +177,11 @@ const router = useRouter();
 const authStore = useAuthStore();
 const allowRegistration = computed(() => authStore.allowRegistration);
 
-// 进入页面即拉取认证开关，避免展示无效注册表单
 onMounted(async () => {
   try {
     await authStore.fetchAuthOptions();
-  } catch (error) {
-    console.error('加载认证开关失败', error);
+  } catch (err) {
+    console.error('加载认证开关失败', err);
   }
   if (!allowRegistration.value) {
     success.value = '';
@@ -110,67 +190,34 @@ onMounted(async () => {
 });
 
 const validateInput = () => {
-  // Password validation
-  if (password.value.length < 8) {
-    return '密码必须至少8个字符';
-  }
-
-  // Username validation
+  if (password.value.length < 8) return '密码必须至少8个字符';
   const usernameVal = username.value;
   const hasChinese = /[\u4e00-\u9fa5]/.test(usernameVal);
   const isNumeric = /^\d+$/.test(usernameVal);
   const isAlphanumeric = /^[a-zA-Z0-9]+$/.test(usernameVal);
-
-  if (isNumeric) {
-    return '用户名不能是纯数字';
-  }
-
-  if (hasChinese && usernameVal.length <= 1) {
-    return '户名长度必须大于2个汉字';
-  }
-
-  if (isAlphanumeric && !hasChinese && usernameVal.length <= 6) {
-    return '用户名长度必须大于6个字母或数字';
-  }
-  
-  return null; // No validation errors
+  if (isNumeric) return '用户名不能是纯数字';
+  if (hasChinese && usernameVal.length <= 1) return '用户名长度必须大于2个汉字';
+  if (isAlphanumeric && !hasChinese && usernameVal.length <= 6) return '用户名长度必须大于6个字母或数字';
+  return null;
 };
 
 const sendCode = async () => {
   error.value = '';
   success.value = '';
-
-  if (!allowRegistration.value) {
-    error.value = '当前已关闭注册，请联系管理员。';
-    return;
-  }
-
-  if (!email.value) {
-    error.value = '请输入邮箱';
-    return;
-  }
+  if (!allowRegistration.value) { error.value = '当前已关闭注册，请联系管理员。'; return; }
+  if (!email.value) { error.value = '请输入邮箱'; return; }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(email.value)) {
-    error.value = '邮箱格式不正确';
-    return;
-  }
-
+  if (!emailRegex.test(email.value)) { error.value = '邮箱格式不正确'; return; }
   sending.value = true;
   try {
-    const res = await fetch(`/api/auth/send-code?email=${encodeURIComponent(email.value)}`, {
-      method: 'POST'
-    });
+    const res = await fetch(`/api/auth/send-code?email=${encodeURIComponent(email.value)}`, { method: 'POST' });
     if (!res.ok) {
       const errMsg = await res.json();
       throw new Error(errMsg.detail || '发送验证码失败');
     }
     success.value = '验证码已发送，请查收邮箱';
-    // 等接口返回成功后再开始倒计时
     countdown.value = 60;
-    const timer = setInterval(() => {
-      countdown.value--;
-      if (countdown.value <= 0) clearInterval(timer);
-    }, 1000);
+    const timer = setInterval(() => { countdown.value--; if (countdown.value <= 0) clearInterval(timer); }, 1000);
   } catch (err: any) {
     error.value = err.message;
   } finally {
@@ -181,18 +228,9 @@ const sendCode = async () => {
 const handleRegister = async () => {
   error.value = '';
   success.value = '';
-
   const validationError = validateInput();
-  if (validationError) {
-    error.value = validationError;
-    return;
-  }
-
-  if (!allowRegistration.value) {
-    error.value = '当前已关闭注册，请联系管理员。';
-    return;
-  }
-
+  if (validationError) { error.value = validationError; return; }
+  if (!allowRegistration.value) { error.value = '当前已关闭注册，请联系管理员。'; return; }
   try {
     const res = await fetch('/api/auth/users', {
       method: 'POST',
@@ -208,10 +246,8 @@ const handleRegister = async () => {
       const errMsg = await res.json();
       throw new Error(errMsg.detail || '注册失败');
     }
-    success.value = '注册成功！正在跳转到登录页面...';
-    setTimeout(() => {
-      router.push('/login');
-    }, 2000);
+    success.value = '注册成功！即将跳转到登录页面…';
+    setTimeout(() => { router.push('/login'); }, 2000);
   } catch (err: any) {
     error.value = err.message || '注册失败，请稍后再试。';
     console.error(err);
