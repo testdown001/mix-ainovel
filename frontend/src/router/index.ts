@@ -78,6 +78,11 @@ const router = createRouter({
       name: 'pricing',
       component: () => import('../views/PricingView.vue'),
     },
+    {
+      path: '/landing',
+      name: 'landing',
+      component: () => import('../views/LandingView.vue'),
+    },
   ],
 })
 

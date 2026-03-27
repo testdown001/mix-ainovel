@@ -23,6 +23,16 @@ An AI-powered writing assistant platform for Chinese web novel authors. Features
   - `src/stores/` - Pinia state management
 - `gateway/` - Go-based LLM Gateway (optional, not used in dev)
 
+## Public Pages
+- `/landing` - Professional public homepage (no auth required), dynamically shows pricing plans from backend
+- `/pricing` - Detailed pricing page (no auth required)
+- `/login`, `/register` - Auth pages
+
+## Admin Management Pages (requires auth + admin)
+- `/admin?tab=membership_plans` - Manage subscription plans (CRUD, saved to `plans` table)
+- `/admin?tab=payment_channels` - Configure Stripe/Alipay/WeChat payment channels
+- `/admin?tab=payment_records` - View payment records with filters and CSV export
+
 ## Key Configuration (Environment Variables)
 - `DATABASE_URL` - Replit-managed PostgreSQL (set automatically)
 - `SECRET_KEY` - JWT signing key (set in .replit userenv)
