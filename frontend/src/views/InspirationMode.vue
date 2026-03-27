@@ -252,7 +252,7 @@ const selectedReferenceNovelIds = computed(() =>
 const boundReferenceNovels = computed(() => novelStore.projectReferenceNovels || [])
 
 const goBack = () => {
-  router.push('/')
+  router.push('/home')
 }
 
 const handleLibrarySelectionChange = (selections: LibrarySelection[]) => {
@@ -334,7 +334,7 @@ const exitConversation = async () => {
   const confirmed = await globalAlert.showConfirm('确定要退出灵感模式吗？当前进度可能会丢失。', '退出确认')
   if (confirmed) {
     resetInspirationMode()
-    router.push('/')
+    router.push('/home')
   }
 }
 

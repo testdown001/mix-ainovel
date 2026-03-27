@@ -1,6 +1,5 @@
 // AIMETA P=路由配置_所有页面路由定义|R=路由表_导航守卫_权限控制|NR=不含组件实现|E=router:index|X=internal|A=router实例|D=vue-router|S=none|RD=./README.ai
 import { createRouter, createWebHistory } from 'vue-router'
-import WorkspaceEntry from '../views/WorkspaceEntry.vue'
 import NovelWorkspace from '../views/NovelWorkspace.vue'
 import InspirationMode from '../views/InspirationMode.vue'
 import WritingDesk from '../views/WritingDesk.vue'
@@ -14,8 +13,13 @@ const router = createRouter({
   routes: [
     {
       path: '/',
+      name: 'landing',
+      component: () => import('../views/LandingView.vue'),
+    },
+    {
+      path: '/home',
       name: 'workspace-entry',
-      component: WorkspaceEntry,
+      component: () => import('../views/WorkspaceEntry.vue'),
       meta: { requiresAuth: true },
     },
     {
@@ -78,18 +82,12 @@ const router = createRouter({
       name: 'pricing',
       component: () => import('../views/PricingView.vue'),
     },
-    {
-      path: '/landing',
-      name: 'landing',
-      component: () => import('../views/LandingView.vue'),
-    },
   ],
 })
 
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   
-  // Attempt to fetch user info if token exists but user info is not loaded
   if (authStore.token && !authStore.user) {
     await authStore.fetchUser()
   }
@@ -102,17 +100,16 @@ router.beforeEach(async (to, from, next) => {
   const mustChangePassword = authStore.user?.is_admin && authStore.mustChangePassword
 
   if (requiresAuth && !isAuthenticated) {
-    next('/login')
+    next('/')
   } else if (requiresAdmin && !isAdmin) {
-    next('/') // Redirect to a non-admin page if not an admin
+    next('/home')
   } else if (isAuthenticated && mustChangePassword) {
     if (to.name !== 'admin' || to.query.tab !== 'password') {
       next({ name: 'admin', query: { tab: 'password' } })
     } else {
       next()
     }
-  }
-  else {
+  } else {
     next()
   }
 })

@@ -6,7 +6,7 @@
     <header v-if="!isAdmin" class="sticky top-0 z-40 border-b" style="background: rgba(10,10,10,0.85); backdrop-filter: blur(12px); border-color: #2A2A2A;">
       <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <!-- Logo -->
-        <router-link to="/" class="flex items-center gap-2.5 flex-shrink-0">
+        <router-link to="/home" class="flex items-center gap-2.5 flex-shrink-0">
           <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: #FFE500;">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color: #000;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>

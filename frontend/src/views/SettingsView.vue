@@ -4,7 +4,7 @@
 
     <!-- Top bar -->
     <header class="sticky top-0 z-30 border-b flex items-center gap-4 px-6 h-14" style="background: #141414; border-color: #2A2A2A;">
-      <router-link to="/" class="flex items-center gap-2 text-sm transition-colors" style="color: #888888;"
+      <router-link to="/home" class="flex items-center gap-2 text-sm transition-colors" style="color: #888888;"
         @mouseenter="($event.target as HTMLElement).style.color='#fff'"
         @mouseleave="($event.target as HTMLElement).style.color='#888888'">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">

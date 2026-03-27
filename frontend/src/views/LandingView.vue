@@ -59,7 +59,7 @@ function handleCta(plan: Plan) {
 
 function goStart() {
   if (auth.isAuthenticated) {
-    router.push('/')
+    router.push('/home')
   } else {
     router.push('/register')
   }
@@ -147,7 +147,7 @@ const stats = [
     <header class="sticky top-0 z-50 border-b" style="background:rgba(10,10,10,0.88); backdrop-filter:blur(16px); border-color:#1E1E1E;">
       <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <!-- Logo -->
-        <div class="flex items-center gap-2.5 cursor-pointer" @click="router.push('/landing')">
+        <div class="flex items-center gap-2.5 cursor-pointer" @click="router.push('/')">
           <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:#FFE500;">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#000;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
@@ -165,7 +165,7 @@ const stats = [
 
         <!-- CTA Buttons -->
         <div class="hidden md:flex items-center gap-3">
-          <router-link v-if="auth.isAuthenticated" to="/"
+          <router-link v-if="auth.isAuthenticated" to="/home"
             class="text-sm px-4 py-2 rounded-lg font-semibold transition-all"
             style="background:#FFE500; color:#000;">
             进入工作台
@@ -198,7 +198,7 @@ const stats = [
         <a href="#how" @click="mobileMenuOpen=false" class="block text-sm py-2" style="color:#CCCCCC;">工作原理</a>
         <a href="#pricing" @click="mobileMenuOpen=false" class="block text-sm py-2" style="color:#CCCCCC;">套餐价格</a>
         <div class="flex gap-3 pt-2">
-          <router-link v-if="auth.isAuthenticated" to="/" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:#FFE500; color:#000;">进入工作台</router-link>
+          <router-link v-if="auth.isAuthenticated" to="/home" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:#FFE500; color:#000;">进入工作台</router-link>
           <template v-else>
             <router-link to="/login" class="flex-1 text-center text-sm py-2 rounded-lg border" style="border-color:#2A2A2A; color:#CCC;">登录</router-link>
             <router-link to="/register" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:#FFE500; color:#000;">免费开始</router-link>

@@ -25,7 +25,7 @@
         <div>
           <div class="flex items-center gap-4 mb-1.5">
             <router-link
-              to="/"
+              to="/home"
               class="flex items-center gap-1.5 text-sm transition-colors"
               style="color: #888;"
               @mouseenter="($event.target as HTMLElement).style.color='#fff'"

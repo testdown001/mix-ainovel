@@ -137,7 +137,7 @@ const handleLogin = async () => {
     if (user?.is_admin && (authStore.mustChangePassword || mustChange)) {
       router.push({ name: 'admin', query: { tab: 'password' } });
     } else {
-      router.push('/');
+      router.push('/home');
     }
   } catch (err) {
     error.value = '登录失败，请检查您的用户名和密码。';
