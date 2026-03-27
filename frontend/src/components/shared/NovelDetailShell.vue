@@ -1,171 +1,186 @@
 <!-- AIMETA P=小说详情壳_详情页布局容器|R=详情页布局_导航|NR=不含具体内容|E=component:NovelDetailShell|X=internal|A=布局组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="h-screen flex flex-col overflow-hidden md-surface">
-    <!-- Material 3 Top App Bar -->
-    <header class="md-top-app-bar sticky top-0 z-40">
-      <div class="max-w-[1800px] mx-auto w-full flex items-center px-4 h-16">
-        <!-- Leading: Menu Button (Mobile) -->
-        <button
-          class="md-icon-btn lg:hidden mr-2"
-          @click="toggleSidebar"
-          aria-label="Toggle sidebar"
-        >
-          <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
+  <div class="min-h-screen" style="background: #0A0A0A; font-family: 'Inter', sans-serif;">
 
-        <!-- Title -->
-        <div class="flex-1 min-w-0">
-          <h1 class="md-title-large truncate" style="color: var(--md-on-surface);">
-            {{ formattedTitle }}
-          </h1>
-          <p v-if="overviewMeta.updated_at" class="md-body-small" style="color: var(--md-on-surface-variant);">
-            最近更新：{{ formatDateTime(overviewMeta.updated_at) }}
-          </p>
-        </div>
+    <!-- ==================== Global Nav Bar (User Mode) ==================== -->
+    <header v-if="!isAdmin" class="sticky top-0 z-40 border-b" style="background: rgba(10,10,10,0.85); backdrop-filter: blur(12px); border-color: #2A2A2A;">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+        <!-- Logo -->
+        <router-link to="/" class="flex items-center gap-2.5 flex-shrink-0">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background: #FFE500;">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color: #000;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+            </svg>
+          </div>
+          <span class="text-xl font-bold tracking-tight" style="font-family: 'Space Grotesk', sans-serif; color: #fff;">Arboris Novel</span>
+        </router-link>
 
-        <!-- Trailing: Actions -->
-        <div class="flex items-center gap-2 flex-shrink-0">
-          <button
-            class="md-btn md-btn-outlined md-ripple"
-            @click="goBack"
-          >
-            <svg class="w-5 h-5 hidden sm:block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            <span class="hidden sm:inline">返回列表</span>
-            <span class="sm:hidden">返回</span>
-          </button>
-          <button
-            v-if="!isAdmin"
-            class="md-btn md-btn-filled md-ripple"
-            @click="goToWritingDesk"
-          >
-            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            <span class="hidden sm:inline">开始创作</span>
-            <span class="sm:hidden">创作</span>
-          </button>
+        <!-- Nav Links -->
+        <nav class="hidden md:flex items-center gap-7">
+          <router-link to="/inspiration" class="nav-link">灵感模式</router-link>
+          <router-link to="/workspace" class="nav-link nav-link-active">我的小说</router-link>
+          <button class="nav-link" @click="goToWritingDesk">写作台</button>
+          <router-link to="/settings" class="nav-link">设置</router-link>
+        </nav>
+
+        <!-- User Menu -->
+        <div class="flex items-center gap-3 flex-shrink-0">
+          <div class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold" style="background: #FFE500; color: #000;">创</div>
+          <span class="text-sm hidden sm:inline" style="color: #fff;">{{ authStore.user?.username || '' }}</span>
         </div>
       </div>
     </header>
 
-    <!-- Main Content -->
-    <div class="flex max-w-[1800px] mx-auto w-full flex-1 min-h-0 overflow-hidden">
-      <!-- Material 3 Navigation Drawer -->
-      <aside
-        class="fixed left-0 top-16 bottom-0 z-30 w-80 md-surface transform transition-transform duration-300 lg:translate-x-0"
-        :class="isSidebarOpen ? 'translate-x-0' : '-translate-x-full'"
-        style="border-right: 1px solid var(--md-outline-variant);"
-      >
-        <!-- Drawer Header -->
-        <div class="flex items-center gap-3 px-6 py-4" style="border-bottom: 1px solid var(--md-outline-variant);">
-          <div class="w-10 h-10 rounded-full flex items-center justify-center" style="background-color: var(--md-primary-container);">
-            <svg class="w-5 h-5" style="color: var(--md-on-primary-container);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-            </svg>
+    <!-- ==================== Admin Header ==================== -->
+    <header v-else class="sticky top-0 z-40 border-b" style="background: rgba(10,10,10,0.92); backdrop-filter: blur(12px); border-color: #2A2A2A;">
+      <div class="max-w-7xl mx-auto px-6 h-14 flex items-center gap-4">
+        <button class="text-sm transition-colors flex items-center gap-1.5" style="color: #888;" @click="goBack"
+          @mouseenter="($event.target as HTMLElement).style.color='#fff'" @mouseleave="($event.target as HTMLElement).style.color='#888'">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+          </svg>
+          返回管理
+        </button>
+        <div class="h-4 w-px" style="background: #2A2A2A;"></div>
+        <h1 class="text-base font-semibold text-white truncate">{{ formattedTitle }}</h1>
+      </div>
+    </header>
+
+    <!-- ==================== Main Content ==================== -->
+    <div class="max-w-7xl mx-auto px-6 pb-16">
+
+      <!-- Breadcrumb (User Mode) -->
+      <div v-if="!isAdmin" class="flex items-center gap-2 text-sm pt-8 mb-6">
+        <router-link to="/workspace" class="transition-colors" style="color: #888;"
+          @mouseenter="($event.target as HTMLElement).style.color='#FFE500'" @mouseleave="($event.target as HTMLElement).style.color='#888'">
+          我的小说
+        </router-link>
+        <span style="color: #555;">/</span>
+        <span style="color: #fff;">{{ novelTitle }}</span>
+      </div>
+
+      <!-- Novel Header (User Mode) -->
+      <div v-if="!isAdmin" class="flex items-start justify-between gap-6 mb-4">
+        <!-- Left: Icon + Title + Meta -->
+        <div class="flex items-start gap-5 min-w-0">
+          <!-- Novel Avatar -->
+          <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl"
+            :style="{ background: genreAvatarBg }">
+            {{ genreEmoji }}
           </div>
-          <span class="md-title-medium" style="color: var(--md-on-surface);">
-            {{ isAdmin ? '内容视图' : '蓝图导航' }}
-          </span>
-        </div>
-
-        <!-- Navigation Items -->
-        <nav class="px-3 py-4 space-y-1 overflow-y-auto h-[calc(100%-5rem)]">
-          <button
-            v-for="section in sections"
-            :key="section.key"
-            type="button"
-            @click="switchSection(section.key)"
-            class="md-nav-drawer-item w-full md-ripple"
-            :class="{ 'active': activeSection === section.key }"
-          >
-            <span
-              class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition-all duration-200"
-              :style="activeSection === section.key
-                ? 'background-color: var(--md-primary); color: var(--md-on-primary);'
-                : 'background-color: var(--md-surface-container); color: var(--md-on-surface-variant);'"
-            >
-              <component :is="getSectionIcon(section.key)" class="w-5 h-5" />
-            </span>
-            <span class="text-left flex-1">
-              <span class="block md-label-large">{{ section.label }}</span>
-              <span class="md-body-small" style="color: var(--md-on-surface-variant);">{{ section.description }}</span>
-            </span>
-          </button>
-        </nav>
-      </aside>
-
-      <!-- Sidebar Overlay (Mobile) -->
-      <transition
-        enter-active-class="transition-opacity duration-300"
-        leave-active-class="transition-opacity duration-300"
-        enter-from-class="opacity-0"
-        leave-to-class="opacity-0"
-      >
-        <div
-          v-if="isSidebarOpen"
-          class="fixed inset-0 z-20 lg:hidden"
-          style="background-color: rgba(0, 0, 0, 0.32);"
-          @click="toggleSidebar"
-        ></div>
-      </transition>
-
-      <!-- Main Content Area -->
-      <div class="flex-1 lg:ml-80 min-h-0 flex flex-col h-full">
-        <div class="flex-1 min-h-0 h-full p-4 sm:p-6 lg:p-8 flex flex-col overflow-hidden box-border">
-          <div class="flex-1 flex flex-col min-h-0 h-full">
-            <!-- Material 3 Card -->
-            <div 
-              class="md-card md-card-elevated flex-1 h-full p-6 sm:p-8 min-h-[20rem] flex flex-col box-border" 
-              :class="contentCardClass"
-              style="border-radius: var(--md-radius-lg);"
-            >
-              <!-- Loading State -->
-              <div v-if="isSectionLoading" class="flex flex-col items-center justify-center py-20 sm:py-28">
-                <div class="md-spinner"></div>
-                <p class="mt-4 md-body-medium" style="color: var(--md-on-surface-variant);">加载中...</p>
-              </div>
-
-              <!-- Error State -->
-              <div v-else-if="currentError" class="flex flex-col items-center justify-center py-20 sm:py-28 space-y-4">
-                <div class="w-16 h-16 rounded-full flex items-center justify-center" style="background-color: var(--md-error-container);">
-                  <svg class="w-8 h-8" style="color: var(--md-error);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p class="md-body-large text-center" style="color: var(--md-on-surface);">{{ currentError }}</p>
-                <button
-                  class="md-btn md-btn-filled md-ripple"
-                  @click="reloadSection(activeSection, true)"
-                >
-                  重试
-                </button>
-              </div>
-
-              <!-- Content -->
-              <component
-                v-else
-                ref="sectionRef"
-                :is="currentComponent"
-                v-bind="componentProps"
-                :class="componentContainerClass"
-                @edit="handleSectionEdit"
-                @add="startAddChapter"
-                @regenerate="handleRegenerate"
-                @delete-outlines="handleDeleteOutlines"
-                @batch-generate="handleBatchGenerate"
-                @batch-predict="handleBatchPredict"
-              />
+          <div class="min-w-0">
+            <h1 class="text-3xl font-bold text-white leading-tight truncate">{{ novelTitle }}</h1>
+            <div class="flex items-center gap-3 mt-2 flex-wrap">
+              <span v-if="novelGenre" class="px-2.5 py-0.5 rounded-full text-xs font-medium border" style="color: #FFE500; border-color: #FFE500;">
+                {{ novelGenre }}
+              </span>
+              <span class="text-sm" style="color: #888;">
+                by {{ authStore.user?.username || '—' }}
+              </span>
+              <span v-if="overviewMeta.updated_at" class="text-sm" style="color: #666;">
+                · 最近更新 {{ formatDateTime(overviewMeta.updated_at) }}
+              </span>
             </div>
           </div>
         </div>
+
+        <!-- Right: Progress Ring -->
+        <div class="flex flex-col items-center flex-shrink-0">
+          <div class="relative w-24 h-24">
+            <svg class="w-full h-full" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#2A2A2A" stroke-width="5" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#FFE500" stroke-width="5"
+                stroke-linecap="round"
+                :stroke-dasharray="circumference"
+                :stroke-dashoffset="circumference - (progressPercent / 100) * circumference"
+                transform="rotate(-90 50 50)"
+                style="transition: stroke-dashoffset 0.7s ease;" />
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <span class="text-xl font-bold" style="color: #FFE500;">{{ progressPercent }}%</span>
+            </div>
+          </div>
+          <span class="text-xs mt-1.5" style="color: #888;">{{ progressCompleted }}/{{ progressTotal }}章</span>
+        </div>
+      </div>
+
+      <!-- Description (User Mode) -->
+      <p v-if="!isAdmin && novelDescription" class="text-sm leading-6 mb-8" style="color: #888;">
+        {{ novelDescription }}
+      </p>
+      <div v-else-if="!isAdmin" class="mb-6"></div>
+
+      <!-- ==================== Tab Bar ==================== -->
+      <div class="flex items-end gap-1 border-b overflow-x-auto scrollbar-hide" style="border-color: #2A2A2A;" :class="isAdmin ? 'mt-6' : ''">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          type="button"
+          @click="switchSection(tab.key)"
+          class="px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap -mb-px flex-shrink-0"
+          :class="activeSection === tab.key
+            ? 'border-b-2'
+            : 'hover:text-white'"
+          :style="activeSection === tab.key
+            ? 'color: #FFE500; border-color: #FFE500;'
+            : 'color: #888;'"
+        >
+          {{ tab.label }}
+        </button>
+
+        <!-- Spacer + Action Button -->
+        <div v-if="!isAdmin" class="ml-auto flex-shrink-0 pb-2 pl-4">
+          <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+            style="background: #FFE500; color: #000;" @click="goToWritingDesk">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+            开始创作
+          </button>
+        </div>
+      </div>
+
+      <!-- ==================== Section Content ==================== -->
+      <div class="mt-6" :class="contentContainerClass">
+        <!-- Loading State -->
+        <div v-if="isSectionLoading" class="flex flex-col items-center justify-center py-20">
+          <div class="w-8 h-8 border-2 rounded-full animate-spin" style="border-color: #2A2A2A; border-top-color: #FFE500;"></div>
+          <p class="mt-4 text-sm" style="color: #888;">加载中...</p>
+        </div>
+
+        <!-- Error State -->
+        <div v-else-if="currentError" class="flex flex-col items-center justify-center py-20 space-y-4">
+          <div class="w-14 h-14 rounded-full flex items-center justify-center" style="background: rgba(255, 71, 87, 0.15);">
+            <svg class="w-7 h-7" style="color: #FF4757;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p class="text-sm text-center" style="color: #fff;">{{ currentError }}</p>
+          <button class="px-5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+            style="background: #FFE500; color: #000;" @click="reloadSection(activeSection, true)">
+            重试
+          </button>
+        </div>
+
+        <!-- Content Component -->
+        <component
+          v-else
+          ref="sectionRef"
+          :is="currentComponent"
+          v-bind="componentProps"
+          :class="componentContainerClass"
+          @edit="handleSectionEdit"
+          @add="startAddChapter"
+          @regenerate="handleRegenerate"
+          @delete-outlines="handleDeleteOutlines"
+          @batch-generate="handleBatchGenerate"
+          @batch-predict="handleBatchPredict"
+          @switch-section="switchSection"
+        />
       </div>
     </div>
 
-    <!-- Blueprint Edit Modal -->
+    <!-- ==================== Blueprint Edit Modal ==================== -->
     <BlueprintEditModal
       v-if="!isAdmin"
       :show="isModalOpen"
@@ -178,60 +193,40 @@
       @save="handleSave"
     />
 
-    <!-- Material 3 Add Chapter Modal -->
+    <!-- ==================== Add Chapter Modal ==================== -->
     <transition
-      enter-active-class="md-scale-enter-active"
-      leave-active-class="md-scale-leave-active"
-      enter-from-class="md-scale-enter-from"
-      leave-to-class="md-scale-leave-to"
+      enter-active-class="transition-all duration-200"
+      leave-active-class="transition-all duration-200"
+      enter-from-class="opacity-0"
+      leave-to-class="opacity-0"
     >
-      <div v-if="isAddChapterModalOpen && !isAdmin" class="md-dialog-overlay">
+      <div v-if="isAddChapterModalOpen && !isAdmin" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.6);">
         <div class="absolute inset-0" @click="cancelNewChapter"></div>
-        <div class="md-dialog relative w-full max-w-lg mx-4" @click.stop>
-          <div class="md-dialog-header">
-            <h3 class="md-dialog-title">新增章节大纲</h3>
+        <div class="relative w-full max-w-lg mx-4 rounded-2xl border" style="background: #141414; border-color: #2A2A2A;" @click.stop>
+          <div class="px-6 py-5 border-b" style="border-color: #2A2A2A;">
+            <h3 class="text-lg font-semibold text-white">新增章节大纲</h3>
           </div>
-          <div class="md-dialog-content space-y-6">
-            <div class="md-text-field">
-              <label for="new-chapter-title" class="md-text-field-label">
-                章节标题
-              </label>
-              <input
-                id="new-chapter-title"
-                v-model="newChapterTitle"
-                type="text"
-                class="md-text-field-input"
-                placeholder="例如：意外的相遇"
-              >
+          <div class="px-6 py-5 space-y-5">
+            <div>
+              <label for="new-chapter-title" class="block text-sm font-medium mb-2" style="color: #888;">章节标题</label>
+              <input id="new-chapter-title" v-model="newChapterTitle" type="text"
+                class="w-full px-4 py-2.5 rounded-xl text-sm outline-none transition-colors"
+                style="background: #1C1C1C; border: 1px solid #2A2A2A; color: #fff;"
+                placeholder="例如：意外的相遇">
             </div>
-            <div class="md-text-field">
-              <label for="new-chapter-summary" class="md-text-field-label">
-                章节摘要
-              </label>
-              <textarea
-                id="new-chapter-summary"
-                v-model="newChapterSummary"
-                rows="4"
-                class="md-textarea w-full"
-                placeholder="简要描述本章发生的主要事件"
-              ></textarea>
+            <div>
+              <label for="new-chapter-summary" class="block text-sm font-medium mb-2" style="color: #888;">章节摘要</label>
+              <textarea id="new-chapter-summary" v-model="newChapterSummary" rows="4"
+                class="w-full px-4 py-2.5 rounded-xl text-sm outline-none transition-colors resize-none"
+                style="background: #1C1C1C; border: 1px solid #2A2A2A; color: #fff;"
+                placeholder="简要描述本章发生的主要事件"></textarea>
             </div>
           </div>
-          <div class="md-dialog-actions">
-            <button
-              type="button"
-              class="md-btn md-btn-text md-ripple"
-              @click="cancelNewChapter"
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              class="md-btn md-btn-filled md-ripple"
-              @click="saveNewChapter"
-            >
-              保存
-            </button>
+          <div class="flex items-center justify-end gap-3 px-6 py-4 border-t" style="border-color: #2A2A2A;">
+            <button type="button" class="px-4 py-2 rounded-lg text-sm transition-colors" style="color: #888; border: 1px solid #2A2A2A;"
+              @click="cancelNewChapter">取消</button>
+            <button type="button" class="px-5 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
+              style="background: #FFE500; color: #000;" @click="saveNewChapter">保存</button>
           </div>
         </div>
       </div>
@@ -240,7 +235,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, h } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
@@ -260,8 +255,6 @@ import ForeshadowingSection from '@/components/novel-detail/ForeshadowingSection
 import WriterPersonaPanel from '@/components/WriterPersonaPanel.vue'
 import ConceptLibrarySection from '@/components/novel-detail/ConceptLibrarySection.vue'
 
-// Import PowerSystem related types and api
-// Note: We need a generic api fetcher for /api/power-systems
 const fetchPowerSystems = async () => {
   try {
     const authStore = useAuthStore()
@@ -271,9 +264,7 @@ const fetchPowerSystems = async () => {
       headers.set('Authorization', `Bearer ${authStore.token}`)
     }
     const response = await fetch(url, { headers })
-    if (response.ok) {
-      return await response.json()
-    }
+    if (response.ok) return await response.json()
     return []
   } catch (err) {
     console.error('获取力量体系失败', err)
@@ -294,21 +285,19 @@ const props = withDefaults(defineProps<Props>(), {
 const route = useRoute()
 const router = useRouter()
 const novelStore = useNovelStore()
+const authStore = useAuthStore()
 
 const projectId = route.params.id as string
-const isSidebarOpen = ref(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
 
-const sections: Array<{ key: SectionKey; label: string; description: string }> = [
-  { key: 'overview', label: '项目概览', description: '定位与整体梗概' },
-  { key: 'world_setting', label: '世界设定', description: '规则、地点与阵营' },
-  { key: 'characters', label: '主要角色', description: '人物性格与目标' },
-  { key: 'relationships', label: '人物关系', description: '角色之间的联系' },
-  { key: 'chapter_outline', label: '章节大纲', description: props.isAdmin ? '故事章节规划' : '故事结构规划' },
-  { key: 'chapters', label: '章节内容', description: props.isAdmin ? '生成章节与正文' : '生成状态与摘要' },
-  { key: 'emotion_curve', label: '情感曲线', description: '追踪章节情感变化' },
-  { key: 'foreshadowing', label: '伏笔管理', description: '故事线索与回收' },
-  { key: 'writer_persona', label: 'Writer 设定', description: '写作风格与对齐' },
-  { key: 'concept_library', label: '设定百科', description: '世界观元素管理' }
+const tabs: Array<{ key: SectionKey; label: string }> = [
+  { key: 'overview', label: '概览' },
+  { key: 'chapters', label: '章节列表' },
+  { key: 'characters', label: '人物' },
+  { key: 'world_setting', label: '世界观' },
+  { key: 'chapter_outline', label: '大纲' },
+  { key: 'foreshadowing', label: '伏笔' },
+  { key: 'emotion_curve', label: '情感曲线' },
+  { key: 'concept_library', label: '设定库' },
 ]
 
 const sectionComponents: Record<SectionKey, any> = {
@@ -324,79 +313,17 @@ const sectionComponents: Record<SectionKey, any> = {
   concept_library: ConceptLibrarySection
 }
 
-// Section icons as functional components
-const getSectionIcon = (key: SectionKey) => {
-  const icons: Record<SectionKey, any> = {
-    overview: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('rect', { x: 3, y: 3, width: 18, height: 18, rx: 2 }),
-      h('line', { x1: 3, y1: 9, x2: 21, y2: 9 }),
-      h('line', { x1: 9, y1: 21, x2: 9, y2: 9 })
-    ]),
-    world_setting: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('circle', { cx: 12, cy: 12, r: 10 }),
-      h('path', { d: 'M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z' })
-    ]),
-    characters: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2' }),
-      h('circle', { cx: 9, cy: 7, r: 4 }),
-      h('path', { d: 'M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75' })
-    ]),
-    relationships: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2' }),
-      h('circle', { cx: 9, cy: 7, r: 4 }),
-      h('path', { d: 'M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75' })
-    ]),
-    chapter_outline: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('line', { x1: 8, y1: 6, x2: 21, y2: 6 }),
-      h('line', { x1: 8, y1: 12, x2: 21, y2: 12 }),
-      h('line', { x1: 8, y1: 18, x2: 21, y2: 18 }),
-      h('line', { x1: 3, y1: 6, x2: 3.01, y2: 6 }),
-      h('line', { x1: 3, y1: 12, x2: 3.01, y2: 12 }),
-      h('line', { x1: 3, y1: 18, x2: 3.01, y2: 18 })
-    ]),
-    chapters: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M4 19.5A2.5 2.5 0 016.5 17H20' }),
-      h('path', { d: 'M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z' })
-    ]),
-    emotion_curve: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z' })
-    ]),
-    foreshadowing: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M13 10V3L4 14h7v7l9-11h-7z' })
-    ]),
-    writer_persona: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z' })
-    ]),
-    concept_library: () => h('svg', { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2 }, [
-      h('path', { d: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' })
-    ])
-  }
-  return icons[key]
-}
-
 const sectionData = reactive<Partial<Record<SectionKey, any>>>({})
 const sectionLoading = reactive<Record<SectionKey, boolean>>({
-  overview: false,
-  world_setting: false,
-  characters: false,
-  relationships: false,
-  chapter_outline: false,
-  chapters: false,
-  emotion_curve: false,
-  foreshadowing: false,
-  writer_persona: false,
+  overview: false, world_setting: false, characters: false,
+  relationships: false, chapter_outline: false, chapters: false,
+  emotion_curve: false, foreshadowing: false, writer_persona: false,
   concept_library: false
 })
 const sectionError = reactive<Record<SectionKey, string | null>>({
-  overview: null,
-  world_setting: null,
-  characters: null,
-  relationships: null,
-  chapter_outline: null,
-  chapters: null,
-  emotion_curve: null,
-  foreshadowing: null,
-  writer_persona: null,
+  overview: null, world_setting: null, characters: null,
+  relationships: null, chapter_outline: null, chapters: null,
+  emotion_curve: null, foreshadowing: null, writer_persona: null,
   concept_library: null
 })
 
@@ -406,73 +333,100 @@ const overviewMeta = reactive<{ title: string; updated_at: string | null }>({
 })
 
 const activeSection = ref<SectionKey>('overview')
-
-// System settings data
 const powerSystems = ref<Array<{ id: number, name: string, levels: Array<{ id: number, name: string }> }>>([])
 
-// Modal state (user mode only)
 const isModalOpen = ref(false)
 const modalTitle = ref('')
 const modalContent = ref<any>('')
 const modalField = ref('')
 
-// Add chapter modal state (user mode only)
 const isAddChapterModalOpen = ref(false)
 const newChapterTitle = ref('')
 const newChapterSummary = ref('')
-const originalBodyOverflow = ref('')
 
 const novel = computed(() => !props.isAdmin ? novelStore.currentProject as NovelProject | null : null)
-
 const sectionRef = ref<any>(null)
+
+// ==================== Novel Header Computed ====================
+
+const novelTitle = computed(() => {
+  const raw = overviewMeta.title || '加载中...'
+  return raw.startsWith('《') ? raw.slice(1, -1) : raw
+})
 
 const formattedTitle = computed(() => {
   const title = overviewMeta.title || '加载中...'
   return title.startsWith('《') && title.endsWith('》') ? title : `《${title}》`
 })
 
+const novelGenre = computed(() => sectionData.overview?.genre || '')
+const novelDescription = computed(() => sectionData.overview?.one_sentence_summary || '')
+
+const genreEmoji = computed(() => {
+  const g = novelGenre.value.toLowerCase()
+  if (g.includes('仙侠') || g.includes('武侠')) return '⚔️'
+  if (g.includes('都市')) return '🏙️'
+  if (g.includes('玄幻') || g.includes('奇幻')) return '🌟'
+  if (g.includes('科幻')) return '🚀'
+  if (g.includes('言情') || g.includes('恋爱')) return '❤️'
+  if (g.includes('悬疑') || g.includes('推理')) return '🔍'
+  if (g.includes('历史')) return '📜'
+  return '📚'
+})
+
+const genreAvatarBg = computed(() => {
+  const g = novelGenre.value.toLowerCase()
+  if (g.includes('仙侠') || g.includes('武侠')) return 'rgba(168, 85, 247, 0.2)'
+  if (g.includes('都市')) return 'rgba(99, 102, 241, 0.2)'
+  if (g.includes('玄幻') || g.includes('奇幻')) return 'rgba(255, 229, 0, 0.2)'
+  if (g.includes('科幻')) return 'rgba(0, 180, 216, 0.2)'
+  if (g.includes('言情') || g.includes('恋爱')) return 'rgba(255, 105, 180, 0.2)'
+  return 'rgba(136, 136, 136, 0.15)'
+})
+
+const circumference = 2 * Math.PI * 42
+
+const progressCompleted = computed(() => {
+  if (!sectionData.chapters?.chapters) return 0
+  return sectionData.chapters.chapters.filter((c: any) => c.generation_status === 'successful').length
+})
+
+const progressTotal = computed(() => {
+  return sectionData.chapter_outline?.chapter_outline?.length || progressCompleted.value || 0
+})
+
+const progressPercent = computed(() => {
+  if (progressTotal.value === 0) return 0
+  return Math.round((progressCompleted.value / progressTotal.value) * 100)
+})
+
+// ==================== Content Layout ====================
+
+const contentContainerClass = computed(() => {
+  if (activeSection.value === 'chapters') return 'h-[calc(100vh-200px)] flex flex-col overflow-hidden'
+  return ''
+})
+
 const componentContainerClass = computed(() => {
-  const fillSections: SectionKey[] = ['chapters']
-  return fillSections.includes(activeSection.value)
-    ? 'flex-1 min-h-0 h-full flex flex-col overflow-hidden'
-    : 'overflow-y-auto'
+  if (activeSection.value === 'chapters') return 'flex-1 min-h-0 h-full flex flex-col overflow-hidden'
+  return 'overflow-y-auto'
 })
 
-const contentCardClass = computed(() => {
-  const fillSections: SectionKey[] = ['chapters']
-  return fillSections.includes(activeSection.value)
-    ? 'overflow-hidden'
-    : 'overflow-visible'
-})
+// ==================== Section Loading ====================
 
-// 懒加载完整项目（仅在需要编辑时）
 const ensureProjectLoaded = async () => {
   if (props.isAdmin || !projectId) return
-  if (novel.value) return // 已加载
+  if (novel.value) return
   await novelStore.loadProject(projectId)
-}
-
-const toggleSidebar = () => {
-  isSidebarOpen.value = !isSidebarOpen.value
-}
-
-const handleResize = () => {
-  if (typeof window === 'undefined') return
-  isSidebarOpen.value = window.innerWidth >= 1024
 }
 
 const loadSection = async (section: SectionKey, force = false) => {
   if (!projectId) return
-  
-  // 分析型Section使用独立的API，不需要在这里加载
+
   const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing', 'writer_persona', 'concept_library']
-  if (analysisSections.includes(section)) {
-    return
-  }
-  
-  if (!force && sectionData[section]) {
-    return
-  }
+  if (analysisSections.includes(section)) return
+
+  if (!force && sectionData[section]) return
 
   sectionLoading[section] = true
   sectionError[section] = null
@@ -497,20 +451,11 @@ const reloadSection = (section: SectionKey, force = false) => {
   loadSection(section, force)
 }
 
-const switchSection = (section: SectionKey) => {
-  activeSection.value = section
-  if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-    isSidebarOpen.value = false
-  }
-  loadSection(section)
-  // 章节大纲需要 chapters 数据来判断完成状态
-  if (section === 'chapter_outline') {
-    loadSection('chapters')
-  }
-  // 关系图谱需要角色数据
-  if (section === 'relationships') {
-    loadSection('characters')
-  }
+const switchSection = (section: SectionKey | string) => {
+  activeSection.value = section as SectionKey
+  loadSection(section as SectionKey)
+  if (section === 'chapter_outline') loadSection('chapters')
+  if (section === 'relationships') loadSection('characters')
 }
 
 const goBack = () => router.push(props.isAdmin ? '/admin' : '/workspace')
@@ -518,10 +463,15 @@ const goBack = () => router.push(props.isAdmin ? '/admin' : '/workspace')
 const goToWritingDesk = async () => {
   await ensureProjectLoaded()
   const project = novel.value
-  if (!project) return
+  if (!project) {
+    router.push(`/novel/${projectId}`)
+    return
+  }
   const path = project.title === '未命名灵感' ? `/inspiration?project_id=${project.id}` : `/novel/${project.id}`
   router.push(path)
 }
+
+// ==================== Component Props ====================
 
 const currentComponent = computed(() => sectionComponents[activeSection.value])
 const isSectionLoading = computed(() => sectionLoading[activeSection.value])
@@ -533,7 +483,15 @@ const componentProps = computed(() => {
 
   switch (activeSection.value) {
     case 'overview':
-      return { data: data || null, editable }
+      return {
+        data: data || null,
+        editable,
+        chapters: sectionData.chapters?.chapters || [],
+        characters: sectionData.characters?.characters || [],
+        totalOutlines: sectionData.chapter_outline?.chapter_outline?.length || 0,
+        isLoading: sectionLoading.chapters || sectionLoading.characters,
+        projectId
+      }
     case 'world_setting':
       return { data: data || null, editable }
     case 'characters':
@@ -550,6 +508,8 @@ const componentProps = computed(() => {
       return {}
   }
 })
+
+// ==================== Event Handlers ====================
 
 const handleSectionEdit = (payload: { field: string; title: string; value: any }) => {
   if (props.isAdmin) return
@@ -591,9 +551,7 @@ const handleSave = async (data: { field: string; content: any }) => {
     novelStore.setCurrentProject(updatedProject)
     const sectionToReload = resolveSectionKey(field)
     await loadSection(sectionToReload, true)
-    if (sectionToReload !== 'overview') {
-      await loadSection('overview', true)
-    }
+    if (sectionToReload !== 'overview') await loadSection('overview', true)
     isModalOpen.value = false
   } catch (error) {
     console.error('保存变更失败:', error)
@@ -609,15 +567,12 @@ const handleRegenerate = async (payload: { chapterNumbers?: number[]; totalChapt
   sectionRef.value?.setRegenerating?.(true)
   try {
     const result = await NovelAPI.regenerateOutlines(project.id, payload.chapterNumbers, payload.totalChapters)
-    // 用返回的最新大纲直接更新 sectionData，避免额外请求
     if (sectionData.chapter_outline) {
       sectionData.chapter_outline = { ...sectionData.chapter_outline, chapter_outline: result.chapter_outline }
     } else {
       sectionData.chapter_outline = { chapter_outline: result.chapter_outline }
     }
-    // 标记哪些章节是新生成的
     sectionRef.value?.markRegenerated?.(result.updated_chapters, result.total_target)
-    // 大纲变动后使章节内容缓存失效
     sectionData.chapters = null
   } catch (error) {
     console.error('重新生成大纲失败:', error)
@@ -642,7 +597,6 @@ const handleDeleteOutlines = async (payload: { chapterNumbers: number[] }) => {
     const updatedProject = await NovelAPI.updateBlueprint(project.id, { chapter_outline: remainingOutline })
     novelStore.setCurrentProject(updatedProject)
     await loadSection('chapter_outline', true)
-    // 使章节内容列表缓存失效，切换时会重新加载
     sectionData.chapters = null
   } catch (error) {
     console.error('删除大纲失败:', error)
@@ -660,13 +614,8 @@ const handleBatchGenerate = async (payload: { chapterNumbers: number[] }) => {
 
   sectionRef.value?.setBatchGenerating?.(true)
   try {
-    const result = await NovelAPI.batchGenerateChapters(
-      project.id,
-      payload.chapterNumbers
-    )
-    // 使章节内容缓存失效，切换时重新加载
+    const result = await NovelAPI.batchGenerateChapters(project.id, payload.chapterNumbers)
     sectionData.chapters = null
-
     const msg = `连续生成完成！成功 ${result.completed} 章` +
       (result.failed > 0 ? `，失败 ${result.failed} 章` : '')
     alert(msg)
@@ -761,64 +710,49 @@ const saveNewChapter = async () => {
   }
 }
 
-onMounted(async () => {
-  if (typeof window !== 'undefined') {
-    window.addEventListener('resize', handleResize)
-  }
-  if (typeof document !== 'undefined') {
-    originalBodyOverflow.value = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-  }
+// ==================== Lifecycle ====================
 
-  // 只加载必要的 section 数据，不预加载完整项目
+onMounted(async () => {
   await loadSection('overview', true)
+  loadSection('chapters')
+  loadSection('characters')
+  loadSection('chapter_outline')
   loadSection('world_setting')
   powerSystems.value = await fetchPowerSystems()
 })
 
 onBeforeUnmount(() => {
-  if (typeof window !== 'undefined') {
-    window.removeEventListener('resize', handleResize)
-  }
   if (predictionPollTimer) {
     clearTimeout(predictionPollTimer)
     predictionPollTimer = null
-  }
-  if (typeof document !== 'undefined') {
-    document.body.style.overflow = originalBodyOverflow.value || ''
   }
 })
 </script>
 
 <style scoped>
-/* Material 3 Transition Classes */
-.md-scale-enter-active,
-.md-scale-leave-active {
-  transition: all 250ms cubic-bezier(0.2, 0, 0, 1);
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: #888;
+  transition: color 0.15s;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.nav-link:hover {
+  color: #FFE500;
+}
+.nav-link-active {
+  color: #FFE500 !important;
+  font-weight: 700;
 }
 
-.md-scale-enter-from,
-.md-scale-leave-to {
-  opacity: 0;
-  transform: scale(0.95);
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
-
-/* Smooth scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--md-outline);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--md-on-surface-variant);
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 </style>
