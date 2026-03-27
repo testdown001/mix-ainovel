@@ -655,6 +655,18 @@ watch(
 )
 
 watch(
+  () => props.selectedChapterNumber,
+  async (num) => {
+    if (num === null) return
+    await nextTick()
+    const el = chapterRefs.value[num]
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }
+)
+
+watch(
   () => referenceLibraryVisible.value,
   (visible) => {
     if (!visible) {

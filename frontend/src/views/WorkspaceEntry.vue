@@ -243,7 +243,10 @@
                   </svg>
                 </div>
                 <div>
-                  <div class="font-medium text-white text-sm">{{ novel.title }}</div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-white text-sm">{{ novel.title }}</span>
+                    <span v-if="novel.is_completed" style="background: rgba(46, 213, 115, 0.15); color: #2ED573; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px;">完结</span>
+                  </div>
                   <div class="text-xs mt-0.5" style="color:#888888;">
                     {{ novel.completed_chapters }} 章 · {{ novel.genre || '未分类' }}
                   </div>

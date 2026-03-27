@@ -190,6 +190,7 @@ async def _ensure_schema_updates() -> None:
                 {
                     "reference_novel_ids": "reference_novel_ids JSON",
                     "fusion_dna": "fusion_dna JSON",
+                    "is_completed": "is_completed TINYINT(1) NOT NULL DEFAULT 0",
                 },
             )
 

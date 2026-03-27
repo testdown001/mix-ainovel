@@ -25,7 +25,10 @@
             <span v-if="project.genre" style="background: #FFE500; color: #000; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">
               {{ project.genre }}
             </span>
-            <span style="color: #888; font-size: 12px;">{{ getStatusText }}</span>
+            <span v-if="project.is_completed" style="background: rgba(46, 213, 115, 0.15); color: #2ED573; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;">
+              已完结
+            </span>
+            <span v-else style="color: #888; font-size: 12px;">{{ getStatusText }}</span>
           </div>
           <p style="color: #555; font-size: 11px; margin-top: 4px;">
             最后编辑: {{ formatDateTime(project.last_edited) }}
@@ -58,6 +61,23 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           {{ chapterCount }} 章节
+        </span>
+        <span
+          class="flex items-center gap-1"
+          :style="{
+            background: project.is_completed ? 'rgba(46, 213, 115, 0.15)' : '#1C1C1C',
+            border: project.is_completed ? '1px solid rgba(46, 213, 115, 0.3)' : '1px solid #2A2A2A',
+            color: project.is_completed ? '#2ED573' : '#888',
+            fontSize: '12px', padding: '3px 10px', borderRadius: '999px'
+          }"
+        >
+          <svg v-if="project.is_completed" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <svg v-else class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+          {{ project.is_completed ? '已完结' : '连载中' }}
         </span>
       </div>
     </div>

@@ -1,5 +1,6 @@
 <!-- AIMETA P=写作台_章节编辑主页面|R=写作界面_章节管理|NR=不含详情展示|E=route:/novel/:id#component:WritingDesk|X=ui|A=写作台|D=vue|S=dom,net|RD=./README.ai -->
 <template>
+  <n-config-provider :theme="darkTheme" :theme-overrides="naiveThemeOverrides">
   <div class="m3-shell h-screen flex flex-col overflow-hidden">
     <WDHeader
       :project="project"
@@ -311,12 +312,13 @@
       />
     </n-modal>
   </div>
+  </n-config-provider>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { NModal, NButton } from 'naive-ui'
+import { NModal, NButton, NConfigProvider, darkTheme, type GlobalThemeOverrides } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { NovelAPI } from '@/api/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, AdvancedGenerateResponse, AdvancedGenerateFlowConfig } from '@/api/novel'
@@ -366,6 +368,41 @@ const VALID_PRESETS: WritingPreset[] = ['basic', 'enhanced', 'ultimate', 'platin
 
 function isWritingPreset(value: string | null): value is WritingPreset {
   return value !== null && VALID_PRESETS.includes(value as WritingPreset)
+}
+
+const naiveThemeOverrides: GlobalThemeOverrides = {
+  common: {
+    primaryColor: '#FFE500',
+    primaryColorHover: '#FFF176',
+    primaryColorPressed: '#F9C800',
+    primaryColorSuppl: '#FFE500',
+    bodyColor: '#0A0A0A',
+    baseColor: '#0A0A0A',
+    cardColor: '#141414',
+    modalColor: '#141414',
+    popoverColor: '#1C1C1C',
+    tableColor: '#141414',
+    tableColorHover: '#1C1C1C',
+    inputColor: '#1C1C1C',
+    inputColorDisabled: '#111',
+    borderColor: '#2A2A2A',
+    dividerColor: '#2A2A2A',
+    hoverColor: '#1C1C1C',
+    textColorBase: '#FFFFFF',
+    textColor1: '#FFFFFF',
+    textColor2: '#CCCCCC',
+    textColor3: '#888888',
+    placeholderColor: '#555555',
+    tagColor: '#1C1C1C',
+    scrollbarColor: '#2A2A2A',
+    scrollbarColorHover: '#444444'
+  },
+  Button: {
+    textColorPrimary: '#000000',
+    textColorHoverPrimary: '#000000',
+    textColorPressedPrimary: '#000000',
+    textColorFocusPrimary: '#000000'
+  }
 }
 
 const props = defineProps<Props>()
@@ -778,9 +815,26 @@ const closeSidebar = () => {
 const loadProject = async () => {
   try {
     await novelStore.loadProject(props.id)
+    autoSelectNextChapter()
   } catch (error) {
     console.error('加载项目失败:', error)
   }
+}
+
+const autoSelectNextChapter = () => {
+  if (selectedChapterNumber.value !== null) return
+  const p = project.value
+  if (!p?.blueprint?.chapter_outline?.length) return
+
+  const outlines = [...p.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
+  const chaptersMap = new Map(p.chapters.map(ch => [ch.chapter_number, ch]))
+
+  const next = outlines.find(o => {
+    const ch = chaptersMap.get(o.chapter_number)
+    return !ch || ch.generation_status !== 'successful'
+  })
+
+  selectChapter(next ? next.chapter_number : outlines[outlines.length - 1].chapter_number)
 }
 
 const fetchChapterStatus = async () => {
@@ -1607,41 +1661,47 @@ onUnmounted(() => {
 
 :global(body.m3-novel) {
   --md-font-family: 'Manrope', 'Noto Sans SC', 'Noto Sans', 'PingFang SC', sans-serif;
-  --md-primary: #2563eb;
-  --md-primary-light: #4f7bf2;
-  --md-primary-dark: #1d4ed8;
-  --md-on-primary: #ffffff;
-  --md-primary-container: #dbeafe;
-  --md-on-primary-container: #0f172a;
-  --md-secondary: #0f766e;
-  --md-secondary-light: #2dd4bf;
-  --md-secondary-dark: #0f766e;
-  --md-on-secondary: #ffffff;
-  --md-secondary-container: #ccfbf1;
-  --md-on-secondary-container: #0f172a;
-  --md-surface: #ffffff;
-  --md-surface-dim: #f1f5f9;
-  --md-surface-container-lowest: #ffffff;
-  --md-surface-container-low: #f8fafc;
-  --md-surface-container: #f1f5f9;
-  --md-surface-container-high: #e2e8f0;
-  --md-surface-container-highest: #dbe3ef;
-  --md-on-surface: #0f172a;
-  --md-on-surface-variant: #475569;
-  --md-outline: #d7dde5;
-  --md-outline-variant: #e2e8f0;
-  --md-error: #dc2626;
-  --md-error-container: #fee2e2;
-  --md-on-error: #ffffff;
-  --md-on-error-container: #7f1d1d;
+  --md-primary: #FFE500;
+  --md-primary-light: #FFF062;
+  --md-primary-dark: #E6CE00;
+  --md-on-primary: #000000;
+  --md-primary-container: #2A2600;
+  --md-on-primary-container: #FFE500;
+  --md-secondary: #888888;
+  --md-secondary-light: #AAAAAA;
+  --md-secondary-dark: #666666;
+  --md-on-secondary: #FFFFFF;
+  --md-secondary-container: #1C1C1C;
+  --md-on-secondary-container: #CCCCCC;
+  --md-surface: #141414;
+  --md-surface-dim: #0A0A0A;
+  --md-surface-container-lowest: #0A0A0A;
+  --md-surface-container-low: #141414;
+  --md-surface-container: #1C1C1C;
+  --md-surface-container-high: #242424;
+  --md-surface-container-highest: #2A2A2A;
+  --md-on-surface: #FFFFFF;
+  --md-on-surface-variant: #888888;
+  --md-outline: #2A2A2A;
+  --md-outline-variant: #1C1C1C;
+  --md-error: #FF4757;
+  --md-error-container: #3D0A0A;
+  --md-on-error: #FFFFFF;
+  --md-on-error-container: #FF9EB8;
+  --md-success: #2ED573;
+  --md-success-container: #0A2A1A;
+  --md-on-success: #000000;
+  --md-on-success-container: #2ED573;
+  --md-warning-container: #2A2600;
+  --md-on-warning-container: #FFE500;
+  --md-background: #0A0A0A;
+  --md-on-background: #FFFFFF;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
 }
 
 .m3-shell {
-  background: radial-gradient(1200px 600px at 15% -20%, rgba(37, 99, 235, 0.16), transparent 60%),
-    radial-gradient(900px 420px at 85% 0%, rgba(45, 212, 191, 0.12), transparent 55%),
-    linear-gradient(140deg, #f8fafc 0%, #eef2ff 45%, #ecfeff 100%);
+  background: #0A0A0A;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
   animation: m3-fade 0.6s ease-out both;
@@ -1681,17 +1741,17 @@ onUnmounted(() => {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--md-surface-container);
+  background: transparent;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--md-outline);
+  background: #2A2A2A;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--md-on-surface-variant);
+  background: #555;
 }
 
 /* 动画效果 */

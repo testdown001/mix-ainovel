@@ -1,6 +1,38 @@
 <!-- AIMETA P=概览区_仪表盘式概览|R=统计卡片_最近章节_角色_AI分析|NR=不含编辑功能|E=component:OverviewSection|X=ui|A=概览组件|D=vue|S=dom|RD=./README.ai -->
 <template>
   <div class="space-y-6">
+    <!-- Completion Status Toggle -->
+    <div v-if="editable" class="flex items-center justify-between rounded-2xl border border-[#2A2A2A] bg-[#141414] px-6 py-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center"
+          :style="{ background: localCompleted ? 'rgba(46, 213, 115, 0.15)' : 'rgba(255, 229, 0, 0.15)' }">
+          <svg v-if="localCompleted" class="w-5 h-5" style="color: #2ED573;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <svg v-else class="w-5 h-5" style="color: #FFE500;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+        </div>
+        <div>
+          <div class="text-sm font-semibold text-white">小说状态</div>
+          <div class="text-xs" :style="{ color: localCompleted ? '#2ED573' : '#888' }">
+            {{ localCompleted ? '已完结' : '连载中' }}
+          </div>
+        </div>
+      </div>
+      <button
+        @click="toggleCompleted"
+        :disabled="completedToggling"
+        class="relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 focus:outline-none"
+        :style="{ background: localCompleted ? '#2ED573' : '#2A2A2A', cursor: completedToggling ? 'not-allowed' : 'pointer', border: 'none' }"
+      >
+        <span
+          class="inline-block h-5 w-5 rounded-full transition-transform duration-200"
+          :style="{ background: '#fff', transform: localCompleted ? 'translateX(22px)' : 'translateX(4px)' }"
+        />
+      </button>
+    </div>
+
     <!-- Stats + AI Analysis: Two Column Layout -->
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
       <!-- Left Column: Stats + Recent Chapters + Characters -->
@@ -210,7 +242,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 interface OverviewData {
   one_sentence_summary?: string | null
@@ -254,12 +286,31 @@ const props = defineProps<{
   totalOutlines?: number
   editable?: boolean
   isLoading?: boolean
+  projectId?: string
+  isCompleted?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'edit', payload: { field: string; title: string; value: any }): void
   (e: 'switch-section', section: string): void
+  (e: 'toggle-completed', isCompleted: boolean): void
 }>()
+
+const completedToggling = ref(false)
+const localCompleted = ref(props.isCompleted ?? false)
+
+watch(() => props.isCompleted, (val) => {
+  localCompleted.value = val ?? false
+})
+
+const toggleCompleted = async () => {
+  if (completedToggling.value) return
+  completedToggling.value = true
+  const newVal = !localCompleted.value
+  localCompleted.value = newVal
+  emit('toggle-completed', newVal)
+  completedToggling.value = false
+}
 
 const chapterColors = [
   { bg: 'rgba(168, 85, 247, 0.2)', text: '#A855F7' },

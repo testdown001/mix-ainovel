@@ -267,6 +267,20 @@ async def get_novel(
     return await novel_service.get_project_schema(project_id, current_user.id)
 
 
+@router.patch("/{project_id}/completed")
+async def set_novel_completed(
+    project_id: str,
+    is_completed: bool = Body(..., embed=True),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """设置小说完结状态。"""
+    novel_service = NovelService(session)
+    await novel_service.set_completed(project_id, current_user.id, is_completed)
+    logger.info("用户 %s 设置项目 %s 完结状态为 %s", current_user.id, project_id, is_completed)
+    return {"status": "success", "is_completed": is_completed}
+
+
 @router.get("/{project_id}/sections/{section}", response_model=NovelSectionResponse)
 async def get_novel_section(
     project_id: str,

@@ -78,6 +78,7 @@ export interface NovelProject {
   id: string
   title: string
   initial_prompt: string
+  is_completed?: boolean
   reference_novel_ids?: number[]
   blueprint?: Blueprint
   chapters: Chapter[]
@@ -91,6 +92,7 @@ export interface NovelProjectSummary {
   last_edited: string
   completed_chapters: number
   total_chapters: number
+  is_completed?: boolean
 }
 
 export interface Blueprint {
@@ -857,6 +859,13 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/blueprint`, {
       method: 'PATCH',
       body: JSON.stringify(data)
+    })
+  }
+
+  static async setCompleted(projectId: string, isCompleted: boolean): Promise<{ status: string; is_completed: boolean }> {
+    return request(`${NOVELS_BASE}/${projectId}/completed`, {
+      method: 'PATCH',
+      body: JSON.stringify({ is_completed: isCompleted })
     })
   }
 

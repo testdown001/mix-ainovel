@@ -139,12 +139,11 @@ class NovelProject(BaseModel):
     user_id: int
     title: str
     initial_prompt: str
+    is_completed: bool = False
     conversation_history: List[Dict[str, Any]] = []
     reference_novel_ids: List[int] = Field(default_factory=list)
     blueprint: Optional[Blueprint] = None
     chapters: List[Chapter] = []
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 class NovelProjectSummary(BaseModel):
@@ -154,6 +153,7 @@ class NovelProjectSummary(BaseModel):
     last_edited: str
     completed_chapters: int
     total_chapters: int
+    is_completed: bool = False
 
 
 class BlueprintGenerationResponse(BaseModel):

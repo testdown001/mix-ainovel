@@ -132,7 +132,7 @@ function selectPreset(name: string) {
 .level-tabs {
   display: flex;
   gap: 8px;
-  border-bottom: 1px solid var(--md-outline-variant, #e0e0e0);
+  border-bottom: 1px solid var(--md-outline-variant, #2A2A2A);
   padding-bottom: 8px;
 }
 
@@ -146,12 +146,13 @@ function selectPreset(name: string) {
   cursor: pointer;
   border-radius: 20px;
   transition: all 0.2s;
-  color: var(--md-on-surface-variant, #666);
+  color: var(--md-on-surface-variant, #888);
+  font-size: 14px;
 }
 
 .level-tab.active {
-  background: var(--md-primary-container, #e3f2fd);
-  color: var(--md-primary, #1976d2);
+  background: var(--md-primary-container, #2A2600);
+  color: var(--md-on-primary-container, #FFE500);
 }
 
 .level-icon {
@@ -160,27 +161,27 @@ function selectPreset(name: string) {
 
 .preset-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
 
 .preset-card {
-  padding: 12px;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  padding: 16px;
+  border: 1px solid var(--md-outline-variant, #2A2A2A);
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
-  background: var(--md-surface, #fff);
+  background: var(--md-surface-container-low, #141414);
 }
 
 .preset-card:hover {
-  border-color: var(--md-primary, #1976d2);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  border-color: var(--md-primary, #FFE500);
+  box-shadow: 0 2px 12px rgba(255, 229, 0, 0.08);
 }
 
 .preset-card.selected {
-  border-color: var(--md-primary, #1976d2);
-  background: var(--md-primary-container, #e3f2fd);
+  border-color: var(--md-primary, #FFE500);
+  background: var(--md-primary-container, #2A2600);
 }
 
 .preset-header {
@@ -193,19 +194,20 @@ function selectPreset(name: string) {
 .preset-name {
   font-weight: 600;
   font-size: 14px;
+  color: var(--md-on-surface, #FFFFFF);
 }
 
 .preset-time {
   font-size: 12px;
-  color: var(--md-on-surface-variant, #666);
-  background: var(--md-surface-container, #f5f5f5);
+  color: var(--md-on-surface-variant, #888);
+  background: var(--md-surface-container-high, #242424);
   padding: 2px 8px;
   border-radius: 10px;
 }
 
 .preset-description {
   font-size: 12px;
-  color: var(--md-on-surface-variant, #666);
+  color: var(--md-on-surface-variant, #888);
   margin-bottom: 8px;
   line-height: 1.4;
 }
@@ -220,14 +222,14 @@ function selectPreset(name: string) {
 .feature-tag {
   font-size: 10px;
   padding: 2px 6px;
-  background: var(--md-secondary-container, #f3e5f5);
-  color: var(--md-secondary, #7b1fa2);
+  background: var(--md-secondary-container, #1C1C1C);
+  color: var(--md-on-secondary-container, #CCCCCC);
   border-radius: 4px;
 }
 
 .preset-suitable {
   font-size: 11px;
-  color: var(--md-on-surface-variant, #666);
+  color: var(--md-on-surface-variant, #888);
 }
 
 .suitable-label {
@@ -236,7 +238,7 @@ function selectPreset(name: string) {
 
 .scene-tag {
   margin-right: 4px;
-  color: var(--md-tertiary, #00897b);
+  color: var(--md-primary, #FFE500);
 }
 
 .selected-preset {
@@ -244,17 +246,17 @@ function selectPreset(name: string) {
   align-items: center;
   gap: 8px;
   padding: 12px;
-  background: var(--md-surface-container-low, #fafafa);
+  background: var(--md-surface-container, #1C1C1C);
   border-radius: 8px;
   font-size: 14px;
 }
 
 .selected-label {
-  color: var(--md-on-surface-variant, #666);
+  color: var(--md-on-surface-variant, #888);
 }
 
 .selected-name {
   font-weight: 600;
-  color: var(--md-primary, #1976d2);
+  color: var(--md-primary, #FFE500);
 }
 </style>

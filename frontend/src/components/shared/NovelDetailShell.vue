@@ -74,6 +74,9 @@
               <span v-if="novelGenre" class="px-2.5 py-0.5 rounded-full text-xs font-medium border" style="color: #FFE500; border-color: #FFE500;">
                 {{ novelGenre }}
               </span>
+              <span v-if="sectionData.overview?.is_completed || novel?.is_completed" class="px-2.5 py-0.5 rounded-full text-xs font-medium" style="background: rgba(46, 213, 115, 0.15); color: #2ED573;">
+                已完结
+              </span>
               <span class="text-sm" style="color: #888;">
                 by {{ authStore.user?.username || '—' }}
               </span>
@@ -176,6 +179,7 @@
           @batch-generate="handleBatchGenerate"
           @batch-predict="handleBatchPredict"
           @switch-section="switchSection"
+          @toggle-completed="handleToggleCompleted"
         />
       </div>
     </div>
@@ -490,7 +494,8 @@ const componentProps = computed(() => {
         characters: sectionData.characters?.characters || [],
         totalOutlines: sectionData.chapter_outline?.chapter_outline?.length || 0,
         isLoading: sectionLoading.chapters || sectionLoading.characters,
-        projectId
+        projectId,
+        isCompleted: sectionData.overview?.is_completed ?? novel.value?.is_completed ?? false
       }
     case 'world_setting':
       return { data: data || null, editable }
@@ -555,6 +560,21 @@ const handleSave = async (data: { field: string; content: any }) => {
     isModalOpen.value = false
   } catch (error) {
     console.error('保存变更失败:', error)
+  }
+}
+
+const handleToggleCompleted = async (isCompleted: boolean) => {
+  if (props.isAdmin) return
+  try {
+    await NovelAPI.setCompleted(projectId, isCompleted)
+    if (sectionData.overview) {
+      sectionData.overview = { ...sectionData.overview, is_completed: isCompleted }
+    }
+    if (novel.value) {
+      novel.value.is_completed = isCompleted
+    }
+  } catch (error) {
+    console.error('设置完结状态失败:', error)
   }
 }
 

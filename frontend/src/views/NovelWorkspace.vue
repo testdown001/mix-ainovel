@@ -287,11 +287,11 @@ const filteredProjects = computed(() => {
     list = list.filter(p => p.title.toLowerCase().includes(q))
   }
   if (activeFilter.value === 'completed') {
-    list = list.filter(p => p.total_chapters > 0 && p.completed_chapters >= p.total_chapters)
+    list = list.filter(p => p.is_completed)
   } else if (activeFilter.value === 'ongoing') {
-    list = list.filter(p => p.completed_chapters > 0 && p.completed_chapters < p.total_chapters)
+    list = list.filter(p => !p.is_completed && p.completed_chapters > 0)
   } else if (activeFilter.value === 'draft') {
-    list = list.filter(p => p.completed_chapters === 0)
+    list = list.filter(p => !p.is_completed && p.completed_chapters === 0)
   }
   return list
 })

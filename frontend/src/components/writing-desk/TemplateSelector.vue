@@ -297,29 +297,27 @@ async function handleInferParams() {
   min-height: min(70vh, 600px);
 }
 
-/* 顶部标题区 */
 .selector-header {
   padding: 20px 0 16px;
   margin-bottom: 4px;
-  border-bottom: 1px solid var(--md-outline-variant, #e8e8e8);
+  border-bottom: 1px solid #2A2A2A;
 }
 
 .selector-title {
   margin: 0 0 4px 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--md-on-surface, #1a1a1a);
+  color: #FFFFFF;
   letter-spacing: 0.02em;
 }
 
 .selector-subtitle {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--md-on-surface-variant, #666);
+  color: #888;
   line-height: 1.4;
 }
 
-/* 分类标签 */
 .category-tabs {
   display: flex;
   gap: 8px;
@@ -331,9 +329,10 @@ async function handleInferParams() {
 
 .category-tab {
   padding: 8px 14px;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  border: 1px solid #2A2A2A;
   border-radius: 20px;
-  background: var(--md-surface-container-lowest, #fafafa);
+  background: #141414;
+  color: #888;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
@@ -342,16 +341,17 @@ async function handleInferParams() {
 }
 
 .category-tab:hover {
-  border-color: var(--md-primary, #1976d2);
+  border-color: #FFE500;
+  color: #FFE500;
 }
 
 .category-tab.active {
-  background: var(--md-primary, #1976d2);
-  color: white;
-  border-color: var(--md-primary, #1976d2);
+  background: #FFE500;
+  color: #000;
+  border-color: #FFE500;
+  font-weight: 600;
 }
 
-/* 搜索框 */
 .search-box {
   margin-bottom: 20px;
 }
@@ -359,41 +359,46 @@ async function handleInferParams() {
 .search-input {
   width: 100%;
   padding: 10px 16px;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  border: 1px solid #2A2A2A;
   border-radius: 8px;
   font-size: 14px;
+  background: #1C1C1C;
+  color: #FFFFFF;
+}
+
+.search-input::placeholder {
+  color: #555;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--md-primary, #1976d2);
+  border-color: #FFE500;
 }
 
-/* 模板网格 */
 .template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
   margin-bottom: 20px;
 }
 
 .template-card {
   padding: 16px;
-  background: white;
-  border: 2px solid var(--md-outline-variant, #e0e0e0);
+  background: #141414;
+  border: 1px solid #2A2A2A;
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .template-card:hover {
-  border-color: var(--md-primary, #1976d2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #FFE500;
+  box-shadow: 0 2px 12px rgba(255, 229, 0, 0.06);
 }
 
 .template-card.selected {
-  border-color: var(--md-primary, #1976d2);
-  background: var(--md-primary-container, #e3f2fd);
+  border-color: #FFE500;
+  background: #2A2600;
 }
 
 .template-icon {
@@ -404,12 +409,13 @@ async function handleInferParams() {
 .template-name {
   font-size: 15px;
   font-weight: 600;
+  color: #FFFFFF;
   margin-bottom: 4px;
 }
 
 .template-desc {
   font-size: 12px;
-  color: var(--md-on-surface-variant, #666);
+  color: #888;
   margin-bottom: 8px;
   line-height: 1.4;
 }
@@ -421,23 +427,24 @@ async function handleInferParams() {
 }
 
 .category-tag {
-  background: var(--md-surface-container-high, #f5f5f5);
+  background: #1C1C1C;
+  color: #CCCCCC;
   padding: 2px 8px;
   border-radius: 4px;
+  border: 1px solid #2A2A2A;
 }
 
 .use-count {
-  color: var(--md-on-surface-variant, #666);
+  color: #666;
 }
 
 .empty-state {
   grid-column: 1 / -1;
   text-align: center;
   padding: 40px;
-  color: var(--md-on-surface-variant, #666);
+  color: #666;
 }
 
-/* 参数面板：Teleport 到 body 后固定定位，避免被模态 overflow 裁切 */
 .params-panel.params-panel-fixed {
   position: fixed;
   top: 50%;
@@ -446,9 +453,10 @@ async function handleInferParams() {
   width: 90vw;
   max-width: 480px;
   max-height: 85vh;
-  background: white;
+  background: #141414;
+  border: 1px solid #2A2A2A;
   border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   z-index: 2001;
   display: flex;
@@ -460,12 +468,13 @@ async function handleInferParams() {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--md-outline-variant, #e0e0e0);
+  border-bottom: 1px solid #2A2A2A;
 }
 
 .params-header h4 {
   margin: 0;
   font-size: 16px;
+  color: #FFFFFF;
 }
 
 .btn-close {
@@ -476,10 +485,12 @@ async function handleInferParams() {
   font-size: 24px;
   cursor: pointer;
   border-radius: 50%;
+  color: #888;
 }
 
 .btn-close:hover {
-  background: var(--md-surface-container-high, #f5f5f5);
+  background: #1C1C1C;
+  color: #FFFFFF;
 }
 
 .params-form {
@@ -498,10 +509,11 @@ async function handleInferParams() {
   font-size: 13px;
   font-weight: 500;
   margin-bottom: 6px;
+  color: #CCCCCC;
 }
 
 .required {
-  color: #d32f2f;
+  color: #FF4757;
 }
 
 .param-input,
@@ -509,25 +521,37 @@ async function handleInferParams() {
 .param-select {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  border: 1px solid #2A2A2A;
   border-radius: 8px;
   font-size: 14px;
+  background: #1C1C1C;
+  color: #FFFFFF;
+}
+
+.param-input::placeholder,
+.param-textarea::placeholder {
+  color: #555;
 }
 
 .param-input:focus,
 .param-textarea:focus,
 .param-select:focus {
   outline: none;
-  border-color: var(--md-primary, #1976d2);
+  border-color: #FFE500;
 }
 
 .param-textarea {
   resize: vertical;
 }
 
+.param-select option {
+  background: #1C1C1C;
+  color: #FFFFFF;
+}
+
 .param-hint {
   font-size: 11px;
-  color: var(--md-on-surface-variant, #666);
+  color: #666;
   margin-top: 4px;
 }
 
@@ -535,7 +559,7 @@ async function handleInferParams() {
   display: flex;
   gap: 12px;
   padding: 16px 20px;
-  border-top: 1px solid var(--md-outline-variant, #e0e0e0);
+  border-top: 1px solid #2A2A2A;
 }
 
 .btn-cancel,
@@ -548,23 +572,30 @@ async function handleInferParams() {
 }
 
 .btn-cancel {
-  background: white;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  background: #1C1C1C;
+  border: 1px solid #2A2A2A;
+  color: #888;
+}
+
+.btn-cancel:hover {
+  border-color: #444;
+  color: #FFFFFF;
 }
 
 .btn-apply {
-  background: var(--md-primary, #1976d2);
-  color: white;
+  background: #FFE500;
+  color: #000;
   border: none;
+  font-weight: 600;
 }
 
 .btn-apply:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .btn-apply:hover:not(:disabled) {
-  opacity: 0.9;
+  background: #FFF062;
 }
 
 .btn-infer {
@@ -573,17 +604,17 @@ async function handleInferParams() {
   border-radius: 8px;
   font-size: 14px;
   cursor: pointer;
-  background: var(--md-tertiary-container, #e8def8);
-  color: var(--md-on-tertiary-container, #4a148c);
-  border: none;
+  background: #2A2600;
+  color: #FFE500;
+  border: 1px solid rgba(255, 229, 0, 0.2);
 }
 
 .btn-infer:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .btn-infer:hover:not(:disabled) {
-  opacity: 0.85;
+  background: #3A3400;
 }
 </style>

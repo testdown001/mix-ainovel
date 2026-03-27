@@ -684,14 +684,15 @@ const currentComponentProps = computed(() => {
 }
 
 .modal-content {
-  background: white;
+  background: #0A0A0A;
+  border: 1px solid #2A2A2A;
   border-radius: 12px;
   width: 100%;
   max-width: 900px;
   max-height: 90vh;
   overflow-x: hidden;
   overflow-y: auto;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   margin: auto;
   flex-shrink: 0;
 }

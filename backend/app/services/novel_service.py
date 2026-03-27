@@ -231,6 +231,12 @@ class NovelService:
         project = await self.ensure_project_owner(project_id, user_id)
         return await self._serialize_project(project)
 
+    async def set_completed(self, project_id: str, user_id: int, is_completed: bool) -> None:
+        project = await self.ensure_project_owner(project_id, user_id)
+        project.is_completed = is_completed
+        await self.session.commit()
+        await self._touch_project(project_id)
+
     async def get_section_data(
         self,
         project_id: str,
@@ -267,6 +273,7 @@ class NovelService:
                     last_edited=project.updated_at.isoformat() if project.updated_at else "未知",
                     completed_chapters=completed,
                     total_chapters=total,
+                    is_completed=bool(project.is_completed),
                 )
             )
         return summaries
@@ -1372,6 +1379,7 @@ class NovelService:
             user_id=project.user_id,
             title=project.title,
             initial_prompt=project.initial_prompt or "",
+            is_completed=bool(project.is_completed),
             conversation_history=conversations,
             blueprint=blueprint_schema,
             chapters=chapters_schema,
@@ -1495,6 +1503,7 @@ class NovelService:
                 "title": project.title,
                 "initial_prompt": project.initial_prompt or "",
                 "status": project.status,
+                "is_completed": bool(project.is_completed),
                 "one_sentence_summary": blueprint.one_sentence_summary,
                 "target_audience": blueprint.target_audience,
                 "genre": blueprint.genre,
