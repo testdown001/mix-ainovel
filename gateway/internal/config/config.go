@@ -12,11 +12,23 @@ type Config struct {
 	Backend        BackendConfig        `mapstructure:"backend"`
 	JWT            JWTConfig            `mapstructure:"jwt"`
 	Redis          RedisConfig          `mapstructure:"redis"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	Payment        PaymentGatewayConfig `mapstructure:"payment"`
 	RateLimit      RateLimitConfig      `mapstructure:"rate_limit"`
 	WebSocket      WebSocketConfig      `mapstructure:"websocket"`
 	TaskDispatcher TaskDispatcherConfig `mapstructure:"task_dispatcher"`
 	Log            LogConfig            `mapstructure:"log"`
 	Metrics        MetricsConfig        `mapstructure:"metrics"`
+}
+
+type PaymentGatewayConfig struct {
+	Enabled             bool   `mapstructure:"enabled"`
+	StripeSecretKey     string `mapstructure:"stripe_secret_key"`
+	StripeWebhookSecret string `mapstructure:"stripe_webhook_secret"`
+	SuccessURL          string `mapstructure:"success_url"`
+	CancelURL           string `mapstructure:"cancel_url"`
+	WebhookWorkers      int    `mapstructure:"webhook_workers"`
+	WebhookQueueSize    int    `mapstructure:"webhook_queue_size"`
 }
 
 type ServerConfig struct {
@@ -39,10 +51,39 @@ type JWTConfig struct {
 }
 
 type RedisConfig struct {
-	Addr     string `mapstructure:"addr"`
+	Mode          string   `mapstructure:"mode"` // standalone | sentinel | cluster
+	Addr          string   `mapstructure:"addr"`
+	Addrs         []string `mapstructure:"addrs"`
+	Password      string   `mapstructure:"password"`
+	DB            int      `mapstructure:"db"`
+	PoolSize      int      `mapstructure:"pool_size"`
+	MinIdle       int      `mapstructure:"min_idle"`
+	MasterName    string   `mapstructure:"master_name"`
+	SentinelAddrs []string `mapstructure:"sentinel_addrs"`
+}
+
+type DatabaseConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	User     string `mapstructure:"user"`
 	Password string `mapstructure:"password"`
-	DB       int    `mapstructure:"db"`
-	PoolSize int    `mapstructure:"pool_size"`
+	Name     string `mapstructure:"name"`
+
+	ReadHosts []string `mapstructure:"read_hosts"`
+
+	WriterMaxOpen     int           `mapstructure:"writer_max_open"`
+	WriterMaxIdle     int           `mapstructure:"writer_max_idle"`
+	WriterMaxLifetime time.Duration `mapstructure:"writer_max_lifetime"`
+	WriterMaxIdleTime time.Duration `mapstructure:"writer_max_idle_time"`
+
+	ReaderMaxOpen     int           `mapstructure:"reader_max_open"`
+	ReaderMaxIdle     int           `mapstructure:"reader_max_idle"`
+	ReaderMaxLifetime time.Duration `mapstructure:"reader_max_lifetime"`
+	ReaderMaxIdleTime time.Duration `mapstructure:"reader_max_idle_time"`
+
+	SlowThreshold time.Duration `mapstructure:"slow_threshold"`
+	LogLevel      string        `mapstructure:"log_level"`
 }
 
 type RateLimitConfig struct {
@@ -129,9 +170,34 @@ func setDefaults() {
 	viper.SetDefault("backend.fastapi_url", "http://localhost:8000")
 	viper.SetDefault("backend.timeout", "120s")
 
+	viper.SetDefault("redis.mode", "standalone")
 	viper.SetDefault("redis.addr", "localhost:6379")
 	viper.SetDefault("redis.db", 0)
-	viper.SetDefault("redis.pool_size", 50)
+	viper.SetDefault("redis.pool_size", 100)
+	viper.SetDefault("redis.min_idle", 20)
+
+	viper.SetDefault("database.enabled", false)
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", 3306)
+	viper.SetDefault("database.user", "root")
+	viper.SetDefault("database.password", "")
+	viper.SetDefault("database.name", "arboris")
+	viper.SetDefault("database.writer_max_open", 50)
+	viper.SetDefault("database.writer_max_idle", 10)
+	viper.SetDefault("database.writer_max_lifetime", "5m")
+	viper.SetDefault("database.writer_max_idle_time", "3m")
+	viper.SetDefault("database.reader_max_open", 100)
+	viper.SetDefault("database.reader_max_idle", 20)
+	viper.SetDefault("database.reader_max_lifetime", "5m")
+	viper.SetDefault("database.reader_max_idle_time", "3m")
+	viper.SetDefault("database.slow_threshold", "200ms")
+	viper.SetDefault("database.log_level", "warn")
+
+	viper.SetDefault("payment.enabled", false)
+	viper.SetDefault("payment.success_url", "http://localhost:5173/settings?tab=subscription&status=success")
+	viper.SetDefault("payment.cancel_url", "http://localhost:5173/settings?tab=subscription&status=cancel")
+	viper.SetDefault("payment.webhook_workers", 4)
+	viper.SetDefault("payment.webhook_queue_size", 100)
 
 	viper.SetDefault("log.level", "info")
 	viper.SetDefault("log.format", "json")

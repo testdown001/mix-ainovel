@@ -162,9 +162,9 @@
       </div>
     </div>
 
-    <!-- Upgrade coming soon dialog -->
+    <!-- Checkout redirect dialog -->
     <div v-if="showUpgradeDialog" class="fixed inset-0 z-50 flex items-center justify-center"
-      style="background:rgba(0,0,0,0.7);" @click.self="showUpgradeDialog = false">
+      style="background:rgba(0,0,0,0.7);" @click.self="closeDialog">
       <div class="rounded-2xl border p-8 max-w-sm w-full mx-4 text-center"
         style="background:#141414; border-color:#2A2A2A;">
         <div class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style="background:#FFE50015;">
@@ -172,15 +172,53 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
           </svg>
         </div>
-        <h3 class="text-lg font-bold text-white mb-2">付费功能即将上线</h3>
-        <p class="text-sm mb-6" style="color:#888888;">
-          我们正在完善订阅系统，敬请期待。<br>
-          现在注册即可享受创作者版 <strong class="text-white">3天完整试用</strong>。
-        </p>
-        <button @click="showUpgradeDialog = false"
-          class="w-full py-2.5 rounded-lg font-semibold text-sm"
-          style="background:#FFE500;color:#000;">
-          知道了
+        <template v-if="checkoutLoading">
+          <h3 class="text-lg font-bold text-white mb-2">正在创建订单...</h3>
+          <div class="flex justify-center my-4">
+            <div class="w-6 h-6 border-2 border-t-transparent rounded-full animate-spin" style="border-color:#FFE500; border-top-color:transparent;"></div>
+          </div>
+        </template>
+        <template v-else-if="checkoutError">
+          <h3 class="text-lg font-bold text-white mb-2">创建订单失败</h3>
+          <p class="text-sm mb-6" style="color:#FF6B6B;">{{ checkoutError }}</p>
+          <button @click="closeDialog"
+            class="w-full py-2.5 rounded-lg font-semibold text-sm"
+            style="background:#FFE500;color:#000;">
+            关闭
+          </button>
+        </template>
+        <template v-else>
+          <h3 class="text-lg font-bold text-white mb-2">即将跳转到支付页面</h3>
+          <p class="text-sm mb-6" style="color:#888888;">
+            如未自动跳转，请点击下方按钮。
+          </p>
+          <a v-if="checkoutUrl" :href="checkoutUrl" target="_blank"
+            class="block w-full py-2.5 rounded-lg font-semibold text-sm text-center"
+            style="background:#FFE500;color:#000;">
+            前往支付
+          </a>
+        </template>
+      </div>
+    </div>
+
+    <!-- Subscription info -->
+    <div v-if="subscription" class="rounded-xl border p-4 mt-4" style="background:#141414; border-color:#2A2A2A;">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="text-sm font-bold text-white">当前订阅</div>
+          <div class="text-xs mt-1" style="color:#888;">
+            到期时间: {{ new Date(subscription.current_period_end).toLocaleDateString('zh-CN') }}
+          </div>
+          <div v-if="subscription.status === 'cancelled'" class="text-xs mt-1" style="color:#FF6B6B;">
+            已取消，到期后降级为免费版
+          </div>
+        </div>
+        <button v-if="subscription.status === 'active'"
+          @click="handleCancelSubscription"
+          :disabled="cancelLoading"
+          class="px-4 py-2 rounded-lg text-xs font-semibold transition-colors"
+          style="background:transparent;border:1px solid #2A2A2A;color:#888;">
+          {{ cancelLoading ? '处理中...' : '取消订阅' }}
         </button>
       </div>
     </div>
@@ -188,18 +226,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { paymentApi, type Subscription as SubType } from '@/api/payment'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const annual = ref(false)
 const showUpgradeDialog = ref(false)
+const checkoutLoading = ref(false)
+const checkoutError = ref('')
+const checkoutUrl = ref('')
+const cancelLoading = ref(false)
 const plansRef = ref<HTMLElement | null>(null)
+const subscription = ref<SubType | null>(null)
+const selectedPlanDbId = ref<number | null>(null)
 
-// Hardcoded for now — wire to authStore.user.subscription_plan when backend adds it
-const currentPlan = ref<string>('free')
-const isTrialing = ref(false)
+const currentPlan = computed(() => {
+  if (subscription.value?.status === 'active') return 'premium'
+  return 'free'
+})
+const isTrialing = computed(() => {
+  return authStore.user?.is_premium && !subscription.value
+})
 const trialDaysLeft = ref(2)
-
-const currentPlanName = isTrialing.value ? '创作者版（试用中）' : '免费版'
+const currentPlanName = computed(() => isTrialing.value ? '创作者版（试用中）' : (currentPlan.value === 'premium' ? '订阅中' : '免费版'))
 
 const scrollToPlans = () => {
   plansRef.value?.scrollIntoView({ behavior: 'smooth' })
@@ -208,6 +259,7 @@ const scrollToPlans = () => {
 const plans = [
   {
     id: 'free',
+    dbId: 0,
     name: '免费版',
     price: 0,
     desc: '轻度体验',
@@ -226,6 +278,7 @@ const plans = [
   },
   {
     id: 'creator',
+    dbId: 2,
     name: '创作者版',
     price: 29,
     desc: '认真写作的首选',
@@ -244,6 +297,7 @@ const plans = [
   },
   {
     id: 'pro',
+    dbId: 3,
     name: '无限版',
     price: 69,
     desc: '重度创作者',
@@ -285,20 +339,68 @@ const getPlanCardStyle = (plan: typeof plans[0]) => {
 }
 
 const getCtaLabel = (plan: typeof plans[0]) => {
-  if (plan.id === currentPlan.value && !isTrialing.value) return '当前套餐'
+  if (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) return '当前套餐'
   if (plan.id === 'free') return '降级'
-  return '免费试用 3 天'
+  if (currentPlan.value === 'premium' && subscription.value?.plan_id === plan.dbId) return '当前套餐'
+  return '立即订阅'
 }
 
 const getCtaStyle = (plan: typeof plans[0]) => {
-  if (plan.id === currentPlan.value && !isTrialing.value) return 'background:transparent;border:1px solid #2A2A2A;color:#888888;cursor:default;'
+  const isCurrent = (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) ||
+    (currentPlan.value === 'premium' && subscription.value?.plan_id === plan.dbId)
+  if (isCurrent) return 'background:transparent;border:1px solid #2A2A2A;color:#888888;cursor:default;'
   if (plan.id === 'creator') return 'background:#FFE500;color:#000;'
   if (plan.id === 'pro') return 'background:linear-gradient(135deg,#7C3AED,#4F46E5);color:#fff;box-shadow:0 4px 16px rgba(124,58,237,0.3);'
   return 'background:transparent;border:1px solid #2A2A2A;color:#888888;'
 }
 
-const handleUpgrade = (plan: typeof plans[0]) => {
-  if (plan.id === currentPlan.value && !isTrialing.value) return
-  showUpgradeDialog.value = true
+const closeDialog = () => {
+  showUpgradeDialog.value = false
+  checkoutLoading.value = false
+  checkoutError.value = ''
+  checkoutUrl.value = ''
 }
+
+const handleUpgrade = async (plan: typeof plans[0]) => {
+  if (plan.id === 'free') return
+  if (currentPlan.value === 'premium' && subscription.value?.plan_id === plan.dbId) return
+
+  showUpgradeDialog.value = true
+  checkoutLoading.value = true
+  checkoutError.value = ''
+  checkoutUrl.value = ''
+
+  try {
+    const result = await paymentApi.createOrder(plan.dbId, 'stripe')
+    if (result.checkout_url) {
+      checkoutUrl.value = result.checkout_url
+      window.open(result.checkout_url, '_blank')
+    }
+  } catch (err: any) {
+    checkoutError.value = err?.message || '创建订单失败，请稍后重试'
+  } finally {
+    checkoutLoading.value = false
+  }
+}
+
+const handleCancelSubscription = async () => {
+  if (!confirm('确定取消订阅吗？取消后到期将自动降为免费版。')) return
+  cancelLoading.value = true
+  try {
+    await paymentApi.cancelSubscription()
+    subscription.value = await paymentApi.getSubscription()
+  } catch {
+    // error handled by http layer
+  } finally {
+    cancelLoading.value = false
+  }
+}
+
+onMounted(async () => {
+  try {
+    subscription.value = await paymentApi.getSubscription()
+  } catch {
+    // not critical — user may not be authenticated
+  }
+})
 </script>
