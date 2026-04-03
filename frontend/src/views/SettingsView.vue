@@ -52,46 +52,66 @@
 
       <!-- Content -->
       <main class="flex-1 min-w-0">
-        <LLMSettings v-if="activeTab === 'llm'" />
-        <WritingPreferences v-else-if="activeTab === 'writing'" />
+        <WritingPreferences v-if="activeTab === 'writing'" />
         <SubscriptionPanel v-else-if="activeTab === 'subscription'" />
+        <div v-else-if="activeTab === 'admin'" class="flex flex-col items-center justify-center py-16 gap-4">
+          <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background: rgba(255,229,0,0.1);">
+            <svg class="w-7 h-7" style="color:#FFE500;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <p class="text-sm" style="color:#888;">即将跳转到管理后台…</p>
+        </div>
       </main>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import LLMSettings from '@/components/LLMSettings.vue'
 import WritingPreferences from '@/components/WritingPreferences.vue'
 import SubscriptionPanel from '@/components/SubscriptionPanel.vue'
 
 const authStore = useAuthStore()
+const router = useRouter()
 const userInitial = computed(() => {
   const name = authStore.user?.username || ''
   return name.charAt(0).toUpperCase() || 'U'
 })
 
-type TabId = 'llm' | 'writing' | 'subscription'
+type TabId = 'writing' | 'subscription' | 'admin'
 
-const activeTab = ref<TabId>('llm')
+const activeTab = ref<TabId>('writing')
 
-const tabs = [
+watch(activeTab, (val) => {
+  if (val === 'admin') {
+    router.push('/admin')
+  }
+})
+
+const isAdmin = computed(() => authStore.user?.is_admin === true)
+
+const baseTabs: Array<{ id: TabId; label: string; icon: string }> = [
   {
-    id: 'llm' as TabId,
-    label: 'LLM 配置',
-    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>',
-  },
-  {
-    id: 'writing' as TabId,
+    id: 'writing',
     label: '写作偏好',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>',
   },
   {
-    id: 'subscription' as TabId,
+    id: 'subscription',
     label: '会员套餐',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>',
   },
 ]
+
+const adminTab: { id: TabId; label: string; icon: string } = {
+  id: 'admin',
+  label: '管理后台',
+  icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>',
+}
+
+const tabs = computed(() => isAdmin.value ? [...baseTabs, adminTab] : baseTabs)
 </script>

@@ -61,6 +61,17 @@ class AuthService:
     async def register_user(self, payload: UserRegistration) -> User:
         if not await self.is_registration_enabled():
             raise HTTPException(status_code=403, detail="当前暂未开放注册")
+
+        captcha_enabled = self._parse_bool(
+            await self._get_config_value("captcha.enabled"), False
+        )
+        if captcha_enabled:
+            if not payload.captcha_token:
+                raise HTTPException(status_code=400, detail="请完成人机验证")
+            secret_key = await self._get_config_value("captcha.secret_key")
+            if not await self._verify_turnstile(payload.captcha_token, secret_key):
+                raise HTTPException(status_code=400, detail="人机验证失败，请重试")
+
         if await self.user_repo.get_by_username(payload.username):
             raise HTTPException(status_code=400, detail="用户名已存在")
         if payload.email and await self.user_repo.get_by_email(payload.email):
@@ -352,14 +363,38 @@ class AuthService:
         value = await self._get_config_value("auth.linuxdo_enabled")
         return self._parse_bool(value, fallback=settings.enable_linuxdo_login)
 
+    async def _verify_turnstile(self, token: str, secret: Optional[str]) -> bool:
+        if not secret:
+            logger.warning("Turnstile secret key 未配置，跳过验证")
+            return True
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+                    data={"secret": secret, "response": token},
+                )
+                result = resp.json()
+                if not result.get("success"):
+                    logger.info("Turnstile 验证失败: %s", result.get("error-codes"))
+                return result.get("success", False)
+        except Exception as exc:
+            logger.warning("Turnstile 验证请求异常: %s", exc)
+            return False
+
     async def get_auth_options(self) -> AuthOptions:
         """聚合与认证相关的动态开关配置，便于前端一次性拉取。"""
 
         allow_registration = await self.is_registration_enabled()
         enable_linuxdo_login = await self.is_linuxdo_login_enabled()
+        captcha_enabled = self._parse_bool(
+            await self._get_config_value("captcha.enabled"), False
+        )
+        captcha_site_key = await self._get_config_value("captcha.site_key") if captcha_enabled else None
         return AuthOptions(
             allow_registration=allow_registration,
             enable_linuxdo_login=enable_linuxdo_login,
+            captcha_enabled=captcha_enabled,
+            captcha_site_key=captcha_site_key,
         )
 
     def requires_password_reset(self, user: User | UserInDB) -> bool:

@@ -4,6 +4,54 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
+          <span class="card-title">默认 LLM 配置</span>
+          <n-button quaternary size="small" @click="fetchDefaultLLMConfig" :loading="defaultLLMLoading">
+            刷新
+          </n-button>
+        </div>
+      </template>
+      <n-spin :show="defaultLLMLoading">
+        <n-alert v-if="defaultLLMError" type="error" closable @close="defaultLLMError = null">
+          {{ defaultLLMError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          配置系统默认的 LLM 服务，所有用户的小说生成均使用此配置。
+        </n-alert>
+        <n-form label-placement="top" class="llm-form">
+          <n-form-item label="API Key" required>
+            <n-input
+              v-model:value="defaultLLMForm.api_key"
+              type="password"
+              show-password-on="click"
+              placeholder="必填，LLM 服务的 API Key"
+            />
+          </n-form-item>
+          <n-form-item label="Base URL">
+            <n-input v-model:value="defaultLLMForm.base_url" placeholder="例如：https://api.openai.com/v1" />
+          </n-form-item>
+          <n-form-item label="模型名称">
+            <n-input v-model:value="defaultLLMForm.model" placeholder="例如：gpt-4o, claude-sonnet-4-20250514" />
+          </n-form-item>
+          <n-form-item label="API 格式">
+            <n-select
+              v-model:value="defaultLLMForm.api_format"
+              :options="apiFormatOptions"
+              placeholder="留空自动识别"
+              clearable
+            />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button type="primary" :loading="defaultLLMSaving" @click="saveDefaultLLMConfig">
+              保存设置
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
           <span class="card-title">每日请求额度</span>
           <n-button quaternary size="small" @click="fetchDailyLimit" :loading="dailyLimitLoading">
             刷新
@@ -15,7 +63,7 @@
           {{ dailyLimitError }}
         </n-alert>
         <n-form label-placement="top" class="limit-form">
-          <n-form-item label="未配置 API Key 的用户每日可用请求次数">
+          <n-form-item label="每位用户每日可用请求次数">
             <n-input-number
               v-model:value="dailyLimit"
               :min="0"
@@ -25,6 +73,40 @@
           </n-form-item>
           <n-space justify="end">
             <n-button type="primary" :loading="dailyLimitSaving" @click="saveDailyLimit">
+              保存设置
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
+          <span class="card-title">每日创建小说上限</span>
+          <n-button quaternary size="small" @click="fetchNovelLimit" :loading="novelLimitLoading">
+            刷新
+          </n-button>
+        </div>
+      </template>
+      <n-spin :show="novelLimitLoading">
+        <n-alert v-if="novelLimitError" type="error" closable @close="novelLimitError = null">
+          {{ novelLimitError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          限制每个用户每天最多创建的小说数量，防止滥用。设置为 0 表示不限制。
+        </n-alert>
+        <n-form label-placement="top" class="limit-form">
+          <n-form-item label="每用户每日创建上限">
+            <n-input-number
+              v-model:value="novelDailyLimit"
+              :min="0"
+              :step="1"
+              placeholder="默认 5"
+            />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button type="primary" :loading="novelLimitSaving" @click="saveNovelLimit">
               保存设置
             </n-button>
           </n-space>
@@ -150,6 +232,45 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
+          <span class="card-title">注册人机验证 (Turnstile)</span>
+        </div>
+      </template>
+      <n-spin :show="captchaLoading">
+        <n-alert v-if="captchaError" type="error" closable @close="captchaError = null">
+          {{ captchaError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          启用后，用户注册时需完成 Cloudflare Turnstile 人机验证。请前往
+          <a href="https://dash.cloudflare.com/sign-up?to=/:account/turnstile" target="_blank" rel="noopener" style="color: #63e2b7;">Cloudflare Dashboard</a>
+          获取 Site Key 和 Secret Key。
+        </n-alert>
+        <n-form label-placement="top" class="captcha-form">
+          <n-form-item label="启用人机验证">
+            <n-switch v-model:value="captchaEnabled" />
+          </n-form-item>
+          <n-form-item label="Site Key（前端）">
+            <n-input v-model:value="captchaForm.site_key" placeholder="Turnstile Site Key" />
+          </n-form-item>
+          <n-form-item label="Secret Key（后端）">
+            <n-input
+              v-model:value="captchaForm.secret_key"
+              type="password"
+              show-password-on="click"
+              placeholder="Turnstile Secret Key"
+            />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button type="primary" :loading="captchaSaving" @click="saveCaptchaConfig">
+              保存设置
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
           <span class="card-title">系统配置</span>
           <n-button type="primary" size="small" @click="openCreateModal">
             新增配置
@@ -243,10 +364,77 @@ const dailyLimitLoading = ref(false)
 const dailyLimitSaving = ref(false)
 const dailyLimitError = ref<string | null>(null)
 
+const novelDailyLimit = ref<number | null>(5)
+const novelLimitLoading = ref(false)
+const novelLimitSaving = ref(false)
+const novelLimitError = ref<string | null>(null)
+
 const configs = ref<SystemConfig[]>([])
 const configLoading = ref(false)
 const configSaving = ref(false)
 const configError = ref<string | null>(null)
+
+// ---- 默认 LLM 配置 ----
+const defaultLLMLoading = ref(false)
+const defaultLLMSaving = ref(false)
+const defaultLLMError = ref<string | null>(null)
+const defaultLLMForm = reactive({
+  api_key: '',
+  base_url: '',
+  model: '',
+  api_format: null as string | null
+})
+
+const DEFAULT_LLM_KEYS = [
+  'llm.api_key',
+  'llm.base_url',
+  'llm.model',
+  'llm.api_format'
+] as const
+
+const fetchDefaultLLMConfig = async () => {
+  defaultLLMLoading.value = true
+  defaultLLMError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const configMap = new Map(allConfigs.map((c) => [c.key, c.value]))
+    defaultLLMForm.api_key = configMap.get('llm.api_key') || ''
+    defaultLLMForm.base_url = configMap.get('llm.base_url') || ''
+    defaultLLMForm.model = configMap.get('llm.model') || ''
+    defaultLLMForm.api_format = configMap.get('llm.api_format') || null
+  } catch (err) {
+    defaultLLMError.value = err instanceof Error ? err.message : '加载默认 LLM 配置失败'
+  } finally {
+    defaultLLMLoading.value = false
+  }
+}
+
+const saveDefaultLLMConfig = async () => {
+  if (!defaultLLMForm.api_key.trim()) {
+    showAlert('API Key 为必填项', 'error')
+    return
+  }
+  defaultLLMSaving.value = true
+  try {
+    const entries: Array<{ key: string; value: string; description: string }> = [
+      { key: 'llm.api_key', value: defaultLLMForm.api_key, description: '默认 LLM API Key' },
+      { key: 'llm.base_url', value: defaultLLMForm.base_url, description: '默认 LLM Base URL' },
+      { key: 'llm.model', value: defaultLLMForm.model, description: '默认 LLM 模型名称' },
+      { key: 'llm.api_format', value: defaultLLMForm.api_format || '', description: '默认 LLM API 格式' }
+    ]
+    for (const entry of entries) {
+      await AdminAPI.upsertSystemConfig(entry.key, {
+        value: entry.value,
+        description: entry.description
+      })
+    }
+    showAlert('默认 LLM 配置已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    defaultLLMSaving.value = false
+  }
+}
 
 // ---- 润色优化模型配置 ----
 const polishLoading = ref(false)
@@ -365,6 +553,60 @@ const savePolishConfig = async () => {
   }
 }
 
+// ---- 注册人机验证 (Turnstile) ----
+const captchaLoading = ref(false)
+const captchaSaving = ref(false)
+const captchaError = ref<string | null>(null)
+const captchaEnabled = ref(false)
+const captchaForm = reactive({
+  site_key: '',
+  secret_key: ''
+})
+
+const CAPTCHA_CONFIG_KEYS = {
+  enabled: 'captcha.enabled',
+  site_key: 'captcha.site_key',
+  secret_key: 'captcha.secret_key'
+}
+
+const fetchCaptchaConfig = async () => {
+  captchaLoading.value = true
+  captchaError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const configMap = new Map(allConfigs.map((c) => [c.key, c.value]))
+    captchaEnabled.value = configMap.get(CAPTCHA_CONFIG_KEYS.enabled) === 'true'
+    captchaForm.site_key = configMap.get(CAPTCHA_CONFIG_KEYS.site_key) || ''
+    captchaForm.secret_key = configMap.get(CAPTCHA_CONFIG_KEYS.secret_key) || ''
+  } catch (err) {
+    captchaError.value = err instanceof Error ? err.message : '加载人机验证配置失败'
+  } finally {
+    captchaLoading.value = false
+  }
+}
+
+const saveCaptchaConfig = async () => {
+  captchaSaving.value = true
+  try {
+    const entries: Array<{ key: string; value: string; description: string }> = [
+      { key: CAPTCHA_CONFIG_KEYS.enabled, value: captchaEnabled.value ? 'true' : 'false', description: '是否启用注册人机验证' },
+      { key: CAPTCHA_CONFIG_KEYS.site_key, value: captchaForm.site_key, description: 'Cloudflare Turnstile Site Key' },
+      { key: CAPTCHA_CONFIG_KEYS.secret_key, value: captchaForm.secret_key, description: 'Cloudflare Turnstile Secret Key' }
+    ]
+    for (const entry of entries) {
+      await AdminAPI.upsertSystemConfig(entry.key, {
+        value: entry.value,
+        description: entry.description
+      })
+    }
+    showAlert('人机验证配置已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    captchaSaving.value = false
+  }
+}
+
 // ---- 三省六部 Agent 系统开关 ----
 const agentLoading = ref(false)
 const agentSaving = ref(false)
@@ -442,6 +684,41 @@ const saveDailyLimit = async () => {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
   } finally {
     dailyLimitSaving.value = false
+  }
+}
+
+const NOVEL_LIMIT_KEY = 'novel.daily_create_limit'
+
+const fetchNovelLimit = async () => {
+  novelLimitLoading.value = true
+  novelLimitError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const cfg = allConfigs.find(c => c.key === NOVEL_LIMIT_KEY)
+    novelDailyLimit.value = cfg ? parseInt(cfg.value, 10) : 5
+  } catch (err) {
+    novelLimitError.value = err instanceof Error ? err.message : '加载每日创建上限失败'
+  } finally {
+    novelLimitLoading.value = false
+  }
+}
+
+const saveNovelLimit = async () => {
+  if (novelDailyLimit.value === null || novelDailyLimit.value < 0) {
+    showAlert('请设置有效的每日创建上限', 'error')
+    return
+  }
+  novelLimitSaving.value = true
+  try {
+    await AdminAPI.upsertSystemConfig(NOVEL_LIMIT_KEY, {
+      value: String(novelDailyLimit.value),
+      description: '每用户每日最多创建小说数量'
+    })
+    showAlert('每日创建上限已更新', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    novelLimitSaving.value = false
   }
 }
 
@@ -589,10 +866,13 @@ const columns: DataTableColumns<SystemConfig> = [
 ]
 
 onMounted(() => {
+  fetchDefaultLLMConfig()
   fetchDailyLimit()
+  fetchNovelLimit()
   fetchPolishConfig()
   fetchSearchModelConfig()
   fetchAgentSetting()
+  fetchCaptchaConfig()
   fetchConfigs()
 })
 </script>
@@ -621,6 +901,10 @@ onMounted(() => {
   max-width: 360px;
 }
 
+.llm-form {
+  max-width: 480px;
+}
+
 .polish-form {
   max-width: 480px;
 }
@@ -631,6 +915,10 @@ onMounted(() => {
 
 .agent-form {
   max-width: 360px;
+}
+
+.captcha-form {
+  max-width: 480px;
 }
 
 .config-modal {

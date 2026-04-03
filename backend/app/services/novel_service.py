@@ -313,6 +313,16 @@ class NovelService:
         result = await self.session.execute(select(func.count(NovelProject.id)))
         return result.scalar_one()
 
+    async def count_user_projects_today(self, user_id: int) -> int:
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        stmt = (
+            select(func.count())
+            .select_from(NovelProject)
+            .where(NovelProject.user_id == user_id, NovelProject.created_at >= today_start)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
     # ------------------------------------------------------------------
     # 对话管理
     # ------------------------------------------------------------------

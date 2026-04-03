@@ -123,6 +123,11 @@
             {{ success }}
           </div>
 
+          <!-- Turnstile CAPTCHA -->
+          <div v-if="captchaEnabled" class="flex justify-center">
+            <div ref="turnstileRef"></div>
+          </div>
+
           <!-- Submit -->
           <button type="submit"
             class="w-full py-3.5 rounded-xl font-bold text-sm transition-all mt-2"
@@ -168,9 +173,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (el: HTMLElement, opts: Record<string, unknown>) => string;
+      reset: (id: string) => void;
+      remove: (id: string) => void;
+    };
+  }
+}
 
 const username = ref('');
 const email = ref('');
@@ -180,9 +195,45 @@ const countdown = ref(0);
 const sending = ref(false);
 const error = ref('');
 const success = ref('');
+const captchaToken = ref('');
+const turnstileRef = ref<HTMLElement | null>(null);
+const turnstileWidgetId = ref<string | null>(null);
 const router = useRouter();
 const authStore = useAuthStore();
 const allowRegistration = computed(() => authStore.allowRegistration);
+const captchaEnabled = computed(() => authStore.captchaEnabled);
+const captchaSiteKey = computed(() => authStore.captchaSiteKey);
+
+let turnstileScript: HTMLScriptElement | null = null;
+
+const loadTurnstile = () => {
+  if (document.getElementById('turnstile-script') || !captchaSiteKey.value) return;
+  const script = document.createElement('script');
+  script.id = 'turnstile-script';
+  script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+  script.async = true;
+  script.onload = () => renderWidget();
+  document.head.appendChild(script);
+  turnstileScript = script;
+};
+
+const renderWidget = () => {
+  if (!window.turnstile || !turnstileRef.value || !captchaSiteKey.value) return;
+  if (turnstileWidgetId.value) {
+    window.turnstile.remove(turnstileWidgetId.value);
+  }
+  turnstileWidgetId.value = window.turnstile.render(turnstileRef.value, {
+    sitekey: captchaSiteKey.value,
+    theme: 'dark',
+    callback: (token: string) => { captchaToken.value = token; },
+    'expired-callback': () => { captchaToken.value = ''; },
+    'error-callback': () => { captchaToken.value = ''; },
+  });
+};
+
+watch(captchaEnabled, (val) => {
+  if (val) loadTurnstile();
+});
 
 onMounted(async () => {
   try {
@@ -193,6 +244,15 @@ onMounted(async () => {
   if (!allowRegistration.value) {
     success.value = '';
     error.value = '当前已关闭注册，请稍后再试。';
+  }
+  if (captchaEnabled.value) {
+    loadTurnstile();
+  }
+});
+
+onUnmounted(() => {
+  if (turnstileWidgetId.value && window.turnstile) {
+    window.turnstile.remove(turnstileWidgetId.value);
   }
 });
 
@@ -238,16 +298,24 @@ const handleRegister = async () => {
   const validationError = validateInput();
   if (validationError) { error.value = validationError; return; }
   if (!allowRegistration.value) { error.value = '当前已关闭注册，请联系管理员。'; return; }
+  if (captchaEnabled.value && !captchaToken.value) {
+    error.value = '请完成人机验证';
+    return;
+  }
   try {
+    const body: Record<string, string> = {
+      username: username.value,
+      email: email.value,
+      password: password.value,
+      verification_code: verificationCode.value,
+    };
+    if (captchaToken.value) {
+      body.captcha_token = captchaToken.value;
+    }
     const res = await fetch('/api/auth/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: username.value,
-        email: email.value,
-        password: password.value,
-        verification_code: verificationCode.value
-      })
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const errMsg = await res.json();
@@ -257,6 +325,10 @@ const handleRegister = async () => {
     setTimeout(() => { router.push('/login'); }, 2000);
   } catch (err: any) {
     error.value = err.message || '注册失败，请稍后再试。';
+    if (turnstileWidgetId.value && window.turnstile) {
+      window.turnstile.reset(turnstileWidgetId.value);
+      captchaToken.value = '';
+    }
     console.error(err);
   }
 };

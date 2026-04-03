@@ -12,7 +12,6 @@ from .projects import router as projects_router
 from .writer import router as writer_router
 from .optimizer import router as optimizer_router
 from .reference_novels import router as reference_novels_router
-from .llm_config import router as llm_config_router
 from .foreshadowing import router as foreshadowing_router
 from .power_system import router as power_system_router
 from .admin import router as admin_router
@@ -51,9 +50,6 @@ api_router.include_router(optimizer_router, tags=["Optimizer"])
 
 # 参考小说库 - reference_novels.py 已经定义了 prefix
 api_router.include_router(reference_novels_router, tags=["ReferenceNovels"])
-
-# LLM 配置 - llm_config.py 已经定义了 prefix
-api_router.include_router(llm_config_router, tags=["LLMConfig"])
 
 # 伏笔系统 - foreshadowing.py 已经定义了 prefix
 api_router.include_router(foreshadowing_router, tags=["Foreshadowing"])

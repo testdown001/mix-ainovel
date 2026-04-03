@@ -74,6 +74,7 @@ class UserRegistration(UserCreate):
     """注册接口需要的字段，包含邮箱验证码。"""
 
     verification_code: str = Field(..., min_length=4, max_length=10, description="邮箱验证码")
+    captcha_token: Optional[str] = Field(None, description="Turnstile 人机验证 token")
 
 
 class PasswordChangeRequest(BaseModel):
@@ -88,3 +89,5 @@ class AuthOptions(BaseModel):
 
     allow_registration: bool = Field(..., description="是否允许开放用户注册")
     enable_linuxdo_login: bool = Field(..., description="是否启用 Linux.do 登录")
+    captcha_enabled: bool = Field(False, description="是否启用注册人机验证")
+    captcha_site_key: Optional[str] = Field(None, description="Turnstile Site Key")

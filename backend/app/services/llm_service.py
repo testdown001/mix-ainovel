@@ -13,7 +13,6 @@ from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalSer
 
 from ..core.config import settings
 from ..db.session import AsyncSessionLocal
-from ..repositories.llm_config_repository import LLMConfigRepository
 from ..repositories.system_config_repository import SystemConfigRepository
 from ..repositories.user_repository import UserRepository
 from ..services.admin_setting_service import AdminSettingService
@@ -37,7 +36,6 @@ class LLMService:
 
     def __init__(self, session):
         self.session = session
-        self.llm_repo = LLMConfigRepository(session)
         self.system_config_repo = SystemConfigRepository(session)
         self.user_repo = UserRepository(session)
         self.admin_setting_service = AdminSettingService(session)
@@ -887,19 +885,8 @@ class LLMService:
     async def _resolve_llm_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
         async with self._db_access_lock:
             async with AsyncSessionLocal() as session:
-                llm_repo = LLMConfigRepository(session)
                 user_repo = UserRepository(session)
                 admin_setting_service = AdminSettingService(session)
-
-                if user_id:
-                    config = await llm_repo.get_by_user(user_id)
-                    if config and config.llm_provider_api_key:
-                        return {
-                            "api_key": config.llm_provider_api_key,
-                            "base_url": self._normalize_base_url(config.llm_provider_url),
-                            "model": config.llm_provider_model,
-                            "api_format": config.llm_provider_api_format,
-                        }
 
                 if user_id:
                     limit_str = await admin_setting_service.get("daily_request_limit", "100")
@@ -908,7 +895,7 @@ class LLMService:
                     if used >= limit:
                         raise HTTPException(
                             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                            detail="今日请求次数已达上限，请明日再试或设置自定义 API Key。",
+                            detail="今日请求次数已达上限，请明日再试。",
                         )
                     await user_repo.increment_daily_request(user_id)
                     await session.commit()
@@ -919,10 +906,10 @@ class LLMService:
                 api_format = await self._get_config_value_for_session(session, "llm.api_format")
 
                 if not api_key:
-                    logger.error("未配置默认 LLM API Key，且用户 %s 未设置自定义 API Key", user_id)
+                    logger.error("未配置系统 LLM API Key，用户 %s 无法使用", user_id)
                     raise HTTPException(
                         status_code=500,
-                        detail="未配置默认 LLM API Key，请联系管理员配置系统默认 API Key 或在个人设置中配置自定义 API Key"
+                        detail="系统 LLM API Key 未配置，请联系管理员在后台配置"
                     )
 
                 return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
@@ -1305,7 +1292,7 @@ class LLMService:
                 if used >= limit:
                     raise HTTPException(
                         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                        detail="今日请求次数已达上限，请明日再试或设置自定义 API Key。",
+                        detail="今日请求次数已达上限，请明日再试。",
                     )
                 await user_repo.increment_daily_request(user_id)
                 await session.commit()

@@ -31,6 +31,7 @@ from ...schemas.novel import (
 )
 from ...schemas.reference_novel import ReferenceNovelSelectRequest, ReferenceNovelSummary
 from ...schemas.user import UserInDB
+from ...services.config_service import ConfigService
 from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
@@ -226,6 +227,17 @@ async def create_novel(
 ) -> NovelProjectSchema:
     """为当前用户创建一个新的小说项目。"""
     novel_service = NovelService(session)
+
+    config_service = ConfigService(session)
+    limit_cfg = await config_service.get_config("novel.daily_create_limit")
+    daily_limit = int(limit_cfg.value) if limit_cfg else 5
+    today_count = await novel_service.count_user_projects_today(current_user.id)
+    if today_count >= daily_limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"每日最多创建 {daily_limit} 本小说，今日已达上限",
+        )
+
     project = await novel_service.create_project(current_user.id, title, initial_prompt)
     logger.info("用户 %s 创建项目 %s", current_user.id, project.id)
     return await novel_service.get_project_schema(project.id, current_user.id)

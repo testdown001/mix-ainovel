@@ -207,7 +207,7 @@ class ErrorHandler:
             return cls._create_error(
                 ErrorCategory.LLM_API,
                 "API 配额已用完",
-                "请联系管理员增加配额，或在个人设置中配置自己的 API Key",
+                "请联系管理员增加配额",
                 error,
             )
         

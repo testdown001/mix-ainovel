@@ -4,10 +4,10 @@ import { defineStore } from 'pinia';
 const API_URL = `/api/auth`;
 
 interface AuthOptions {
-  // 是否允许用户自助注册
   allow_registration: boolean;
-  // 是否启用 Linux.do 登录
   enable_linuxdo_login: boolean;
+  captcha_enabled: boolean;
+  captcha_site_key: string | null;
 }
 
 // Helper function to handle fetch requests and token refreshing
@@ -49,6 +49,8 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.token,
     allowRegistration: (state) => state.authOptions?.allow_registration ?? true,
     enableLinuxdoLogin: (state) => state.authOptions?.enable_linuxdo_login ?? false,
+    captchaEnabled: (state) => state.authOptions?.captcha_enabled ?? false,
+    captchaSiteKey: (state) => state.authOptions?.captcha_site_key ?? null,
     mustChangePassword: (state) => state.user?.must_change_password ?? false,
   },
   actions: {
@@ -69,6 +71,8 @@ export const useAuthStore = defineStore('auth', {
         this.authOptions = {
           allow_registration: true,
           enable_linuxdo_login: false,
+          captcha_enabled: false,
+          captcha_site_key: null,
         };
       } finally {
         this.authOptionsLoaded = true;
