@@ -2,6 +2,7 @@
 """中书省 Agent - 规划中枢"""
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict, Optional
 
@@ -9,6 +10,43 @@ from .base import BaseAgent
 from .message import AgentContext, AgentMessageType, AgentResult
 
 logger = logging.getLogger(__name__)
+
+ZHONGSHU_SYSTEM_PROMPT = """你是小说写作系统的"中书省"规划智能体。你的职责是为即将生成的章节收集并组装所需的上下文信息。
+
+你拥有以下工具来检索信息：
+- rag_retrieve: 从知识库中检索与当前章节相关的情节、线索上下文
+- history_context: 获取前序章节摘要和故事骨架，确保叙事连续性
+- character_state: 查询角色状态（情绪、位置、关系变化）
+- foreshadowing: 查询活跃的伏笔线索，确认哪些需要推进或回收
+- entity_registry: 查询已注册实体的规范名称，防止产生幻觉
+- power_system: 查询力量体系约束
+- evidence_grade: 对检索到的证据做质量评分
+- prompt_assembly: 组装最终写作提示词
+
+## 工作流程
+1. 先调用 history_context 获取前序章节信息
+2. 根据章节大纲和写作要求，调用 rag_retrieve 检索相关上下文
+3. 调用 character_state 获取涉及角色的当前状态
+4. 调用 foreshadowing 查看待推进的伏笔
+5. 调用 entity_registry 获取实体规范名称清单
+6. 最终综合所有信息，输出一份结构化的上下文规划
+
+## 输出格式
+当你完成所有信息收集后，请直接输出一份 JSON 格式的规划结果，包含以下字段：
+{
+  "writing_prompt": "组装好的写作提示词",
+  "context_summary": "收集到的上下文摘要",
+  "characters_involved": ["角色1", "角色2"],
+  "foreshadowing_notes": "需要注意的伏笔信息",
+  "constraints": "需要遵守的约束"
+}
+"""
+
+ZHONGSHU_TOOL_NAMES = [
+    "rag_retrieve", "history_context", "character_state",
+    "foreshadowing", "entity_registry", "power_system",
+    "evidence_grade", "prompt_assembly",
+]
 
 
 class ZhongshuAgent(BaseAgent):
@@ -25,21 +63,88 @@ class ZhongshuAgent(BaseAgent):
     AGENT_NAME = "zhongshu"
 
     async def process(self, context: AgentContext) -> AgentResult:
+        use_agentic = context.config.get("use_agentic_loop", False)
+
+        if use_agentic:
+            return await self._process_agentic(context)
+        return await self._process_legacy(context)
+
+    async def _process_agentic(self, context: AgentContext) -> AgentResult:
+        """Tool-use agentic loop: LLM decides what context to retrieve."""
+        from .agentic_loop import AgenticLoop, AgenticLoopConfig
+        from .tools import create_default_registry
+
+        await self.emit_stage("agent:zhongshu:start", "中书省智能规划启动")
+
+        registry = create_default_registry()
+        user_id = int(context.metadata.get("user_id") or 0)
+        writing_notes = (context.mission or {}).get("writing_notes", "")
+
+        config = AgenticLoopConfig(
+            max_turns=10,
+            max_tool_calls=30,
+            system_prompt=ZHONGSHU_SYSTEM_PROMPT,
+            tool_names=ZHONGSHU_TOOL_NAMES,
+            temperature=0.5,
+        )
+
+        loop = AgenticLoop(
+            session=self.session,
+            tool_registry=registry,
+            config=config,
+            project_id=context.project_id,
+            chapter_number=context.chapter_number,
+            user_id=user_id,
+            agent_config=context.config,
+            stream_handler=self._stream_handler,
+        )
+
+        outline_info = ""
+        if context.metadata.get("parsed_command"):
+            outline_info = f"\n解析指令: {json.dumps(context.metadata['parsed_command'], ensure_ascii=False)}"
+
+        user_message = (
+            f"为项目 {context.project_id} 的第 {context.chapter_number} 章规划写作上下文。\n"
+            f"章节类型: {context.metadata.get('chapter_type', '普通章')}\n"
+            f"写作要求: {writing_notes or '无额外要求'}"
+            f"{outline_info}"
+        )
+
+        result = await loop.run(user_message)
+
+        writing_prompt = result.content
+        try:
+            parsed = json.loads(result.content)
+            writing_prompt = parsed.get("writing_prompt", result.content)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        await self.emit_stage("agent:zhongshu:done", "智能规划完成")
+
+        return AgentResult(
+            status="delegated",
+            output={
+                "writing_prompt": writing_prompt,
+                "context_plan": {"agentic": True, "turns": result.state.turn_count},
+                "pre_collected_context": {
+                    "agentic_tool_history": result.tool_history,
+                },
+            },
+            next_agent="shangshu",
+        )
+
+    async def _process_legacy(self, context: AgentContext) -> AgentResult:
+        """Original fixed-order context collection."""
         await self.emit_stage("agent:zhongshu:start", "收集项目上下文与 RAG 知识")
 
-        # 1. 收集上下文
         context_data = await self._collect_context(context)
         await self.emit_stage("agent:zhongshu:context", "上下文收集完成，构建写作 Mission")
 
-        # 2. 构建 Mission
         mission = await self._build_mission(context, context_data)
-
-        # 3. 生成写作提示词
         writing_prompt = await self._generate_writing_prompt(mission, context_data)
 
         await self.emit_stage("agent:zhongshu:done", "Mission 构建完成，转交尚书省调度")
 
-        # 4. 转发给尚书省
         await self.send_message(
             recipient="shangshu",
             message_type=AgentMessageType.CHAPTER_GENERATE_REQUEST.value,
@@ -61,7 +166,7 @@ class ZhongshuAgent(BaseAgent):
                 "context_plan": context_data.get("context_plan"),
                 "pre_collected_context": context_data.get("pre_collected_context"),
             },
-            next_agent="shangshu"
+            next_agent="shangshu",
         )
 
     async def _collect_context(self, context: AgentContext) -> Dict[str, Any]:

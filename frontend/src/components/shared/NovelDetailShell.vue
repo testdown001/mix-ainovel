@@ -245,6 +245,7 @@ import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
 import { NovelAPI } from '@/api/novel'
 import { AdminAPI } from '@/api/admin'
+import { getProjectAnalysis, type ProjectAnalysis } from '@/api/gatekeeperReview'
 import type { NovelProject, NovelSectionResponse, NovelSectionType, AllSectionType } from '@/api/novel'
 import { formatDateTime } from '@/utils/date'
 import BlueprintEditModal from '@/components/BlueprintEditModal.vue'
@@ -350,6 +351,7 @@ const newChapterSummary = ref('')
 
 const novel = computed(() => !props.isAdmin ? novelStore.currentProject as NovelProject | null : null)
 const sectionRef = ref<any>(null)
+const projectAnalysis = ref<ProjectAnalysis | null>(null)
 
 // ==================== Novel Header Computed ====================
 
@@ -424,6 +426,16 @@ const ensureProjectLoaded = async () => {
   await novelStore.loadProject(projectId)
 }
 
+const loadProjectAnalysis = async () => {
+  if (!projectId || props.isAdmin) return
+  try {
+    const resp = await getProjectAnalysis(projectId)
+    projectAnalysis.value = resp.analysis
+  } catch {
+    projectAnalysis.value = null
+  }
+}
+
 const loadSection = async (section: SectionKey, force = false) => {
   if (!projectId) return
 
@@ -442,6 +454,7 @@ const loadSection = async (section: SectionKey, force = false) => {
     if (section === 'overview') {
       overviewMeta.title = response.data?.title || overviewMeta.title
       overviewMeta.updated_at = response.data?.updated_at || null
+      loadProjectAnalysis()
     }
   } catch (error) {
     console.error('加载模块失败:', error)
@@ -495,7 +508,8 @@ const componentProps = computed(() => {
         totalOutlines: sectionData.chapter_outline?.chapter_outline?.length || 0,
         isLoading: sectionLoading.chapters || sectionLoading.characters,
         projectId,
-        isCompleted: sectionData.overview?.is_completed ?? novel.value?.is_completed ?? false
+        isCompleted: sectionData.overview?.is_completed ?? novel.value?.is_completed ?? false,
+        analysisData: projectAnalysis.value
       }
     case 'world_setting':
       return { data: data || null, editable }

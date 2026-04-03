@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +12,30 @@ from .message import AgentContext, AgentMessageType, AgentResult
 from .generation_bridge import AgentGenerationBridge
 
 logger = logging.getLogger(__name__)
+
+BINGBU_SYSTEM_PROMPT = """你是小说写作系统的"兵部"生成智能体。你的职责是根据上下文和提示词生成高质量的章节内容。
+
+你拥有以下工具：
+- generate: 调用LLM生成章节内容（核心工具）
+- consistency_check: 检查生成内容的一致性
+- skill_apply: 应用写作技能优化内容（如白金风格、对话打磨）
+
+## 工作流程
+1. 根据收到的写作提示词，调用 generate 工具生成章节
+2. 对生成内容调用 consistency_check 检查是否存在人物/时间线矛盾
+3. 如发现严重问题，可再次调用 generate 并补充约束
+4. 如有特定写作技能要求，调用 skill_apply 进行风格优化
+
+## 输出格式
+完成后请输出 JSON 格式结果：
+{
+  "content": "完整的章节内容文本",
+  "word_count": 字数,
+  "quality_notes": "自我评估备注"
+}
+"""
+
+BINGBU_TOOL_NAMES = ["generate", "consistency_check", "skill_apply"]
 
 
 class BingbuAgent(BaseAgent):
@@ -21,31 +46,93 @@ class BingbuAgent(BaseAgent):
     1. 调用 LLM 生成章节内容
     2. 支持多版本生成
     3. 完成后通知尚书省
-    
-    实现方式：
-    - 优先使用 PipelineOrchestrator 的完整生成能力（AgentGenerationBridge）
-    - 确保与现有 70+ 服务模块的无缝集成
-    - 支持配置化选择生成模式
     """
 
     AGENT_NAME = "bingbu"
 
     async def process(self, context: AgentContext) -> AgentResult:
         """处理章节生成请求"""
+        use_agentic = context.config.get("use_agentic_loop", False)
+
+        if use_agentic:
+            return await self._process_agentic(context)
+        return await self._process_legacy(context)
+
+    async def _process_agentic(self, context: AgentContext) -> AgentResult:
+        """Tool-use agentic loop: LLM drives generation with tools."""
+        from .agentic_loop import AgenticLoop, AgenticLoopConfig
+        from .tools import create_default_registry
+
+        await self.emit_stage("agent:bingbu:start", "兵部智能生成启动")
+
+        registry = create_default_registry()
+        user_id = int(context.metadata.get("user_id") or 0)
+        writing_prompt = context.metadata.get("writing_prompt", "")
+        version_count = context.metadata.get("version_count", 1)
+
+        config = AgenticLoopConfig(
+            max_turns=8,
+            max_tool_calls=15,
+            system_prompt=BINGBU_SYSTEM_PROMPT,
+            tool_names=BINGBU_TOOL_NAMES,
+            temperature=0.8,
+        )
+
+        versions = []
+        for i in range(version_count):
+            loop = AgenticLoop(
+                session=self.session,
+                tool_registry=registry,
+                config=config,
+                project_id=context.project_id,
+                chapter_number=context.chapter_number,
+                user_id=user_id,
+                agent_config=context.config,
+                stream_handler=self._stream_handler,
+            )
+
+            user_message = (
+                f"生成第 {context.chapter_number} 章的内容（版本 {i+1}/{version_count}）。\n"
+                f"写作提示词:\n{writing_prompt}"
+            )
+
+            result = await loop.run(user_message)
+
+            content = result.content
+            try:
+                parsed = json.loads(result.content)
+                content = parsed.get("content", result.content)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            versions.append({
+                "version_id": f"v{i+1}",
+                "content": content,
+                "word_count": len(content),
+            })
+
+        await self.emit_stage("agent:bingbu:done", f"智能生成完成，共 {len(versions)} 个版本")
+
+        return AgentResult(
+            status="completed",
+            output={
+                "versions": versions,
+                "version_count": len(versions),
+                "stages": {},
+            },
+        )
+
+    async def _process_legacy(self, context: AgentContext) -> AgentResult:
+        """Original generation logic with Bridge / simple fallback."""
         await self.emit_stage("agent:bingbu:start", "开始生成章节内容")
 
         writing_prompt = context.metadata.get("writing_prompt", "")
         version_count = context.metadata.get("version_count", 3)
-
-        # 获取用户ID（从 metadata 或 context 中获取）
         user_id = context.metadata.get("user_id", 0)
-
-        # 检查是否启用完整 Pipeline 模式
         use_orchestrator = context.metadata.get("use_orchestrator", True)
 
         if use_orchestrator:
             await self.emit_stage("agent:bingbu:pipeline", "使用完整流水线生成")
-            # 模式1: 使用 PipelineOrchestrator 的完整能力
             result = await self._generate_with_bridge(
                 context=context,
                 version_count=version_count,
@@ -53,11 +140,10 @@ class BingbuAgent(BaseAgent):
             )
         else:
             await self.emit_stage("agent:bingbu:simple", "使用简化模式生成")
-            # 模式2: 使用简化生成（保留原有逻辑）
             result = await self._generate_simple(
                 prompt=writing_prompt,
                 version_count=version_count,
-                context=context
+                context=context,
             )
 
         version_count_actual = len(result.get("versions", []))
@@ -83,7 +169,7 @@ class BingbuAgent(BaseAgent):
                 "versions": result["versions"],
                 "version_count": len(result["versions"]),
                 "stages": result.get("stages", {}),
-            }
+            },
         )
 
     async def _generate_with_bridge(

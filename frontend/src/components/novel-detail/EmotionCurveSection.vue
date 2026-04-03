@@ -26,7 +26,7 @@
         </button>
         <button 
           @click="refreshData" 
-          class="md-icon-btn md-ripple"
+          class="md-btn md-btn-tonal md-ripple"
           :disabled="isLoading"
         >
           <svg 

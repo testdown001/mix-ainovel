@@ -93,6 +93,8 @@ class Chapter(ChapterOutline):
     evaluation: Optional[str] = None
     generation_status: ChapterGenerationStatus = ChapterGenerationStatus.NOT_GENERATED
     word_count: Optional[int] = None
+    updated_at: Optional[str] = None
+    created_at: Optional[str] = None
 
 
 class Relationship(BaseModel):
@@ -212,6 +214,7 @@ class FlowConfig(BaseModel):
     use_local_anti_hallucination: Optional[bool] = Field(default=None, description="是否使用本地实体规则反幻觉检查")
     batch_parallel_workers: Optional[int] = Field(default=None, ge=1, le=8, description="批量生成并行工作数")
     use_agent: Optional[bool] = Field(default=None, description="是否启用 Agent 多代理系统生成")
+    use_agentic_loop: Optional[bool] = Field(default=None, description="Agent 模式下是否启用智能体循环（工具调用驱动）")
     selected_skills: Optional[List[Dict[str, Any]]] = Field(
         default=None,
         description="Agent 模式下的技能编排配置列表",

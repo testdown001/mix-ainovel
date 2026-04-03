@@ -44,3 +44,15 @@ export async function getGatekeeperReview(
 ): Promise<{ review: GatekeeperReview | null }> {
   return requestJson(`/api/review/gatekeeper/${projectId}/${chapterNumber}`)
 }
+
+export interface ProjectAnalysis {
+  overall_score: number
+  dimensions: Record<string, number>
+  reviewed_chapters: number
+}
+
+export async function getProjectAnalysis(
+  projectId: string
+): Promise<{ analysis: ProjectAnalysis | null }> {
+  return requestJson(`/api/review/analysis/${projectId}`)
+}

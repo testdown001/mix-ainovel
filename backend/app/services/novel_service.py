@@ -1590,38 +1590,53 @@ class NovelService:
             status_value = chapter.status or ChapterGenerationStatus.NOT_GENERATED.value
             word_count = chapter.word_count or 0
 
-            # 只有在 include_content=True 时才包含完整内容
-            if include_content:
-                if chapter.selected_version:
-                    content = chapter.selected_version.content
-                if chapter.versions:
-                    sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
-                    versions = [v.content for v in sorted_versions]
-                    version_metadata = []
-                    for idx, version in enumerate(sorted_versions):
-                        meta: Dict[str, Any] = {
-                            "version_id": version.id,
-                            "version_label": version.version_label,
-                        }
-                        if isinstance(version.metadata, dict):
-                            meta.update(version.metadata)
-                            ai_review = version.metadata.get("ai_review")
-                            if (
-                                recommended_version_index is None
-                                and isinstance(ai_review, dict)
-                                and ai_review.get("is_best") is True
-                            ):
-                                recommended_version_index = idx
-                        version_metadata.append(meta)
+            if chapter.versions:
+                sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
 
-                    if recommended_version_index is None and chapter.selected_version_id:
-                        for idx, version in enumerate(sorted_versions):
-                            if version.id == chapter.selected_version_id:
-                                recommended_version_index = idx
-                                break
-                if chapter.evaluations:
-                    latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
-                    evaluation_text = latest.feedback or latest.decision
+                if include_content:
+                    if chapter.selected_version:
+                        content = chapter.selected_version.content
+                    versions = [v.content for v in sorted_versions]
+
+                version_metadata = []
+                for idx, version in enumerate(sorted_versions):
+                    meta: Dict[str, Any] = {
+                        "version_id": version.id,
+                        "version_label": version.version_label,
+                    }
+                    if isinstance(version.metadata, dict):
+                        if include_content:
+                            meta.update(version.metadata)
+                        else:
+                            ai_review_data = version.metadata.get("ai_review")
+                            if ai_review_data is not None:
+                                meta["ai_review"] = ai_review_data
+                        ai_review = version.metadata.get("ai_review")
+                        if (
+                            recommended_version_index is None
+                            and isinstance(ai_review, dict)
+                            and ai_review.get("is_best") is True
+                        ):
+                            recommended_version_index = idx
+                    version_metadata.append(meta)
+
+                if recommended_version_index is None and chapter.selected_version_id:
+                    for idx, version in enumerate(sorted_versions):
+                        if version.id == chapter.selected_version_id:
+                            recommended_version_index = idx
+                            break
+
+            if include_content and chapter.evaluations:
+                latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
+                evaluation_text = latest.feedback or latest.decision
+
+        updated_at = None
+        created_at = None
+        if chapter:
+            if chapter.updated_at:
+                updated_at = chapter.updated_at.isoformat()
+            if chapter.created_at:
+                created_at = chapter.created_at.isoformat()
 
         return ChapterSchema(
             chapter_number=chapter_number,
@@ -1635,4 +1650,6 @@ class NovelService:
             evaluation=evaluation_text,
             generation_status=ChapterGenerationStatus(status_value),
             word_count=word_count,
+            updated_at=updated_at,
+            created_at=created_at,
         )

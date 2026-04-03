@@ -305,6 +305,7 @@ export interface AdvancedGenerateFlowConfig {
   skip_history_summary_backfill?: boolean
   use_local_anti_hallucination?: boolean
   use_agent?: boolean
+  use_agentic_loop?: boolean
 }
 
 export interface AdvancedGenerateRequest {

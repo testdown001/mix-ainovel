@@ -279,6 +279,12 @@ interface CharacterItem {
   abilities?: string
 }
 
+interface AnalysisData {
+  overall_score: number
+  dimensions: Record<string, number>
+  reviewed_chapters: number
+}
+
 const props = defineProps<{
   data: OverviewData | null
   chapters?: ChapterItem[]
@@ -288,6 +294,7 @@ const props = defineProps<{
   isLoading?: boolean
   projectId?: string
   isCompleted?: boolean
+  analysisData?: AnalysisData | null
 }>()
 
 const emit = defineEmits<{
@@ -338,20 +345,25 @@ const aiRate = computed(() => {
 })
 
 const avgQuality = computed(() => {
+  if (props.analysisData?.overall_score) return props.analysisData.overall_score
   if (!props.chapters) return 0
   const scores: number[] = []
   for (const ch of props.chapters) {
     const s = getChapterScore(ch)
-    if (s !== null) scores.push(s)
+    if (s !== null && s > 0) scores.push(s)
   }
-  if (scores.length === 0) return 0
+  if (scores.length === 0) {
+    const dims = computeAnalysisScores()
+    const vals = [dims.pacing, dims.character, dims.worldbuilding, dims.tension].filter(v => v > 0)
+    return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0
+  }
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
 })
 
 const recentChapters = computed(() => {
   if (!props.chapters) return []
   return props.chapters
-    .filter(c => c.generation_status === 'successful' && c.content)
+    .filter(c => c.generation_status === 'successful')
     .sort((a, b) => b.chapter_number - a.chapter_number)
     .slice(0, 3)
 })
@@ -375,34 +387,62 @@ const analysisSummary = computed(() => {
   if (completedChapters.value === 0) {
     return '暂无足够的章节数据进行分析。请先生成章节内容。'
   }
-  const quality = avgQuality.value
-  const parts: string[] = []
-  if (quality >= 85) parts.push('整体质量优秀')
-  else if (quality >= 70) parts.push('整体质量良好')
-  else parts.push('整体质量有提升空间')
 
   const dims = analysisDimensions.value
-  const best = dims.reduce((a, b) => a.score > b.score ? a : b)
-  const worst = dims.reduce((a, b) => a.score < b.score ? a : b)
-  if (best.score > 0) parts.push(`${best.label}表现突出`)
-  if (worst.score > 0 && worst.score < best.score) parts.push(`建议加强${worst.label}`)
+  const hasScores = dims.some(d => d.score > 0)
+
+  if (!hasScores) {
+    return `已完成${completedChapters.value}章，共${formatNumber(totalWords.value)}字。点击下方按钮获取AI深度分析。`
+  }
+
+  const parts: string[] = []
+  const quality = avgQuality.value
+  if (quality >= 85) parts.push('整体质量优秀')
+  else if (quality >= 70) parts.push('整体质量良好')
+  else if (quality >= 50) parts.push('整体质量中等')
+  else parts.push('整体质量有提升空间')
+
+  const sorted = [...dims].sort((a, b) => b.score - a.score)
+  if (sorted[0].score > 0) parts.push(`${sorted[0].label}表现突出`)
+  if (sorted[sorted.length - 1].score > 0 && sorted[sorted.length - 1].score < sorted[0].score) {
+    parts.push(`建议加强${sorted[sorted.length - 1].label}`)
+  }
+
+  if (props.analysisData?.reviewed_chapters) {
+    parts.push(`基于${props.analysisData.reviewed_chapters}章审核数据`)
+  }
 
   return parts.join('，') + '。'
 })
 
 function computeAnalysisScores() {
   const defaults = { pacing: 0, character: 0, worldbuilding: 0, tension: 0 }
+
+  // Priority 1: Use aggregated ChapterReview data (six-dimension gatekeeper scores)
+  if (props.analysisData?.dimensions) {
+    const d = props.analysisData.dimensions
+    return {
+      pacing: d.pacing || 0,
+      character: d.character_depth || 0,
+      worldbuilding: Math.round(((d.consistency || 0) + (d.prose_quality || 0)) / 2) || 0,
+      tension: Math.round(((d.foreshadowing || 0) + (d.emotion_curve || 0)) / 2) || 0,
+    }
+  }
+
   if (!props.chapters || props.chapters.length === 0) return defaults
 
+  // Priority 2: Use ai_review scores from version metadata
   const scoreMap: Record<string, number[]> = {
     pacing: [], character: [], worldbuilding: [], tension: []
   }
 
   const keyMapping: Record<string, string> = {
     pacing: 'pacing', rhythm: 'pacing', '节奏': 'pacing',
-    character: 'character', characterization: 'character', '人物': 'character',
-    worldbuilding: 'worldbuilding', world: 'worldbuilding', '世界观': 'worldbuilding',
-    tension: 'tension', plot: 'tension', '张力': 'tension', '情节': 'tension',
+    character: 'character', characterization: 'character', character_depth: 'character', '人物': 'character',
+    worldbuilding: 'worldbuilding', world: 'worldbuilding', immersion: 'worldbuilding',
+    consistency: 'worldbuilding', prose_quality: 'worldbuilding', '世界观': 'worldbuilding',
+    tension: 'tension', plot: 'tension', hook: 'tension',
+    foreshadowing: 'tension', emotion_curve: 'tension', '张力': 'tension', '情节': 'tension',
   }
 
   for (const ch of props.chapters) {
@@ -412,7 +452,7 @@ function computeAnalysisScores() {
     if (!meta?.ai_review?.scores) continue
 
     for (const [key, val] of Object.entries(meta.ai_review.scores)) {
-      if (typeof val !== 'number') continue
+      if (typeof val !== 'number' || val === 0) continue
       const mapped = keyMapping[key.toLowerCase()]
       if (mapped && scoreMap[mapped]) {
         scoreMap[mapped].push(val)
@@ -429,13 +469,25 @@ function computeAnalysisScores() {
     tension: avg(scoreMap.tension),
   }
 
+  // Priority 3: Compute from chapter statistics when no review data exists
   if (result.pacing === 0 && result.character === 0 && result.worldbuilding === 0 && result.tension === 0) {
-    if (avgQuality.value > 0) {
-      const base = avgQuality.value
-      result.pacing = Math.min(100, base + Math.floor(Math.random() * 6 - 3))
-      result.character = Math.min(100, base + Math.floor(Math.random() * 8 - 2))
-      result.worldbuilding = Math.min(100, base - Math.floor(Math.random() * 10))
-      result.tension = Math.min(100, base + Math.floor(Math.random() * 8))
+    const completed = props.chapters.filter(c => c.generation_status === 'successful')
+    if (completed.length >= 3) {
+      const wordCounts = completed.map(c => c.word_count || 0).filter(w => w > 0)
+      if (wordCounts.length >= 3) {
+        const mean = wordCounts.reduce((a, b) => a + b, 0) / wordCounts.length
+        const variance = wordCounts.reduce((a, w) => a + (w - mean) ** 2, 0) / wordCounts.length
+        const cv = Math.sqrt(variance) / mean
+        result.pacing = Math.round(Math.max(40, Math.min(95, 95 - cv * 200)))
+
+        const totalOutlines = props.totalOutlines || completed.length
+        const completionRate = Math.min(1, completed.length / totalOutlines)
+        result.tension = Math.round(Math.max(40, Math.min(90, 50 + completionRate * 40)))
+
+        const avgWords = Math.round(mean)
+        result.character = Math.round(Math.max(40, Math.min(90, avgWords >= 3000 && avgWords <= 5000 ? 80 : 60)))
+        result.worldbuilding = Math.round(Math.max(40, Math.min(85, 50 + completed.length * 0.5)))
+      }
     }
   }
 

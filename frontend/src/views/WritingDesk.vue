@@ -307,6 +307,7 @@
         :is-completed="isAgentCompleted"
         :total-time="agentTotalTime"
         :total-l-l-m-calls="agentLLMCalls"
+        :total-tool-calls="agentToolCalls"
         @pause="handleAgentPause"
         @stop="handleAgentStop"
       />
@@ -461,6 +462,7 @@ const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | 
   const overrides: Partial<AdvancedGenerateFlowConfig> = {}
   if (useAgent.value) {
     overrides.use_agent = true
+    overrides.use_agentic_loop = true
   }
   if (selectedGenerationSkills.value.length > 0) {
     overrides.selected_skills = selectedGenerationSkills.value
@@ -488,6 +490,7 @@ const isAgentRunning = ref(false)
 const isAgentCompleted = ref(false)
 const agentTotalTime = ref(0)
 const agentLLMCalls = ref(0)
+const agentToolCalls = ref(0)
 let _agentStartTime = 0
 const agentNodes = ref<AgentNode[]>([
   { id: 'taizi', name: '太子省', role: '需求分拣', icon: '👶', status: 'pending', logs: [] },
@@ -529,16 +532,33 @@ function updateAgentByStage(stage: string, message?: string) {
       _setAgentStatus(agentId, 'completed')
       _addAgentLog(agentId, msg, 'success')
     } else {
-      // 中间步骤日志（如 agent:zhongshu:context, agent:bingbu:pipeline 等）
       _addAgentLog(agentId, msg, 'info')
     }
 
-    // 系统级事件
     if (agentId === 'system' && action === 'done') {
       currentAgentId.value = null
       isAgentRunning.value = false
       isAgentCompleted.value = true
       agentTotalTime.value = _agentStartTime ? Date.now() - _agentStartTime : 0
+    }
+    return
+  }
+
+  // Agentic loop events (tool_call, tool_result, loop_iteration, context_compact)
+  if (stage === 'tool_call' || stage === 'tool_result' || stage === 'loop_iteration' || stage === 'context_compact') {
+    const activeAgent = currentAgentId.value
+    if (activeAgent) {
+      if (stage === 'tool_call') {
+        _addAgentLog(activeAgent, message || 'Calling tool...', 'info')
+        agentToolCalls.value++
+      } else if (stage === 'tool_result') {
+        _addAgentLog(activeAgent, message || 'Tool completed', 'success')
+      } else if (stage === 'loop_iteration') {
+        _addAgentLog(activeAgent, message || 'New iteration', 'info')
+        agentLLMCalls.value++
+      } else if (stage === 'context_compact') {
+        _addAgentLog(activeAgent, message || 'Context compacted', 'warning')
+      }
     }
     return
   }
@@ -587,6 +607,7 @@ function resetAgentState() {
   isAgentCompleted.value = false
   agentTotalTime.value = 0
   agentLLMCalls.value = 0
+  agentToolCalls.value = 0
   _agentStartTime = Date.now()
 }
 

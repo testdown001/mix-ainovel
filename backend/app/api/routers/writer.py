@@ -720,6 +720,7 @@ async def select_chapter_version(
         name=f"post-process-{project_id}-ch{request.chapter_number}",
     )
 
+    await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 
@@ -769,6 +770,7 @@ async def evaluate_chapter(
             feedback="未配置评审提示词",
             decision="skipped",
         )
+        await CacheService().invalidate_project_schema(project_id)
         return await _load_project_schema(novel_service, project_id, current_user.id)
 
     try:
@@ -902,6 +904,7 @@ async def evaluate_chapter(
 
         raise HTTPException(status_code=500, detail=f"评审失败: {str(exc)}")
 
+    await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 
@@ -923,6 +926,7 @@ async def update_chapter_outline(
     outline.summary = request.summary
     await session.commit()
 
+    await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 
@@ -1052,6 +1056,7 @@ async def generate_chapters_outline(
         logger.exception("生成大纲解析失败: %s\n原始响应前500字: %s", exc, (normalized or "")[:500])
         raise HTTPException(status_code=500, detail=f"大纲生成失败: {str(exc)}")
 
+    await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 
@@ -1363,7 +1368,7 @@ async def regenerate_chapter_outlines(
             logger.exception("重新生成大纲解析失败: %s", exc)
             raise HTTPException(status_code=500, detail=f"大纲重新生成失败: {str(exc)}")
 
-    # 重新加载项目获取最新大纲
+    await CacheService().invalidate_project_schema(project_id)
     project_schema = await _load_project_schema(novel_service, project_id, current_user.id)
     return RegenerateOutlinesResponse(
         updated_chapters=sorted(updated_numbers),
@@ -1417,6 +1422,7 @@ async def edit_chapter_content(
         mode="edit",
     )
 
+    await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 

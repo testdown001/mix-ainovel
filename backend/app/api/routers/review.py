@@ -191,6 +191,59 @@ async def review_gatekeeper(
     }
 
 
+@router.get("/analysis/{project_id}")
+async def get_project_analysis(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取项目的聚合质量分析数据"""
+    novel_service = NovelService(session)
+    project = await novel_service.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    if project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="无权限访问此项目")
+
+    review_service = GatekeeperReviewService(session)
+    reviews = await review_service.get_reviews_by_project(project_id)
+
+    if not reviews:
+        return {"project_id": project_id, "analysis": None}
+
+    dimension_keys = [
+        "consistency", "character_depth", "pacing",
+        "foreshadowing", "prose_quality", "emotion_curve",
+    ]
+    dim_sums: Dict[str, float] = {k: 0.0 for k in dimension_keys}
+    dim_counts: Dict[str, int] = {k: 0 for k in dimension_keys}
+    overall_scores: list[float] = []
+
+    for review in reviews:
+        overall_scores.append(review.overall_score)
+        if review.scores:
+            for key in dimension_keys:
+                val = review.scores.get(key)
+                if isinstance(val, (int, float)) and val > 0:
+                    dim_sums[key] += val
+                    dim_counts[key] += 1
+
+    avg_overall = round(sum(overall_scores) / len(overall_scores)) if overall_scores else 0
+    dimension_averages = {
+        k: round(dim_sums[k] / dim_counts[k]) if dim_counts[k] > 0 else 0
+        for k in dimension_keys
+    }
+
+    return {
+        "project_id": project_id,
+        "analysis": {
+            "overall_score": avg_overall,
+            "dimensions": dimension_averages,
+            "reviewed_chapters": len(reviews),
+        },
+    }
+
+
 @router.get("/gatekeeper/{project_id}/{chapter_number}")
 async def get_gatekeeper_review(
     project_id: str,

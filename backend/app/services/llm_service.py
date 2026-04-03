@@ -19,7 +19,7 @@ from ..repositories.user_repository import UserRepository
 from ..services.admin_setting_service import AdminSettingService
 from ..services.prompt_service import PromptService
 from ..services.usage_service import UsageService
-from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient
+from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient, _build_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +121,114 @@ class LLMService:
             max_tokens=max_tokens,
             top_p=top_p,
         )
+
+    async def chat_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[dict],
+        *,
+        temperature: float = 0.7,
+        user_id: Optional[int] = None,
+        timeout: float = 1500.0,
+        max_tokens: Optional[int] = None,
+        tool_choice: str = "auto",
+    ) -> Dict[str, Any]:
+        """Non-streaming LLM call with OpenAI function-calling tool support.
+
+        Returns a dict with:
+          - content: Optional text content
+          - tool_calls: List of tool call dicts (id, function.name, function.arguments)
+          - finish_reason: The finish reason from the API
+        """
+        config = await self._resolve_llm_config(user_id)
+        config["base_url"] = self._normalize_base_url(config.get("base_url"))
+        model_name = config.get("model") or ""
+        api_format_raw = config.get("api_format")
+        api_format = self._resolve_api_format(api_format_raw, config.get("base_url"), model_name)
+
+        if api_format in ("anthropic", "gemini", "openai-responses"):
+            raise ValueError(
+                f"chat_with_tools 不支持 api_format='{api_format}'。"
+                f"智能体循环（Agentic Loop）需要 OpenAI 兼容的 API 端点。"
+                f"请将 LLM 配置切换为 openai 格式（如 OpenRouter、OpenAI 官方或兼容代理），"
+                f"或将 api_format 设置为 'openai'。"
+            )
+
+        api_key = config["api_key"]
+        base_url = config.get("base_url")
+
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            http_client=_build_http_client(),
+        )
+
+        api_messages = []
+        for msg in messages:
+            entry: Dict[str, Any] = {"role": msg["role"]}
+            if msg.get("content") is not None:
+                entry["content"] = msg["content"]
+            if msg.get("tool_calls"):
+                entry["tool_calls"] = msg["tool_calls"]
+            if msg.get("tool_call_id"):
+                entry["tool_call_id"] = msg["tool_call_id"]
+            if msg.get("name"):
+                entry["name"] = msg["name"]
+            api_messages.append(entry)
+
+        _is_claude_thinking = any(
+            kw in model_name.lower()
+            for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4", "sonnet-4")
+        )
+        effective_temperature = temperature
+        if _is_claude_thinking and temperature != 1.0:
+            logger.info("chat_with_tools: 跳过 temperature=%.2f (thinking model %s)", temperature, model_name)
+            effective_temperature = 1.0
+
+        payload: Dict[str, Any] = {
+            "model": model_name,
+            "messages": api_messages,
+            "tools": tools,
+            "tool_choice": tool_choice,
+            "temperature": effective_temperature,
+            "timeout": int(timeout),
+        }
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
+
+        logger.info(
+            "LLM tool-use request: model=%s tools=%d messages=%d format=%s",
+            model_name, len(tools), len(api_messages), api_format,
+        )
+
+        try:
+            response = await client.chat.completions.create(**payload)
+        except Exception as exc:
+            logger.error("LLM tool-use request failed: %s", exc, exc_info=True)
+            raise
+
+        choice = response.choices[0] if response.choices else None
+        if not choice:
+            return {"content": None, "tool_calls": [], "finish_reason": "error"}
+
+        message = choice.message
+        tool_calls_raw = []
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                tool_calls_raw.append({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                })
+
+        return {
+            "content": message.content,
+            "tool_calls": tool_calls_raw,
+            "finish_reason": choice.finish_reason,
+        }
 
     async def get_summary(
         self,

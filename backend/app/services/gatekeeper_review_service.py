@@ -308,3 +308,23 @@ class GatekeeperReviewService:
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_reviews_by_project(
+        self, project_id: str
+    ) -> list[ChapterReview]:
+        """获取项目所有章节的最新审核结果（每章取最新一条）"""
+        from sqlalchemy import select, func
+
+        latest_ids_subq = (
+            select(func.max(ChapterReview.id).label("max_id"))
+            .where(ChapterReview.project_id == project_id)
+            .group_by(ChapterReview.chapter_number)
+            .subquery()
+        )
+        stmt = (
+            select(ChapterReview)
+            .where(ChapterReview.id == latest_ids_subq.c.max_id)
+            .order_by(ChapterReview.chapter_number)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())

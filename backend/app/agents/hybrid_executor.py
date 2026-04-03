@@ -58,6 +58,9 @@ class HybridExecutor:
     ) -> Dict[str, Any]:
         """选择使用 Agent 系统或传统流水线"""
 
+        if use_agent and self._agent_system_enabled and not self.agent_system:
+            await self.initialize_agent_system()
+
         if use_agent and self._agent_system_enabled and self.agent_system:
             return await self._use_agent_system(
                 project_id=project_id,

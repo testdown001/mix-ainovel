@@ -199,6 +199,7 @@ async def _execute_chapter_generate(
             preset=config.preset,
             use_agent_system=config.use_agent_system,
             rag_mode=config.rag_mode,
+            writing_notes=config.writing_notes or None,
         )
 
         await reporter.report(80, "post_processing", "正在后处理...")

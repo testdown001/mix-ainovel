@@ -92,7 +92,7 @@ class ShangshuAgent(BaseAgent):
             if task_id in self._version_events:
                 self._version_events[task_id].set()
 
-        await self.message_bus.subscribe("bingbu", handle_version_ready)
+        await self.message_bus.subscribe("shangshu", handle_version_ready)
 
     async def _dispatch_bingbu(
         self,

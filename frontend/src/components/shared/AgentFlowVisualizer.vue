@@ -67,6 +67,10 @@
           <span class="stat-label">调用 LLM</span>
           <span class="stat-value">{{ totalLLMCalls }} 次</span>
         </div>
+        <div v-if="totalToolCalls > 0" class="stat">
+          <span class="stat-label">工具调用</span>
+          <span class="stat-value">{{ totalToolCalls }} 次</span>
+        </div>
       </div>
     </div>
   </div>
@@ -97,6 +101,7 @@ interface Props {
   isCompleted?: boolean
   totalTime?: number
   totalLLMCalls?: number
+  totalToolCalls?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -114,6 +119,7 @@ const props = withDefaults(defineProps<Props>(), {
   isCompleted: false,
   totalTime: 0,
   totalLLMCalls: 0,
+  totalToolCalls: 0,
 })
 
 defineEmits<{
