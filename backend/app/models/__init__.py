@@ -68,6 +68,7 @@ from .chapter_review import ChapterReview
 # 新增：写作任务档案模型
 from .writing_archive import WritingArchive, EdictStatus
 from .plan import Plan
+from .api_usage_log import ApiUsageLog
 
 __all__ = [
     # 基础模型
@@ -126,4 +127,5 @@ __all__ = [
     "WritingArchive",
     "EdictStatus",
     "Plan",
+    "ApiUsageLog",
 ]

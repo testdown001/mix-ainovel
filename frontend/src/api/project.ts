@@ -1,8 +1,7 @@
 // AIMETA P=项目通用API_宪法人格记忆势力等|R=项目配置管理|NR=不含小说生成|E=api:project|X=internal|A=projectApi对象|D=axios|S=net|RD=./README.ai
-import { API_BASE_URL, API_PREFIX } from './novel'
 import { requestJson } from './http'
 
-const PROJECT_PREFIX = `${API_BASE_URL}${API_PREFIX}/projects`
+const PROJECT_PREFIX = '/api/projects'
 
 export interface PersonaPayload {
   id?: number

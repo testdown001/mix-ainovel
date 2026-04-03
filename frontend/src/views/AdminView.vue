@@ -154,6 +154,7 @@ type MenuKey =
   | 'novels'
   | 'logs'
   | 'settings'
+  | 'api_management'
   | 'password'
   | 'membership_plans'
   | 'payment_channels'
@@ -166,6 +167,7 @@ const components: Record<MenuKey, ReturnType<typeof defineAsyncComponent>> = {
   novels: defineAsyncComponent(() => import('../components/admin/NovelManagement.vue')),
   logs: defineAsyncComponent(() => import('../components/admin/UpdateLogManagement.vue')),
   settings: defineAsyncComponent(() => import('../components/admin/SettingsManagement.vue')),
+  api_management: defineAsyncComponent(() => import('../components/admin/ApiManagement.vue')),
   password: defineAsyncComponent(() => import('../components/admin/PasswordManagement.vue')),
   membership_plans: defineAsyncComponent(() => import('../components/admin/MembershipPlans.vue')),
   payment_channels: defineAsyncComponent(() => import('../components/admin/PaymentChannels.vue')),
@@ -179,6 +181,7 @@ const iconRenderers: Record<MenuKey, () => any> = {
   novels: () => h('span', { class: 'menu-icon' }, '📚'),
   logs: () => h('span', { class: 'menu-icon' }, '📝'),
   settings: () => h('span', { class: 'menu-icon' }, '⚙️'),
+  api_management: () => h('span', { class: 'menu-icon' }, '🔌'),
   password: () => h('span', { class: 'menu-icon' }, '🔒'),
   membership_plans: () => h('span', { class: 'menu-icon' }, '💳'),
   payment_channels: () => h('span', { class: 'menu-icon' }, '🏦'),
@@ -192,6 +195,7 @@ const menuOptions: MenuOption[] = [
   { key: 'novels', label: '小说项目', icon: iconRenderers.novels },
   { key: 'logs', label: '更新日志', icon: iconRenderers.logs },
   { key: 'settings', label: '系统配置', icon: iconRenderers.settings },
+  { key: 'api_management', label: 'API 管理', icon: iconRenderers.api_management },
   { key: 'password', label: '安全中心', icon: iconRenderers.password },
   {
     key: 'payment-group',
