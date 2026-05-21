@@ -306,3 +306,5 @@ def test_context_plan_roundtrip_serialization():
     assert restored.prompt_modules == plan.prompt_modules
     assert restored.verification_tasks == plan.verification_tasks
     assert restored.intent == plan.intent
+    assert [node.to_dict() for node in restored.scene_plan] == [node.to_dict() for node in plan.scene_plan]
+    assert restored.context_strategy.to_dict() == plan.context_strategy.to_dict()

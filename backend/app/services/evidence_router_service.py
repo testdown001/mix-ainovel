@@ -672,6 +672,7 @@ class EvidenceRouterService:
             "category_counts": category_counts,
             "sources": self._unique_sources(categories.values()),
             "top_titles": self._top_titles(categories.values(), limit=6),
+            "evidence_samples": self._evidence_samples(categories, limit=8),
             "retrieval_task_count": len(plan.retrieval_tasks),
             "task_reports": dict(task_reports or {}),
         }
@@ -992,3 +993,20 @@ class EvidenceRouterService:
                 if len(titles) >= limit:
                     return titles
         return titles
+
+    def _evidence_samples(self, categories: Dict[str, List[EvidenceItem]], limit: int) -> List[Dict[str, Any]]:
+        samples: List[Dict[str, Any]] = []
+        for category, items in categories.items():
+            for item in items:
+                samples.append(
+                    {
+                        "category": category,
+                        "source": item.source,
+                        "title": item.title,
+                        "score": item.score,
+                        "content": (item.content or "")[:500],
+                    }
+                )
+                if len(samples) >= limit:
+                    return samples
+        return samples

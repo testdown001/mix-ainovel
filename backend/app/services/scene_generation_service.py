@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional
@@ -39,6 +40,8 @@ class SceneGenerationService:
         }
 
         scenes = (chapter_mission or {}).get("scene_list") or []
+        if not scenes:
+            scenes = self._load_scene_plan(prompt_sections_data.get("scene_plan"))
         if not scenes or len(scenes) < 2:
             scenes = self.build_fallback_scenes(chapter_mission)
 
@@ -69,14 +72,26 @@ class SceneGenerationService:
             scene_conflict = scene.get("conflict", "")
             human_texture = scene.get("human_texture", [])
             dialogue_noise = scene.get("dialogue_noise", "")
+            dependencies = scene.get("dependencies") or []
+            required_evidence = scene.get("required_evidence") or []
+            characters = scene.get("characters") or []
+            verification_hints = scene.get("verification_hints") or []
 
             scene_instruction = f"[本场景任务——场景 {index + 1}/{len(scenes)}]\n"
             scene_instruction += f"- 目标：{scene_goal}\n"
+            if dependencies:
+                scene_instruction += f"- 依赖场景：{'、'.join(str(item) for item in dependencies)}\n"
+            if required_evidence:
+                scene_instruction += f"- 必须参考证据源：{'、'.join(str(item) for item in required_evidence)}\n"
+            if characters:
+                scene_instruction += f"- 重点人物：{'、'.join(str(item) for item in characters)}\n"
             if scene_location:
                 scene_instruction += f"- 地点：{scene_location}\n"
             if scene_conflict:
                 scene_instruction += f"- 阻力/冲突：{scene_conflict}\n"
             scene_instruction += f"- 目标字数：约{scene_words}字\n"
+            if verification_hints:
+                scene_instruction += f"- 完成后必须满足：{'、'.join(str(item) for item in verification_hints)}\n"
             if human_texture:
                 scene_instruction += f"- 生活噪音：{'、'.join(human_texture)}\n"
             if dialogue_noise:
@@ -134,7 +149,23 @@ class SceneGenerationService:
 
         metadata["scene_timings_ms"] = scene_timings
         metadata["scene_count"] = len(scenes)
+        metadata["scene_plan_applied"] = bool(prompt_sections_data.get("scene_plan"))
         return {"index": 0, "content": content, "metadata": metadata}
+
+    @staticmethod
+    def _load_scene_plan(raw: Any) -> List[dict]:
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [item for item in raw if isinstance(item, dict)]
+        if isinstance(raw, str):
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+        return []
 
     @staticmethod
     def build_fallback_scenes(chapter_mission: Optional[dict]) -> List[dict]:
@@ -153,6 +184,7 @@ class SceneGenerationService:
             "chapter_goals", "mission_brief", "director_script",
             "story_skeleton", "previous_summary", "previous_tail",
             "skill_instructions",
+            "scene_plan", "context_strategy",
             "writer_blueprint", "forbidden_characters",
             "reference_prose", "fusion_dna",
         ]
