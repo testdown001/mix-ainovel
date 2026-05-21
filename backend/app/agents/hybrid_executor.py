@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..schemas.generation_contract import normalize_generation_result
 from .system import WritingAgentSystem
 
 logger = logging.getLogger(__name__)
@@ -107,12 +108,13 @@ class HybridExecutor:
         versions = result.get("versions", [])
 
         for idx, v in enumerate(versions):
+            version_id = v.get("version_id") or idx + 1
             variants.append({
                 "index": idx,
-                "version_id": idx + 1,
+                "version_id": version_id,
                 "content": v.get("content", ""),
                 "metadata": {
-                    "version_id": v.get("version_id"),
+                    "version_id": version_id,
                     "word_count": v.get("word_count", 0),
                 },
             })
@@ -125,7 +127,7 @@ class HybridExecutor:
                 "metadata": {},
             }]
 
-        return {
+        return normalize_generation_result({
             "project_id": project_id,
             "chapter_number": chapter_number,
             "preset": "agent",
@@ -140,7 +142,7 @@ class HybridExecutor:
             # 奏折信息
             "imperial_edict_id": result.get("imperial_edict_id"),
             "archive_id": result.get("archive_id"),
-        }
+        })
 
     async def _use_legacy_pipeline(
         self,
@@ -156,7 +158,7 @@ class HybridExecutor:
 
             self.legacy_orchestrator = PipelineOrchestrator(self.session)
 
-        return await self.legacy_orchestrator.generate_chapter(
+        result = await self.legacy_orchestrator.generate_chapter(
             project_id=project_id,
             chapter_number=chapter_number,
             user_id=self.user_id,
@@ -164,6 +166,7 @@ class HybridExecutor:
             flow_config=flow_config,
             stream_handler=stream_handler,
         )
+        return normalize_generation_result(result)
 
     async def shutdown(self) -> None:
         """关闭系统"""
