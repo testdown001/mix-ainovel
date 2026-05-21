@@ -1643,10 +1643,12 @@ class NovelService:
         updated_at = None
         created_at = None
         if chapter:
-            if chapter.updated_at:
-                updated_at = chapter.updated_at.isoformat()
-            if chapter.created_at:
-                created_at = chapter.created_at.isoformat()
+            chapter_updated_at = getattr(chapter, "updated_at", None)
+            chapter_created_at = getattr(chapter, "created_at", None)
+            if chapter_updated_at:
+                updated_at = chapter_updated_at.isoformat()
+            if chapter_created_at:
+                created_at = chapter_created_at.isoformat()
 
         return ChapterSchema(
             chapter_number=chapter_number,

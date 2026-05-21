@@ -29,6 +29,9 @@ jobs:
           pip install -r requirements.txt pytest
 
       - name: Run tests
+        env:
+          SECRET_KEY: test-secret
+          ADMIN_DEFAULT_PASSWORD: test-password
         run: pytest tests/test_writer_quality_updates.py -q
 
   frontend:
