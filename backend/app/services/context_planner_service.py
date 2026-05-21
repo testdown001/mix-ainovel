@@ -57,6 +57,60 @@ class SkillPolicy:
 
 
 @dataclass
+class ScenePlanNode:
+    scene_id: str
+    goal: str
+    target_words: int
+    dependencies: List[str] = field(default_factory=list)
+    required_evidence: List[str] = field(default_factory=list)
+    conflict: str = ""
+    characters: List[str] = field(default_factory=list)
+    verification_hints: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "ScenePlanNode":
+        payload = dict(data or {})
+        return cls(
+            scene_id=str(payload.get("scene_id") or payload.get("scene") or ""),
+            goal=str(payload.get("goal") or "推进剧情"),
+            target_words=int(payload.get("target_words") or 700),
+            dependencies=[str(item) for item in (payload.get("dependencies") or []) if item],
+            required_evidence=[str(item) for item in (payload.get("required_evidence") or []) if item],
+            conflict=str(payload.get("conflict") or ""),
+            characters=[str(item) for item in (payload.get("characters") or []) if item],
+            verification_hints=[str(item) for item in (payload.get("verification_hints") or []) if item],
+        )
+
+
+@dataclass
+class ContextStrategy:
+    mode: str
+    reason: str
+    query_limit: int
+    required_sources: List[str] = field(default_factory=list)
+    long_context_modules: List[str] = field(default_factory=list)
+    rag_focus: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "ContextStrategy":
+        payload = dict(data or {})
+        return cls(
+            mode=str(payload.get("mode") or "rag"),
+            reason=str(payload.get("reason") or "default"),
+            query_limit=int(payload.get("query_limit") or 4),
+            required_sources=[str(item) for item in (payload.get("required_sources") or []) if item],
+            long_context_modules=[str(item) for item in (payload.get("long_context_modules") or []) if item],
+            rag_focus=[str(item) for item in (payload.get("rag_focus") or []) if item],
+        )
+
+
+@dataclass
 class ContextPlan:
     intent: Dict[str, Any]
     chapter_phase: str
@@ -67,6 +121,8 @@ class ContextPlan:
     budgets: Dict[str, Any] = field(default_factory=dict)
     is_fast_path: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
+    scene_plan: List[ScenePlanNode] = field(default_factory=list)
+    context_strategy: Optional[ContextStrategy] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -79,6 +135,8 @@ class ContextPlan:
             "budgets": dict(self.budgets),
             "is_fast_path": self.is_fast_path,
             "metadata": dict(self.metadata),
+            "scene_plan": [item.to_dict() for item in self.scene_plan],
+            "context_strategy": self.context_strategy.to_dict() if self.context_strategy else None,
         }
 
     @classmethod
@@ -102,6 +160,14 @@ class ContextPlan:
             budgets=dict(payload.get("budgets") or {}),
             is_fast_path=bool(payload.get("is_fast_path")),
             metadata=dict(payload.get("metadata") or {}),
+            scene_plan=[
+                ScenePlanNode.from_dict(item)
+                for item in (payload.get("scene_plan") or [])
+                if item
+            ],
+            context_strategy=ContextStrategy.from_dict(payload.get("context_strategy"))
+            if payload.get("context_strategy")
+            else None,
         )
 
 
@@ -197,6 +263,15 @@ class ContextPlannerService:
             skill_policies=resolved_skill_policies,
             is_fast_path=is_fast_path,
         )
+        context_strategy = self._build_context_strategy(
+            chapter_number=chapter_number,
+            chapter_phase=chapter_phase,
+            flow_config=flow_config,
+            history_context=history,
+            retrieval_tasks=retrieval_tasks,
+            is_fast_path=is_fast_path,
+        )
+        self._apply_context_strategy(retrieval_tasks, context_strategy)
         prompt_modules = self._build_prompt_modules(
             flow_config=flow_config,
             history_context=history,
@@ -230,6 +305,16 @@ class ContextPlannerService:
             verification_tasks=verification_tasks,
             is_fast_path=is_fast_path,
         )
+        scene_plan = self._build_scene_plan(
+            chapter_phase=chapter_phase,
+            outline_title=str(outline.get("title") or f"第{chapter_number}章"),
+            outline_summary=str(outline.get("summary") or ""),
+            writing_notes=writing_notes or "",
+            character_names=character_names,
+            target_words=self._safe_int(flow_config.get("target_word_count") or flow_config.get("word_count"), 3500),
+            skill_policies=resolved_skill_policies,
+            context_strategy=context_strategy,
+        )
         metadata = {
             "plan_version": "v0.1",
             "source": "context_planner_service",
@@ -250,6 +335,8 @@ class ContextPlannerService:
             budgets=budgets,
             is_fast_path=is_fast_path,
             metadata=metadata,
+            scene_plan=scene_plan,
+            context_strategy=context_strategy,
         )
 
     def build_retrieval_queries(
@@ -285,7 +372,8 @@ class ContextPlannerService:
             self._append_query(queries, outline_title)
             self._append_query(queries, outline_summary)
 
-        return self._dedupe_queries(queries, limit=4)
+        query_limit = plan.context_strategy.query_limit if plan.context_strategy else 4
+        return self._dedupe_queries(queries, limit=query_limit)
 
     def _build_skill_policies(self, selected_skills: Sequence[Dict[str, Any]]) -> List[SkillPolicy]:
         policies: List[SkillPolicy] = []
@@ -409,6 +497,122 @@ class ContextPlannerService:
 
         return tasks
 
+    def _build_context_strategy(
+        self,
+        *,
+        chapter_number: int,
+        chapter_phase: str,
+        flow_config: Dict[str, Any],
+        history_context: Dict[str, Any],
+        retrieval_tasks: Sequence[RetrievalTask],
+        is_fast_path: bool,
+    ) -> ContextStrategy:
+        task_sources = [task.source for task in retrieval_tasks]
+        if is_fast_path:
+            return ContextStrategy(
+                mode="rag_minimal",
+                reason="fast_path_latency_budget",
+                query_limit=4,
+                required_sources=[source for source in task_sources if source in {"local_plot_rag", "state_rag"}],
+                rag_focus=["local_plot", "recent_state"],
+            )
+
+        has_long_context = bool(history_context.get("previous_summary") or history_context.get("story_skeleton"))
+        needs_symbolic = any(
+            flow_config.get(key)
+            for key in ("enable_foreshadowing", "enable_power_system", "enable_faction", "enable_constitution")
+        )
+        if chapter_phase in {"climax", "resolution"} or needs_symbolic:
+            return ContextStrategy(
+                mode="hybrid",
+                reason="high_dependency_chapter_requires_rag_and_long_context",
+                query_limit=6,
+                required_sources=task_sources,
+                long_context_modules=["previous_summary", "previous_tail", "story_skeleton"],
+                rag_focus=["local_plot", "state_snapshot", "symbolic_constraints"],
+            )
+        if chapter_number <= 2 and has_long_context:
+            return ContextStrategy(
+                mode="long_context_first",
+                reason="early_chapter_continuity_prefers_contiguous_context",
+                query_limit=2,
+                required_sources=[source for source in task_sources if source != "symbolic_rag"],
+                long_context_modules=["previous_summary", "previous_tail", "story_skeleton"],
+                rag_focus=["local_plot"],
+            )
+        return ContextStrategy(
+            mode="rag_balanced",
+            reason="default_balanced_retrieval",
+            query_limit=4,
+            required_sources=task_sources,
+            long_context_modules=["previous_summary", "previous_tail"],
+            rag_focus=["local_plot", "state_snapshot"],
+        )
+
+    @staticmethod
+    def _apply_context_strategy(
+        retrieval_tasks: List[RetrievalTask],
+        context_strategy: ContextStrategy,
+    ) -> None:
+        for task in retrieval_tasks:
+            task.filters["context_strategy"] = context_strategy.mode
+            if context_strategy.mode == "hybrid" and task.source in {"symbolic_rag", "state_rag"}:
+                task.priority += 1
+                task.max_items = max(task.max_items, 5)
+            elif context_strategy.mode == "long_context_first" and task.source == "local_plot_rag":
+                task.max_items = min(task.max_items, 3)
+
+    def _build_scene_plan(
+        self,
+        *,
+        chapter_phase: str,
+        outline_title: str,
+        outline_summary: str,
+        writing_notes: str,
+        character_names: Sequence[str],
+        target_words: int,
+        skill_policies: Sequence[SkillPolicy],
+        context_strategy: ContextStrategy,
+    ) -> List[ScenePlanNode]:
+        total = target_words if target_words > 0 else 3500
+        characters = list(character_names[:4])
+        skill_verify_hints = [
+            hint
+            for policy in skill_policies
+            for hint in policy.verify_hints
+        ]
+        if chapter_phase in {"climax", "resolution"}:
+            goals = [
+                ("scene_1", f"承接《{outline_title}》开局，明确旧线索和当前危机", 0.25, []),
+                ("scene_2", outline_summary or writing_notes or "推进核心冲突并制造选择压力", 0.45, ["scene_1"]),
+                ("scene_3", "回收关键情绪/伏笔并留下追更钩子", 0.30, ["scene_2"]),
+            ]
+        elif chapter_phase == "setup":
+            goals = [
+                ("scene_1", f"建立《{outline_title}》的处境、人物欲望和读者问题", 0.35, []),
+                ("scene_2", outline_summary or "引入第一处阻力或诱因", 0.40, ["scene_1"]),
+                ("scene_3", "用具体动作触发下一章期待", 0.25, ["scene_2"]),
+            ]
+        else:
+            goals = [
+                ("scene_1", f"承接上一章，进入《{outline_title}》的行动场", 0.28, []),
+                ("scene_2", outline_summary or writing_notes or "推进人物冲突和信息增量", 0.44, ["scene_1"]),
+                ("scene_3", "完成本章转折并压出新的问题", 0.28, ["scene_2"]),
+            ]
+        return [
+            ScenePlanNode(
+                scene_id=scene_id,
+                goal=goal,
+                target_words=max(300, int(total * ratio)),
+                dependencies=dependencies,
+                required_evidence=list(context_strategy.required_sources),
+                conflict="人物目标与外部阻力正面碰撞" if index == 2 else "",
+                characters=characters,
+                verification_hints=skill_verify_hints,
+            )
+            for index, (scene_id, goal, ratio, dependencies) in enumerate(goals, start=1)
+        ]
+
     def _build_prompt_modules(
         self,
         *,
@@ -453,6 +657,7 @@ class ContextPlannerService:
         is_fast_path: bool,
     ) -> List[str]:
         tasks = ["continuity_check"]
+        tasks.append("claim_level_verification")
         if flow_config.get("enable_consistency"):
             tasks.append("consistency_check")
         if flow_config.get("enable_foreshadowing"):
@@ -599,6 +804,13 @@ class ContextPlannerService:
         normalized = " ".join(str(value or "").split())
         if normalized:
             queries.append(normalized)
+
+    @staticmethod
+    def _safe_int(value: Any, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     def _dedupe_queries(self, queries: Sequence[str], limit: int) -> List[str]:
         result: List[str] = []

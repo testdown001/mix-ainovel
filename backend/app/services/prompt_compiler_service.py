@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Dict, List, Sequence, Tuple
 
 from .context_planner_service import ContextPlan
@@ -114,6 +115,17 @@ class PromptCompilerService:
         skill_section = self.build_skill_instruction_section(plan)
         if skill_section and "skill_instructions" in allowed_modules:
             compiled["skill_instructions"] = skill_section[1]
+        if plan.scene_plan:
+            compiled["scene_plan"] = json.dumps(
+                [node.to_dict() for node in plan.scene_plan],
+                ensure_ascii=False,
+                indent=2,
+            )
+        if plan.context_strategy:
+            compiled["context_strategy"] = json.dumps(
+                plan.context_strategy.to_dict(),
+                ensure_ascii=False,
+            )
 
         return compiled
 

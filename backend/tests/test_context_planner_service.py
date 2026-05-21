@@ -62,9 +62,16 @@ def test_context_planner_builds_phase_tasks_and_skill_policies():
     assert any(task.source == "symbolic_rag" for task in plan.retrieval_tasks)
     assert "mission_brief" in plan.prompt_modules
     assert "foreshadowing_check" in plan.verification_tasks
+    assert "claim_level_verification" in plan.verification_tasks
     assert "commercial_hook_check" in plan.verification_tasks
     assert any(policy.skill_id == "foreshadowing" and policy.phase == "retrieve" for policy in plan.skill_policies)
     assert any(policy.skill_id == "dialogue_polish" and policy.phase == "pre_prompt" for policy in plan.skill_policies)
+    assert plan.context_strategy
+    assert plan.context_strategy.mode == "hybrid"
+    assert plan.context_strategy.query_limit == 6
+    assert len(plan.scene_plan) == 3
+    assert plan.scene_plan[-1].dependencies == ["scene_2"]
+    assert "symbolic_rag" in plan.scene_plan[-1].required_evidence
 
 
 def test_context_planner_build_retrieval_queries_prefers_plan_and_dedupes():

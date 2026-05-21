@@ -3,10 +3,14 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence
 
 from .context_planner_service import ContextPlan
+from .narrative_claim_service import ClaimVerifierService
 
 
 class NarrativeVerifierService:
     """统一整理生成后的验证结果，形成 Narrative 级验证报告。"""
+
+    def __init__(self, claim_verifier: Optional[ClaimVerifierService] = None):
+        self.claim_verifier = claim_verifier or ClaimVerifierService()
 
     def verify(
         self,
@@ -56,6 +60,12 @@ class NarrativeVerifierService:
     ) -> Dict[str, Any]:
         if task_name == "commercial_hook_check":
             return self._evaluate_commercial_hook(chapter_text)
+        if task_name == "claim_level_verification":
+            return self._evaluate_claim_level_verification(
+                chapter_text=chapter_text,
+                plan=plan,
+                evidence_summary=evidence_summary,
+            )
         if task_name == "consistency_check":
             return self._evaluate_consistency(review_summaries.get("consistency"))
         if task_name == "continuity_check":
@@ -76,6 +86,31 @@ class NarrativeVerifierService:
             "status": "pending",
             "summary": "尚未接入统一验证器",
             "details": {},
+        }
+
+    def _evaluate_claim_level_verification(
+        self,
+        *,
+        chapter_text: str,
+        plan: ContextPlan,
+        evidence_summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        report = self.claim_verifier.verify(
+            chapter_text=chapter_text,
+            plan=plan,
+            evidence_summary=evidence_summary,
+        )
+        blocking_count = int(report.get("blocking_count") or 0)
+        claim_count = int(report.get("claim_count") or 0)
+        return {
+            "task": "claim_level_verification",
+            "status": "failed" if blocking_count else "passed",
+            "summary": (
+                f"发现 {blocking_count} 条高风险未支撑叙事断言"
+                if blocking_count
+                else f"叙事断言验证通过，共检查 {claim_count} 条"
+            ),
+            "details": report,
         }
 
     def _evaluate_commercial_hook(self, chapter_text: str) -> Dict[str, Any]:

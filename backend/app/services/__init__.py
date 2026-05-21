@@ -18,7 +18,16 @@ from .consistency_service import ConsistencyService, ConsistencyCheckResult, Con
 from .knowledge_retrieval_service import KnowledgeRetrievalService, FilteredContext, RetrievedKnowledge
 from .enrichment_service import EnrichmentService, EnrichmentResult
 from .blueprint_service import BlueprintService
-from .context_planner_service import ContextPlan, ContextPlannerService, RetrievalTask, SkillPolicy, GenerationEvidencePack, EvidenceItem
+from .context_planner_service import (
+    ContextPlan,
+    ContextPlannerService,
+    ContextStrategy,
+    RetrievalTask,
+    ScenePlanNode,
+    SkillPolicy,
+    GenerationEvidencePack,
+    EvidenceItem,
+)
 from .evidence_router_service import EvidenceRouterService, RoutedEvidenceResult
 from .evidence_grader_service import EvidenceGraderService
 from .history_context_service import HistoryContextService
@@ -48,6 +57,8 @@ from .standard_generation_flow_service import StandardGenerationFlowService, Sta
 from .prompt_assembly_service import PromptAssemblyService
 from .prompt_compiler_service import PromptCompilerService
 from .narrative_verifier_service import NarrativeVerifierService
+from .narrative_claim_service import ClaimVerifierService, NarrativeClaim, NarrativeClaimExtractor
+from .novel_bench_service import NovelBenchCase, NovelBenchLiteService
 from .generation_result_service import GenerationResultService
 from .generation_telemetry_service import GenerationTelemetryService
 from .standard_post_processing_service import StandardPostProcessingService
@@ -96,6 +107,8 @@ __all__ = [
     "ContextPlan",
     "ContextPlannerService",
     "RetrievalTask",
+    "ScenePlanNode",
+    "ContextStrategy",
     "SkillPolicy",
     "GenerationEvidencePack",
     "EvidenceItem",
@@ -124,6 +137,11 @@ __all__ = [
     "PromptAssemblyService",
     "PromptCompilerService",
     "NarrativeVerifierService",
+    "NarrativeClaim",
+    "NarrativeClaimExtractor",
+    "ClaimVerifierService",
+    "NovelBenchCase",
+    "NovelBenchLiteService",
     "GenerationResultService",
     "GenerationTelemetryService",
     "StandardPostProcessingService",
