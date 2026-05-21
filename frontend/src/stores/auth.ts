@@ -35,6 +35,7 @@ interface User {
   id: number;
   username: string;
   is_admin: boolean;
+  is_premium?: boolean;
   must_change_password: boolean;
 }
 
@@ -136,6 +137,7 @@ export const useAuthStore = defineStore('auth', {
             id: userData.id,
             username: userData.username,
             is_admin: userData.is_admin || false,
+            is_premium: userData.is_premium || false,
             must_change_password: userData.must_change_password || false,
           };
         } catch (error) {

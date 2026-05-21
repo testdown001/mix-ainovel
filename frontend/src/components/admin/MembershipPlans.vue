@@ -155,6 +155,7 @@ import {
   NSpace, NCard, NButton, NTag, NModal, NForm, NFormItem, NInput, NInputNumber,
   NSelect, NSwitch, NGrid, NGi, NPopconfirm, NSpin, NAlert, useMessage
 } from 'naive-ui'
+import type { FormRules } from 'naive-ui'
 
 interface Plan {
   id: number
@@ -209,7 +210,7 @@ const defaultForm = () => ({
 
 const form = reactive(defaultForm())
 
-const rules = {
+const rules: FormRules = {
   name: [{ required: true, message: '请输入套餐名称', trigger: 'blur' }],
   price: [{ required: true, type: 'number', message: '请输入价格', trigger: 'blur' }],
   period: [{ required: true, message: '请选择周期', trigger: 'change' }]

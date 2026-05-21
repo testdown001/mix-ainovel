@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from ..schemas.generation_contract import normalize_generation_result
+
 
 class GenerationResultService:
     """统一装配生成结果、调试元数据与验证报告绑定。"""
@@ -59,7 +61,7 @@ class GenerationResultService:
         review_summaries: Dict[str, Any],
         debug_metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
-        return {
+        return normalize_generation_result({
             "project_id": project_id,
             "chapter_number": chapter_number,
             "preset": preset,
@@ -67,4 +69,4 @@ class GenerationResultService:
             "variants": variants,
             "review_summaries": review_summaries,
             "debug_metadata": debug_metadata,
-        }
+        })
