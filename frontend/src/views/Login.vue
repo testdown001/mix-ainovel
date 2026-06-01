@@ -81,23 +81,66 @@
 
         </form>
 
-        <!-- Linux DO -->
-        <div v-if="enableLinuxdoLogin">
-          <div class="relative flex items-center my-6">
+        <!-- 手机号验证码登录 -->
+        <div v-if="enablePhoneLogin" class="mt-6">
+          <div class="relative flex items-center my-4">
             <div class="flex-1" style="height:1px; background:#1E1E1E;"></div>
-            <span class="px-3 text-xs" style="color:#444;">或</span>
+            <span class="px-3 text-xs" style="color:#444;">手机号快捷登录</span>
             <div class="flex-1" style="height:1px; background:#1E1E1E;"></div>
           </div>
-          <a href="/api/auth/linuxdo/login"
-            class="flex items-center justify-center gap-2.5 w-full py-3 rounded-xl text-sm font-medium transition-all"
-            style="background:#1A1A1A; border:1px solid #2A2A2A; color:#888;"
-            @mouseenter="($event.currentTarget as HTMLElement).style.borderColor='#444'"
-            @mouseleave="($event.currentTarget as HTMLElement).style.borderColor='#2A2A2A'">
-            <svg class="w-4 h-4" aria-hidden="true" viewBox="0 0 496 512">
-              <path fill="currentColor" d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 448c-110.5 0-200-89.5-200-200S137.5 56 248 56s200 89.5 200 200-89.5 200-200 200z"/>
-            </svg>
-            使用 Linux DO 登录
-          </a>
+          <div class="space-y-3">
+            <input v-model="phone" type="tel" maxlength="11"
+              class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+              placeholder="请输入手机号" />
+            <div class="flex gap-2">
+              <input v-model="phoneCode" type="text" maxlength="6"
+                class="flex-1 px-4 py-3 rounded-xl text-sm outline-none"
+                style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+                placeholder="短信验证码" />
+              <button type="button" :disabled="codeCountdown > 0 || isLoading" @click="handleSendCode"
+                class="px-4 rounded-xl text-sm whitespace-nowrap"
+                style="background:#1A1A1A; border:1px solid #2A2A2A; color:#FFE500;">
+                {{ codeCountdown > 0 ? `${codeCountdown}s` : '获取验证码' }}
+              </button>
+            </div>
+            <button type="button" :disabled="isLoading" @click="handlePhoneLogin"
+              class="w-full py-3 rounded-xl font-bold text-sm"
+              style="background:#1A1A1A; border:1px solid #FFE50055; color:#FFE500;">
+              手机号登录 / 注册
+            </button>
+          </div>
+        </div>
+
+        <!-- 第三方登录 -->
+        <div v-if="enableLinuxdoLogin || enableWechatLogin || enableGoogleLogin">
+          <div class="relative flex items-center my-6">
+            <div class="flex-1" style="height:1px; background:#1E1E1E;"></div>
+            <span class="px-3 text-xs" style="color:#444;">或使用第三方账号</span>
+            <div class="flex-1" style="height:1px; background:#1E1E1E;"></div>
+          </div>
+          <div class="space-y-2.5">
+            <a v-if="enableWechatLogin" href="/api/auth/wechat/login"
+              class="flex items-center justify-center gap-2.5 w-full py-3 rounded-xl text-sm font-medium transition-all"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#07C160;">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8.5 4C4.36 4 1 6.91 1 10.5c0 2.05 1.1 3.88 2.83 5.07L3 18l2.7-1.36c.9.25 1.86.36 2.8.36.24 0 .47 0 .7-.03A6.3 6.3 0 018 14.5C8 10.91 11.58 8 16 8c.27 0 .54.01.8.04C16.1 5.7 12.66 4 8.5 4z"/></svg>
+              使用微信登录
+            </a>
+            <a v-if="enableGoogleLogin" href="/api/auth/google/login"
+              class="flex items-center justify-center gap-2.5 w-full py-3 rounded-xl text-sm font-medium transition-all"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#888;">
+              <svg class="w-4 h-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.5 12.2c0-.7-.06-1.4-.18-2H12v3.8h5.9a5 5 0 01-2.2 3.3v2.7h3.6c2.1-2 3.2-4.9 3.2-7.8z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.6-2.7c-1 .67-2.28 1.06-3.68 1.06-2.83 0-5.23-1.9-6.08-4.48H2.18v2.8A11 11 0 0012 23z"/><path fill="#FBBC05" d="M5.92 14.2a6.6 6.6 0 010-4.2v-2.8H2.18a11 11 0 000 9.8l3.74-2.8z"/><path fill="#EA4335" d="M12 5.4c1.62 0 3.06.56 4.2 1.64l3.15-3.15C17.45 2.1 14.97 1 12 1A11 11 0 002.18 7.2L5.92 10c.85-2.58 3.25-4.6 6.08-4.6z"/></svg>
+              使用谷歌登录
+            </a>
+            <a v-if="enableLinuxdoLogin" href="/api/auth/linuxdo/login"
+              class="flex items-center justify-center gap-2.5 w-full py-3 rounded-xl text-sm font-medium transition-all"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#888;">
+              <svg class="w-4 h-4" aria-hidden="true" viewBox="0 0 496 512">
+                <path fill="currentColor" d="M248 8C111 8 0 119 0 256s111 248 248 248 248-111 248-248S385 8 248 8zm0 448c-110.5 0-200-89.5-200-200S137.5 56 248 56s200 89.5 200 200-89.5 200-200 200z"/>
+              </svg>
+              使用 Linux DO 登录
+            </a>
+          </div>
         </div>
 
         <!-- Register -->
@@ -135,10 +178,59 @@ const username = ref('');
 const password = ref('');
 const error = ref('');
 const isLoading = ref(false);
+const phone = ref('');
+const phoneCode = ref('');
+const codeCountdown = ref(0);
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
 const router = useRouter();
 const authStore = useAuthStore();
 const allowRegistration = computed(() => authStore.allowRegistration);
 const enableLinuxdoLogin = computed(() => authStore.enableLinuxdoLogin);
+const enableWechatLogin = computed(() => authStore.enableWechatLogin);
+const enableGoogleLogin = computed(() => authStore.enableGoogleLogin);
+const enablePhoneLogin = computed(() => authStore.enablePhoneLogin);
+
+const handleSendCode = async () => {
+  error.value = '';
+  if (!/^1[3-9]\d{9}$/.test(phone.value)) {
+    error.value = '请输入正确的手机号';
+    return;
+  }
+  try {
+    await authStore.sendPhoneCode(phone.value);
+    codeCountdown.value = 60;
+    countdownTimer = setInterval(() => {
+      codeCountdown.value -= 1;
+      if (codeCountdown.value <= 0 && countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+    }, 1000);
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '验证码发送失败';
+  }
+};
+
+const handlePhoneLogin = async () => {
+  error.value = '';
+  if (!/^1[3-9]\d{9}$/.test(phone.value)) {
+    error.value = '请输入正确的手机号';
+    return;
+  }
+  if (!phoneCode.value.trim()) {
+    error.value = '请输入验证码';
+    return;
+  }
+  isLoading.value = true;
+  try {
+    await authStore.phoneLogin(phone.value, phoneCode.value.trim());
+    router.push('/home');
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '手机号登录失败';
+  } finally {
+    isLoading.value = false;
+  }
+};
 
 onMounted(() => {
   authStore.fetchAuthOptions().catch((err) => {

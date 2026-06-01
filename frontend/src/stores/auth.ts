@@ -6,6 +6,9 @@ const API_URL = `/api/auth`;
 interface AuthOptions {
   allow_registration: boolean;
   enable_linuxdo_login: boolean;
+  enable_wechat_login?: boolean;
+  enable_google_login?: boolean;
+  enable_phone_login?: boolean;
   captcha_enabled: boolean;
   captcha_site_key: string | null;
 }
@@ -50,6 +53,9 @@ export const useAuthStore = defineStore('auth', {
     isAuthenticated: (state) => !!state.token,
     allowRegistration: (state) => state.authOptions?.allow_registration ?? true,
     enableLinuxdoLogin: (state) => state.authOptions?.enable_linuxdo_login ?? false,
+    enableWechatLogin: (state) => state.authOptions?.enable_wechat_login ?? false,
+    enableGoogleLogin: (state) => state.authOptions?.enable_google_login ?? false,
+    enablePhoneLogin: (state) => state.authOptions?.enable_phone_login ?? false,
     captchaEnabled: (state) => state.authOptions?.captcha_enabled ?? false,
     captchaSiteKey: (state) => state.authOptions?.captcha_site_key ?? null,
     mustChangePassword: (state) => state.user?.must_change_password ?? false,
@@ -72,6 +78,9 @@ export const useAuthStore = defineStore('auth', {
         this.authOptions = {
           allow_registration: true,
           enable_linuxdo_login: false,
+          enable_wechat_login: false,
+          enable_google_login: false,
+          enable_phone_login: false,
           captcha_enabled: false,
           captcha_site_key: null,
         };
@@ -104,6 +113,34 @@ export const useAuthStore = defineStore('auth', {
         this.user.must_change_password = mustChangePassword || this.user.must_change_password;
       }
       return mustChangePassword;
+    },
+    async sendPhoneCode(phone: string): Promise<void> {
+      const response = await fetch(`${API_URL}/phone/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.detail || '验证码发送失败');
+      }
+    },
+    async phoneLogin(phone: string, code: string): Promise<void> {
+      const response = await fetch(`${API_URL}/phone/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+      });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(detail?.detail || '手机号登录失败');
+      }
+      const data = await response.json();
+      this.token = data.access_token;
+      if (this.token) {
+        localStorage.setItem('token', this.token);
+      }
+      await this.fetchUser();
     },
     // 当前注册流程在 Register.vue 中实现，此处预留方法以兼容旧逻辑
     async register(payload: { username: string; email: string; password: string; verification_code: string }) {
