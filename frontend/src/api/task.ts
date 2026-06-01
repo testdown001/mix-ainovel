@@ -6,6 +6,7 @@
  */
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
+import type { AdvancedGenerateFlowConfig } from './novel'
 
 const TASK_BASE = '/tasks'
 
@@ -34,7 +35,8 @@ const taskRequest = async (url: string, options: RequestInit = {}) => {
     let detail = ''
     if (contentType.includes('application/json')) {
       const errorData = await response.json().catch(() => null)
-      detail = errorData?.error || errorData?.detail || errorData?.message || JSON.stringify(errorData)
+      detail =
+        errorData?.error || errorData?.detail || errorData?.message || JSON.stringify(errorData)
     } else {
       detail = await response.text().catch(() => '')
     }
@@ -117,7 +119,7 @@ export class TaskAPI {
   static async submitChapterGenerate(
     projectId: string,
     chapterNumber: number,
-    config?: {
+    config?: Partial<AdvancedGenerateFlowConfig> & {
       preset?: string
       use_agent_system?: boolean
       rag_mode?: string
@@ -145,7 +147,7 @@ export class TaskAPI {
   static async submitBatchGenerate(
     projectId: string,
     chapterNumbers: number[],
-    config?: {
+    config?: Partial<AdvancedGenerateFlowConfig> & {
       preset?: string
       use_agent_system?: boolean
       rag_mode?: string
@@ -176,14 +178,18 @@ export class TaskAPI {
   /**
    * 取消任务
    */
-  static async cancelTask(taskId: string): Promise<{ task_id: string; status: string; message: string }> {
+  static async cancelTask(
+    taskId: string,
+  ): Promise<{ task_id: string; status: string; message: string }> {
     return taskRequest(`${TASK_BASE}/${taskId}/cancel`, { method: 'POST' })
   }
 
   /**
    * 获取用户任务列表
    */
-  static async getUserTasks(userId: number): Promise<{ user_id: number; tasks: TaskStatus[]; count: number }> {
+  static async getUserTasks(
+    userId: number,
+  ): Promise<{ user_id: number; tasks: TaskStatus[]; count: number }> {
     return taskRequest(`${TASK_BASE}/user/${userId}`)
   }
 

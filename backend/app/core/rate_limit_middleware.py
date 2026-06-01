@@ -3,8 +3,8 @@
 API 限流中间件 - IP 级兜底 + 用户级限流
 
 核心功能：
-1. 中间件层自行解析 JWT 提取 user_id，不依赖路由层 Depends
-2. 已认证用户使用 user_id 级限流
+1. 中间件层自行解析 JWT 提取用户标识符，不依赖路由层 Depends
+2. 已认证用户使用 username 级限流
 3. 未认证用户使用 IP 级限流（登录、注册等端点的暴力破解防护）
 4. 使用 TTLCache 自动清理过期条目，防止内存泄漏
 """
@@ -37,7 +37,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     API 请求限流中间件
 
     限流策略：
-    - 已认证用户（user_id 维度）: 60 req/min, 10 req/sec
+    - 已认证用户（username 维度）: 60 req/min, 10 req/sec
     - 未认证 IP（IP 维度）: 30 req/min, 5 req/sec
     - 敏感端点（IP 维度）: 5 req/min（暴力破解防护）
     """
@@ -80,16 +80,17 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             )
             return self.general_rpm_default
 
-    def _extract_user_id(self, request: Request) -> Optional[int]:
-        """从 Authorization header 解析 JWT，提取 user_id。失败返回 None。"""
+    def _extract_user_identifier(self, request: Request) -> Optional[str]:
+        """从 Authorization header 解析 JWT，提取用户标识符（username 或 user_id）。失败返回 None。"""
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
             return None
         token = auth_header[7:]
         try:
             payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-            return int(payload.get("sub", 0)) or None
-        except (JWTError, ValueError):
+            sub = payload.get("sub")
+            return str(sub) if sub else None
+        except JWTError:
             return None
 
     def _get_client_ip(self, request: Request) -> str:
@@ -157,13 +158,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if rejection:
                 return rejection
 
-        # 尝试提取 user_id
-        user_id = self._extract_user_id(request)
+        # 尝试提取用户标识符
+        user_identifier = self._extract_user_identifier(request)
 
-        if user_id:
+        if user_identifier:
             # 已认证：用户级限流
             rejection = self._check_rate(
-                self.user_requests, f"user:{user_id}", general_rpm, self.user_rps
+                self.user_requests, f"user:{user_identifier}", general_rpm, self.user_rps
             )
         else:
             # 未认证：IP 级限流

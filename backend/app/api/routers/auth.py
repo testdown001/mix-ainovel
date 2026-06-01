@@ -33,14 +33,14 @@ def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthServic
 
 @router.post("/send-code", status_code=204)
 async def send_verification_code(email: str, service: AuthService = Depends(get_auth_service)):
-    await service.send_verification_code(email)
-    logger.info("向 %s 发送验证码", email)
+    await service.send_verification_code(email, purpose="register")
+    logger.info("向 %s 发送注册验证码", email)
 
 
 @router.post("/send-reset-code", status_code=204)
 async def send_password_reset_code(email: str, service: AuthService = Depends(get_auth_service)):
-    """向邮箱发送密码重置验证码（复用注册验证码逻辑）"""
-    await service.send_verification_code(email)
+    """向邮箱发送密码重置验证码"""
+    await service.send_verification_code(email, purpose="reset")
     logger.info("向 %s 发送密码重置验证码", email)
 
 

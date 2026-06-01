@@ -9,6 +9,7 @@
 import { ref, computed } from 'vue'
 import { TaskAPI, type TaskStatus } from '@/api/task'
 import { useWebSocket, type TaskProgressEvent } from '@/composables/useWebSocket'
+import type { AdvancedGenerateFlowConfig } from '@/api/novel'
 
 export type GenerationMode = 'stream' | 'async'
 
@@ -31,11 +32,12 @@ export function useAsyncGeneration() {
     status: null,
   })
 
-  const isRunning = computed(() =>
-    state.value.status === 'pending' ||
-    state.value.status === 'queued' ||
-    state.value.status === 'running' ||
-    state.value.status === 'retrying'
+  const isRunning = computed(
+    () =>
+      state.value.status === 'pending' ||
+      state.value.status === 'queued' ||
+      state.value.status === 'running' ||
+      state.value.status === 'retrying',
   )
 
   const isCompleted = computed(() => state.value.status === 'completed')
@@ -50,7 +52,7 @@ export function useAsyncGeneration() {
   async function submitGeneration(
     projectId: string,
     chapterNumber: number,
-    config?: {
+    config?: Partial<AdvancedGenerateFlowConfig> & {
       preset?: string
       use_agent_system?: boolean
       rag_mode?: string
@@ -94,7 +96,7 @@ export function useAsyncGeneration() {
   async function submitBatchGeneration(
     projectId: string,
     chapterNumbers: number[],
-    config?: {
+    config?: Partial<AdvancedGenerateFlowConfig> & {
       preset?: string
       use_agent_system?: boolean
       rag_mode?: string
@@ -129,6 +131,9 @@ export function useAsyncGeneration() {
     onProgress?: (s: AsyncGenerationState) => void,
   ): Promise<TaskStatus> {
     return new Promise((resolve, reject) => {
+      let unsubscribe: (() => void) | null = null
+      let checkInterval: ReturnType<typeof setInterval> | null = null
+
       // 超时保护
       const timeout = setTimeout(() => {
         cleanup()
@@ -137,12 +142,17 @@ export function useAsyncGeneration() {
 
       const cleanup = () => {
         clearTimeout(timeout)
-        cleanupWS?.()
+        if (checkInterval) {
+          clearInterval(checkInterval)
+          checkInterval = null
+        }
+        unsubscribe?.()
+        unsubscribe = null
         cleanupWS = null
       }
 
       // 监听 WebSocket 事件
-      cleanupWS = onTaskProgress(taskId, (event: TaskProgressEvent) => {
+      unsubscribe = onTaskProgress(taskId, (event: TaskProgressEvent) => {
         state.value.progress = event.progress
         state.value.stage = event.stage
         state.value.message = event.message
@@ -168,26 +178,15 @@ export function useAsyncGeneration() {
           onProgress?.(state.value)
         }
       })
+      cleanupWS = cleanup
 
       // 如果 WebSocket 断开，降级到轮询
-      const checkInterval = setInterval(() => {
+      checkInterval = setInterval(() => {
         if (wsStatus.value !== 'connected') {
-          clearInterval(checkInterval)
           cleanup()
           waitViaPolling(taskId, onProgress).then(resolve).catch(reject)
         }
       }, 5000)
-
-      // 清理定时器
-      const origCleanup = cleanup
-      const cleanupAll = () => {
-        origCleanup()
-        clearInterval(checkInterval)
-      }
-      // 替换 cleanup 引用
-      cleanupWS = () => {
-        cleanupAll()
-      }
     })
   }
 

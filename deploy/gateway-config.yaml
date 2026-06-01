@@ -1,0 +1,72 @@
+# Gateway 配置 — Docker 部署环境
+# 此文件在 docker-compose 中挂载到 /app/config.yaml
+
+server:
+  host: "0.0.0.0"
+  port: 3000
+  read_timeout: 10s
+  write_timeout: 120s
+  prefork: false
+
+backend:
+  fastapi_url: "http://app:8000"
+  timeout: 120s
+
+jwt:
+  secret: "change-me-in-production"
+  issuer: "arboris-gateway"
+  audience: "arboris-api"
+
+redis:
+  mode: "standalone"
+  addr: "redis:6379"
+  password: ""
+  db: 0
+  pool_size: 100
+  min_idle: 20
+
+database:
+  enabled: false
+
+payment:
+  enabled: false
+
+rate_limit:
+  default_tpm: 100000
+  default_concurrent: 3
+  default_rpm: 200
+  default_rps: 10
+  premium_tpm: 300000
+  premium_concurrent: 8
+  premium_rpm: 500
+  premium_rps: 30
+
+websocket:
+  max_connections: 10000
+  read_buffer_size: 1024
+  write_buffer_size: 1024
+  ping_interval: 30s
+  pong_timeout: 60s
+
+log:
+  level: "info"
+  format: "json"
+  output: "stdout"
+  file_path: "logs/gateway.log"
+
+metrics:
+  enabled: true
+  path: "/metrics"
+
+task_dispatcher:
+  enabled: true
+  max_concurrency: 20
+  max_per_user: 3
+  default_timeout: 10m
+  batch_timeout: 60m
+  max_retries: 3
+  retry_delay: 5s
+  poll_interval: 100ms
+  worker_callback_url: "http://app:8000/api/internal/tasks"
+  worker_grpc_addr: ""
+  internal_callback_secret: "change-me-in-production"

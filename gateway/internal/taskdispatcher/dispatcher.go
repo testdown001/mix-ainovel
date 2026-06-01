@@ -64,58 +64,59 @@ const (
 type TaskStatus string
 
 const (
-	StatusPending    TaskStatus = "pending"
-	StatusQueued     TaskStatus = "queued"
-	StatusRunning    TaskStatus = "running"
-	StatusCompleted  TaskStatus = "completed"
-	StatusFailed     TaskStatus = "failed"
-	StatusCancelled  TaskStatus = "cancelled"
-	StatusRetrying   TaskStatus = "retrying"
+	StatusPending   TaskStatus = "pending"
+	StatusQueued    TaskStatus = "queued"
+	StatusRunning   TaskStatus = "running"
+	StatusCompleted TaskStatus = "completed"
+	StatusFailed    TaskStatus = "failed"
+	StatusCancelled TaskStatus = "cancelled"
+	StatusRetrying  TaskStatus = "retrying"
 )
 
 // Task 任务定义
 type Task struct {
-	ID            string            `json:"id"`
-	Type          TaskType          `json:"type"`
-	Priority      Priority          `json:"priority"`
-	Payload       json.RawMessage   `json:"payload"`
-	Status        TaskStatus        `json:"status"`
-	Progress      int               `json:"progress"`       // 0-100
-	Stage         string            `json:"stage"`           // 当前阶段
-	Message       string            `json:"message"`         // 状态消息
-	UserID        int               `json:"user_id"`
-	ProjectID     string            `json:"project_id"`
-	MaxRetries    int               `json:"max_retries"`
-	RetryCount    int               `json:"retry_count"`
-	Timeout       time.Duration     `json:"timeout"`
-	CreatedAt     time.Time         `json:"created_at"`
-	StartedAt     *time.Time        `json:"started_at,omitempty"`
-	CompletedAt   *time.Time        `json:"completed_at,omitempty"`
-	Result        json.RawMessage   `json:"result,omitempty"`
-	Error         string            `json:"error,omitempty"`
-	Metadata      map[string]string `json:"metadata,omitempty"`
+	ID          string            `json:"id"`
+	Type        TaskType          `json:"type"`
+	Priority    Priority          `json:"priority"`
+	Payload     json.RawMessage   `json:"payload"`
+	Status      TaskStatus        `json:"status"`
+	Progress    int               `json:"progress"` // 0-100
+	Stage       string            `json:"stage"`    // 当前阶段
+	Message     string            `json:"message"`  // 状态消息
+	UserID      int               `json:"user_id"`
+	ProjectID   string            `json:"project_id"`
+	MaxRetries  int               `json:"max_retries"`
+	RetryCount  int               `json:"retry_count"`
+	Timeout     time.Duration     `json:"timeout"`
+	CreatedAt   time.Time         `json:"created_at"`
+	StartedAt   *time.Time        `json:"started_at,omitempty"`
+	CompletedAt *time.Time        `json:"completed_at,omitempty"`
+	Result      json.RawMessage   `json:"result,omitempty"`
+	Error       string            `json:"error,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
 // ChapterGeneratePayload 章节生成任务载荷
 type ChapterGeneratePayload struct {
-	ProjectID     string            `json:"project_id"`
-	ChapterNumber int               `json:"chapter_number"`
-	UserID        int               `json:"user_id"`
-	Preset        string            `json:"preset"`
-	UseAgentSystem bool             `json:"use_agent_system"`
-	RAGMode       string            `json:"rag_mode"`
-	WritingNotes  string            `json:"writing_notes,omitempty"`
-	Extra         map[string]string `json:"extra,omitempty"`
+	ProjectID      string                 `json:"project_id"`
+	ChapterNumber  int                    `json:"chapter_number"`
+	UserID         int                    `json:"user_id"`
+	Preset         string                 `json:"preset"`
+	UseAgentSystem bool                   `json:"use_agent_system"`
+	RAGMode        string                 `json:"rag_mode"`
+	WritingNotes   string                 `json:"writing_notes,omitempty"`
+	Extra          map[string]interface{} `json:"extra,omitempty"`
 }
 
 // BatchGeneratePayload 批量生成任务载荷
 type BatchGeneratePayload struct {
-	ProjectID      string `json:"project_id"`
-	ChapterNumbers []int  `json:"chapter_numbers"`
-	UserID         int    `json:"user_id"`
-	Preset         string `json:"preset"`
-	UseAgentSystem bool   `json:"use_agent_system"`
-	RAGMode        string `json:"rag_mode"`
+	ProjectID      string                 `json:"project_id"`
+	ChapterNumbers []int                  `json:"chapter_numbers"`
+	UserID         int                    `json:"user_id"`
+	Preset         string                 `json:"preset"`
+	UseAgentSystem bool                   `json:"use_agent_system"`
+	RAGMode        string                 `json:"rag_mode"`
+	Extra          map[string]interface{} `json:"extra,omitempty"`
 }
 
 // TaskResult 任务结果
@@ -130,19 +131,19 @@ type TaskResult struct {
 // Config 调度器配置
 type Config struct {
 	// 并发控制
-	MaxConcurrency     int           `mapstructure:"max_concurrency"`      // 全局最大并发
-	MaxPerUser         int           `mapstructure:"max_per_user"`         // 每用户最大并发
+	MaxConcurrency int `mapstructure:"max_concurrency"` // 全局最大并发
+	MaxPerUser     int `mapstructure:"max_per_user"`    // 每用户最大并发
 	// 超时
-	DefaultTimeout     time.Duration `mapstructure:"default_timeout"`      // 默认任务超时
-	BatchTimeout       time.Duration `mapstructure:"batch_timeout"`        // 批量任务超时
+	DefaultTimeout time.Duration `mapstructure:"default_timeout"` // 默认任务超时
+	BatchTimeout   time.Duration `mapstructure:"batch_timeout"`   // 批量任务超时
 	// 重试
-	MaxRetries         int           `mapstructure:"max_retries"`          // 最大重试次数
-	RetryDelay         time.Duration `mapstructure:"retry_delay"`          // 初始重试延迟
+	MaxRetries int           `mapstructure:"max_retries"` // 最大重试次数
+	RetryDelay time.Duration `mapstructure:"retry_delay"` // 初始重试延迟
 	// 轮询
-	PollInterval       time.Duration `mapstructure:"poll_interval"`        // 队列轮询间隔
+	PollInterval time.Duration `mapstructure:"poll_interval"` // 队列轮询间隔
 	// Worker
-	WorkerCallbackURL  string        `mapstructure:"worker_callback_url"`  // Python Worker HTTP 回调地址
-	WorkerGRPCAddr     string        `mapstructure:"worker_grpc_addr"`     // Python Worker gRPC 地址
+	WorkerCallbackURL string `mapstructure:"worker_callback_url"` // Python Worker HTTP 回调地址
+	WorkerGRPCAddr    string `mapstructure:"worker_grpc_addr"`    // Python Worker gRPC 地址
 }
 
 // DefaultConfig 默认配置
@@ -162,14 +163,14 @@ func DefaultConfig() *Config {
 
 // Dispatcher 任务调度器
 type Dispatcher struct {
-	redis          *redis.Client
-	config         *Config
-	running        atomic.Bool
-	activeCount    atomic.Int64         // 当前活跃任务数
-	userCounts     sync.Map             // user_id -> *atomic.Int64 (每用户活跃数)
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	workerPool     *WorkerPool          // Worker 连接池
+	redis       *redis.Client
+	config      *Config
+	running     atomic.Bool
+	activeCount atomic.Int64 // 当前活跃任务数
+	userCounts  sync.Map     // user_id -> *atomic.Int64 (每用户活跃数)
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	workerPool  *WorkerPool // Worker 连接池
 }
 
 // NewDispatcher 创建调度器

@@ -1,318 +1,422 @@
 <!-- AIMETA P=写作台_章节编辑主页面|R=写作界面_章节管理|NR=不含详情展示|E=route:/novel/:id#component:WritingDesk|X=ui|A=写作台|D=vue|S=dom,net|RD=./README.ai -->
 <template>
   <n-config-provider :theme="darkTheme" :theme-overrides="naiveThemeOverrides">
-  <div class="m3-shell h-screen flex flex-col overflow-hidden">
-    <WDHeader
-      :project="project"
-      :progress="progress"
-      :completed-chapters="completedChapters"
-      :total-chapters="totalChapters"
-      @go-back="goBack"
-      @view-project-detail="viewProjectDetail"
-      @toggle-sidebar="toggleSidebar"
-    />
+    <div class="m3-shell h-screen flex flex-col overflow-hidden">
+      <WDHeader
+        :project="project"
+        :progress="progress"
+        :completed-chapters="completedChapters"
+        :total-chapters="totalChapters"
+        @go-back="goBack"
+        @view-project-detail="viewProjectDetail"
+        @toggle-sidebar="toggleSidebar"
+      />
 
-    <!-- 主要内容区域 -->
-    <div class="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 overflow-hidden">
-      <!-- 加载状态 -->
-      <div v-if="novelStore.isLoading" class="h-full flex justify-center items-center">
-        <div class="text-center">
-          <div class="w-10 h-10 mx-auto mb-4 rounded-full border-2 border-t-transparent animate-spin" style="border-color: #FFE500; border-top-color: transparent;"></div>
-          <p class="text-sm" style="color: #888;">正在加载项目数据...</p>
-        </div>
-      </div>
-
-      <!-- 错误状态 -->
-      <div v-else-if="novelStore.error" class="text-center py-20">
-        <div class="p-8 max-w-md mx-auto rounded-2xl" style="background: #141414; border: 1px solid #2A2A2A;">
-          <div class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style="background: #3D0A0A;">
-            <svg class="w-6 h-6" style="color: #FF4757;" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-            </svg>
+      <!-- 主要内容区域 -->
+      <div class="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 overflow-hidden">
+        <!-- 加载状态 -->
+        <div v-if="novelStore.isLoading" class="h-full flex justify-center items-center">
+          <div class="text-center">
+            <div
+              class="w-10 h-10 mx-auto mb-4 rounded-full border-2 border-t-transparent animate-spin"
+              style="border-color: #ffe500; border-top-color: transparent"
+            ></div>
+            <p class="text-sm" style="color: #888">正在加载项目数据...</p>
           </div>
-          <h3 class="text-lg font-bold mb-2 text-white">加载失败</h3>
-          <p class="text-sm mb-5" style="color: #FF4757;">{{ novelStore.error }}</p>
-          <button @click="loadProject" class="px-5 py-2 rounded-xl text-sm font-semibold" style="background: #FFE500; color: #000; border: none; cursor: pointer;">重新加载</button>
         </div>
-      </div>
 
-      <!-- 主要内容 -->
-      <div v-else-if="project" class="h-full flex gap-6">
-        <WDSidebar
-          :project="project"
-          :sidebar-open="sidebarOpen"
-          :selected-chapter-number="selectedChapterNumber"
-          :generating-chapter="generatingChapter"
-          :evaluating-chapter="evaluatingChapter"
-          :is-generating-outline="isGeneratingOutline"
-          :is-rebuilding-rag="isRebuildingRag"
-          :batch-generating="batchGenerating"
-          :batch-progress="batchProgress"
-          :selected-preset="selectedPreset"
-          :selected-skill-count="selectedGenerationSkills.length"
-          :agent-enabled="useAgent"
-          @close-sidebar="closeSidebar"
-          @select-chapter="selectChapter"
-          @preview-prediction="handlePreviewPrediction"
-          @generate-chapter="generateChapter"
-          @edit-chapter="openEditChapterModal"
-          @delete-chapter="deleteChapter"
-          @generate-outline="generateOutline"
-          @rebuild-rag="rebuildRag"
-          @batch-generate="openBatchGenerateModal"
-          @cancel-batch="cancelBatchGenerate"
-          @open-preset-selector="showPresetSelector = true"
-          @open-skill-selector="showSkillSelector = true"
-          @open-middle-product-viewer="showMiddleProductViewer = true"
-          @preview-context-plan="handlePreviewContextPlan"
-          @open-diagnostic-panel="showDiagnosticPanel = true"
-          @open-agent-visualizer="showAgentVisualizer = true"
-        />
-
-        <div class="flex-1 min-w-0">
-          <WDWorkspace
-            :project="project"
-          :selected-chapter-number="selectedChapterNumber"
-          :open-prediction-tick="openPredictionTick"
-          :generating-chapter="generatingChapter"
-          :prediction-generating-chapter="predictionGeneratingChapter"
-          :evaluating-chapter="evaluatingChapter"
-          :show-version-selector="showVersionSelector"
-          :chapter-generation-result="chapterGenerationResult"
-          :selected-version-index="selectedVersionIndex"
-          :available-versions="availableVersions"
-          :is-selecting-version="isSelectingVersion"
-          :streaming-draft-text="selectedChapterNumber === streamingChapterNumber ? streamingDraftText : ''"
-          :streaming-stage="selectedChapterNumber === streamingChapterNumber ? streamingStage : null"
-          @regenerate-chapter="regenerateChapter"
-          @evaluate-chapter="evaluateChapter"
-          @hide-version-selector="hideVersionSelector"
-          @update:selected-version-index="selectedVersionIndex = $event"
-          @show-version-detail="showVersionDetail"
-          @confirm-version-selection="confirmVersionSelection"
-          @generate-chapter="generateChapter"
-          @show-evaluation-detail="showEvaluationDetailModal = true"
-          @open-skill-apply="showSkillApplyModal = true"
-          @request-prediction="openPredictionRequestModal"
-          @fetch-chapter-status="fetchChapterStatus"
-          @edit-chapter="editChapterContent"
-          @toggle-codex="codexPanelOpen = !codexPanelOpen"
-          />
-        </div>
-      </div>
-    </div>
-    <WDVersionDetailModal
-      :show="showVersionDetailModal"
-      :detail-version-index="detailVersionIndex"
-      :version="availableVersions[detailVersionIndex] ?? null"
-      :is-current="isCurrentVersion(detailVersionIndex)"
-      @close="closeVersionDetail"
-      @select-version="selectVersionFromDetail"
-    />
-    <WDEvaluationDetailModal
-      :show="showEvaluationDetailModal"
-      :evaluation="selectedChapter?.evaluation || null"
-      @close="showEvaluationDetailModal = false"
-    />
-    <WDEditChapterModal
-      :show="showEditChapterModal"
-      :chapter="editingChapter"
-      :project-id="project?.id || ''"
-      @close="showEditChapterModal = false"
-      @save="saveChapterChanges"
-      @prediction-updated="onPredictionUpdated"
-    />
-    <WDGenerateOutlineModal
-      :show="showGenerateOutlineModal"
-      @close="showGenerateOutlineModal = false"
-      @generate="handleGenerateOutline"
-    />
-    <WDBatchGenerateModal
-      :show="showBatchGenerateModal"
-      :start-chapter="batchStartChapter"
-      :max-count="batchMaxCount"
-      @close="showBatchGenerateModal = false"
-      @start="batchGenerateChapters"
-    />
-    <WDCodexPanel
-      :visible="codexPanelOpen"
-      :blueprint="project?.blueprint"
-      :selected-chapter-number="selectedChapterNumber"
-      :outlines="project?.blueprint?.chapter_outline || []"
-      @update:visible="codexPanelOpen = $event"
-    />
-
-    <!-- 预设选择器 -->
-    <n-modal v-model:show="showPresetSelector" preset="card" title="选择生成模式" style="width: 600px; max-width: 90vw;">
-      <PresetSelector v-model="selectedPreset" />
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <n-button @click="showPresetSelector = false">取消</n-button>
-          <n-button type="primary" @click="confirmPreset">确认</n-button>
-        </div>
-      </template>
-    </n-modal>
-
-    <n-modal v-model:show="showPredictionRequestModal" preset="card" title="剧情推演设置" style="width: 640px; max-width: 92vw;">
-      <div class="space-y-4">
-        <div class="text-sm" style="color: #888;">
-          <span class="font-medium text-white">目标章节：</span>
-          第 {{ predictionTargetChapter || '-' }} 章
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-white">排除内容 / 创作禁区（可选）</label>
-          <textarea
-            v-model="predictionExclusions"
-            rows="5"
-            class="w-full resize-none rounded-xl px-4 py-3 text-sm outline-none transition-colors"
-            style="background: #1C1C1C; border: 1px solid #2A2A2A; color: #fff;"
-            placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
-          ></textarea>
-          <p class="mt-2 text-xs" style="color: #888;">
-            这些内容会作为 exclusions 一起传给后端剧情推演接口。
-          </p>
-        </div>
-      </div>
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <n-button @click="showPredictionRequestModal = false">取消</n-button>
-          <n-button type="primary" :loading="!!predictionGeneratingChapter" @click="confirmPredictionRequest">
-            重新推演
-          </n-button>
-        </div>
-      </template>
-    </n-modal>
-
-    <n-modal v-model:show="showSkillSelector" preset="card" title="配置 Agent 技能" style="width: 720px; max-width: 92vw;">
-      <SkillSelector
-        selection-only
-        :initial-selection="selectedGenerationSkills"
-        :project-id="project?.id || ''"
-        :chapter-number="selectedChapterNumber || 1"
-        :chapter-content="selectedChapter?.content || ''"
-        :chapter-info="selectedChapter ? { title: selectedChapter.title, summary: selectedChapter.summary } : {}"
-        :character-profiles="project?.blueprint?.characters || []"
-        :world-settings="project?.blueprint?.world_setting || {}"
-        :previous-summary="selectedChapter?.summary || ''"
-        :outline="selectedChapterOutline || {}"
-        @cancel="showSkillSelector = false"
-        @select="handleSkillSelection"
-      />
-    </n-modal>
-
-    <n-modal v-model:show="showSkillApplyModal" preset="card" title="应用写作技能" style="width: 720px; max-width: 92vw;">
-      <SkillSelector
-        :initial-selection="selectedGenerationSkills"
-        :project-id="project?.id || ''"
-        :chapter-number="selectedChapterNumber || 1"
-        :chapter-content="selectedChapter?.content || ''"
-        :chapter-info="selectedChapter ? { title: selectedChapter.title, summary: selectedChapter.summary } : {}"
-        :character-profiles="project?.blueprint?.characters || []"
-        :world-settings="project?.blueprint?.world_setting || {}"
-        :previous-summary="selectedChapter?.summary || ''"
-        :outline="selectedChapterOutline || {}"
-        @cancel="showSkillApplyModal = false"
-        @error="handleSkillApplyError"
-        @apply="handleSkillApplyResults"
-      />
-    </n-modal>
-
-    <n-modal v-model:show="showSkillPreviewModal" preset="card" title="技能应用对比预览" style="width: 1100px; max-width: 96vw;">
-      <div v-if="skillApplyPreview" class="space-y-4">
-        <div class="flex flex-wrap items-center gap-2 text-sm" style="color: #888;">
-          <span class="font-medium text-white">已应用技能：</span>
-          <span
-            v-for="skillName in skillApplyPreview.skillNames"
-            :key="skillName"
-            class="inline-flex items-center rounded-full px-3 py-1 text-xs"
-            style="background: #2A2A2A; color: #FFE500;"
+        <!-- 错误状态 -->
+        <div v-else-if="novelStore.error" class="text-center py-20">
+          <div
+            class="p-8 max-w-md mx-auto rounded-2xl"
+            style="background: #141414; border: 1px solid #2a2a2a"
           >
-            {{ skillName }}
-          </span>
+            <div
+              class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center"
+              style="background: #3d0a0a"
+            >
+              <svg class="w-6 h-6" style="color: #ff4757" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fill-rule="evenodd"
+                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                  clip-rule="evenodd"
+                ></path>
+              </svg>
+            </div>
+            <h3 class="text-lg font-bold mb-2 text-white">加载失败</h3>
+            <p class="text-sm mb-5" style="color: #ff4757">{{ novelStore.error }}</p>
+            <button
+              @click="loadProject"
+              class="px-5 py-2 rounded-xl text-sm font-semibold"
+              style="background: #ffe500; color: #000; border: none; cursor: pointer"
+            >
+              重新加载
+            </button>
+          </div>
         </div>
 
-        <div class="grid gap-3 md:grid-cols-3">
-          <div class="rounded-lg border px-4 py-3" style="border-color: #2A2A2A; background: #1C1C1C;">
-            <div class="text-xs" style="color: #888;">原文字数</div>
-            <div class="mt-1 text-lg font-semibold text-white">{{ skillPreviewStats.originalLength }}</div>
-          </div>
-          <div class="rounded-lg border px-4 py-3" style="border-color: #2A2A2A; background: #1C1C1C;">
-            <div class="text-xs" style="color: #888;">技能结果字数</div>
-            <div class="mt-1 text-lg font-semibold text-white">{{ skillPreviewStats.transformedLength }}</div>
-          </div>
-          <div class="rounded-lg border px-4 py-3" style="border-color: #2A2A2A; background: #1C1C1C;">
-            <div class="text-xs" style="color: #888;">变化段落</div>
-            <div class="mt-1 text-lg font-semibold text-white">{{ skillPreviewStats.changedParagraphs }}</div>
-          </div>
-        </div>
+        <!-- 主要内容 -->
+        <div v-else-if="project" class="h-full flex gap-6">
+          <WDSidebar
+            :project="project"
+            :sidebar-open="sidebarOpen"
+            :selected-chapter-number="selectedChapterNumber"
+            :generating-chapter="generatingChapter"
+            :evaluating-chapter="evaluatingChapter"
+            :is-generating-outline="isGeneratingOutline"
+            :is-rebuilding-rag="isRebuildingRag"
+            :batch-generating="batchGenerating"
+            :batch-progress="batchProgress"
+            :selected-preset="selectedPreset"
+            :selected-skill-count="selectedGenerationSkills.length"
+            :agent-enabled="useAgent"
+            @close-sidebar="closeSidebar"
+            @select-chapter="selectChapter"
+            @preview-prediction="handlePreviewPrediction"
+            @generate-chapter="generateChapter"
+            @edit-chapter="openEditChapterModal"
+            @delete-chapter="deleteChapter"
+            @generate-outline="generateOutline"
+            @rebuild-rag="rebuildRag"
+            @batch-generate="openBatchGenerateModal"
+            @cancel-batch="cancelBatchGenerate"
+            @open-preset-selector="showPresetSelector = true"
+            @open-skill-selector="showSkillSelector = true"
+            @open-middle-product-viewer="showMiddleProductViewer = true"
+            @preview-context-plan="handlePreviewContextPlan"
+            @open-diagnostic-panel="showDiagnosticPanel = true"
+            @open-agent-visualizer="showAgentVisualizer = true"
+          />
 
-        <div class="grid gap-4 lg:grid-cols-2">
-          <div class="rounded-xl border overflow-hidden" style="border-color: #2A2A2A;">
-            <div class="border-b px-4 py-3 text-sm font-medium text-white" style="border-color: #2A2A2A; background: #1C1C1C;">
-              原文
-            </div>
-            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 text-white" style="background: #141414;">
-              {{ skillApplyPreview.originalContent }}
-            </div>
-          </div>
-
-          <div class="rounded-xl border overflow-hidden" style="border-color: #2A2A2A;">
-            <div class="border-b px-4 py-3 text-sm font-medium" style="border-color: #2A2A2A; background: #2A2600; color: #FFE500;">
-              技能结果
-            </div>
-            <div class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 text-white" style="background: #141414;">
-              {{ skillApplyPreview.transformedContent }}
-            </div>
+          <div class="flex-1 min-w-0">
+            <WDWorkspace
+              :project="project"
+              :selected-chapter-number="selectedChapterNumber"
+              :open-prediction-tick="openPredictionTick"
+              :generating-chapter="generatingChapter"
+              :prediction-generating-chapter="predictionGeneratingChapter"
+              :evaluating-chapter="evaluatingChapter"
+              :show-version-selector="showVersionSelector"
+              :chapter-generation-result="chapterGenerationResult"
+              :selected-version-index="selectedVersionIndex"
+              :available-versions="availableVersions"
+              :is-selecting-version="isSelectingVersion"
+              :streaming-draft-text="
+                selectedChapterNumber === streamingChapterNumber ? streamingDraftText : ''
+              "
+              :streaming-stage="
+                selectedChapterNumber === streamingChapterNumber ? streamingStage : null
+              "
+              @regenerate-chapter="regenerateChapter"
+              @evaluate-chapter="evaluateChapter"
+              @hide-version-selector="hideVersionSelector"
+              @update:selected-version-index="selectedVersionIndex = $event"
+              @show-version-detail="showVersionDetail"
+              @confirm-version-selection="confirmVersionSelection"
+              @generate-chapter="generateChapter"
+              @show-evaluation-detail="showEvaluationDetailModal = true"
+              @open-skill-apply="showSkillApplyModal = true"
+              @request-prediction="openPredictionRequestModal"
+              @fetch-chapter-status="fetchChapterStatus"
+              @edit-chapter="editChapterContent"
+              @toggle-codex="codexPanelOpen = !codexPanelOpen"
+            />
           </div>
         </div>
       </div>
+      <WDVersionDetailModal
+        :show="showVersionDetailModal"
+        :detail-version-index="detailVersionIndex"
+        :version="availableVersions[detailVersionIndex] ?? null"
+        :is-current="isCurrentVersion(detailVersionIndex)"
+        @close="closeVersionDetail"
+        @select-version="selectVersionFromDetail"
+      />
+      <WDEvaluationDetailModal
+        :show="showEvaluationDetailModal"
+        :evaluation="selectedChapter?.evaluation || null"
+        @close="showEvaluationDetailModal = false"
+      />
+      <WDEditChapterModal
+        :show="showEditChapterModal"
+        :chapter="editingChapter"
+        :project-id="project?.id || ''"
+        @close="showEditChapterModal = false"
+        @save="saveChapterChanges"
+        @prediction-updated="onPredictionUpdated"
+      />
+      <WDGenerateOutlineModal
+        :show="showGenerateOutlineModal"
+        @close="showGenerateOutlineModal = false"
+        @generate="handleGenerateOutline"
+      />
+      <WDBatchGenerateModal
+        :show="showBatchGenerateModal"
+        :start-chapter="batchStartChapter"
+        :max-count="batchMaxCount"
+        @close="showBatchGenerateModal = false"
+        @start="batchGenerateChapters"
+      />
+      <WDCodexPanel
+        :visible="codexPanelOpen"
+        :blueprint="project?.blueprint"
+        :selected-chapter-number="selectedChapterNumber"
+        :outlines="project?.blueprint?.chapter_outline || []"
+        @update:visible="codexPanelOpen = $event"
+      />
 
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <n-button @click="closeSkillPreview">取消</n-button>
-          <n-button type="primary" @click="confirmSkillApplyPreview">确认保存</n-button>
+      <!-- 预设选择器 -->
+      <n-modal
+        v-model:show="showPresetSelector"
+        preset="card"
+        title="选择生成模式"
+        style="width: 600px; max-width: 90vw"
+      >
+        <PresetSelector v-model="selectedPreset" />
+        <template #footer>
+          <div class="flex justify-end gap-3">
+            <n-button @click="showPresetSelector = false">取消</n-button>
+            <n-button type="primary" @click="confirmPreset">确认</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <n-modal
+        v-model:show="showPredictionRequestModal"
+        preset="card"
+        title="剧情推演设置"
+        style="width: 640px; max-width: 92vw"
+      >
+        <div class="space-y-4">
+          <div class="text-sm" style="color: #888">
+            <span class="font-medium text-white">目标章节：</span>
+            第 {{ predictionTargetChapter || '-' }} 章
+          </div>
+          <div>
+            <label class="mb-2 block text-sm font-medium text-white"
+              >排除内容 / 创作禁区（可选）</label
+            >
+            <textarea
+              v-model="predictionExclusions"
+              rows="5"
+              class="w-full resize-none rounded-xl px-4 py-3 text-sm outline-none transition-colors"
+              style="background: #1c1c1c; border: 1px solid #2a2a2a; color: #fff"
+              placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
+            ></textarea>
+            <p class="mt-2 text-xs" style="color: #888">
+              这些内容会作为 exclusions 一起传给后端剧情推演接口。
+            </p>
+          </div>
         </div>
-      </template>
-    </n-modal>
+        <template #footer>
+          <div class="flex justify-end gap-3">
+            <n-button @click="showPredictionRequestModal = false">取消</n-button>
+            <n-button
+              type="primary"
+              :loading="!!predictionGeneratingChapter"
+              @click="confirmPredictionRequest"
+            >
+              重新推演
+            </n-button>
+          </div>
+        </template>
+      </n-modal>
 
-    <!-- 中间产物预览 -->
-    <n-modal v-model:show="showMiddleProductViewer" preset="card" title="生成中间产物" style="width: 700px; max-width: 90vw;">
-      <MiddleProductViewer
-        :context-plan-data="currentContextPlanData"
-        :evidence-summary-data="currentEvidenceSummaryData"
-        :evidence-grade-data="currentEvidenceGradeData"
-        :prompt-compile-summary-data="currentPromptCompileSummaryData"
-        :verification-report-data="currentVerificationReportData"
-        :mission-data="currentMissionData"
-        :rag-data="currentRagData"
-        :context-data="currentContextData"
-        :foreshadowing-data="currentForeshadowingData"
-      />
-    </n-modal>
+      <n-modal
+        v-model:show="showSkillSelector"
+        preset="card"
+        title="配置 Agent 技能"
+        style="width: 720px; max-width: 92vw"
+      >
+        <SkillSelector
+          selection-only
+          :initial-selection="selectedGenerationSkills"
+          :project-id="project?.id || ''"
+          :chapter-number="selectedChapterNumber || 1"
+          :chapter-content="selectedChapter?.content || ''"
+          :chapter-info="
+            selectedChapter
+              ? { title: selectedChapter.title, summary: selectedChapter.summary }
+              : {}
+          "
+          :character-profiles="project?.blueprint?.characters || []"
+          :world-settings="project?.blueprint?.world_setting || {}"
+          :previous-summary="selectedChapter?.summary || ''"
+          :outline="selectedChapterOutline || {}"
+          @cancel="showSkillSelector = false"
+          @select="handleSkillSelection"
+        />
+      </n-modal>
 
-    <!-- 诊断面板 -->
-    <n-modal v-model:show="showDiagnosticPanel" preset="card" title="生成诊断报告" style="width: 600px; max-width: 90vw;">
-      <DiagnosticPanel
-        :project-id="project?.id"
-        :chapter-number="selectedChapterNumber || undefined"
-      />
-    </n-modal>
+      <n-modal
+        v-model:show="showSkillApplyModal"
+        preset="card"
+        title="应用写作技能"
+        style="width: 720px; max-width: 92vw"
+      >
+        <SkillSelector
+          :initial-selection="selectedGenerationSkills"
+          :project-id="project?.id || ''"
+          :chapter-number="selectedChapterNumber || 1"
+          :chapter-content="selectedChapter?.content || ''"
+          :chapter-info="
+            selectedChapter
+              ? { title: selectedChapter.title, summary: selectedChapter.summary }
+              : {}
+          "
+          :character-profiles="project?.blueprint?.characters || []"
+          :world-settings="project?.blueprint?.world_setting || {}"
+          :previous-summary="selectedChapter?.summary || ''"
+          :outline="selectedChapterOutline || {}"
+          @cancel="showSkillApplyModal = false"
+          @error="handleSkillApplyError"
+          @apply="handleSkillApplyResults"
+        />
+      </n-modal>
 
-    <!-- Agent 可视化 -->
-    <n-modal v-model:show="showAgentVisualizer" preset="card" title="Agent 协作流程" style="width: 800px; max-width: 90vw;">
-      <AgentFlowVisualizer
-        :agents="agentNodes"
-        :current-agent-id="currentAgentId"
-        :is-running="isAgentRunning"
-        :is-completed="isAgentCompleted"
-        :total-time="agentTotalTime"
-        :total-l-l-m-calls="agentLLMCalls"
-        :total-tool-calls="agentToolCalls"
-        @pause="handleAgentPause"
-        @stop="handleAgentStop"
-      />
-    </n-modal>
-  </div>
+      <n-modal
+        v-model:show="showSkillPreviewModal"
+        preset="card"
+        title="技能应用对比预览"
+        style="width: 1100px; max-width: 96vw"
+      >
+        <div v-if="skillApplyPreview" class="space-y-4">
+          <div class="flex flex-wrap items-center gap-2 text-sm" style="color: #888">
+            <span class="font-medium text-white">已应用技能：</span>
+            <span
+              v-for="skillName in skillApplyPreview.skillNames"
+              :key="skillName"
+              class="inline-flex items-center rounded-full px-3 py-1 text-xs"
+              style="background: #2a2a2a; color: #ffe500"
+            >
+              {{ skillName }}
+            </span>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-3">
+            <div
+              class="rounded-lg border px-4 py-3"
+              style="border-color: #2a2a2a; background: #1c1c1c"
+            >
+              <div class="text-xs" style="color: #888">原文字数</div>
+              <div class="mt-1 text-lg font-semibold text-white">
+                {{ skillPreviewStats.originalLength }}
+              </div>
+            </div>
+            <div
+              class="rounded-lg border px-4 py-3"
+              style="border-color: #2a2a2a; background: #1c1c1c"
+            >
+              <div class="text-xs" style="color: #888">技能结果字数</div>
+              <div class="mt-1 text-lg font-semibold text-white">
+                {{ skillPreviewStats.transformedLength }}
+              </div>
+            </div>
+            <div
+              class="rounded-lg border px-4 py-3"
+              style="border-color: #2a2a2a; background: #1c1c1c"
+            >
+              <div class="text-xs" style="color: #888">变化段落</div>
+              <div class="mt-1 text-lg font-semibold text-white">
+                {{ skillPreviewStats.changedParagraphs }}
+              </div>
+            </div>
+          </div>
+
+          <div class="grid gap-4 lg:grid-cols-2">
+            <div class="rounded-xl border overflow-hidden" style="border-color: #2a2a2a">
+              <div
+                class="border-b px-4 py-3 text-sm font-medium text-white"
+                style="border-color: #2a2a2a; background: #1c1c1c"
+              >
+                原文
+              </div>
+              <div
+                class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 text-white"
+                style="background: #141414"
+              >
+                {{ skillApplyPreview.originalContent }}
+              </div>
+            </div>
+
+            <div class="rounded-xl border overflow-hidden" style="border-color: #2a2a2a">
+              <div
+                class="border-b px-4 py-3 text-sm font-medium"
+                style="border-color: #2a2a2a; background: #2a2600; color: #ffe500"
+              >
+                技能结果
+              </div>
+              <div
+                class="max-h-[55vh] overflow-y-auto px-4 py-4 whitespace-pre-wrap text-sm leading-7 text-white"
+                style="background: #141414"
+              >
+                {{ skillApplyPreview.transformedContent }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end gap-3">
+            <n-button @click="closeSkillPreview">取消</n-button>
+            <n-button type="primary" @click="confirmSkillApplyPreview">确认保存</n-button>
+          </div>
+        </template>
+      </n-modal>
+
+      <!-- 中间产物预览 -->
+      <n-modal
+        v-model:show="showMiddleProductViewer"
+        preset="card"
+        title="生成中间产物"
+        style="width: 700px; max-width: 90vw"
+      >
+        <MiddleProductViewer
+          :context-plan-data="currentContextPlanData"
+          :evidence-summary-data="currentEvidenceSummaryData"
+          :evidence-grade-data="currentEvidenceGradeData"
+          :prompt-compile-summary-data="currentPromptCompileSummaryData"
+          :verification-report-data="currentVerificationReportData"
+          :mission-data="currentMissionData"
+          :rag-data="currentRagData"
+          :context-data="currentContextData"
+          :foreshadowing-data="currentForeshadowingData"
+        />
+      </n-modal>
+
+      <!-- 诊断面板 -->
+      <n-modal
+        v-model:show="showDiagnosticPanel"
+        preset="card"
+        title="生成诊断报告"
+        style="width: 600px; max-width: 90vw"
+      >
+        <DiagnosticPanel
+          :project-id="project?.id"
+          :chapter-number="selectedChapterNumber || undefined"
+        />
+      </n-modal>
+
+      <!-- Agent 可视化 -->
+      <n-modal
+        v-model:show="showAgentVisualizer"
+        preset="card"
+        title="Agent 协作流程"
+        style="width: 800px; max-width: 90vw"
+      >
+        <AgentFlowVisualizer
+          :agents="agentNodes"
+          :current-agent-id="currentAgentId"
+          :is-running="isAgentRunning"
+          :is-completed="isAgentCompleted"
+          :total-time="agentTotalTime"
+          :total-l-l-m-calls="agentLLMCalls"
+          :total-tool-calls="agentToolCalls"
+          @pause="handleAgentPause"
+          @stop="handleAgentStop"
+        />
+      </n-modal>
+    </div>
   </n-config-provider>
 </template>
 
@@ -322,7 +426,14 @@ import { useRouter } from 'vue-router'
 import { NModal, NButton, NConfigProvider, darkTheme, type GlobalThemeOverrides } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { NovelAPI } from '@/api/novel'
-import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, AdvancedGenerateResponse, AdvancedGenerateFlowConfig } from '@/api/novel'
+import type {
+  Chapter,
+  ChapterOutline,
+  ChapterGenerationResponse,
+  ChapterVersion,
+  AdvancedGenerateResponse,
+  AdvancedGenerateFlowConfig,
+} from '@/api/novel'
 import { TaskAPI } from '@/api/task'
 import { AdminAPI } from '@/api/admin'
 import { globalAlert } from '@/composables/useAlert'
@@ -365,7 +476,15 @@ interface AgentNode {
   logs: AgentLog[]
 }
 
-const VALID_PRESETS: WritingPreset[] = ['basic', 'enhanced', 'ultimate', 'platinum', 'literary', 'fast', 'custom']
+const VALID_PRESETS: WritingPreset[] = [
+  'basic',
+  'enhanced',
+  'ultimate',
+  'platinum',
+  'literary',
+  'fast',
+  'custom',
+]
 
 function isWritingPreset(value: string | null): value is WritingPreset {
   return value !== null && VALID_PRESETS.includes(value as WritingPreset)
@@ -396,14 +515,14 @@ const naiveThemeOverrides: GlobalThemeOverrides = {
     placeholderColor: '#555555',
     tagColor: '#1C1C1C',
     scrollbarColor: '#2A2A2A',
-    scrollbarColorHover: '#444444'
+    scrollbarColorHover: '#444444',
   },
   Button: {
     textColorPrimary: '#000000',
     textColorHoverPrimary: '#000000',
     textColorPressedPrimary: '#000000',
-    textColorFocusPrimary: '#000000'
-  }
+    textColorFocusPrimary: '#000000',
+  },
 }
 
 const props = defineProps<Props>()
@@ -451,7 +570,7 @@ const useAgent = ref(false)
 const fetchAgentSetting = async () => {
   try {
     const configs = await AdminAPI.listSystemConfigs()
-    const agentConfig = configs.find(c => c.key === 'enable_agent_system')
+    const agentConfig = configs.find((c) => c.key === 'enable_agent_system')
     useAgent.value = agentConfig?.value === 'true'
   } catch {
     // 非管理员或接口不可用时静默降级
@@ -504,12 +623,16 @@ const agentNodes = ref<AgentNode[]>([
 
 // Stage → Agent 状态映射：将后端推送的 stage 事件映射到 Agent 节点状态变更
 function _setAgentStatus(id: string, status: AgentNodeStatus) {
-  const node = agentNodes.value.find(a => a.id === id)
+  const node = agentNodes.value.find((a) => a.id === id)
   if (node) node.status = status
 }
 
-function _addAgentLog(id: string, message: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') {
-  const node = agentNodes.value.find(a => a.id === id)
+function _addAgentLog(
+  id: string,
+  message: string,
+  type: 'info' | 'success' | 'warning' | 'error' = 'info',
+) {
+  const node = agentNodes.value.find((a) => a.id === id)
   if (!node) return
   if (!node.logs) node.logs = []
   const now = new Date()
@@ -545,7 +668,12 @@ function updateAgentByStage(stage: string, message?: string) {
   }
 
   // Agentic loop events (tool_call, tool_result, loop_iteration, context_compact)
-  if (stage === 'tool_call' || stage === 'tool_result' || stage === 'loop_iteration' || stage === 'context_compact') {
+  if (
+    stage === 'tool_call' ||
+    stage === 'tool_result' ||
+    stage === 'loop_iteration' ||
+    stage === 'context_compact'
+  ) {
     const activeAgent = currentAgentId.value
     if (activeAgent) {
       if (stage === 'tool_call') {
@@ -601,7 +729,10 @@ function updateAgentByStage(stage: string, message?: string) {
 }
 
 function resetAgentState() {
-  agentNodes.value.forEach(a => { a.status = 'pending'; a.logs = [] })
+  agentNodes.value.forEach((a) => {
+    a.status = 'pending'
+    a.logs = []
+  })
   currentAgentId.value = null
   isAgentRunning.value = true
   isAgentCompleted.value = false
@@ -653,13 +784,20 @@ const project = computed(() => novelStore.currentProject)
 
 const selectedChapter = computed(() => {
   if (!project.value || selectedChapterNumber.value === null) return null
-  return project.value.chapters.find(ch => ch.chapter_number === selectedChapterNumber.value) || null
+  return (
+    project.value.chapters.find((ch) => ch.chapter_number === selectedChapterNumber.value) || null
+  )
 })
 
 const showVersionSelector = computed(() => {
   if (!selectedChapter.value) return false
   const status = selectedChapter.value.generation_status
-  return status === 'waiting_for_confirm' || status === 'evaluating' || status === 'evaluation_failed' || status === 'selecting'
+  return (
+    status === 'waiting_for_confirm' ||
+    status === 'evaluating' ||
+    status === 'evaluation_failed' ||
+    status === 'selecting'
+  )
 })
 
 const evaluatingChapter = computed(() => {
@@ -674,14 +812,19 @@ const isSelectingVersion = computed(() => {
 })
 
 const selectedChapterOutline = computed(() => {
-  if (!project.value?.blueprint?.chapter_outline || selectedChapterNumber.value === null) return null
-  return project.value.blueprint.chapter_outline.find(ch => ch.chapter_number === selectedChapterNumber.value) || null
+  if (!project.value?.blueprint?.chapter_outline || selectedChapterNumber.value === null)
+    return null
+  return (
+    project.value.blueprint.chapter_outline.find(
+      (ch) => ch.chapter_number === selectedChapterNumber.value,
+    ) || null
+  )
 })
 
 const progress = computed(() => {
   if (!project.value?.blueprint?.chapter_outline) return 0
   const totalChapters = project.value.blueprint.chapter_outline.length
-  const completedChapters = project.value.chapters.filter(ch => ch.content).length
+  const completedChapters = project.value.chapters.filter((ch) => ch.content).length
   return Math.round((completedChapters / totalChapters) * 100)
 })
 
@@ -690,11 +833,12 @@ const totalChapters = computed(() => {
 })
 
 const completedChapters = computed(() => {
-  return project.value?.chapters?.filter(ch => ch.content)?.length || 0
+  return project.value?.chapters?.filter((ch) => ch.content)?.length || 0
 })
 
 const isCurrentVersion = (versionIndex: number) => {
-  if (!selectedChapter.value?.content || !availableVersions.value?.[versionIndex]?.content) return false
+  if (!selectedChapter.value?.content || !availableVersions.value?.[versionIndex]?.content)
+    return false
 
   // 使用cleanVersionContent函数清理内容进行比较
   const cleanCurrentContent = cleanVersionContent(selectedChapter.value.content)
@@ -742,9 +886,9 @@ const cleanVersionContent = (content: string): string => {
   let cleaned = content.replace(/^"|"$/g, '')
 
   // 处理转义字符
-  cleaned = cleaned.replace(/\\n/g, '\n')  // 换行符
-  cleaned = cleaned.replace(/\\"/g, '"')   // 引号
-  cleaned = cleaned.replace(/\\t/g, '\t')  // 制表符
+  cleaned = cleaned.replace(/\\n/g, '\n') // 换行符
+  cleaned = cleaned.replace(/\\"/g, '"') // 引号
+  cleaned = cleaned.replace(/\\t/g, '\t') // 制表符
   cleaned = cleaned.replace(/\\\\/g, '\\') // 反斜杠
 
   return cleaned
@@ -754,19 +898,23 @@ const canGenerateChapter = (chapterNumber: number) => {
   if (!project.value?.blueprint?.chapter_outline) return false
 
   // 检查前面所有章节是否都已成功生成
-  const outlines = [...project.value.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
-  
+  const outlines = [...project.value.blueprint.chapter_outline].sort(
+    (a, b) => a.chapter_number - b.chapter_number,
+  )
+
   for (const outline of outlines) {
     if (outline.chapter_number >= chapterNumber) break
-    
-    const chapter = project.value?.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+
+    const chapter = project.value?.chapters.find(
+      (ch) => ch.chapter_number === outline.chapter_number,
+    )
     if (!chapter || chapter.generation_status !== 'successful') {
       return false // 前面有章节未完成
     }
   }
 
   // 检查当前章节是否已经完成
-  const currentChapter = project.value?.chapters.find(ch => ch.chapter_number === chapterNumber)
+  const currentChapter = project.value?.chapters.find((ch) => ch.chapter_number === chapterNumber)
   if (currentChapter && currentChapter.generation_status === 'successful') {
     return true // 已完成的章节可以重新生成
   }
@@ -776,13 +924,13 @@ const canGenerateChapter = (chapterNumber: number) => {
 
 const isChapterFailed = (chapterNumber: number) => {
   if (!project.value?.chapters) return false
-  const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+  const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
   return chapter && chapter.generation_status === 'failed'
 }
 
 const hasChapterInProgress = (chapterNumber: number) => {
   if (!project.value?.chapters) return false
-  const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+  const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
   // waiting_for_confirm状态表示等待选择版本 = 进行中状态
   return chapter && chapter.generation_status === 'waiting_for_confirm'
 }
@@ -800,11 +948,11 @@ const availableVersions = computed(() => {
       ? selectedChapter.value.version_metadata
       : []
     const convertedVersions = selectedChapter.value.versions
-      .filter(v => v && typeof v === 'string')
+      .filter((v) => v && typeof v === 'string')
       .map((versionString, index) => ({
         content: versionString,
         style: metadataList[index]?.version_label || `版本 ${index + 1}`,
-        metadata: metadataList[index]
+        metadata: metadataList[index],
       }))
 
     return convertedVersions
@@ -812,7 +960,6 @@ const availableVersions = computed(() => {
 
   return []
 })
-
 
 // 方法
 const goBack = () => {
@@ -847,10 +994,12 @@ const autoSelectNextChapter = () => {
   const p = project.value
   if (!p?.blueprint?.chapter_outline?.length) return
 
-  const outlines = [...p.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
-  const chaptersMap = new Map(p.chapters.map(ch => [ch.chapter_number, ch]))
+  const outlines = [...p.blueprint.chapter_outline].sort(
+    (a, b) => a.chapter_number - b.chapter_number,
+  )
+  const chaptersMap = new Map(p.chapters.map((ch) => [ch.chapter_number, ch]))
 
-  const next = outlines.find(o => {
+  const next = outlines.find((o) => {
     const ch = chaptersMap.get(o.chapter_number)
     return !ch || ch.generation_status !== 'successful'
   })
@@ -870,7 +1019,6 @@ const fetchChapterStatus = async () => {
     // 在这里可以决定是否要通知用户轮询失败
   }
 }
-
 
 // 显示版本详情
 const showVersionDetail = (versionIndex: number) => {
@@ -896,12 +1044,12 @@ const selectChapter = (chapterNumber: number) => {
 
   if (!isSameChapter) {
     chapterGenerationResult.value = null
-    const chapter = project.value?.chapters?.find(ch => ch.chapter_number === chapterNumber)
+    const chapter = project.value?.chapters?.find((ch) => ch.chapter_number === chapterNumber)
     if (typeof chapter?.recommended_version_index === 'number') {
       const maxIndex = Math.max(0, (chapter.versions?.length || 1) - 1)
       selectedVersionIndex.value = Math.min(
         maxIndex,
-        Math.max(0, chapter.recommended_version_index)
+        Math.max(0, chapter.recommended_version_index),
       )
     } else {
       selectedVersionIndex.value = 0
@@ -915,13 +1063,13 @@ const predictionPreviewBlockedStatuses: Chapter['generation_status'][] = [
   'waiting_for_confirm',
   'evaluation_failed',
   'evaluating',
-  'selecting'
+  'selecting',
 ]
 
 const handlePreviewPrediction = (chapterNumber: number) => {
   selectChapter(chapterNumber)
   const chapterStatus = project.value?.chapters?.find(
-    chapter => chapter.chapter_number === chapterNumber
+    (chapter) => chapter.chapter_number === chapterNumber,
   )?.generation_status
 
   if (chapterStatus && predictionPreviewBlockedStatuses.includes(chapterStatus)) {
@@ -934,15 +1082,11 @@ const handlePreviewPrediction = (chapterNumber: number) => {
 const handlePreviewContextPlan = async () => {
   if (!project.value?.id || !selectedChapterNumber.value) return
   try {
-    const res = await NovelAPI.previewContextPlan(
-      project.value.id,
-      selectedChapterNumber.value,
-      {
-        writing_notes: '',
-        preset: selectedPreset.value,
-        selected_skills: selectedGenerationSkills.value,
-      }
-    )
+    const res = await NovelAPI.previewContextPlan(project.value.id, selectedChapterNumber.value, {
+      writing_notes: '',
+      preset: selectedPreset.value,
+      selected_skills: selectedGenerationSkills.value,
+    })
     currentContextPlanData.value = res
     showMiddleProductViewer.value = true
   } catch (err: any) {
@@ -950,7 +1094,9 @@ const handlePreviewContextPlan = async () => {
   }
 }
 
-const handleSkillSelection = (skills: NonNullable<AdvancedGenerateFlowConfig['selected_skills']>) => {
+const handleSkillSelection = (
+  skills: NonNullable<AdvancedGenerateFlowConfig['selected_skills']>,
+) => {
   selectedGenerationSkills.value = skills
   showSkillSelector.value = false
 }
@@ -961,7 +1107,11 @@ const openPredictionRequestModal = (chapterNumber: number) => {
 }
 
 const confirmPredictionRequest = async () => {
-  if (!project.value?.id || predictionTargetChapter.value === null || predictionGeneratingChapter.value !== null) {
+  if (
+    !project.value?.id ||
+    predictionTargetChapter.value === null ||
+    predictionGeneratingChapter.value !== null
+  ) {
     return
   }
 
@@ -970,11 +1120,11 @@ const confirmPredictionRequest = async () => {
     const result = await NovelAPI.generatePrediction(
       project.value.id,
       predictionTargetChapter.value,
-      predictionExclusions.value.trim() || undefined
+      predictionExclusions.value.trim() || undefined,
     )
 
     const targetOutline = project.value.blueprint?.chapter_outline?.find(
-      outline => outline.chapter_number === predictionTargetChapter.value
+      (outline) => outline.chapter_number === predictionTargetChapter.value,
     )
     if (targetOutline) {
       targetOutline.metadata = { ...targetOutline.metadata, prediction: result }
@@ -990,7 +1140,7 @@ const confirmPredictionRequest = async () => {
     console.error('剧情推演失败:', error)
     globalAlert.showError(
       `剧情推演失败: ${error instanceof Error ? error.message : '未知错误'}`,
-      '推演失败'
+      '推演失败',
     )
   } finally {
     predictionGeneratingChapter.value = null
@@ -1004,8 +1154,14 @@ const handleSkillApplyError = (message: string) => {
 const skillPreviewStats = computed(() => {
   const originalContent = skillApplyPreview.value?.originalContent || ''
   const transformedContent = skillApplyPreview.value?.transformedContent || ''
-  const originalParagraphs = originalContent.split(/\n\s*\n/).map(item => item.trim()).filter(Boolean)
-  const transformedParagraphs = transformedContent.split(/\n\s*\n/).map(item => item.trim()).filter(Boolean)
+  const originalParagraphs = originalContent
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+  const transformedParagraphs = transformedContent
+    .split(/\n\s*\n/)
+    .map((item) => item.trim())
+    .filter(Boolean)
   const maxParagraphs = Math.max(originalParagraphs.length, transformedParagraphs.length)
   let changedParagraphs = 0
 
@@ -1018,7 +1174,7 @@ const skillPreviewStats = computed(() => {
   return {
     originalLength: originalContent.length,
     transformedLength: transformedContent.length,
-    changedParagraphs
+    changedParagraphs,
   }
 })
 
@@ -1034,26 +1190,28 @@ const confirmSkillApplyPreview = async () => {
 
   const saved = await editChapterContent({
     chapterNumber: selectedChapterNumber.value,
-    content: skillApplyPreview.value.transformedContent
+    content: skillApplyPreview.value.transformedContent,
   })
   if (saved) {
     closeSkillPreview()
   }
 }
 
-const handleSkillApplyResults = async (results: Array<{
-  skill_id: string
-  transformed_content: string
-  success: boolean
-  changed: boolean
-  error?: string
-}>) => {
+const handleSkillApplyResults = async (
+  results: Array<{
+    skill_id: string
+    transformed_content: string
+    success: boolean
+    changed: boolean
+    error?: string
+  }>,
+) => {
   if (!project.value || selectedChapterNumber.value === null || !selectedChapter.value) {
     globalAlert.showError('当前没有可应用技能的章节', '操作失败')
     return
   }
 
-  const successfulResults = results.filter(item => item.success)
+  const successfulResults = results.filter((item) => item.success)
   if (successfulResults.length === 0) {
     globalAlert.showError('所有技能执行都失败了，请稍后重试', '技能执行失败')
     return
@@ -1070,16 +1228,20 @@ const handleSkillApplyResults = async (results: Array<{
 
   showSkillApplyModal.value = false
   skillApplyPreview.value = {
-    skillNames: successfulResults.map(item => item.skill_id),
+    skillNames: successfulResults.map((item) => item.skill_id),
     originalContent,
-    transformedContent: finalContent
+    transformedContent: finalContent,
   }
   showSkillPreviewModal.value = true
 }
 
 const generateChapter = async (chapterNumber: number, writingNotes?: string) => {
   // 检查是否可以生成该章节
-  if (!canGenerateChapter(chapterNumber) && !isChapterFailed(chapterNumber) && !hasChapterInProgress(chapterNumber)) {
+  if (
+    !canGenerateChapter(chapterNumber) &&
+    !isChapterFailed(chapterNumber) &&
+    !hasChapterInProgress(chapterNumber)
+  ) {
     globalAlert.showError('请按顺序生成章节，先完成前面的章节', '生成受限')
     return
   }
@@ -1110,12 +1272,14 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
 
     // 在本地更新章节状态为generating
     if (project.value?.chapters) {
-      const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+      const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
       if (chapter) {
         chapter.generation_status = 'generating'
       } else {
         // If chapter does not exist, create a temporary one to show generating state
-        const outline = project.value.blueprint?.chapter_outline?.find(o => o.chapter_number === chapterNumber)
+        const outline = project.value.blueprint?.chapter_outline?.find(
+          (o) => o.chapter_number === chapterNumber,
+        )
         project.value.chapters.push({
           chapter_number: chapterNumber,
           title: outline?.title || '加载中...',
@@ -1123,7 +1287,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
           content: '',
           versions: [],
           evaluation: null,
-          generation_status: 'generating'
+          generation_status: 'generating',
         } as Chapter)
       }
     }
@@ -1142,6 +1306,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
           preset: selectedPreset.value,
           use_agent_system: useAgent.value,
           writing_notes: writingNotes,
+          ...(agentFlowConfigOverrides.value || {}),
         },
         (state) => {
           if (activeGenerationToken.value !== generationToken) return
@@ -1149,7 +1314,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
           if (state.stage) {
             updateAgentByStage(state.stage, state.message)
           }
-        }
+        },
       )
     } else {
       // SSE 流式模式（直连 FastAPI）
@@ -1206,7 +1371,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
             }
           },
         },
-        agentFlowConfigOverrides.value
+        agentFlowConfigOverrides.value,
       )
     }
 
@@ -1219,19 +1384,22 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     console.error('生成章节失败:', error)
 
     // 将当前运行中的 Agent 标记为失败
-    const runningNode = agentNodes.value.find(a => a.status === 'running')
+    const runningNode = agentNodes.value.find((a) => a.status === 'running')
     if (runningNode) runningNode.status = 'failed'
     isAgentRunning.value = false
 
     // 错误状态的本地更新仍然是必要的，以立即反映UI
     if (project.value?.chapters) {
-      const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+      const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
       if (chapter) {
         chapter.generation_status = 'failed'
       }
     }
 
-    globalAlert.showError(`生成章节失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
+    globalAlert.showError(
+      `生成章节失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '生成失败',
+    )
   } finally {
     generatingChapter.value = null
     streamingStage.value = null
@@ -1261,7 +1429,9 @@ const selectVersion = async (versionIndex: number) => {
   try {
     // 在本地立即更新状态以反映UI
     if (project.value?.chapters) {
-      const chapter = project.value.chapters.find(ch => ch.chapter_number === selectedChapterNumber.value)
+      const chapter = project.value.chapters.find(
+        (ch) => ch.chapter_number === selectedChapterNumber.value,
+      )
       if (chapter) {
         chapter.generation_status = 'selecting'
       }
@@ -1279,12 +1449,17 @@ const selectVersion = async (versionIndex: number) => {
     console.error('选择章节版本失败:', error)
     // 错误状态下恢复章节状态
     if (project.value?.chapters) {
-      const chapter = project.value.chapters.find(ch => ch.chapter_number === selectedChapterNumber.value)
+      const chapter = project.value.chapters.find(
+        (ch) => ch.chapter_number === selectedChapterNumber.value,
+      )
       if (chapter) {
         chapter.generation_status = 'waiting_for_confirm' // Or the previous state
       }
     }
-    globalAlert.showError(`选择章节版本失败: ${error instanceof Error ? error.message : '未知错误'}`, '选择失败')
+    globalAlert.showError(
+      `选择章节版本失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '选择失败',
+    )
   }
 }
 
@@ -1310,7 +1485,10 @@ const saveChapterChanges = async (updatedChapter: ChapterOutline) => {
     globalAlert.showSuccess('章节大纲已更新', '保存成功')
   } catch (error) {
     console.error('更新章节大纲失败:', error)
-    globalAlert.showError(`更新章节大纲失败: ${error instanceof Error ? error.message : '未知错误'}`, '保存失败')
+    globalAlert.showError(
+      `更新章节大纲失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '保存失败',
+    )
   } finally {
     showEditChapterModal.value = false
   }
@@ -1319,42 +1497,59 @@ const saveChapterChanges = async (updatedChapter: ChapterOutline) => {
 const evaluateChapter = async () => {
   if (selectedChapterNumber.value !== null) {
     // 保存原始状态，用于失败时恢复
-    let previousStatus: "not_generated" | "generating" | "evaluating" | "selecting" | "failed" | "evaluation_failed" | "waiting_for_confirm" | "successful" | undefined
-    
+    let previousStatus:
+      | 'not_generated'
+      | 'generating'
+      | 'evaluating'
+      | 'selecting'
+      | 'failed'
+      | 'evaluation_failed'
+      | 'waiting_for_confirm'
+      | 'successful'
+      | undefined
+
     try {
       // 在本地更新章节状态为evaluating以立即反映在UI上
       if (project.value?.chapters) {
-        const chapter = project.value.chapters.find(ch => ch.chapter_number === selectedChapterNumber.value)
+        const chapter = project.value.chapters.find(
+          (ch) => ch.chapter_number === selectedChapterNumber.value,
+        )
         if (chapter) {
           previousStatus = chapter.generation_status // 保存原状态
           chapter.generation_status = 'evaluating'
         }
       }
       await novelStore.evaluateChapter(selectedChapterNumber.value)
-      
+
       // 评审完成后，状态会通过store和轮询更新，这里不需要额外操作
       globalAlert.showSuccess('章节评审结果已生成', '评审成功')
     } catch (error) {
       console.error('评审章节失败:', error)
-      
+
       // 错误状态下恢复章节状态为原始状态
       if (project.value?.chapters) {
-        const chapter = project.value.chapters.find(ch => ch.chapter_number === selectedChapterNumber.value)
+        const chapter = project.value.chapters.find(
+          (ch) => ch.chapter_number === selectedChapterNumber.value,
+        )
         if (chapter && previousStatus) {
           chapter.generation_status = previousStatus // 恢复为原状态
         }
       }
-      
-      globalAlert.showError(`评审章节失败: ${error instanceof Error ? error.message : '未知错误'}`, '评审失败')
+
+      globalAlert.showError(
+        `评审章节失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        '评审失败',
+      )
     }
   }
 }
 
 const deleteChapter = async (chapterNumbers: number | number[]) => {
   const numbersToDelete = Array.isArray(chapterNumbers) ? chapterNumbers : [chapterNumbers]
-  const confirmationMessage = numbersToDelete.length > 1
-    ? `您确定要删除选中的 ${numbersToDelete.length} 个章节吗？这个操作无法撤销。`
-    : `您确定要删除第 ${numbersToDelete[0]} 章吗？这个操作无法撤销。`
+  const confirmationMessage =
+    numbersToDelete.length > 1
+      ? `您确定要删除选中的 ${numbersToDelete.length} 个章节吗？这个操作无法撤销。`
+      : `您确定要删除第 ${numbersToDelete[0]} 章吗？这个操作无法撤销。`
 
   if (window.confirm(confirmationMessage)) {
     try {
@@ -1366,7 +1561,10 @@ const deleteChapter = async (chapterNumbers: number | number[]) => {
       }
     } catch (error) {
       console.error('删除章节失败:', error)
-      globalAlert.showError(`删除章节失败: ${error instanceof Error ? error.message : '未知错误'}`, '删除失败')
+      globalAlert.showError(
+        `删除章节失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        '删除失败',
+      )
     }
   }
 }
@@ -1375,7 +1573,7 @@ const generateOutline = async () => {
   showGenerateOutlineModal.value = true
 }
 
-const editChapterContent = async (data: { chapterNumber: number, content: string }) => {
+const editChapterContent = async (data: { chapterNumber: number; content: string }) => {
   if (!project.value) return false
 
   try {
@@ -1384,21 +1582,36 @@ const editChapterContent = async (data: { chapterNumber: number, content: string
     return true
   } catch (error) {
     console.error('编辑章节内容失败:', error)
-    globalAlert.showError(`编辑章节内容失败: ${error instanceof Error ? error.message : '未知错误'}`, '保存失败')
+    globalAlert.showError(
+      `编辑章节内容失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '保存失败',
+    )
     return false
   }
 }
 
-const handleGenerateOutline = async (numChapters: number, estimatedTotalChapters?: number, userPrompt?: string) => {
+const handleGenerateOutline = async (
+  numChapters: number,
+  estimatedTotalChapters?: number,
+  userPrompt?: string,
+) => {
   if (!project.value) return
   isGeneratingOutline.value = true
   try {
     const startChapter = (project.value.blueprint?.chapter_outline?.length || 0) + 1
-    await novelStore.generateChapterOutline(startChapter, numChapters, estimatedTotalChapters, userPrompt)
+    await novelStore.generateChapterOutline(
+      startChapter,
+      numChapters,
+      estimatedTotalChapters,
+      userPrompt,
+    )
     globalAlert.showSuccess('新的章节大纲已生成', '操作成功')
   } catch (error) {
     console.error('生成大纲失败:', error)
-    globalAlert.showError(`生成大纲失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
+    globalAlert.showError(
+      `生成大纲失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '生成失败',
+    )
   } finally {
     isGeneratingOutline.value = false
   }
@@ -1412,17 +1625,20 @@ const rebuildRag = async (forceFull: boolean = false) => {
     if (result.indexed_chapters === 0 && result.skipped_chapters > 0) {
       globalAlert.showSuccess(
         `已检查 ${result.skipped_chapters} 个章节，内容未变化，无需重新索引。如需强制刷新，请右键点击"刷新知识库"按钮。`,
-        '知识库无变化'
+        '知识库无变化',
       )
     } else {
       globalAlert.showSuccess(
         `已重新索引 ${result.indexed_chapters} 个章节，跳过 ${result.skipped_chapters} 个未变化章节${forceFull ? '（强制全量刷新）' : ''}`,
-        '知识库已刷新'
+        '知识库已刷新',
       )
     }
   } catch (error) {
     console.error('刷新知识库失败:', error)
-    globalAlert.showError(`刷新知识库失败: ${error instanceof Error ? error.message : '未知错误'}`, '刷新失败')
+    globalAlert.showError(
+      `刷新知识库失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '刷新失败',
+    )
   } finally {
     isRebuildingRag.value = false
   }
@@ -1445,9 +1661,13 @@ const onPredictionUpdated = async () => {
 /** 计算下一个未完成章节号 */
 const batchStartChapter = computed(() => {
   if (!project.value?.blueprint?.chapter_outline) return 1
-  const outlines = [...project.value.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
+  const outlines = [...project.value.blueprint.chapter_outline].sort(
+    (a, b) => a.chapter_number - b.chapter_number,
+  )
   for (const outline of outlines) {
-    const chapter = project.value.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+    const chapter = project.value.chapters.find(
+      (ch) => ch.chapter_number === outline.chapter_number,
+    )
     if (!chapter || chapter.generation_status !== 'successful') {
       return outline.chapter_number
     }
@@ -1459,11 +1679,15 @@ const batchStartChapter = computed(() => {
 /** 计算从起始章节开始最多可生成多少章（有大纲的） */
 const batchMaxCount = computed(() => {
   if (!project.value?.blueprint?.chapter_outline) return 0
-  const outlines = [...project.value.blueprint.chapter_outline].sort((a, b) => a.chapter_number - b.chapter_number)
+  const outlines = [...project.value.blueprint.chapter_outline].sort(
+    (a, b) => a.chapter_number - b.chapter_number,
+  )
   let count = 0
   for (const outline of outlines) {
     if (outline.chapter_number >= batchStartChapter.value) {
-      const chapter = project.value.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+      const chapter = project.value.chapters.find(
+        (ch) => ch.chapter_number === outline.chapter_number,
+      )
       if (!chapter || chapter.generation_status !== 'successful') {
         count++
       }
@@ -1484,14 +1708,18 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
   if (!project.value) return
 
   const projectId = project.value.id
-  const outlines = [...(project.value.blueprint?.chapter_outline || [])].sort((a, b) => a.chapter_number - b.chapter_number)
+  const outlines = [...(project.value.blueprint?.chapter_outline || [])].sort(
+    (a, b) => a.chapter_number - b.chapter_number,
+  )
 
   // 收集目标章节列表：从起始章节开始，取未完成且有大纲的章节
   const targetChapters: number[] = []
   for (const outline of outlines) {
     if (targetChapters.length >= count) break
     if (outline.chapter_number < batchStartChapter.value) continue
-    const chapter = project.value.chapters.find(ch => ch.chapter_number === outline.chapter_number)
+    const chapter = project.value.chapters.find(
+      (ch) => ch.chapter_number === outline.chapter_number,
+    )
     if (!chapter || chapter.generation_status !== 'successful') {
       targetChapters.push(outline.chapter_number)
     }
@@ -1521,13 +1749,17 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
         {
           preset: selectedPreset.value,
           use_agent_system: useAgent.value,
+          ...(agentFlowConfigOverrides.value || {}),
         },
         (state) => {
           streamingStage.value = state.stage || state.message || '处理中...'
           // 根据进度更新 batchProgress
           const progressChapter = Math.ceil((state.progress / 100) * targetChapters.length)
-          batchProgress.value = { current: Math.max(1, progressChapter), total: targetChapters.length }
-        }
+          batchProgress.value = {
+            current: Math.max(1, progressChapter),
+            total: targetChapters.length,
+          }
+        },
       )
 
       if (result.status === 'completed') {
@@ -1536,7 +1768,10 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
       }
     } catch (error) {
       console.error('批量异步生成失败:', error)
-      globalAlert.showError(`批量生成失败: ${error instanceof Error ? error.message : '未知错误'}`, '连续生成')
+      globalAlert.showError(
+        `批量生成失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        '连续生成',
+      )
     } finally {
       batchGenerating.value = false
       batchProgress.value = null
@@ -1544,7 +1779,11 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
       streamingStage.value = null
 
       if (componentMounted.value) {
-        try { await novelStore.loadProject(projectId, true) } catch { /* 静默 */ }
+        try {
+          await novelStore.loadProject(projectId, true)
+        } catch {
+          /* 静默 */
+        }
       }
     }
     return
@@ -1564,11 +1803,13 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
 
       // 本地更新章节状态为 generating
       if (project.value?.chapters) {
-        const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+        const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
         if (chapter) {
           chapter.generation_status = 'generating'
         } else {
-          const outline = project.value.blueprint?.chapter_outline?.find(o => o.chapter_number === chapterNumber)
+          const outline = project.value.blueprint?.chapter_outline?.find(
+            (o) => o.chapter_number === chapterNumber,
+          )
           project.value.chapters.push({
             chapter_number: chapterNumber,
             title: outline?.title || '加载中...',
@@ -1576,14 +1817,20 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
             content: '',
             versions: [],
             evaluation: null,
-            generation_status: 'generating'
+            generation_status: 'generating',
           } as Chapter)
         }
       }
 
       try {
         // 调用生成 API，获取含 best_version_index 的原始响应
-        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(projectId, chapterNumber, writingNotes, selectedPreset.value, agentFlowConfigOverrides.value)
+        const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(
+          projectId,
+          chapterNumber,
+          writingNotes,
+          selectedPreset.value,
+          agentFlowConfigOverrides.value,
+        )
 
         // 再次检查是否取消或组件已卸载（生成过程中可能点了取消或离开页面）
         if (batchCancelled.value || !componentMounted.value) {
@@ -1595,7 +1842,11 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
             console.warn(`取消时选版失败（第 ${chapterNumber} 章）:`, selectErr)
           }
           if (componentMounted.value) {
-            try { await novelStore.loadProject(projectId, true) } catch { /* 静默 */ }
+            try {
+              await novelStore.loadProject(projectId, true)
+            } catch {
+              /* 静默 */
+            }
           }
           break
         }
@@ -1612,7 +1863,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
 
         // 更新本地失败状态
         if (componentMounted.value && project.value?.chapters) {
-          const chapter = project.value.chapters.find(ch => ch.chapter_number === chapterNumber)
+          const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
           if (chapter) {
             chapter.generation_status = 'failed'
           }
@@ -1682,47 +1933,47 @@ onUnmounted(() => {
 
 :global(body.m3-novel) {
   --md-font-family: 'Manrope', 'Noto Sans SC', 'Noto Sans', 'PingFang SC', sans-serif;
-  --md-primary: #FFE500;
-  --md-primary-light: #FFF062;
-  --md-primary-dark: #E6CE00;
+  --md-primary: #ffe500;
+  --md-primary-light: #fff062;
+  --md-primary-dark: #e6ce00;
   --md-on-primary: #000000;
-  --md-primary-container: #2A2600;
-  --md-on-primary-container: #FFE500;
+  --md-primary-container: #2a2600;
+  --md-on-primary-container: #ffe500;
   --md-secondary: #888888;
-  --md-secondary-light: #AAAAAA;
+  --md-secondary-light: #aaaaaa;
   --md-secondary-dark: #666666;
-  --md-on-secondary: #FFFFFF;
-  --md-secondary-container: #1C1C1C;
-  --md-on-secondary-container: #CCCCCC;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #1c1c1c;
+  --md-on-secondary-container: #cccccc;
   --md-surface: #141414;
-  --md-surface-dim: #0A0A0A;
-  --md-surface-container-lowest: #0A0A0A;
+  --md-surface-dim: #0a0a0a;
+  --md-surface-container-lowest: #0a0a0a;
   --md-surface-container-low: #141414;
-  --md-surface-container: #1C1C1C;
+  --md-surface-container: #1c1c1c;
   --md-surface-container-high: #242424;
-  --md-surface-container-highest: #2A2A2A;
-  --md-on-surface: #FFFFFF;
+  --md-surface-container-highest: #2a2a2a;
+  --md-on-surface: #ffffff;
   --md-on-surface-variant: #888888;
-  --md-outline: #2A2A2A;
-  --md-outline-variant: #1C1C1C;
-  --md-error: #FF4757;
-  --md-error-container: #3D0A0A;
-  --md-on-error: #FFFFFF;
-  --md-on-error-container: #FF9EB8;
-  --md-success: #2ED573;
-  --md-success-container: #0A2A1A;
+  --md-outline: #2a2a2a;
+  --md-outline-variant: #1c1c1c;
+  --md-error: #ff4757;
+  --md-error-container: #3d0a0a;
+  --md-on-error: #ffffff;
+  --md-on-error-container: #ff9eb8;
+  --md-success: #2ed573;
+  --md-success-container: #0a2a1a;
   --md-on-success: #000000;
-  --md-on-success-container: #2ED573;
-  --md-warning-container: #2A2600;
-  --md-on-warning-container: #FFE500;
-  --md-background: #0A0A0A;
-  --md-on-background: #FFFFFF;
+  --md-on-success-container: #2ed573;
+  --md-warning-container: #2a2600;
+  --md-on-warning-container: #ffe500;
+  --md-background: #0a0a0a;
+  --md-on-background: #ffffff;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
 }
 
 .m3-shell {
-  background: #0A0A0A;
+  background: #0a0a0a;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
   animation: m3-fade 0.6s ease-out both;
@@ -1767,7 +2018,7 @@ onUnmounted(() => {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #2A2A2A;
+  background: #2a2a2a;
   border-radius: 3px;
 }
 

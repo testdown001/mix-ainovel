@@ -14,6 +14,7 @@ from email.utils import formataddr, parseaddr
 from fastapi import HTTPException, status
 
 import smtplib
+import redis.asyncio as aioredis
 
 from ..core.config import settings
 from ..core.security import create_access_token, hash_password, verify_password
@@ -23,6 +24,7 @@ from ..repositories.user_repository import UserRepository
 from ..schemas.user import AuthOptions, Token, UserCreate, UserInDB, UserRegistration
 
 
+# 向后兼容：内存缓存作为 Redis 不可用时的降级方案
 _VERIFICATION_CACHE: Dict[str, tuple[str, float]] = {}
 _LAST_SEND_TIME: Dict[str, float] = {}
 
@@ -36,6 +38,25 @@ class AuthService:
         self.system_config_repo = SystemConfigRepository(session)
         self._verification_cache = _VERIFICATION_CACHE
         self._last_send_time = _LAST_SEND_TIME
+        self._redis = None
+        self._logger = logging.getLogger(__name__)
+
+    async def _get_redis(self):
+        """获取 Redis 连接（懒加载）"""
+        if self._redis is None:
+            try:
+                self._redis = await aioredis.from_url(
+                    settings.redis_url,
+                    encoding="utf-8",
+                    decode_responses=True,
+                    socket_connect_timeout=5,
+                )
+                # 测试连接
+                await self._redis.ping()
+            except Exception as e:
+                self._logger.warning("Redis 连接失败，降级到内存缓存: %s", e)
+                self._redis = None
+        return self._redis
 
     # ------------------------------------------------------------------
     # 用户登录 / 注册
@@ -54,7 +75,7 @@ class AuthService:
         must_change_password: Optional[bool] = None,
     ) -> Token:
         payload = {"is_admin": user.is_admin}
-        token = create_access_token(user.username, extra_claims=payload)
+        token = create_access_token(user.id, extra_claims=payload)
         should_change = self.requires_password_reset(user) if must_change_password is None else must_change_password
         return Token(access_token=token, must_change_password=should_change)
 
@@ -77,7 +98,7 @@ class AuthService:
         if payload.email and await self.user_repo.get_by_email(payload.email):
             raise HTTPException(status_code=400, detail="邮箱已被使用")
 
-        if not self.verify_code(payload.email, payload.verification_code):
+        if not await self.verify_code(payload.email, payload.verification_code):
             raise HTTPException(status_code=400, detail="验证码错误或已过期")
 
         hashed_password = hash_password(payload.password)
@@ -94,37 +115,108 @@ class AuthService:
     # 邮箱验证码逻辑
     # ------------------------------------------------------------------
 
-    async def send_verification_code(self, email: str) -> None:
-        if not await self.is_registration_enabled():
-            raise HTTPException(status_code=403, detail="当前暂未开放注册")
-        now = time.time()
-        if email in self._last_send_time and now - self._last_send_time[email] < 60:
-            raise HTTPException(status_code=429, detail="请稍后再试，1分钟内不可重复发送")
+    async def send_verification_code(self, email: str, purpose: str = "register") -> None:
+        """发送验证码邮件。
 
-        code = "".join(random.choices(string.digits, k=6))
-        self._verification_cache[email] = (code, now + 300)
-        self._last_send_time[email] = now
+        Args:
+            email: 目标邮箱
+            purpose: 验证码用途，'register' 或 'reset'
+        """
+        if purpose == "register":
+            if not await self.is_registration_enabled():
+                raise HTTPException(status_code=403, detail="当前暂未开放注册")
+        elif purpose == "reset":
+            # 密码重置：验证用户存在（防止邮箱枚举，静默失败）
+            user = await self.user_repo.get_by_email(email)
+            if not user:
+                # 不抛出异常，防止邮箱枚举攻击
+                return
+
+        cache_key = f"{purpose}:{email}"
+        rate_limit_key = f"rate_limit:{cache_key}"
+        now = time.time()
+
+        # 尝试使用 Redis
+        redis = await self._get_redis()
+        if redis:
+            try:
+                # 检查发送频率限制
+                last_send = await redis.get(rate_limit_key)
+                if last_send and now - float(last_send) < 60:
+                    raise HTTPException(status_code=429, detail="请稍后再试，1分钟内不可重复发送")
+
+                # 生成验证码
+                code = "".join(random.choices(string.digits, k=6))
+
+                # 存储到 Redis（5分钟过期）
+                await redis.setex(f"verify_code:{cache_key}", 300, code)
+                await redis.setex(rate_limit_key, 60, str(now))
+
+                self._logger.info("验证码已存储到 Redis: %s", cache_key)
+            except Exception as e:
+                self._logger.error("Redis 操作失败，降级到内存缓存: %s", e)
+                redis = None
+
+        # 降级到内存缓存
+        if redis is None:
+            if cache_key in self._last_send_time and now - self._last_send_time[cache_key] < 60:
+                raise HTTPException(status_code=429, detail="请稍后再试，1分钟内不可重复发送")
+
+            code = "".join(random.choices(string.digits, k=6))
+            self._verification_cache[cache_key] = (code, now + 300)
+            self._last_send_time[cache_key] = now
+            self._logger.warning("使用内存缓存存储验证码: %s", cache_key)
 
         smtp_config = await self._load_smtp_config()
         if not smtp_config:
             raise HTTPException(status_code=500, detail="未配置邮件服务，请联系管理员")
 
-        await self._send_email(email, code, smtp_config)
+        await self._send_email(email, code, smtp_config, purpose)
 
-    def verify_code(self, email: str | None, code: str) -> bool:
+    async def verify_code(self, email: str | None, code: str, purpose: str = "register") -> bool:
+        """验证验证码。
+
+        Args:
+            email: 邮箱
+            code: 验证码
+            purpose: 验证码用途，'register' 或 'reset'
+        """
         if not email:
             return False
-        cached = self._verification_cache.get(email)
-        if not cached:
-            return False
-        expected, expire_at = cached
-        if time.time() > expire_at:
-            self._verification_cache.pop(email, None)
-            return False
-        if code != expected:
-            return False
-        self._verification_cache.pop(email, None)
-        return True
+
+        cache_key = f"{purpose}:{email}"
+
+        # 尝试从 Redis 验证
+        redis = await self._get_redis()
+        if redis:
+            try:
+                stored_code = await redis.get(f"verify_code:{cache_key}")
+                if stored_code and stored_code == code:
+                    # 验证成功，删除验证码
+                    await redis.delete(f"verify_code:{cache_key}")
+                    self._logger.info("验证码验证成功（Redis）: %s", cache_key)
+                    return True
+                return False
+            except Exception as e:
+                self._logger.error("Redis 验证失败，降级到内存缓存: %s", e)
+                redis = None
+
+        # 降级到内存缓存
+        if redis is None:
+            cached = self._verification_cache.get(cache_key)
+            if not cached:
+                return False
+            expected, expire_at = cached
+            if time.time() > expire_at:
+                self._verification_cache.pop(cache_key, None)
+                return False
+            if code != expected:
+                return False
+            self._verification_cache.pop(cache_key, None)
+            self._logger.info("验证码验证成功（内存）: %s", cache_key)
+            return True
+
+        return False
 
     async def _load_smtp_config(self) -> Optional[Dict[str, str]]:
         keys = [
@@ -146,7 +238,15 @@ class AuthService:
 
         return configs
 
-    async def _send_email(self, to_email: str, code: str, smtp_config: Dict[str, str]) -> None:
+    async def _send_email(self, to_email: str, code: str, smtp_config: Dict[str, str], purpose: str = "register") -> None:
+        """发送验证码邮件。
+
+        Args:
+            to_email: 收件人邮箱
+            code: 验证码
+            smtp_config: SMTP 配置
+            purpose: 邮件用途，'register' 或 'reset'
+        """
         logger = logging.getLogger(__name__)
         server = smtp_config["smtp.server"]
         port = int(smtp_config.get("smtp.port", "465"))
@@ -411,7 +511,7 @@ class AuthService:
         user = await self.user_repo.get_by_email(email)
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="该邮箱未注册")
-        if not self.verify_code(email, code):
+        if not await self.verify_code(email, code, purpose="reset"):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码无效或已过期")
         if len(new_password) < 8:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="密码至少需要8个字符")

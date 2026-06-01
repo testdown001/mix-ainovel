@@ -46,12 +46,12 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 
 // SubmitTaskRequest 提交任务请求
 type SubmitTaskRequest struct {
-	Type           string            `json:"type" validate:"required"`          // chapter:generate, chapter:batch_generate
-	ProjectID      string            `json:"project_id" validate:"required"`
-	ChapterNumber  int               `json:"chapter_number,omitempty"`
-	ChapterNumbers []int             `json:"chapter_numbers,omitempty"`
-	UserID         int               `json:"user_id" validate:"required"`
-	Priority       int               `json:"priority"`                          // 0-3
+	Type           string                 `json:"type" validate:"required"` // chapter:generate, chapter:batch_generate
+	ProjectID      string                 `json:"project_id" validate:"required"`
+	ChapterNumber  int                    `json:"chapter_number,omitempty"`
+	ChapterNumbers []int                  `json:"chapter_numbers,omitempty"`
+	UserID         int                    `json:"user_id" validate:"required"`
+	Priority       int                    `json:"priority"` // 0-3
 	Config         map[string]interface{} `json:"config"`
 }
 
@@ -88,6 +88,7 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 			UseAgentSystem: getBoolConfig(req.Config, "use_agent_system", false),
 			RAGMode:        getStringConfig(req.Config, "rag_mode", "simple"),
 			WritingNotes:   getStringConfig(req.Config, "writing_notes", ""),
+			Extra:          getExtraConfig(req.Config),
 		}
 	case TaskBatchGenerate:
 		if len(req.ChapterNumbers) == 0 {
@@ -100,6 +101,7 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 			Preset:         getStringConfig(req.Config, "preset", "basic"),
 			UseAgentSystem: getBoolConfig(req.Config, "use_agent_system", false),
 			RAGMode:        getStringConfig(req.Config, "rag_mode", "simple"),
+			Extra:          getExtraConfig(req.Config),
 		}
 	default:
 		return c.Status(400).JSON(fiber.Map{"error": "不支持的任务类型: " + req.Type})
@@ -242,8 +244,8 @@ func (h *Handler) GetStats(c *fiber.Ctx) error {
 
 // UpdateProgressRequest Worker 进度回调请求
 type UpdateProgressRequest struct {
-	Progress int    `json:"progress"`   // 0-100
-	Stage    string `json:"stage"`      // 当前阶段
+	Progress int    `json:"progress"` // 0-100
+	Stage    string `json:"stage"`    // 当前阶段
 	Message  string `json:"message"`
 }
 
@@ -301,4 +303,25 @@ func getBoolConfig(config map[string]interface{}, key string, defaultVal bool) b
 		}
 	}
 	return defaultVal
+}
+
+func getExtraConfig(config map[string]interface{}) map[string]interface{} {
+	if config == nil {
+		return nil
+	}
+
+	extra := make(map[string]interface{})
+	for key, value := range config {
+		switch key {
+		case "preset", "use_agent_system", "rag_mode", "writing_notes":
+			continue
+		default:
+			extra[key] = value
+		}
+	}
+
+	if len(extra) == 0 {
+		return nil
+	}
+	return extra
 }

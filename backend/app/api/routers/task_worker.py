@@ -14,16 +14,12 @@ import traceback
 from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
-from ...core.config import settings
+from ...agents.hybrid_executor import HybridExecutor
 from ...db.session import AsyncSessionLocal
-from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
-from ...services.pipeline_orchestrator import PipelineOrchestrator
-from ...services.prompt_service import PromptService
-from ...services.vector_store_service import VectorStoreService
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +35,7 @@ class TaskConfig(BaseModel):
     use_agent_system: bool = False
     rag_mode: str = "simple"
     writing_notes: str = ""
-    extra: Dict[str, str] = {}
+    extra: Dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkerTaskRequest(BaseModel):
@@ -49,7 +45,7 @@ class WorkerTaskRequest(BaseModel):
     chapter_number: Optional[int] = None
     chapter_numbers: Optional[list[int]] = None
     user_id: int
-    config: TaskConfig = TaskConfig()
+    config: TaskConfig = Field(default_factory=TaskConfig)
     callback_url: Optional[str] = None
 
 
@@ -158,48 +154,37 @@ async def _execute_chapter_generate(
     reporter: ProgressReporter,
 ) -> Dict[str, Any]:
     """执行章节生成"""
+    if req.chapter_number is None:
+        raise ValueError("章节生成任务缺少 chapter_number")
+
     async with AsyncSessionLocal() as session:
-        # 初始化服务
         novel_service = NovelService(session)
-        llm_service = LLMService(session)
-        prompt_service = PromptService(session)
-
-        # 确保项目存在且用户有权限
-        project = await novel_service.ensure_project_owner(req.project_id, req.user_id)
-
-        # 获取或创建章节
+        await novel_service.ensure_project_owner(req.project_id, req.user_id)
         chapter = await novel_service.get_or_create_chapter(req.project_id, req.chapter_number)
         chapter.status = "generating"
         await session.commit()
 
         await reporter.report(10, "context_assembly", "正在收集上下文...")
-
-        # 创建向量存储
-        vector_store = None
-        if settings.vector_store_enabled:
-            vector_store = VectorStoreService()
-
-        # 创建 Pipeline
-        orchestrator = PipelineOrchestrator(
-            session=session,
-            llm_service=llm_service,
-            prompt_service=prompt_service,
-            novel_service=novel_service,
-            vector_store=vector_store,
-        )
-
         await reporter.report(20, "llm_generation", "正在生成章节...")
 
-        # 执行生成
         config = req.config
-        result = await orchestrator.generate_chapter(
-            project=project,
+        flow_config: Dict[str, Any] = dict(config.extra or {})
+        flow_config.update({
+            "preset": config.preset,
+            "rag_mode": config.rag_mode,
+            "use_agent": config.use_agent_system,
+        })
+
+        executor = HybridExecutor(session, user_id=req.user_id)
+        if config.use_agent_system:
+            executor.enable_agent_system()
+
+        result = await executor.generate_chapter(
+            use_agent=config.use_agent_system,
+            project_id=req.project_id,
             chapter_number=req.chapter_number,
-            user_id=req.user_id,
-            preset=config.preset,
-            use_agent_system=config.use_agent_system,
-            rag_mode=config.rag_mode,
             writing_notes=config.writing_notes or None,
+            flow_config=flow_config,
         )
 
         await reporter.report(80, "post_processing", "正在后处理...")
@@ -212,7 +197,9 @@ async def _execute_chapter_generate(
             "chapter_id": chapter.id,
             "chapter_number": req.chapter_number,
             "status": "completed",
-            "versions_count": len(result.get("versions", [])),
+            "versions_count": len(result.get("variants", [])),
+            "best_version_index": result.get("best_version_index", 0),
+            "preset": result.get("preset", config.preset),
         }
 
 

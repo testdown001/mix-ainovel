@@ -17,11 +17,21 @@ async def get_current_user(
     session: AsyncSession = Depends(get_session),
 ) -> UserInDB:
     payload = decode_access_token(token)
-    username = payload["sub"]
+    subject = payload["sub"]
+
     repo = UserRepository(session)
-    user = await repo.get_by_username(username)
+
+    # 尝试将 subject 解析为 user_id（新格式）
+    try:
+        user_id = int(subject)
+        user = await repo.get(id=user_id)
+    except (ValueError, TypeError):
+        # 回退到 username（旧格式，向后兼容）
+        user = await repo.get_by_username(subject)
+
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已被禁用")
+
     service = AuthService(session)
     schema = UserInDB.model_validate(user)
     schema.must_change_password = service.requires_password_reset(user)

@@ -133,22 +133,22 @@ func (p *WorkerPool) selectWorker() *WorkerInfo {
 
 // WorkerTaskRequest 发送给 Python Worker 的任务请求
 type WorkerTaskRequest struct {
-	TaskID        string            `json:"task_id"`
-	TaskType      string            `json:"task_type"`
-	ProjectID     string            `json:"project_id"`
-	ChapterNumber int               `json:"chapter_number,omitempty"`
-	ChapterNumbers []int            `json:"chapter_numbers,omitempty"`
-	UserID        int               `json:"user_id"`
-	Config        json.RawMessage   `json:"config"`
-	CallbackURL   string            `json:"callback_url"` // 进度回调地址
+	TaskID         string          `json:"task_id"`
+	TaskType       string          `json:"task_type"`
+	ProjectID      string          `json:"project_id"`
+	ChapterNumber  int             `json:"chapter_number,omitempty"`
+	ChapterNumbers []int           `json:"chapter_numbers,omitempty"`
+	UserID         int             `json:"user_id"`
+	Config         json.RawMessage `json:"config"`
+	CallbackURL    string          `json:"callback_url"` // 进度回调地址
 }
 
 // WorkerTaskResponse Python Worker 返回的结果
 type WorkerTaskResponse struct {
-	Status    string          `json:"status"`  // completed, failed
-	Result    json.RawMessage `json:"result,omitempty"`
-	Error     string          `json:"error,omitempty"`
-	Duration  int64           `json:"duration_ms,omitempty"`
+	Status   string          `json:"status"` // completed, failed
+	Result   json.RawMessage `json:"result,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Duration int64           `json:"duration_ms,omitempty"`
 }
 
 // executeChapterGenerate 执行章节生成
@@ -191,6 +191,7 @@ func (p *WorkerPool) executeBatchGenerate(ctx context.Context, worker *WorkerInf
 		"preset":           payload.Preset,
 		"use_agent_system": payload.UseAgentSystem,
 		"rag_mode":         payload.RAGMode,
+		"extra":            payload.Extra,
 	})
 
 	workerReq := &WorkerTaskRequest{

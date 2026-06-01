@@ -1,0 +1,22 @@
+FROM node:20-slim AS frontend-builder
+
+ARG USE_CHINA_MIRROR=true
+
+WORKDIR /frontend
+
+RUN if [ "$USE_CHINA_MIRROR" = "true" ]; then \
+      npm config set registry https://registry.npmmirror.com; \
+    fi
+
+COPY frontend/package*.json ./
+RUN npm ci --prefer-offline --no-audit
+
+COPY frontend/ ./
+RUN npm run build
+
+FROM nginx:alpine
+
+COPY deploy/nginx.conf /etc/nginx/nginx.conf
+COPY --from=frontend-builder /frontend/dist /usr/share/nginx/html
+
+EXPOSE 80

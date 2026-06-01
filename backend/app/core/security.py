@@ -23,19 +23,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(
-    subject: str,
+    subject: int | str,
     *,
     expires_delta: Optional[timedelta] = None,
     extra_claims: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """生成 JWT 访问令牌，默认过期时间读取自配置。"""
+    """生成 JWT 访问令牌，默认过期时间读取自配置。
+
+    Args:
+        subject: 用户 ID（推荐使用 int）或 username（向后兼容）
+        expires_delta: 过期时间增量
+        extra_claims: 额外的 JWT 声明
+    """
     if expires_delta is None:
         expires_delta = timedelta(minutes=settings.access_token_expire_minutes)
 
     now = datetime.utcnow()
     expire = now + expires_delta
 
-    to_encode: Dict[str, Any] = {"sub": subject, "iat": now, "exp": expire}
+    to_encode: Dict[str, Any] = {"sub": str(subject), "iat": now, "exp": expire}
     if extra_claims:
         to_encode.update(extra_claims)
 
