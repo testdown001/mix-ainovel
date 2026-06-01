@@ -177,8 +177,12 @@ class QuotaService:
     def _derive_tier(plan: Optional["Plan"]) -> str:
         """从套餐推导订阅档位（free / creator / flagship）。
 
-        优先看 plan.name 关键字；无 plan 时按通用 premium 视作 creator。
+        优先使用后台显式配置的 plan.tier；缺失时回退按 plan.name 关键字猜测；
+        无 plan 时按通用 premium 视作 creator。
         """
+        explicit = (getattr(plan, "tier", "") or "").strip().lower()
+        if explicit in ("free", "creator", "flagship"):
+            return explicit
         name = (getattr(plan, "name", "") or "")
         if "旗舰" in name or "flagship" in name.lower():
             return "flagship"

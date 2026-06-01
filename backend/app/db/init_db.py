@@ -213,6 +213,12 @@ async def _ensure_schema_updates() -> None:
                     "plan_tier": "plan_tier VARCHAR(32) NOT NULL DEFAULT 'free'",
                 },
             )
+            _ensure_columns(
+                "plans",
+                {
+                    "tier": "tier VARCHAR(32) NOT NULL DEFAULT 'free'",
+                },
+            )
 
             def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
                 """为既有库补建缺失的复合索引（幂等）。"""

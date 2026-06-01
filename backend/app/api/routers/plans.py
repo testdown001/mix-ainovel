@@ -8,8 +8,21 @@ from sqlalchemy import select
 from ...db.session import get_session as get_db
 from ...models.plan import Plan
 from ...core.dependencies import get_current_admin
+from ...core.feature_gating import (
+    capabilities_for_tier,
+    load_min_tiers,
+    registry_dump,
+)
 
 router = APIRouter(prefix="/api/plans", tags=["Plans"])
+
+
+async def _attach_capabilities(plan_dicts: list[dict], db) -> list[dict]:
+    """为每个套餐 dict 附加"该档位解锁的能力清单"（与门控同源，自动同步）。"""
+    min_tiers = await load_min_tiers(db)
+    for pd in plan_dicts:
+        pd["capabilities"] = capabilities_for_tier(pd.get("tier", "free") or "free", min_tiers)
+    return plan_dicts
 
 
 class PlanCreate(BaseModel):
@@ -19,6 +32,7 @@ class PlanCreate(BaseModel):
     period: str = "monthly"
     daily_chapter_limit: int = 0
     max_novels: int = 0
+    tier: str = "free"  # 订阅档位：free / creator / flagship
     features: Optional[list[str]] = None
     is_recommended: bool = False
     is_active: bool = True
@@ -44,6 +58,7 @@ def plan_to_dict(plan: Plan) -> dict:
         "period": plan.period,
         "daily_chapter_limit": plan.daily_chapter_limit,
         "max_novels": plan.max_novels,
+        "tier": getattr(plan, "tier", "free") or "free",
         "features": features,
         "is_recommended": plan.is_recommended,
         "is_active": plan.is_active,
@@ -62,6 +77,7 @@ DEFAULT_PLANS = [
         "period": "forever",
         "daily_chapter_limit": 3,
         "max_novels": 2,
+        "tier": "free",
         "features": ["每日3章AI辅助", "最多2个项目", "基础灵感系统", "社区支持"],
         "is_recommended": False,
         "is_active": True,
@@ -75,6 +91,7 @@ DEFAULT_PLANS = [
         "period": "monthly",
         "daily_chapter_limit": 30,
         "max_novels": 20,
+        "tier": "creator",
         "features": [
             "每日30章AI辅助",
             "最多20个项目",
@@ -96,6 +113,7 @@ DEFAULT_PLANS = [
         "period": "monthly",
         "daily_chapter_limit": 0,
         "max_novels": 0,
+        "tier": "flagship",
         "features": [
             "无限AI章节生成",
             "无限项目数量",
@@ -120,8 +138,18 @@ async def get_public_plans(db: AsyncSession = Depends(get_db)):
     )
     plans = result.scalars().all()
     if not plans:
-        return DEFAULT_PLANS
-    return [plan_to_dict(p) for p in plans]
+        return await _attach_capabilities([dict(p) for p in DEFAULT_PLANS], db)
+    return await _attach_capabilities([plan_to_dict(p) for p in plans], db)
+
+
+@router.get("/capabilities")
+async def get_capability_registry(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_admin),
+):
+    """能力注册表 + 当前生效最低档位（后台展示"各档位解锁什么"用）。"""
+    min_tiers = await load_min_tiers(db)
+    return {"capabilities": registry_dump(min_tiers)}
 
 
 @router.get("/")
@@ -132,8 +160,8 @@ async def get_all_plans(
     result = await db.execute(select(Plan).order_by(Plan.sort_order))
     plans = result.scalars().all()
     if not plans:
-        return DEFAULT_PLANS
-    return [plan_to_dict(p) for p in plans]
+        return await _attach_capabilities([dict(p) for p in DEFAULT_PLANS], db)
+    return await _attach_capabilities([plan_to_dict(p) for p in plans], db)
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -149,6 +177,7 @@ async def create_plan(
         period=data.period,
         daily_chapter_limit=data.daily_chapter_limit,
         max_novels=data.max_novels,
+        tier=data.tier if data.tier in ("free", "creator", "flagship") else "free",
         features=json.dumps(data.features or [], ensure_ascii=False),
         is_recommended=data.is_recommended,
         is_active=data.is_active,
@@ -177,6 +206,8 @@ async def update_plan(
     plan.period = data.period
     plan.daily_chapter_limit = data.daily_chapter_limit
     plan.max_novels = data.max_novels
+    if data.tier in ("free", "creator", "flagship"):
+        plan.tier = data.tier
     plan.features = json.dumps(data.features or [], ensure_ascii=False)
     plan.is_recommended = data.is_recommended
     plan.is_active = data.is_active

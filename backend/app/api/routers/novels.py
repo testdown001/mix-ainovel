@@ -43,7 +43,12 @@ from ...services.reference_novel_library_service import ReferenceNovelLibrarySer
 from ...services.inspiration_spark import pick_spark, build_spark_injection
 from ...services.muse_material_service import MuseMaterialService
 from ...services.muse_persona import build_persona_injection, is_valid_persona
-from ...core.feature_gating import get_user_tier, tier_allows
+from ...core.feature_gating import (
+    get_user_tier,
+    tier_allows,
+    load_min_tiers,
+    capabilities_for_tier,
+)
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -480,12 +485,13 @@ async def converse_with_concept(
     if exclusions:
         system_prompt = _inject_exclusions(system_prompt, exclusions)
 
-    # 订阅档位（free / creator / flagship），用于高级缪斯特性门控
+    # 订阅档位（free / creator / flagship）+ 能力最低档位（含后台覆写），用于高级缪斯特性门控
     user_tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
 
     # 缪斯人格选择（创作者档及以上）：以 SOUL 首段覆盖语气与发散偏好
     persona_key = (request.muse_persona or "default").strip() or "default"
-    if persona_key != "default" and is_valid_persona(persona_key) and tier_allows(user_tier, "muse_persona"):
+    if persona_key != "default" and is_valid_persona(persona_key) and tier_allows(user_tier, "muse_persona", min_tiers):
         persona_block = build_persona_injection(persona_key)
         if persona_block:
             system_prompt = f"{persona_block}{system_prompt}"
@@ -493,7 +499,7 @@ async def converse_with_concept(
 
     # 跨界素材发现（仅开场首轮触发一次，且需创作者档及以上）：联网找冷门真实跨域素材供缪斯嫁接，
     # 开场提案吸收后会自然进入后续对话历史，无需每轮重搜。未配置搜索模型时优雅跳过。
-    if not history_records and not request.disable_muse_search and tier_allows(user_tier, "muse_search"):
+    if not history_records and not request.disable_muse_search and tier_allows(user_tier, "muse_search", min_tiers):
         seed_topic = _extract_seed_topic(request.user_input)
         if seed_topic:
             try:
@@ -570,14 +576,16 @@ async def list_muse_personas(
     """列出可选缪斯人格 + 当前用户订阅档位与各特性可用性（前端据此渲染/门控 UI）。"""
     from ...services.muse_persona import list_personas
     tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
     return {
         "personas": list_personas(),
         "tier": tier,
         "features": {
-            "muse_persona": tier_allows(tier, "muse_persona"),
-            "muse_search": tier_allows(tier, "muse_search"),
-            "muse_divergence": tier_allows(tier, "muse_divergence"),
+            "muse_persona": tier_allows(tier, "muse_persona", min_tiers),
+            "muse_search": tier_allows(tier, "muse_search", min_tiers),
+            "muse_divergence": tier_allows(tier, "muse_divergence", min_tiers),
         },
+        "capabilities": capabilities_for_tier(tier, min_tiers),
     }
 
 
@@ -593,7 +601,8 @@ async def diverge_concepts(
     await novel_service.ensure_project_owner(project_id, current_user.id)
 
     user_tier = await get_user_tier(session, current_user.id)
-    if not tier_allows(user_tier, "muse_divergence"):
+    min_tiers = await load_min_tiers(session)
+    if not tier_allows(user_tier, "muse_divergence", min_tiers):
         raise HTTPException(
             status_code=403,
             detail="N 路发散为旗舰档特性，升级旗舰版即可一次生成多个迥异世界观种子并智能评分。",

@@ -31,9 +31,40 @@ def test_feature_gating_matrix():
 
 def test_derive_tier_from_plan_name():
     from types import SimpleNamespace
-    assert QuotaService._derive_tier(SimpleNamespace(name="旗舰版")) == "flagship"
-    assert QuotaService._derive_tier(SimpleNamespace(name="创作者版")) == "creator"
+    # 无显式 tier 时回退按名字猜
+    assert QuotaService._derive_tier(SimpleNamespace(name="旗舰版", tier=None)) == "flagship"
+    assert QuotaService._derive_tier(SimpleNamespace(name="创作者版", tier=None)) == "creator"
     assert QuotaService._derive_tier(None) == "creator"  # 通用付费默认 creator
+
+
+def test_derive_tier_prefers_explicit_plan_tier():
+    from types import SimpleNamespace
+    # 后台显式配置的 tier 优先于名字（名字叫"免费版"但配成 flagship）
+    assert QuotaService._derive_tier(SimpleNamespace(name="免费版", tier="flagship")) == "flagship"
+    assert QuotaService._derive_tier(SimpleNamespace(name="随便", tier="creator")) == "creator"
+
+
+def test_capabilities_for_tier_and_registry():
+    from app.core.feature_gating import capabilities_for_tier, registry_dump, CAPABILITIES
+    assert capabilities_for_tier("free") == []
+    creator_keys = {c["key"] for c in capabilities_for_tier("creator")}
+    assert creator_keys == {"muse_persona", "muse_search"}
+    flagship_keys = {c["key"] for c in capabilities_for_tier("flagship")}
+    assert "muse_divergence" in flagship_keys
+    # 注册表元数据含展示名/说明（定价页与门控同源）
+    reg = registry_dump()
+    assert len(reg) == len(CAPABILITIES)
+    assert all(r["label"] and r["description"] for r in reg)
+
+
+def test_min_tier_override_changes_gating_and_capabilities():
+    from app.core.feature_gating import tier_allows, capabilities_for_tier
+    # 后台把 muse_divergence 覆写到 creator 档
+    overrides = {"muse_divergence": "creator"}
+    assert tier_allows("creator", "muse_divergence", overrides)
+    assert "muse_divergence" in {c["key"] for c in capabilities_for_tier("creator", overrides)}
+    # 默认（无覆写）creator 不含 divergence
+    assert not tier_allows("creator", "muse_divergence")
 
 
 def test_user_quota_effective_tier_falls_back_when_not_premium():
