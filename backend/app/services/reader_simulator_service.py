@@ -5,11 +5,11 @@
 """
 from typing import Optional, Dict, Any, List
 from enum import Enum
-import json
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..utils.json_utils import parse_llm_json
 from .llm_service import LLMService
 from .prompt_service import PromptService
 
@@ -182,11 +182,8 @@ class ReaderSimulatorService:
                 timeout=120.0
             )
             
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
                 return result.get("thrill_points", [])
         except Exception as e:
             logger.warning(f"检测爽点失败: {e}")
@@ -247,11 +244,8 @@ class ReaderSimulatorService:
                 timeout=120.0
             )
             
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
                 result["thrill_score"] = thrill_score
                 result["reader_type"] = reader_type.value
                 return result
@@ -338,11 +332,9 @@ class ReaderSimulatorService:
                 timeout=60.0
             )
             
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                return json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
+                return result
         except Exception as e:
             logger.warning(f"评估钩子强度失败: {e}")
         

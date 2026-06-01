@@ -4,13 +4,14 @@
 提供伏笔的状态追踪、提醒和发展建议功能。
 """
 from typing import Optional, List, Dict, Any
-import json
 import logging
 import time
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+
+from ..utils.json_utils import parse_llm_json
 
 from ..models.foreshadowing import (
     Foreshadowing, 
@@ -231,13 +232,10 @@ class ForeshadowingTrackerService:
             user_id=user_id,
         )
         
-        # 解析结果
+        # 解析结果（统一健壮解析）
         try:
-            content = response or ""
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
                 logger.info(
                     "伏笔提醒 LLM 完成: project=%s chapter=%s elapsed_ms=%d",
                     project_id,
@@ -245,7 +243,7 @@ class ForeshadowingTrackerService:
                     int((time.perf_counter() - started_at) * 1000),
                 )
                 return result
-        except json.JSONDecodeError:
+        except Exception:
             pass
         
         logger.warning(

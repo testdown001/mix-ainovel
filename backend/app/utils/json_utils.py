@@ -214,6 +214,30 @@ def repair_json(text: str) -> str:
     return text
 
 
+_UNSET = object()
+
+
+def parse_llm_json(raw, default=_UNSET):
+    """统一的 LLM JSON 解析入口（对象/数组通用）。
+
+    去思考标签 → 去 Markdown 围栏 → json_repair 修复 → json.loads，
+    用以彻底替换全仓散落的脆弱 `content.find('{')..rfind('}')` 切片解析
+    （后者在嵌套/多对象/数组/前后缀文本时极易出错）。
+
+    - 成功：返回解析后的 Python 对象（dict / list / 标量）。
+    - 失败：default 已提供则返回 default（软失败）；否则抛 ValueError（硬失败）。
+    """
+    text = raw if isinstance(raw, str) else ("" if raw is None else str(raw))
+    cleaned = repair_json(unwrap_markdown_json(remove_think_tags(text)))
+    try:
+        return json.loads(cleaned)
+    except (json.JSONDecodeError, ValueError) as exc:
+        if default is not _UNSET:
+            logger.warning("parse_llm_json 解析失败，返回 default: %s", exc)
+            return default
+        raise ValueError(f"无法解析 LLM JSON 输出: {exc}") from exc
+
+
 def sanitize_chapter_plain_text(raw_text: str) -> str:
     """清理章节正文中的 Markdown 标签和 LLM 前言，确保输出为纯文本叙事。"""
     if not raw_text:

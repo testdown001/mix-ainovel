@@ -5,10 +5,11 @@
 """
 from typing import Optional, Dict, Any, List
 from enum import Enum
-import json
 import logging
 
 from pydantic import BaseModel, Field
+
+from ..utils.json_utils import parse_llm_json
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .llm_service import LLMService
@@ -536,11 +537,9 @@ class SelfCritiqueService:
                 timeout=60.0
             )
             
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                return json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
+                return result
         except Exception as e:
             logger.warning(f"快速批评失败: {e}")
         

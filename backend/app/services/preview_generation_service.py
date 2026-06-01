@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .llm_service import LLMService
 from .prompt_service import PromptService
 from ..core.config import settings
+from ..utils.json_utils import parse_llm_json
 from ..core.constants import CHAPTER_MIN_WORDS, CHAPTER_MAX_WORDS
 
 logger = logging.getLogger(__name__)
@@ -180,11 +181,8 @@ class PreviewGenerationService:
                 timeout=120.0
             )
             
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
                 result["status"] = "success"
                 return result
         except Exception as e:
@@ -264,11 +262,9 @@ class PreviewGenerationService:
                 timeout=90.0
             )
             
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                return json.loads(content[json_start:json_end])
+            result = parse_llm_json(response, default=None)
+            if isinstance(result, dict):
+                return result
         except Exception as e:
             logger.warning(f"评估章节预览失败: {e}")
         
