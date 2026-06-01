@@ -173,7 +173,7 @@ def test_update_book_summary_skips_unchanged(monkeypatch):
 
     # 模拟已存在的 ProjectMemory，extra 中 book_summary_hash 与新 hash 一致
     existing_memory = SimpleNamespace(
-        global_summary="旧的全书摘要",
+        book_summary="旧的全书摘要",
         extra={"book_summary_hash": existing_hash},
     )
 
@@ -192,7 +192,7 @@ def test_update_book_summary_skips_unchanged(monkeypatch):
 def test_get_book_summary_returns_existing():
     """获取已有的书级摘要。"""
     existing_memory = SimpleNamespace(
-        global_summary="已有的全书摘要",
+        book_summary="已有的全书摘要",
         extra={},
     )
 

@@ -200,30 +200,6 @@ def test_evidence_router_format_filtered_context():
     assert "## 警示" in text
 
 
-def test_evidence_router_route_two_stage_skips_when_vector_store_disabled(monkeypatch):
-    from app.services import evidence_router_service as module
-
-    monkeypatch.setattr(module.settings, "qdrant_host", "")
-    service = EvidenceRouterService()
-
-    routed = asyncio.run(
-        service.route_two_stage(
-            project_id="proj-4",
-            chapter_number=8,
-            user_id=1,
-            writing_notes="测试",
-            pov_character="林玄",
-            retrieval_mode="vector",
-            session=None,
-            llm_service=None,
-            vector_store=None,
-        )
-    )
-
-    assert routed["stats"]["status"] == "skipped"
-    assert routed["stats"]["mode"] == "two_stage"
-
-
 def test_evidence_router_prefetch_local_plot_skips_when_vector_store_disabled(monkeypatch):
     from app.services import evidence_router_service as module
 

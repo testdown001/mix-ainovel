@@ -43,24 +43,10 @@ class TaiziAgent(BaseAgent):
         # 4. 提取写作偏好
         writing_preferences = await self._extract_writing_preferences(parsed)
 
-        await self.emit_stage("agent:taizi:done", f"指令解析完成，识别为【{chapter_type}】，转发给中书省")
+        await self.emit_stage("agent:taizi:done", f"指令解析完成，识别为【{chapter_type}】")
 
-        # 5. 转发给中书省
-        await self.send_message(
-            recipient="zhongshu",
-            message_type=AgentMessageType.TASK_DELEGATED.value,
-            payload={
-                "parsed_command": parsed,
-                "chapter_type": chapter_type,
-                "emotion_target": emotion_target,
-                "writing_preferences": writing_preferences,
-                "writing_notes": context.mission.get("writing_notes") if context.mission else None,
-            },
-            task_id=context.task_id,
-            project_id=context.project_id,
-            chapter_number=context.chapter_number,
-        )
-
+        # 收敛说明：原通过 send_message 转发给中书省，现主流程直接读取
+        # 本方法的返回值驱动下一阶段，转发调用已移除。
         return AgentResult(
             status="delegated",
             output={

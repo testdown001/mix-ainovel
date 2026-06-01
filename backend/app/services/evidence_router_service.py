@@ -10,7 +10,6 @@ from .budget_enforcer_service import BudgetEnforcerService
 from .chapter_context_service import ChapterContextService
 from .context_planner_service import ContextPlan, EvidenceItem, GenerationEvidencePack
 from .foreshadowing_tracker_service import ForeshadowingTrackerService
-from .knowledge_retrieval_service import FilteredContext, KnowledgeRetrievalService
 from .llm_service import LLMService
 from .platinum_writing_context import build_foreshadowing_urgency_brief
 from .prompt_service import PromptService
@@ -165,71 +164,6 @@ class EvidenceRouterService:
                 logger.warning("结构化伏笔数据构建失败: %s", exc)
             return brief, structured
 
-    async def route_two_stage(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        user_id: int,
-        writing_notes: str,
-        pov_character: Optional[str],
-        retrieval_mode: str,
-        session: Optional[Any],
-        llm_service: Optional[LLMService],
-        vector_store: Optional[VectorStoreService],
-    ) -> Dict[str, Any]:
-        if not settings.vector_store_enabled:
-            return {
-                "knowledge_context": "",
-                "stats": {"status": "skipped", "reason": "vector_store_disabled", "mode": "two_stage"},
-            }
-
-        if session is None or llm_service is None:
-            return {
-                "knowledge_context": "",
-                "stats": {"status": "skipped", "reason": "missing_session_or_llm", "mode": "two_stage"},
-            }
-
-        if vector_store is None:
-            from .writer_shared import create_vector_store_or_none
-
-            vector_store = create_vector_store_or_none()
-        if vector_store is None:
-            return {
-                "knowledge_context": "",
-                "stats": {"status": "skipped", "reason": "vector_store_unavailable", "mode": "two_stage"},
-            }
-
-        retrieval_service = KnowledgeRetrievalService(session, llm_service, vector_store)
-        try:
-            filtered = await retrieval_service.retrieve_and_filter(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                user_id=user_id,
-                pov_character=pov_character,
-                user_guidance=writing_notes,
-                top_k=settings.vector_top_k_chunks,
-                retrieval_mode=retrieval_mode,
-            )
-        except Exception as exc:
-            return {
-                "knowledge_context": "",
-                "stats": {
-                    "status": "failed",
-                    "reason": str(exc)[:200],
-                    "mode": "two_stage",
-                },
-            }
-
-        context_text = self.format_filtered_context(filtered)
-        stats = dict(filtered.stats or {})
-        stats["mode"] = "two_stage"
-        stats["status"] = "completed"
-        return {
-            "knowledge_context": context_text or "",
-            "stats": stats,
-        }
-
     async def execute(
         self,
         *,
@@ -289,12 +223,6 @@ class EvidenceRouterService:
                 "queries": list(self._normalize_queries(local_queries or [])),
                 "chunks": len(routed_rag_context.get("chunks") or []),
                 "summaries": len(routed_rag_context.get("summaries") or []),
-            }
-
-        if "local_plot_rag" in task_sources and routed_knowledge_context:
-            task_reports["two_stage_rag"] = {
-                "status": "reused",
-                "mode": "two_stage",
             }
 
         evidence_pack = GenerationEvidencePack()
@@ -382,6 +310,10 @@ class EvidenceRouterService:
                 "items": len(evidence_pack.symbolic_items),
             }
 
+        # 【诊断模块 / telemetry-only】证据预算裁剪与 LLM 评分仅作用于 evidence_pack,
+        # 其结果通过 graded_summary 进入 task_reports 归档与诊断面板,
+        # 不进入生成提示词（提示词消费的是预算前的 resolved_prefetch.rag_context）。
+        # 这是经评审确认的有意设计：Agentic 证据层定位为可观测性/诊断，不改变生成产物。
         budget_report = self._enforce_evidence_budgets(evidence_pack, plan.budgets)
         if budget_report:
             task_reports["evidence_budget"] = budget_report
@@ -403,7 +335,7 @@ class EvidenceRouterService:
         )
 
     @staticmethod
-    def format_filtered_context(filtered: FilteredContext) -> Optional[str]:
+    def format_filtered_context(filtered: Any) -> Optional[str]:
         if not filtered:
             return None
 

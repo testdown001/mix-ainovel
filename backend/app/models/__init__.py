@@ -68,7 +68,19 @@ from .chapter_review import ChapterReview
 # 新增：写作任务档案模型
 from .writing_archive import WritingArchive, EdictStatus
 from .plan import Plan
+from .payment_order import PaymentOrder
 from .api_usage_log import ApiUsageLog
+
+# 补全集中注册（此前依赖导入副作用建表，易漏建）
+from .constitution import NovelConstitution
+from .faction import (
+    Faction,
+    FactionRelationship,
+    FactionMember,
+    FactionRelationshipHistory,
+)
+from .user_quota import UserQuota
+from .writer_persona import WriterPersona
 
 __all__ = [
     # 基础模型
@@ -127,5 +139,14 @@ __all__ = [
     "WritingArchive",
     "EdictStatus",
     "Plan",
+    "PaymentOrder",
     "ApiUsageLog",
+    # 补全集中注册
+    "NovelConstitution",
+    "Faction",
+    "FactionRelationship",
+    "FactionMember",
+    "FactionRelationshipHistory",
+    "UserQuota",
+    "WriterPersona",
 ]

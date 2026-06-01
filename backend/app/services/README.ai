@@ -1,4 +1,4 @@
-AIDIR PATH=backend/app/services|ROLE=业务服务_核心业务逻辑实现|BOUND=不含API路由_不含数据模型定义|ENTRY=NO_ENTRY|EXPOSE=internal|FIND=小说:novel_service.py_LLM:llm_service.py_情感:emotion_service.py_定稿:finalize_service.py_一致性:consistency_service.py
+AIDIR PATH=backend/app/services|ROLE=业务服务_核心业务逻辑实现|BOUND=不含API路由_不含数据模型定义|ENTRY=NO_ENTRY|EXPOSE=internal|FIND=小说:novel_service.py_LLM:llm_service.py_定稿:finalize_service.py_一致性:consistency_service.py
 AILIST NAME=__init__.py|K=file|P=服务包初始化_导出所有服务类|E=-|A=-
 AILIST NAME=admin_setting_service.py|K=file|P=管理员设置服务_设置业务逻辑|E=AdminSettingService|A=设置读写_验证
 AILIST NAME=auth_service.py|K=file|P=认证服务_登录注册业务逻辑|E=AuthService|A=登录_注册_令牌
@@ -9,7 +9,6 @@ AILIST NAME=character_knowledge_manager.py|K=file|P=角色知识管理_主角认
 AILIST NAME=config_service.py|K=file|P=配置服务_系统配置业务逻辑|E=ConfigService|A=配置读写
 AILIST NAME=creative_guidance_system.py|K=file|P=创意指导系统_写作建议生成|E=CreativeGuidanceSystem|A=优劣势分析_指导建议
 AILIST NAME=emotion_analyzer_enhanced.py|K=file|P=增强情感分析_多维情感识别|E=EmotionAnalyzerEnhanced|A=8种情感_叙事阶段_转折点
-AILIST NAME=emotion_service.py|K=file|P=情感服务_情感曲线分析|E=EmotionService|A=情感分析_曲线生成
 AILIST NAME=foreshadowing_service.py|K=file|P=伏笔服务_伏笔管理业务逻辑|E=ForeshadowingService|A=伏笔CRUD_回收追踪
 AILIST NAME=import_service.py|K=file|P=导入服务_小说导入业务逻辑|E=ImportService|A=小说导入_格式转换
 AILIST NAME=llm_config_service.py|K=file|P=LLM配置服务_模型配置业务逻辑|E=LLMConfigService|A=配置管理_模型选择
@@ -28,6 +27,5 @@ AILIST NAME=vector_store_service.py|K=file|P=向量存储服务_文本向量化|
 AILIST NAME=vector_store_service_ext.py|K=file|P=向量存储服务扩展_章节写入和搜索|E=VectorStoreServiceExt|A=章节分块_向量化_搜索
 AILIST NAME=finalize_service.py|K=file|P=定稿服务_章节定稿和记忆更新|E=FinalizeService|A=定稿_摘要更新_状态更新_向量库写入
 AILIST NAME=consistency_service.py|K=file|P=一致性检查服务_剧情逻辑矛盾检测|E=ConsistencyService|A=一致性检查_冲突检测_修复建议
-AILIST NAME=knowledge_retrieval_service.py|K=file|P=知识检索服务_两层RAG检索过滤|E=KnowledgeRetrievalService|A=检索_过滤_POV裁剪
 AILIST NAME=enrichment_service.py|K=file|P=章节扩写服务_字数不足自动扩写|E=EnrichmentService|A=字数检测_扩写生成
 AILIST NAME=blueprint_service.py|K=file|P=章节蓝图服务_蓝图元数据管理|E=BlueprintService|A=蓝图CRUD_元数据生成

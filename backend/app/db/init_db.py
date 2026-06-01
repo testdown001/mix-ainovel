@@ -201,6 +201,30 @@ async def _ensure_schema_updates() -> None:
                     "strand_weight": "strand_weight FLOAT NULL",
                 },
             )
+            _ensure_columns(
+                "project_memories",
+                {
+                    "book_summary": "book_summary LONGTEXT NULL",
+                },
+            )
+
+            def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
+                """为既有库补建缺失的复合索引（幂等）。"""
+                if not inspector.has_table(table_name):
+                    return
+                existing = {idx["name"] for idx in inspector.get_indexes(table_name)}
+                if index_name in existing:
+                    return
+                cols = ", ".join(columns)
+                sync_conn.execute(
+                    text(f"CREATE INDEX {index_name} ON {table_name} ({cols})")
+                )
+
+            # 热点联合过滤补复合索引（与模型 __table_args__ 对齐，覆盖既有库）
+            _ensure_index("chapters", "ix_chapters_project_chapter",
+                          ["project_id", "chapter_number"])
+            _ensure_index("chapter_outlines", "ix_chapter_outlines_project_chapter",
+                          ["project_id", "chapter_number"])
         await conn.run_sync(_upgrade)
 
 

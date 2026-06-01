@@ -23,8 +23,8 @@ celery_app = Celery(
     broker=redis_url,
     backend=redis_url,
     include=[
-        "app.tasks.chapter_tasks",
-        "app.tasks.emotion_tasks",
+        # chapter_tasks（腐坏，已删）/ emotion_tasks（无派发点，已删）已移除。
+        # 章节异步生成改由 Go Gateway → /api/internal/tasks/execute 承担。
         "app.tasks.foreshadowing_tasks",
     ]
 )
@@ -52,9 +52,6 @@ celery_app.conf.update(
 
     # 任务路由（可选，用于不同优先级队列）
     task_routes={
-        "app.tasks.chapter_tasks.generate_chapter_task": {"queue": "chapter_generation"},
-        "app.tasks.chapter_tasks.batch_generate_chapters_task": {"queue": "batch_generation"},
-        "app.tasks.emotion_tasks.*": {"queue": "default"},
         "app.tasks.foreshadowing_tasks.*": {"queue": "default"},
     },
 

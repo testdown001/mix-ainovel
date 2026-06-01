@@ -10,12 +10,15 @@
 """
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
 from ..models.user_quota import UserQuota
+
+if TYPE_CHECKING:
+    from ..models.plan import Plan
 
 logger = logging.getLogger(__name__)
 
@@ -174,20 +177,30 @@ class QuotaService:
         self,
         user_id: int,
         expires_at: Optional[datetime] = None,
+        plan: Optional["Plan"] = None,
     ) -> UserQuota:
-        """升级为 Premium 用户"""
+        """升级为 Premium 用户。
+
+        若提供 plan 且其 daily_chapter_limit > 0，则采用套餐自定义的每日章节上限；
+        否则回退到 PREMIUM 默认配额。storage/token 暂统一使用 PREMIUM 默认值。
+        """
         quota = await self.get_or_create_quota(user_id)
+
+        plan_daily = getattr(plan, "daily_chapter_limit", 0) or 0
 
         quota.is_premium = True
         quota.premium_expires_at = expires_at
-        quota.daily_chapter_limit = self.PREMIUM_DAILY_CHAPTER_LIMIT
+        quota.daily_chapter_limit = plan_daily if plan_daily > 0 else self.PREMIUM_DAILY_CHAPTER_LIMIT
         quota.storage_limit = self.PREMIUM_STORAGE_LIMIT
         quota.monthly_token_limit = self.PREMIUM_MONTHLY_TOKEN_LIMIT
 
         await self.session.commit()
         await self.session.refresh(quota)
 
-        logger.info(f"升级为 Premium: user_id={user_id}, expires_at={expires_at}")
+        logger.info(
+            "升级为 Premium: user_id=%s, expires_at=%s, daily_limit=%s",
+            user_id, expires_at, quota.daily_chapter_limit,
+        )
         return quota
 
     async def downgrade_from_premium(self, user_id: int) -> UserQuota:

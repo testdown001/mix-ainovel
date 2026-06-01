@@ -149,20 +149,8 @@ class BingbuAgent(BaseAgent):
         version_count_actual = len(result.get("versions", []))
         await self.emit_stage("agent:bingbu:done", f"生成完成，共产出 {version_count_actual} 个版本")
 
-        await self.send_message(
-            recipient="shangshu",
-            message_type=AgentMessageType.CHAPTER_VERSION_READY.value,
-            payload={
-                "versions": result["versions"],
-                "task_id": context.task_id,
-                "stages": result.get("stages", {}),
-                "generation_time_ms": result.get("generation_time_ms", 0),
-            },
-            task_id=context.task_id,
-            project_id=context.project_id,
-            chapter_number=context.chapter_number,
-        )
-
+        # 收敛说明：原通过 send_message 通知尚书省版本就绪，现主流程直接读取
+        # 本方法返回的 versions 驱动审查阶段，转发调用已移除。
         return AgentResult(
             status="completed",
             output={

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db.base import Base
 
 # 自定义列类型：MySQL 专用
-BIGINT_PK_TYPE = BigInteger
+BIGINT_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")  # SQLite 需 INTEGER 才能自增
 LONG_TEXT_TYPE = Text().with_variant(LONGTEXT, "mysql")
 
 
@@ -41,9 +41,14 @@ class ProjectMemory(Base):
         index=True
     )
     
-    # 全局摘要 - 每章定稿后更新，控制在2000字以内
+    # 全局摘要 - 每章定稿后更新（FinalizeService 写入的"按章滚动前文摘要"），控制在2000字以内
+    # 下游 ConsistencyService / KRS / ContextAccessService 读取此字段作为"前文语义"。
     global_summary: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
-    
+
+    # 书级摘要 - 由 BookSummaryService 聚合全书卷级摘要写入。
+    # 与 global_summary 语义不同（全书 vs 按章前文），独立成列避免双写互相覆盖。
+    book_summary: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
+
     # 剧情线追踪 - JSON格式存储未回收的伏笔、主线矛盾等
     # 结构: {
     #   "unresolved_hooks": [{"id": str, "description": str, "planted_chapter": int, "expected_payoff": int}],

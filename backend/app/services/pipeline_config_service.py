@@ -65,6 +65,22 @@ class PipelineConfigService:
         self.session = session
 
     async def resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
+        """解析最终生效的 PipelineConfig。
+
+        开关生效遵循固定的 4 层覆写顺序（后者覆盖前者），排障时按此顺序判断生效值：
+          1) preset 块：basic/fast/enhanced/ultimate/platinum/literary 各自硬编码一组开关；
+          2) settings 全局开关：writer_fast_mode（强制 preset=fast，literary 除外）、
+             enable_humanization / enable_author_fingerprint / enable_pacing_control 等；
+          3) writer_ultra_fast_mode：进一步关闭几乎所有后处理；
+          4) flow_config 显式覆写：仅下方 allowlist 中的键允许被请求覆盖。
+
+        开关使用率审计结论（2026-06-01）：当前 ~44 个布尔开关均"可达"——
+        要么被某个 preset 置 True，要么在 flow_config allowlist 中可被显式开启，
+        不存在"永远为假的死分支"可安全删除；复杂度集中在上述覆写顺序而非死代码。
+        后续可考虑的合并：humanization 三开关
+        (enable_humanization / humanization_threshold / enable_lightweight_humanization)
+        归并为单一 level 枚举，降低组合维度。
+        """
         flow_config = flow_config or {}
         preset = flow_config.get("preset", "basic")
 

@@ -30,10 +30,8 @@ class BaseAgent(ABC):
     STAGE_NAMES = {
         "taizi": "太子分拣",
         "zhongshu": "中书规划",
-        "shangshu": "尚书汇总",
         "bingbu": "兵部生成",
         "hubu": "户部技能",
-        "libu": "吏部校验",
         "menxia": "门下审核",
     }
 
@@ -184,10 +182,13 @@ class BaseAgent(ABC):
     # ========== 权限检查 ==========
 
     def _can_send_to(self, target: str) -> bool:
-        """检查是否可以发送消息给目标 Agent"""
-        from .system import WritingAgentSystem
+        """检查是否可以发送消息给目标 Agent。
 
-        return target in WritingAgentSystem.PERMISSION_MATRIX.get(self.AGENT_NAME, [])
+        收敛后主流程不再使用 Agent 间消息传递（改为顺序调用 + 返回值驱动），
+        PERMISSION_MATRIX 已移除。此方法保留作为兼容入口，默认放行；
+        如未来重新引入消息总线协作，可在此恢复白名单校验。
+        """
+        return True
 
     def _register_capabilities(self) -> None:
         """注册 Agent 能力（子类可重写）"""

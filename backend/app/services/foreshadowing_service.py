@@ -386,7 +386,15 @@ class ForeshadowingService:
             recommendations.append("伏笔回收质量评分较低，建议改进回收方式")
         
         # 更新或创建分析记录
-        analysis = await self.session.get(ForeshadowingAnalysis, project_id)
+        # 注意: ForeshadowingAnalysis 主键为自增 id, project_id 是 unique 普通列,
+        # 不能用 session.get(按主键查), 必须按 project_id 条件查询, 否则恒返回 None
+        # 导致第二次调用时 project_id unique 约束冲突。
+        analysis_result = await self.session.execute(
+            select(ForeshadowingAnalysis).where(
+                ForeshadowingAnalysis.project_id == project_id
+            )
+        )
+        analysis = analysis_result.scalar_one_or_none()
         if not analysis:
             analysis = ForeshadowingAnalysis(project_id=project_id)
             self.session.add(analysis)

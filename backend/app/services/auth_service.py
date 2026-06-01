@@ -66,6 +66,8 @@ class AuthService:
         user = await self.user_repo.get_by_username(username)
         if not user or not verify_password(password, user.hashed_password):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+        if not user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用，请联系管理员")
         return user
 
     async def create_access_token(

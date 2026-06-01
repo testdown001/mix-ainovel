@@ -38,7 +38,10 @@ def test_generation_result_service_builds_debug_metadata_and_response():
         chapter_number=8,
         preset="platinum",
         best_version_index=1,
-        variants=[{"index": 1, "content": "正文"}],
+        variants=[
+            {"index": 0, "version_id": 1, "content": "草稿"},
+            {"index": 1, "version_id": 2, "content": "正文"},
+        ],
         review_summaries={"ai_review": {"score": 88}},
         debug_metadata=debug_metadata,
     )

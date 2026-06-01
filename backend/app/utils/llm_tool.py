@@ -63,6 +63,35 @@ _CLAUDE_CODE_HEADERS = {
 }
 
 
+# 需要脱敏的请求/响应头（小写匹配），避免 API 密钥等明文写入 llm.log
+_SENSITIVE_HEADER_KEYS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "api-key",
+        "x-api-key",
+        "x-goog-api-key",
+        "openai-api-key",
+        "x-internal-secret",
+        "cookie",
+        "set-cookie",
+    }
+)
+
+
+def _mask_headers(headers) -> Dict[str, str]:
+    """对敏感头脱敏：仅保留末尾 4 字符便于排障，其余打码。"""
+    masked: Dict[str, str] = {}
+    for key, value in dict(headers).items():
+        if key.lower() in _SENSITIVE_HEADER_KEYS:
+            sval = str(value)
+            tail = sval[-4:] if len(sval) > 8 else ""
+            masked[key] = f"***REDACTED***{tail}"
+        else:
+            masked[key] = value
+    return masked
+
+
 def _make_logging_hooks() -> Dict:
     """创建 httpx event hooks，记录实际发出的 HTTP 请求和收到的响应。"""
 
@@ -77,7 +106,7 @@ def _make_logging_hooks() -> Dict:
             "HTTP请求 >> %s %s headers=%s body=%s",
             request.method,
             request.url,
-            dict(request.headers),
+            _mask_headers(request.headers),
             body_preview,
         )
 
@@ -95,7 +124,7 @@ def _make_logging_hooks() -> Dict:
             request.method,
             request.url,
             response.status_code,
-            dict(response.headers),
+            _mask_headers(response.headers),
             resp_body,
         )
 

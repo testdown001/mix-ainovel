@@ -87,13 +87,14 @@ class BookSummaryService:
         old_hash = (memory.extra or {}).get("book_summary_hash")
         if not force and old_hash == new_hash:
             logger.debug("书级摘要未变化，跳过更新 (project=%s)", project_id)
-            return memory.global_summary
+            return memory.book_summary
 
         summary_text = await self._generate_book_summary(vol_dicts, user_id)
         if not summary_text:
-            return memory.global_summary
+            return memory.book_summary
 
-        memory.global_summary = summary_text
+        # 写入独立的 book_summary 字段，避免覆盖 FinalizeService 写的 global_summary（前文摘要）
+        memory.book_summary = summary_text
         extra = dict(memory.extra or {})
         extra["book_summary_hash"] = new_hash
         extra["book_summary_volume_count"] = len(vol_dicts)
@@ -111,8 +112,8 @@ class BookSummaryService:
     async def get_book_summary(self, project_id: str) -> Optional[str]:
         """获取当前书级摘要。"""
         memory = await self._get_memory(project_id)
-        if memory and memory.global_summary:
-            return memory.global_summary
+        if memory and memory.book_summary:
+            return memory.book_summary
         return None
 
     # ------------------------------------------------------------------

@@ -19,7 +19,6 @@ from .base import BaseAgent
 from .bingbu_agent import BingbuAgent
 from .hubu_agent import HubuAgent
 from .hybrid_executor import HybridExecutor
-from .libu_agent import LibuAgent
 from .menxia_agent import MenxiaAgent
 from .message import (
     AgentCapability,
@@ -29,7 +28,6 @@ from .message import (
     AgentResult,
 )
 from .message_bus import AgentMessageBus
-from .shangshu_agent import ShangshuAgent
 from .system import WritingAgentSystem
 from .taizi_agent import TaiziAgent
 from .zhongshu_agent import ZhongshuAgent
@@ -46,12 +44,10 @@ __all__ = [
     # System
     "WritingAgentSystem",
     "HybridExecutor",
-    # Agents
+    # Agents（已收敛为 5 个：taizi/zhongshu/bingbu/hubu/menxia）
     "TaiziAgent",
     "ZhongshuAgent",
-    "ShangshuAgent",
     "BingbuAgent",
     "HubuAgent",
-    "LibuAgent",
     "MenxiaAgent",
 ]

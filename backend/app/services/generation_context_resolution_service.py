@@ -56,11 +56,14 @@ class GenerationContextResolutionService:
 
         project_memory_text = await prefetch_tasks.memory_text_task
 
+        # 注意: 历史上的 rag_mode="two_stage"（KnowledgeRetrievalService 第二套检索）已移除，
+        # 现统一走单一的多查询向量 RAG（ChapterContextService）。为不破坏 API 契约，
+        # 仍接受 rag_mode="two_stage" 入参，但行为等价于 simple，优雅回退。
         rag_context: Optional[Dict[str, Any]] = None
         knowledge_context: Optional[str] = None
         rag_stats: Optional[Dict[str, Any]] = None
         if config.enable_rag:
-            if pre_rag_context and config.rag_mode != "two_stage":
+            if pre_rag_context:
                 rag_context = pre_rag_context
                 rag_stats = {
                     **(pre_rag_stats or {}),
@@ -69,20 +72,6 @@ class GenerationContextResolutionService:
                     "chunks": len(rag_context.get("chunks", [])) if rag_context else 0,
                     "summaries": len(rag_context.get("summaries", [])) if rag_context else 0,
                 }
-            elif config.rag_mode == "two_stage":
-                routed_two_stage = await self.evidence_router.route_two_stage(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    user_id=user_id,
-                    writing_notes=writing_notes,
-                    pov_character=self.generation_policy_service.resolve_pov_character(chapter_mission),
-                    retrieval_mode=config.rag_retrieval_mode,
-                    session=self.session,
-                    llm_service=self.llm_service,
-                    vector_store=None,
-                )
-                knowledge_context = routed_two_stage.get("knowledge_context") or ""
-                rag_stats = dict(routed_two_stage.get("stats") or {})
             elif getattr(prefetch_tasks, "rag_task", None) is not None:
                 routed_local = await prefetch_tasks.rag_task
                 rag_context = {

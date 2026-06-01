@@ -58,29 +58,6 @@ class ContextAccessService:
             "summaries": rag_context.summary_lines() if rag_context.summaries else [],
         }
 
-    async def get_two_stage_rag_context(
-        self,
-        *,
-        project_id: str,
-        chapter_number: int,
-        writing_notes: str,
-        pov_character: Optional[str],
-        user_id: int,
-        retrieval_mode: str = "vector",
-    ) -> Tuple[Optional[str], Dict[str, Any]]:
-        routed = await self.evidence_router.route_two_stage(
-            project_id=project_id,
-            chapter_number=chapter_number,
-            user_id=user_id,
-            writing_notes=writing_notes,
-            pov_character=pov_character,
-            retrieval_mode=retrieval_mode,
-            session=self.session,
-            llm_service=self.llm_service,
-            vector_store=None,
-        )
-        return routed.get("knowledge_context") or None, dict(routed.get("stats") or {})
-
     async def get_project_memory_text(self, project_id: str) -> Optional[str]:
         result = await self.session.execute(
             select(ProjectMemory).where(ProjectMemory.project_id == project_id)

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db.base import Base
 
 # 自定义列类型：MySQL 专用
-BIGINT_PK_TYPE = BigInteger
+BIGINT_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")  # SQLite 需 INTEGER 才能自增
 LONG_TEXT_TYPE = Text().with_variant(LONGTEXT, "mysql")
 
 

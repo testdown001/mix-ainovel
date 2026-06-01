@@ -130,7 +130,7 @@ class ZhongshuAgent(BaseAgent):
                     "agentic_tool_history": result.tool_history,
                 },
             },
-            next_agent="shangshu",
+            next_agent="bingbu",
         )
 
     async def _process_legacy(self, context: AgentContext) -> AgentResult:
@@ -143,21 +143,11 @@ class ZhongshuAgent(BaseAgent):
         mission = await self._build_mission(context, context_data)
         writing_prompt = await self._generate_writing_prompt(mission, context_data)
 
-        await self.emit_stage("agent:zhongshu:done", "Mission 构建完成，转交尚书省调度")
+        await self.emit_stage("agent:zhongshu:done", "Mission 构建完成")
 
-        await self.send_message(
-            recipient="shangshu",
-            message_type=AgentMessageType.CHAPTER_GENERATE_REQUEST.value,
-            payload={
-                "mission": mission,
-                "writing_prompt": writing_prompt,
-                "context_data": context_data,
-            },
-            task_id=context.task_id,
-            project_id=context.project_id,
-            chapter_number=context.chapter_number,
-        )
-
+        # 收敛说明：原通过 send_message 转交尚书省调度，现主流程直接读取
+        # 本方法返回的 writing_prompt / pre_collected_context 驱动生成阶段，
+        # 转发调用已移除。next_agent 改为 bingbu 以反映真实下一步。
         return AgentResult(
             status="delegated",
             output={
@@ -166,7 +156,7 @@ class ZhongshuAgent(BaseAgent):
                 "context_plan": context_data.get("context_plan"),
                 "pre_collected_context": context_data.get("pre_collected_context"),
             },
-            next_agent="shangshu",
+            next_agent="bingbu",
         )
 
     async def _collect_context(self, context: AgentContext) -> Dict[str, Any]:

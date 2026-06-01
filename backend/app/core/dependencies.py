@@ -32,6 +32,9 @@ async def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已被禁用")
 
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用")
+
     service = AuthService(session)
     schema = UserInDB.model_validate(user)
     schema.must_change_password = service.requires_password_reset(user)

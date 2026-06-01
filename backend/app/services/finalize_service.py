@@ -340,49 +340,10 @@ class FinalizeService:
         
         return "\n\n".join(text_parts)
     
-    async def _update_character_state(
-        self,
-        chapter_text: str,
-        old_state: str,
-        user_id: int
-    ) -> Optional[str]:
-        """更新角色状态"""
-        prompt = UPDATE_CHARACTER_STATE_PROMPT.format(
-            chapter_text=chapter_text,
-            old_state=old_state or "（暂无角色状态记录）"
-        )
-        
-        try:
-            response = await self.llm_service.generate(
-                prompt=prompt,
-                user_id=user_id,
-                max_tokens=4000,
-                temperature=0.3
-            )
-            return response.strip() if response else None
-        except Exception as e:
-            logger.error(f"更新角色状态失败: {e}")
-            return None
-    
-    async def _save_character_state(
-        self,
-        project_id: str,
-        chapter_number: int,
-        state_text: str
-    ):
-        """保存角色状态到数据库"""
-        # 解析状态文本并保存
-        # 这里简化处理，实际可以做更精细的解析
-        # 创建一个通用的状态记录
-        state = CharacterState(
-            project_id=project_id,
-            character_id=0,  # 通用记录
-            character_name="__all__",
-            chapter_number=chapter_number,
-            extra={"raw_state_text": state_text}
-        )
-        self.db.add(state)
-    
+    # _update_character_state / _save_character_state 已删除：
+    # 二者零调用，且 _save_character_state 写 character_id=0/character_name="__all__"
+    # 的伪记录（CharacterState.character_id NOT NULL），角色状态已由 MemoryLayerService 统一管理。
+
     async def _update_plot_arcs(
         self,
         chapter_text: str,

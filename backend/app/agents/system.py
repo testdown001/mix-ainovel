@@ -16,10 +16,8 @@ from .message_bus import AgentMessageBus
 if TYPE_CHECKING:
     from .taizi_agent import TaiziAgent
     from .zhongshu_agent import ZhongshuAgent
-    from .shangshu_agent import ShangshuAgent
     from .bingbu_agent import BingbuAgent
     from .hubu_agent import HubuAgent
-    from .libu_agent import LibuAgent
     from .menxia_agent import MenxiaAgent
 
 logger = logging.getLogger(__name__)
@@ -30,24 +28,16 @@ class WritingAgentSystem:
 
     AGENT_REGISTRY: Dict[str, Type[BaseAgent]] = {}
 
-    PERMISSION_MATRIX = {
-        "taizi": ["zhongshu"],
-        "zhongshu": ["taizi", "menxia", "shangshu"],
-        "menxia": ["taizi", "zhongshu"],
-        "shangshu": ["taizi", "zhongshu", "hubu", "libu", "bingbu"],
-        "hubu": ["shangshu"],
-        "libu": ["shangshu"],
-        "bingbu": ["shangshu"],
-    }
+    # 收敛后的三阶段语义：规划(Planner) → 生成(Writer) → 审查(Reviewer)
+    # 主流程为顺序调用、返回值驱动，不依赖 Agent 间消息传递，
+    # 故原 PERMISSION_MATRIX（Agent 互发消息的权限白名单）已移除。
 
-    # Agent 阶段名称映射
+    # Agent 阶段名称映射（用于奏折记录）
     STAGE_NAMES = {
         "taizi": "太子分拣",
         "zhongshu": "中书规划",
-        "shangshu": "尚书汇总",
         "bingbu": "兵部生成",
         "hubu": "户部技能",
-        "libu": "吏部校验",
         "menxia": "门下审核",
     }
 
@@ -93,20 +83,19 @@ class WritingAgentSystem:
     def _register_agents(self) -> None:
         """注册所有 Agent 类"""
         if not self.AGENT_REGISTRY:
+            # 收敛说明：主流程仅顺序调用 taizi/zhongshu/hubu/bingbu/menxia 五个 Agent。
+            # 原 shangshu(尚书省调度)/libu(吏部角色管理) 从不被 execute_chapter_generation
+            # 调用，已删除，不再注册。
             from .taizi_agent import TaiziAgent
             from .zhongshu_agent import ZhongshuAgent
-            from .shangshu_agent import ShangshuAgent
             from .bingbu_agent import BingbuAgent
             from .hubu_agent import HubuAgent
-            from .libu_agent import LibuAgent
             from .menxia_agent import MenxiaAgent
 
             self.register_agent("taizi", TaiziAgent)
             self.register_agent("zhongshu", ZhongshuAgent)
-            self.register_agent("shangshu", ShangshuAgent)
             self.register_agent("bingbu", BingbuAgent)
             self.register_agent("hubu", HubuAgent)
-            self.register_agent("libu", LibuAgent)
             self.register_agent("menxia", MenxiaAgent)
 
     async def shutdown(self) -> None:
@@ -185,7 +174,14 @@ class WritingAgentSystem:
         await self._emit_stage(stream_handler, "agent:system:archive", "奏折档案已创建")
 
         try:
-            # ========== 阶段 1: 太子分拣 ==========
+            # ============================================================
+            # 阶段 A · 规划（Planner）：太子分拣 + 户部技能 + 中书规划
+            # 收敛说明：原 taizi/hubu/zhongshu 三步同属"规划"语义，
+            # 均通过 process() 返回值串联，主流程不依赖消息总线。
+            # ============================================================
+            await self._emit_stage(stream_handler, "agent:plan:start", "规划阶段：解析指令并组装上下文")
+
+            # ---- 规划 1: 太子分拣（指令解析） ----
             taizi = self._agents.get("taizi")
             if not taizi:
                 raise RuntimeError("TaiziAgent not initialized")
@@ -201,6 +197,7 @@ class WritingAgentSystem:
             taizi_result = await taizi.process(taizi_context)
             taizi_output = taizi_result.output or {}
 
+            # ---- 规划 2: 户部技能（可选，注入写作技能） ----
             selected_skills = effective_config.get("selected_skills") or []
             skill_context = None
             skill_policies = []
@@ -233,7 +230,7 @@ class WritingAgentSystem:
                     else:
                         logger.warning("HubuAgent 构建技能上下文失败: %s", hubu_result.error)
 
-            # ========== 阶段 2: 中书规划 ==========
+            # ---- 规划 3: 中书规划（组装上下文 + 构建 writing_prompt） ----
             zhongshu = self._agents.get("zhongshu")
             if not zhongshu:
                 raise RuntimeError("ZhongshuAgent not initialized")
@@ -257,10 +254,14 @@ class WritingAgentSystem:
             zhongshu_result = await zhongshu.process(zhongshu_context)
             zhongshu_output = zhongshu_result.output or {}
 
-            # ========== 阶段 3: 尚书调度（由 system.py 代为协调） ==========
-            await self._emit_stage(stream_handler, "agent:shangshu:start", "开始调度兵部生成章节")
+            # ============================================================
+            # 阶段 B · 生成（Writer）：兵部生成章节版本
+            # 收敛说明：原"尚书调度"阶段在主流程中仅为占位事件，
+            # 实际调度由 system.py 直接顺序调用 bingbu 完成，
+            # 故并入生成阶段，不再单独保留尚书省调用。
+            # ============================================================
+            await self._emit_stage(stream_handler, "agent:write:start", "生成阶段：开始生成章节版本")
 
-            # ========== 阶段 4: 兵部生成 ==========
             bingbu = self._agents.get("bingbu")
             if not bingbu:
                 raise RuntimeError("BingbuAgent not initialized")
@@ -294,11 +295,15 @@ class WritingAgentSystem:
             versions = bingbu_output.get("versions", [])
 
             await self._emit_stage(
-                stream_handler, "agent:shangshu:done",
-                f"收到 {len(versions)} 个版本，转交门下省审核",
+                stream_handler, "agent:write:done",
+                f"生成完成，共 {len(versions)} 个版本，进入审查阶段",
             )
 
-            # ========== 阶段 5: 门下审核 ==========
+            # ============================================================
+            # 阶段 C · 审查（Reviewer）：门下审核
+            # ============================================================
+            await self._emit_stage(stream_handler, "agent:review:start", "审查阶段：质量与一致性审核")
+
             menxia = self._agents.get("menxia")
             best_content = versions[0].get("content", "") if versions else ""
 

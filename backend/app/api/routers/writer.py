@@ -37,8 +37,6 @@ from ...schemas.novel import (
     ChapterGenerationStatus,
     AdvancedGenerateRequest,
     AdvancedGenerateResponse,
-    AsyncGenerateChapterRequest,
-    AsyncGenerateChapterResponse,
     BatchGenerateRequest,
     BatchGenerateChapterResult,
     BatchGenerateResponse,
@@ -271,50 +269,9 @@ async def _set_chapter_failed_status(
         await session.commit()
 
 
-@router.post("/async/generate", response_model=AsyncGenerateChapterResponse)
-async def async_generate_chapter(
-    request: AsyncGenerateChapterRequest,
-    session: AsyncSession = Depends(get_session),
-    current_user: UserInDB = Depends(get_current_user),
-) -> AsyncGenerateChapterResponse:
-    """
-    异步章节生成接口 - 提交任务后立即返回 task_id
-
-    优势：
-    1. 不阻塞 HTTP 请求，立即返回
-    2. 支持长时间运行的章节生成任务
-    3. 通过 /api/tasks/{task_id}/status 查询进度
-    """
-    from ...tasks.chapter_tasks import generate_chapter_task
-
-    # 验证项目权限
-    novel_service = NovelService(session)
-    await novel_service.ensure_project_owner(request.project_id, current_user.id)
-
-    # 提交 Celery 任务
-    task = generate_chapter_task.delay(
-        project_id=request.project_id,
-        chapter_number=request.chapter_number,
-        user_id=current_user.id,
-        config={
-            "preset": request.preset,
-            "use_agent_system": request.use_agent_system,
-            "rag_mode": request.rag_mode,
-        }
-    )
-
-    logger.info(
-        f"异步章节生成任务已提交: task_id={task.id}, "
-        f"project={request.project_id}, chapter={request.chapter_number}, user={current_user.id}"
-    )
-
-    return AsyncGenerateChapterResponse(
-        task_id=task.id,
-        project_id=request.project_id,
-        chapter_number=request.chapter_number,
-        status="submitted",
-        message=f"章节生成任务已提交，task_id: {task.id}",
-    )
+# 已移除腐坏的 Celery 异步端点 /async/generate（chapter_tasks.generate_chapter_task
+# 与 PipelineOrchestrator.generate_chapter 签名双重不匹配，命中即入队崩溃）。
+# 生产异步生成由 Go Gateway → /api/internal/tasks/execute (task_worker.py) 承担。
 
 
 @router.post("/advanced/generate", response_model=AdvancedGenerateResponse)
