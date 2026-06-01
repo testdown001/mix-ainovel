@@ -39,6 +39,7 @@ from ...services.prompt_service import PromptService
 from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
+from ...services.inspiration_spark import pick_spark, build_spark_injection
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -445,6 +446,16 @@ async def converse_with_concept(
     exclusions = (request.exclusions or "").strip()
     if exclusions:
         system_prompt = _inject_exclusions(system_prompt, exclusions)
+
+    # 灵感扰动注入（默认开启）：每轮随机一张创意激发卡，促使发散、避免雷同套路
+    if not request.disable_spark:
+        spark_card = pick_spark()
+        system_prompt = f"{system_prompt}{build_spark_injection(spark_card)}"
+        logger.info(
+            "项目 %s 概念对话注入灵感扰动: user=%s category=%s",
+            project_id, current_user.id, spark_card.category,
+        )
+
     system_prompt = f"{system_prompt}\n{JSON_RESPONSE_INSTRUCTION}"
 
     llm_response = await llm_service.get_llm_response(

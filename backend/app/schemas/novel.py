@@ -48,6 +48,10 @@ class ConverseRequest(BaseModel):
         default=None,
         description="创作禁区：用户不希望出现的元素、方向或套路",
     )
+    disable_spark: Optional[bool] = Field(
+        default=False,
+        description="关闭灵感扰动注入（默认开启，用于让概念对话更发散、更有灵气）",
+    )
 
 
 class ReferenceSearchRequest(BaseModel):
