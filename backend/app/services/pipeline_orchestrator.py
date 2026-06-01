@@ -227,6 +227,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 logger.debug("Pipeline stream_handler 回调异常（已忽略）: %s", callback_exc)
 
         telemetry = GenerationTelemetryService(_emit_stream)
+        # 轻量 tracing：trace 级上下文，随每个阶段 span 输出
+        telemetry.set_trace_context(project_id=project_id, chapter_number=chapter_number)
 
         # 使用 telemetry 的方法替代局部函数
         _mark_stage = telemetry.mark_stage
@@ -281,6 +283,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         stage_started = time.perf_counter()
         config = await self.pipeline_config_service.resolve_config(raw_flow_config)
         _mark_stage("resolve_config", stage_started)
+        telemetry.set_trace_context(preset=config.preset)
 
         stage_started = time.perf_counter()
         project = await self.novel_service.ensure_project_owner(project_id, user_id)

@@ -70,6 +70,15 @@ dictConfig(
                 "formatter": "verbose",
                 "filters": ["request_id"],
             },
+            "file_trace": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "filename": str(LOG_DIR / "trace.log"),
+                "maxBytes": 10 * 1024 * 1024,
+                "backupCount": 5,
+                "encoding": "utf-8",
+                "formatter": "verbose",
+                "filters": ["request_id"],
+            },
         },
         "loggers": {
             "backend": {
@@ -105,6 +114,11 @@ dictConfig(
             "app.services.llm_service": {
                 "level": "DEBUG",
                 "handlers": ["console", "file_llm"],
+                "propagate": False,
+            },
+            "arboris.trace": {
+                "level": "INFO",
+                "handlers": ["file_trace"],
                 "propagate": False,
             },
         },
