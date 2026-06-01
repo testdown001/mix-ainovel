@@ -141,6 +141,15 @@
                 </div>
                 <span :style="f.ok ? 'color:#DDDDDD;' : 'color:#555555;'">{{ f.text }}</span>
               </li>
+              <!-- 灵感缪斯高级能力（与后台档位配置同源，自动同步）-->
+              <li v-for="cap in (capsByTier[plan.id] || [])" :key="cap.key"
+                  class="flex items-center gap-2.5 text-sm" :title="cap.description">
+                <div class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
+                  :style="`background:${plan.color}20;`">
+                  <span class="text-[10px]" :style="`color:${plan.color};`">⚡</span>
+                </div>
+                <span style="color:#DDDDDD;">{{ cap.label }}</span>
+              </li>
             </ul>
 
             <!-- CTA -->
@@ -261,11 +270,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { plansApi, type PlanCapability } from '@/api/plans'
 
 const annual = ref(false)
 const openFaq = ref<number | null>(null)
 const showUpgradeDialog = ref(false)
+
+// 各档位解锁的高级能力（来自后端 /plans/public，与门控/后台配置同源）
+const capsByTier = ref<Record<string, PlanCapability[]>>({})
+
+onMounted(async () => {
+  try {
+    const publicPlans = await plansApi.listPublic()
+    const map: Record<string, PlanCapability[]> = {}
+    for (const p of publicPlans || []) {
+      const tier = (p as any).tier || 'free'
+      if (Array.isArray((p as any).capabilities)) map[tier] = (p as any).capabilities
+    }
+    capsByTier.value = map
+  } catch {
+    // 拉取失败则不展示能力区，不影响定价页其余内容
+  }
+})
 
 const plans = [
   {

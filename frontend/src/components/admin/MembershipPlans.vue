@@ -33,6 +33,10 @@
                 <n-tag :type="plan.is_active ? 'success' : 'error'" size="small" round>
                   {{ plan.is_active ? '上架中' : '已下架' }}
                 </n-tag>
+                <n-tag size="small" round
+                       :type="plan.tier === 'flagship' ? 'error' : plan.tier === 'creator' ? 'info' : 'default'">
+                  {{ tierLabelMap[plan.tier] || '免费档' }}
+                </n-tag>
               </div>
               <div class="plan-name">{{ plan.name }}</div>
               <div class="plan-price">
@@ -46,6 +50,12 @@
               <div v-for="(feat, i) in plan.features" :key="i" class="feature-item">
                 <span class="feature-check">✓</span>
                 <span>{{ feat }}</span>
+              </div>
+            </div>
+            <div v-if="plan.capabilities && plan.capabilities.length" class="plan-caps">
+              <div class="plan-caps-title">该档位自动解锁的高级能力</div>
+              <div v-for="cap in plan.capabilities" :key="cap.key" class="cap-item" :title="cap.description">
+                ⚡ {{ cap.label }}
               </div>
             </div>
             <div class="plan-actions">
@@ -114,7 +124,16 @@
             </n-form-item>
           </n-gi>
         </n-grid>
-        <n-form-item label="权益列表" path="features">
+        <n-form-item label="订阅档位" path="tier">
+          <n-space vertical style="width:100%">
+            <n-select v-model:value="form.tier" :options="tierOptions" />
+            <span style="font-size:12px;color:#999;">
+              档位决定该套餐自动解锁哪些高级能力（灵感缪斯人格 / 跨界找素材 / N路发散）；
+              能力与档位的映射由系统统一管理，无需在此逐条勾选。
+            </span>
+          </n-space>
+        </n-form-item>
+        <n-form-item label="权益列表（营销文案）" path="features">
           <n-space vertical style="width:100%">
             <n-space v-for="(feat, i) in form.features" :key="i" align="center">
               <n-input v-model:value="form.features[i]" placeholder="填写一条权益说明" style="width:380px" />
@@ -156,6 +175,7 @@ import {
   NSelect, NSwitch, NGrid, NGi, NPopconfirm, NSpin, NAlert, useMessage
 } from 'naive-ui'
 import type { FormRules } from 'naive-ui'
+import { plansApi, type PlanCapability } from '@/api/plans'
 
 interface Plan {
   id: number
@@ -166,11 +186,20 @@ interface Plan {
   period_label: string
   daily_chapter_limit: number
   max_novels: number
+  tier: string
   features: string[]
+  capabilities?: PlanCapability[]
   is_recommended: boolean
   is_active: boolean
   sort_order: number
 }
+
+const tierOptions = [
+  { label: '免费档 (free)', value: 'free' },
+  { label: '创作者档 (creator)', value: 'creator' },
+  { label: '旗舰档 (flagship)', value: 'flagship' }
+]
+const tierLabelMap: Record<string, string> = { free: '免费档', creator: '创作者档', flagship: '旗舰档' }
 
 const message = useMessage()
 const loading = ref(false)
@@ -202,6 +231,7 @@ const defaultForm = () => ({
   period: 'monthly',
   daily_chapter_limit: 10,
   max_novels: 5,
+  tier: 'free',
   features: [''],
   is_recommended: false,
   is_active: true,
@@ -216,32 +246,19 @@ const rules: FormRules = {
   period: [{ required: true, message: '请选择周期', trigger: 'change' }]
 }
 
-const plans = ref<Plan[]>([
-  {
-    id: 1, name: '免费版', description: '适合体验和轻量创作', price: 0, period: 'monthly',
-    period_label: '月', daily_chapter_limit: 3, max_novels: 2,
-    features: ['每日 3 章生成额度', '最多 2 个项目', '基础提示词模板'],
-    is_recommended: false, is_active: true, sort_order: 0
-  },
-  {
-    id: 2, name: '专业版', description: '适合持续连载的创作者', price: 39, period: 'monthly',
-    period_label: '月', daily_chapter_limit: 30, max_novels: 20,
-    features: ['每日 30 章生成额度', '最多 20 个项目', '全量提示词', 'RAG 记忆增强', '优先支持'],
-    is_recommended: true, is_active: true, sort_order: 1
-  },
-  {
-    id: 3, name: '旗舰版', description: '无限制专业创作', price: 99, period: 'monthly',
-    period_label: '月', daily_chapter_limit: 0, max_novels: 0,
-    features: ['无限章节生成', '不限项目数量', '六维审查 + AI 润色', '专属客服', '优先新功能体验'],
-    is_recommended: false, is_active: true, sort_order: 2
-  }
-])
+const plans = ref<Plan[]>([])  // 实际数据 onMounted 时从 /api/plans 拉取
 
 const fetchPlans = async () => {
   loading.value = true
   error.value = null
   try {
-    await new Promise(r => setTimeout(r, 400))
+    const list = await plansApi.listAll()
+    plans.value = (list || []).map((p: any) => ({
+      ...p,
+      tier: p.tier || 'free',
+      period_label: periodLabelMap[p.period] || p.period,
+      features: Array.isArray(p.features) ? p.features : []
+    }))
   } catch (e) {
     error.value = '加载失败'
   } finally {
@@ -269,24 +286,28 @@ const handleSave = async () => {
   }
   saving.value = true
   try {
-    await new Promise(r => setTimeout(r, 500))
-    const periodLabel = periodLabelMap[form.period] || form.period
+    const payload = {
+      name: form.name,
+      description: form.description,
+      price: form.price,
+      period: form.period,
+      daily_chapter_limit: form.daily_chapter_limit,
+      max_novels: form.max_novels,
+      tier: form.tier,
+      features: form.features.filter(f => f.trim()),
+      is_recommended: form.is_recommended,
+      is_active: form.is_active,
+      sort_order: form.sort_order
+    }
     if (isEdit.value) {
-      const idx = plans.value.findIndex(p => p.id === form.id)
-      if (idx !== -1) {
-        plans.value[idx] = { ...form, period_label: periodLabel, features: form.features.filter(f => f.trim()) }
-      }
+      await plansApi.update(form.id, payload)
       message.success('套餐已更新')
     } else {
-      plans.value.push({
-        ...form,
-        id: Date.now(),
-        period_label: periodLabel,
-        features: form.features.filter(f => f.trim())
-      })
+      await plansApi.create(payload)
       message.success('套餐已创建')
     }
     showModal.value = false
+    await fetchPlans()
   } catch {
     message.error('保存失败')
   } finally {
@@ -295,13 +316,23 @@ const handleSave = async () => {
 }
 
 const toggleActive = async (plan: Plan) => {
-  plan.is_active = !plan.is_active
-  message.success(plan.is_active ? '套餐已上架' : '套餐已下架')
+  try {
+    const res = await plansApi.toggle(plan.id)
+    plan.is_active = res.is_active
+    message.success(plan.is_active ? '套餐已上架' : '套餐已下架')
+  } catch {
+    message.error('操作失败')
+  }
 }
 
 const handleDelete = async (id: number) => {
-  plans.value = plans.value.filter(p => p.id !== id)
-  message.success('套餐已删除')
+  try {
+    await plansApi.remove(id)
+    plans.value = plans.value.filter(p => p.id !== id)
+    message.success('套餐已删除')
+  } catch {
+    message.error('删除失败')
+  }
 }
 
 const addFeature = () => { form.features.push('') }
@@ -418,5 +449,20 @@ onMounted(fetchPlans)
 .empty-text {
   color: #666;
   font-size: 0.95rem;
+}
+.plan-caps {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+}
+.plan-caps-title {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 6px;
+}
+.cap-item {
+  font-size: 13px;
+  color: #b8860b;
+  margin: 2px 0;
 }
 </style>
