@@ -54,6 +54,7 @@ Health check: `GET /api/health`
 Application logs are written to `backend/logs/`:
 - `app.log` — general application logs (10MB rotation, 5 backups)
 - `llm.log` — LLM API calls and responses (20MB rotation, 10 backups)
+- `trace.log` — lightweight per-stage generation spans as JSON lines (logger `arboris.trace`); grep by `trace_id` to reconstruct one chapter generation's stage timeline (span / duration_ms / seq / status). Emitted via `app/utils/tracing.py` + `GenerationTelemetryService.mark_stage`.
 
 ## Architecture
 
