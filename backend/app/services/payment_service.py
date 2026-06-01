@@ -334,7 +334,8 @@ class PaymentService:
 
         sess = (event.get("data") or {}).get("object") or {}
         order_no = sess.get("client_reference_id") or (sess.get("metadata") or {}).get("order_no")
-        if sess.get("payment_status") not in ("paid", None) and sess.get("payment_status") != "paid":
+        # 仅当明确 payment_status == "paid" 才激活（缺失/null/unpaid 一律拒绝，防止误激活）
+        if sess.get("payment_status") != "paid":
             logger.info("Stripe 会话未支付完成: order_no=%s status=%s", order_no, sess.get("payment_status"))
             return None
 

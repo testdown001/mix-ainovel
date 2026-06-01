@@ -100,6 +100,31 @@ def test_stripe_webhook_idempotent():
     asyncio.run(_run())
 
 
+def test_stripe_webhook_missing_payment_status_does_not_activate():
+    """安全回归：payment_status 缺失/非 paid 时，签名即使有效也不得激活会员。"""
+    async def _run():
+        engine, Session = _make_sessionmaker()
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with Session() as session:
+            await _seed(session)
+            svc = PaymentService(session)
+            # 事件缺 payment_status 字段
+            event = {"type": "checkout.session.completed",
+                     "data": {"object": {"client_reference_id": "ST_TEST_1"}}}
+            payload = json.dumps(event).encode()
+            order = await svc.verify_stripe_webhook(payload, _sign(payload, WEBHOOK_SECRET))
+            assert order is None  # 未激活
+            # 订单仍 pending、会员未开通
+            from sqlalchemy import select as _select
+            o = (await session.execute(_select(PaymentOrder).where(PaymentOrder.order_no == "ST_TEST_1"))).scalar_one()
+            assert o.status == "pending"
+            quota = await QuotaService(session).get_or_create_quota(1)
+            assert quota.is_premium is False
+        await engine.dispose()
+    asyncio.run(_run())
+
+
 def test_create_stripe_order_disabled_raises():
     async def _run():
         engine, Session = _make_sessionmaker()
