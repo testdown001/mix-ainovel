@@ -154,10 +154,10 @@ Key: 37 boolean config flags in `PipelineConfig` control feature toggling per pr
 ### Go Gateway (Phase 2)
 
 Production architecture: Nginx → Go Gateway → Python FastAPI Workers
-- `gateway/cmd/gateway/main.go` — API Gateway (JWT, rate limit, WebSocket Hub, reverse proxy)
-- Go LLM Gateway: HTTP/2 connection pool, model routing, retry, semantic cache
+- `gateway/cmd/gateway/main.go` — **the single production entry** (JWT, rate limit, WebSocket Hub, reverse proxy). Forwards gateway-verified identity to FastAPI via `X-Gateway-*` headers (client-supplied copies are stripped).
 - Go Task Dispatcher: priority queue, concurrency control, worker pool, progress push via Redis Pub/Sub
 - Python worker adapter: `backend/app/api/routers/task_worker.py`
+- **Removed (2026-06-01)**: `internal/llmgateway` (no entry, dead) and the entire `cmd/api` dual-binary subgraph (`internal/{service,handler,repository,models,cache,lock,mq}`) — it duplicated FastAPI domain logic in Go. FastAPI is the canonical domain layer.
 
 ### Key Env Variables
 

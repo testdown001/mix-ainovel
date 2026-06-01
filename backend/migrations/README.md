@@ -18,9 +18,19 @@ alembic downgrade -1
 URL 由 `migrations/env.py` 从 `app.core.config.settings.sqlalchemy_database_uri` 读取，
 SQLite / MySQL 自适应，无需在 `alembic.ini` 配置。
 
+## 基线与采用方式
+
+已生成基线迁移 `versions/3d0894d473c4_baseline_schema.py`（down_revision=None，覆盖全量表，
+重新 `--autogenerate` 验证为无残余差异）。
+
+由于应用启动仍用 `create_all` 建表，**在已被 create_all 建好的库上采用 Alembic 的方式是
+`alembic stamp head`（标记基线已应用，不重复建表）**，而非 `alembic upgrade head`。
+全新空库可直接 `alembic upgrade head`。
+
 ## 迁移落地建议
 
-1. 首个基线：在与现网一致的库上 `--autogenerate`，核对后作为 baseline 提交。
-2. 把现有 `init_db.py` 的"补列/补索引"（如 `project_memories.book_summary`、
+1. 现网/既有库：先 `alembic stamp 3d0894d473c4`（或 `stamp head`）。
+2. 后续 schema 变更：改模型 → `alembic revision --autogenerate -m "..."` → 核对 → `alembic upgrade head`。
+3. 把现有 `init_db.py` 的"补列/补索引"（如 `project_memories.book_summary`、
    `chapters`/`chapter_outlines` 的 `(project_id, chapter_number)` 复合索引）逐步迁移为 Alembic 版本。
-3. CI 可加 `alembic upgrade head` 冒烟校验迁移可应用。
+4. CI 可加 `alembic upgrade head`（空库冒烟）校验迁移可应用。
