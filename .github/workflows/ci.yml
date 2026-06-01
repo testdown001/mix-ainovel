@@ -26,13 +26,37 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest
+          pip install -r requirements.txt pytest pytest-cov
 
       - name: Run tests
         env:
           SECRET_KEY: test-secret
           ADMIN_DEFAULT_PASSWORD: test-password
-        run: pytest tests/test_writer_quality_updates.py -q
+          DB_PROVIDER: sqlite
+        # 全量后端测试 + 覆盖率报告（test_phase4_integration.py 已删除，不再需要 --ignore）。
+        run: pytest tests/ -q --cov=app --cov-report=term-missing
+
+  gateway:
+    name: Go Gateway Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: gateway/go.mod
+          cache-dependency-path: gateway/go.sum
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
 
   frontend:
     name: Frontend Build
@@ -56,6 +80,9 @@ jobs:
 
       - name: Type check
         run: npm run type-check
+
+      - name: Unit tests
+        run: npm run test:unit
 
       - name: Build
         run: npm run build

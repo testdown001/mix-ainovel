@@ -80,7 +80,7 @@ Layered architecture: **Routers → Services → Repositories → Models**
   - `hybrid_executor.py` — `HybridExecutor` switches between traditional pipeline and agent system based on config
   - `base.py` — `BaseAgent` abstract class with message handling
   - `message_bus.py` — async message bus for inter-agent communication
-  - Individual agents: `taizi_agent.py` (需求分拣), `zhongshu_agent.py` (规划中枢), `shangshu_agent.py` (调度协调), `bingbu_agent.py` (章节生成), `hubu_agent.py` (技能系统), `libu_agent.py` (角色管理), `menxia_agent.py` (质量审核)
+  - Individual agents (5, converged 2026-06-01): `taizi_agent.py` (需求分拣), `zhongshu_agent.py` (规划中枢), `bingbu_agent.py` (章节生成), `hubu_agent.py` (技能系统), `menxia_agent.py` (质量审核). **Note**: `shangshu_agent.py`(调度) and `libu_agent.py`(角色) were never invoked by the main loop and have been deleted; the message bus is no longer used for routing.
 - `models/` — SQLAlchemy ORM models (25 tables): Novel, Chapter, ChapterVersion, Character, Faction, Constitution, Foreshadowing (5 tables), MemoryLayer, CharacterState, PowerSystem/Level, WritingArchive, WriterPersona, LLMConfig, EntityRegistry, etc.
 - `skills/` — Writing skill implementations: `platinum_style.py`, `dialogue_polish.py`, `rhythm_control.py`, `foreshadowing.py`, `emotion_boost.py`, `consistency_check.py`
 - `schemas/` — Pydantic request/response schemas
@@ -105,38 +105,34 @@ Vue 3 + TypeScript + Naive UI + TailwindCSS 4 + Pinia
 - **MySQL 8.0+** (default): production-ready, async via `asyncmy`
 - **SQLite**: zero config alternative, file at `storage/arboris.db` (set `DB_PROVIDER=sqlite`)
 - **Qdrant** (optional): vector DB for RAG, stores `rag_chunks` (text embeddings) and `rag_summaries` (chapter summary embeddings); also used by Mem0 for long-term memory
-- All DB access is async (aiosqlite / asyncmy). Session factory: `db/session.py` → `AsyncSessionLocal`
-- No Alembic migrations are actively used; tables are created via `init_db()` at startup
+- All DB access is async (aiosqlite / asyncmy). Session factory: `db/session.py` → `AsyncSessionLocal` (SQLite connections enable `PRAGMA foreign_keys=ON`)
+- Tables are bootstrapped via `init_db()` `create_all` at startup. An **Alembic** scaffold now exists (`backend/alembic.ini` + `backend/migrations/`, async env) as the versioned-migration path going forward; the first baseline migration is still pending.
+- PK type `BIGINT_PK_TYPE` uses `BigInteger().with_variant(Integer, "sqlite")` so autoincrement works on the SQLite dev backend.
 
 ### Agent System (三省六部)
 
 The project supports two execution modes via `HybridExecutor`:
 
-1. **Traditional Pipeline** (`PipelineOrchestrator`) — linear workflow, faster for simple cases
-2. **Agent System** (`WritingAgentSystem`) — collaborative multi-agent architecture inspired by ancient Chinese bureaucracy
+1. **Traditional Pipeline** (`PipelineOrchestrator`) — **the only real generation engine** and the default path.
+2. **Agent System** (`WritingAgentSystem`) — opt-in. **Reality check (2026-06-01)**: the agent path is a thin sequential wrapper, NOT an independent engine — 兵部(Bingbu) calls back into the same `PipelineOrchestrator` via `generation_bridge.py`. It has been converged to a 3-stage sequential flow (Planner → Writer → Reviewer); `PERMISSION_MATRIX` and message-bus routing are removed. Per GitHub/arXiv research (Re3→DOC→DOME; ACL'24/'26 multi-agent critiques), the "拟人官僚多 Agent" metaphor yields no proven quality gain over pipeline; treat pipeline as the canonical path.
 
-Agent workflow:
+Converged agent flow (sequential, return-value driven — no inter-agent messaging):
 ```
-太子省 (Taizi) → 中书省 (Zhongshu) → 尚书省 (Shangshu) → 门下省 (Menxia)
-                                            ↓
-                                    兵部/户部/吏部 (parallel)
+太子省 (Taizi, 规划) → 户部 (Hubu, 可选技能) → 中书省 (Zhongshu, 规划)
+  → 兵部 (Bingbu, 生成 → 回调 PipelineOrchestrator) → 门下省 (Menxia, 审查)
 ```
 
 - **太子省 (TaiziAgent)**: Request triage, extracts writing goals from user input
 - **中书省 (ZhongshuAgent)**: Planning hub, assembles context and constructs writing tasks
-- **尚书省 (ShangshuAgent)**: Coordination center, dispatches tasks to specialized agents and aggregates results
-- **兵部 (BingbuAgent)**: Chapter generation, core content creation
+- **兵部 (BingbuAgent)**: Chapter generation (delegates to `PipelineOrchestrator`)
 - **户部 (HubuAgent)**: Skill system, applies writing techniques and style templates
-- **吏部 (LibuAgent)**: Character management, ensures character consistency
 - **门下省 (MenxiaAgent)**: Quality review, final approval gate
-
-Agents communicate via `AgentMessageBus` (async message passing). Permission matrix in `WritingAgentSystem.PERMISSION_MATRIX` controls which agents can message each other.
 
 Toggle between modes: set `use_agent_system` in chapter generation request or via system config.
 
 ### RAG Pipeline
 
-Active entry point: `ChapterContextService.retrieve_multi_query()` (not the deprecated `KnowledgeRetrievalService`)
+Active entry point: `ChapterContextService.retrieve_multi_query()`. The second retrieval implementation `KnowledgeRetrievalService` (the old `rag_mode=two_stage` path) has been **removed** (2026-06-01); `rag_mode=two_stage` is still accepted as input but now gracefully falls back to the single `simple` vector-RAG path. The Agentic evidence budget/grading (`evidence_router._enforce_evidence_budgets`) is **telemetry/diagnostic only** — it does NOT feed the generation prompt.
 
 Chapter generation retrieves context from the vector store:
 1. Build multiple query strings from outline_title, outline_summary, writing_notes, character names
@@ -185,7 +181,7 @@ DB: `DB_PROVIDER` (sqlite|mysql), `SQLITE_DB_PATH`, `MYSQL_HOST/PORT/USER/PASSWO
 - Frontend styling: TailwindCSS 4 utility classes (PostCSS integration, not `@tailwind` directives)
 - Node engine requirement: `^20.19.0 || >=22.12.0`
 - Logging: use `logging.getLogger(__name__)` in backend modules; logs auto-route to `backend/logs/app.log` or `llm.log`
-- When adding new agents: register in `WritingAgentSystem.AGENT_REGISTRY` and update `PERMISSION_MATRIX`
+- When adding new agents: register in `WritingAgentSystem._register_agents()` (the `PERMISSION_MATRIX`/message-bus routing has been removed; the flow is sequential and return-value driven)
 
 ## Integrated Advanced Features
 
