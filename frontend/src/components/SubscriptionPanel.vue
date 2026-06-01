@@ -371,10 +371,12 @@ const handleUpgrade = async (plan: typeof plans[0]) => {
   checkoutUrl.value = ''
 
   try {
-    const result = await paymentApi.createOrder(plan.dbId, 'stripe')
-    if (result.checkout_url) {
-      checkoutUrl.value = result.checkout_url
-      window.open(result.checkout_url, '_blank')
+    // 后端支持的渠道为 alipay / wechat（不支持 stripe）。国内默认走支付宝；
+    // 如需微信支付或让用户选择渠道，可改为 'wechat' 或在此加渠道选择器。
+    const result = await paymentApi.createOrder(plan.dbId, 'alipay')
+    if (result.pay_url) {
+      checkoutUrl.value = result.pay_url
+      window.open(result.pay_url, '_blank')
     }
   } catch (err: any) {
     checkoutError.value = err?.message || '创建订单失败，请稍后重试'
