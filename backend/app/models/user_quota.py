@@ -38,6 +38,8 @@ class UserQuota(Base):
     # Premium 状态
     is_premium = Column(Boolean, default=False, nullable=False, comment="是否为 Premium 用户")
     premium_expires_at = Column(DateTime, nullable=True, comment="Premium 到期时间")
+    # 订阅档位：free / creator / flagship（用于灵感模式等分档特性门控）
+    plan_tier = Column(String(32), default="free", nullable=False, server_default="free", comment="订阅档位")
     
     # 配额重置时间
     daily_reset_at = Column(DateTime, default=datetime.utcnow, nullable=False, comment="每日配额重置时间")
@@ -76,3 +78,10 @@ class UserQuota(Base):
         if self.premium_expires_at is None:
             return True
         return datetime.utcnow() < self.premium_expires_at
+
+    @property
+    def effective_tier(self) -> str:
+        """当前生效的订阅档位：Premium 失效则回落 free。"""
+        if not self.is_premium_active:
+            return "free"
+        return self.plan_tier or "creator"

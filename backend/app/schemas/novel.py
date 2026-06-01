@@ -56,6 +56,19 @@ class ConverseRequest(BaseModel):
         default=False,
         description="关闭开场的跨界素材联网发现（默认开启；未配置搜索模型时自动跳过）",
     )
+    muse_persona: Optional[str] = Field(
+        default=None,
+        description="缪斯人格皮肤 key（default/cyberpunk/myth_epic/dark_mystery/wild_brain），需创作者档及以上",
+    )
+
+
+class DivergeRequest(BaseModel):
+    """概念 N 路发散请求体（旗舰档特性）。"""
+
+    seed_topic: str = Field(..., description="发散用的故事点子/方向")
+    exclusions: Optional[str] = Field(default=None, description="创作禁区")
+    n: int = Field(default=5, ge=2, le=8, description="发散种子数量")
+    keep: int = Field(default=3, ge=1, le=8, description="评分后保留的 Top 数量")
 
 
 class ReferenceSearchRequest(BaseModel):

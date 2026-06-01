@@ -22,6 +22,7 @@ from ...schemas.novel import (
     Chapter as ChapterSchema,
     ConverseRequest,
     ConverseResponse,
+    DivergeRequest,
     ReferenceSearchRequest,
     ReferenceSearchResponse,
     NovelProject as NovelProjectSchema,
@@ -41,6 +42,8 @@ from ...services.web_search_service import WebSearchService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
 from ...services.inspiration_spark import pick_spark, build_spark_injection
 from ...services.muse_material_service import MuseMaterialService
+from ...services.muse_persona import build_persona_injection, is_valid_persona
+from ...core.feature_gating import get_user_tier, tier_allows
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -477,9 +480,20 @@ async def converse_with_concept(
     if exclusions:
         system_prompt = _inject_exclusions(system_prompt, exclusions)
 
-    # 跨界素材发现（仅开场首轮触发一次）：联网找冷门真实跨域素材供缪斯嫁接，
+    # 订阅档位（free / creator / flagship），用于高级缪斯特性门控
+    user_tier = await get_user_tier(session, current_user.id)
+
+    # 缪斯人格选择（创作者档及以上）：以 SOUL 首段覆盖语气与发散偏好
+    persona_key = (request.muse_persona or "default").strip() or "default"
+    if persona_key != "default" and is_valid_persona(persona_key) and tier_allows(user_tier, "muse_persona"):
+        persona_block = build_persona_injection(persona_key)
+        if persona_block:
+            system_prompt = f"{persona_block}{system_prompt}"
+            logger.info("项目 %s 概念对话启用缪斯人格: user=%s persona=%s", project_id, current_user.id, persona_key)
+
+    # 跨界素材发现（仅开场首轮触发一次，且需创作者档及以上）：联网找冷门真实跨域素材供缪斯嫁接，
     # 开场提案吸收后会自然进入后续对话历史，无需每轮重搜。未配置搜索模型时优雅跳过。
-    if not history_records and not request.disable_muse_search:
+    if not history_records and not request.disable_muse_search and tier_allows(user_tier, "muse_search"):
         seed_topic = _extract_seed_topic(request.user_input)
         if seed_topic:
             try:
@@ -546,6 +560,45 @@ async def converse_with_concept(
 
     parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
     return ConverseResponse(**parsed)
+
+
+@router.get("/concept/personas")
+async def list_muse_personas(
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """列出可选缪斯人格（前端人格选择器用；选择本身在 converse 时按档位门控）。"""
+    from ...services.muse_persona import list_personas
+    return {"personas": list_personas()}
+
+
+@router.post("/{project_id}/concept/diverge")
+async def diverge_concepts(
+    project_id: str,
+    request: DivergeRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """N 路发散 + 评分收敛（旗舰档特性）：一次出 N 个迥异种子，评分后返回 Top。"""
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    user_tier = await get_user_tier(session, current_user.id)
+    if not tier_allows(user_tier, "muse_divergence"):
+        raise HTTPException(
+            status_code=403,
+            detail="N 路发散为旗舰档特性，升级旗舰版即可一次生成多个迥异世界观种子并智能评分。",
+        )
+
+    from ...services.concept_divergence_service import ConceptDivergenceService
+    service = ConceptDivergenceService(session)
+    seeds = await service.diverge(
+        seed_topic=request.seed_topic,
+        user_id=current_user.id,
+        exclusions=(request.exclusions or ""),
+        n=request.n,
+        keep=request.keep,
+    )
+    return {"seeds": seeds, "tier": user_tier}
 
 
 @router.get("/{project_id}/reference-novels", response_model=List[ReferenceNovelSummary])

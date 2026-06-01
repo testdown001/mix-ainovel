@@ -173,6 +173,19 @@ class QuotaService:
         logger.info(f"消耗 token 配额: user_id={user_id}, tokens={tokens}")
         return quota
 
+    @staticmethod
+    def _derive_tier(plan: Optional["Plan"]) -> str:
+        """从套餐推导订阅档位（free / creator / flagship）。
+
+        优先看 plan.name 关键字；无 plan 时按通用 premium 视作 creator。
+        """
+        name = (getattr(plan, "name", "") or "")
+        if "旗舰" in name or "flagship" in name.lower():
+            return "flagship"
+        if "创作者" in name or "creator" in name.lower():
+            return "creator"
+        return "creator"  # 任意已付费套餐至少为 creator
+
     async def upgrade_to_premium(
         self,
         user_id: int,
@@ -190,6 +203,7 @@ class QuotaService:
 
         quota.is_premium = True
         quota.premium_expires_at = expires_at
+        quota.plan_tier = self._derive_tier(plan)
         quota.daily_chapter_limit = plan_daily if plan_daily > 0 else self.PREMIUM_DAILY_CHAPTER_LIMIT
         quota.storage_limit = self.PREMIUM_STORAGE_LIMIT
         quota.monthly_token_limit = self.PREMIUM_MONTHLY_TOKEN_LIMIT
@@ -209,6 +223,7 @@ class QuotaService:
 
         quota.is_premium = False
         quota.premium_expires_at = None
+        quota.plan_tier = "free"
         quota.daily_chapter_limit = self.DEFAULT_DAILY_CHAPTER_LIMIT
         quota.storage_limit = self.DEFAULT_STORAGE_LIMIT
         quota.monthly_token_limit = self.DEFAULT_MONTHLY_TOKEN_LIMIT
@@ -228,6 +243,7 @@ class QuotaService:
         return {
             "user_id": user_id,
             "is_premium": quota.is_premium_active,
+            "plan_tier": quota.effective_tier,
             "premium_expires_at": quota.premium_expires_at.isoformat() if quota.premium_expires_at else None,
             "daily_chapter": {
                 "used": quota.daily_chapter_used,
