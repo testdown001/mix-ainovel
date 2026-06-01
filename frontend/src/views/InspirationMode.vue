@@ -67,6 +67,43 @@
           </div>
         </div>
 
+        <!-- ── 缪斯设定（分档特性）── -->
+        <div class="muse-config">
+          <div class="muse-config-head">
+            <span class="muse-config-title">缪斯设定</span>
+            <span class="tier-badge" :class="`tier-${userTier}`">
+              {{ userTier === 'flagship' ? '旗舰' : userTier === 'creator' ? '创作者' : '免费' }}
+            </span>
+          </div>
+
+          <!-- 缪斯人格选择（创作者档+）-->
+          <label class="muse-field-label">
+            缪斯人格
+            <span v-if="!canUsePersona" class="lock-hint">🔒 创作者档</span>
+          </label>
+          <select v-model="selectedPersona" :disabled="!canUsePersona" class="muse-select">
+            <option v-for="p in musePersonas" :key="p.key" :value="p.key">{{ p.label }}</option>
+          </select>
+          <p v-if="canUsePersona" class="muse-field-hint">
+            {{ musePersonas.find((p) => p.key === selectedPersona)?.blurb || '' }}
+          </p>
+
+          <!-- 一键找素材（创作者档+）-->
+          <label class="muse-toggle" :class="{ disabled: !canUseMuseSearch }">
+            <input type="checkbox" :checked="canUseMuseSearch && !disableMuseSearch"
+                   :disabled="!canUseMuseSearch"
+                   @change="disableMuseSearch = !($event.target as HTMLInputElement).checked" />
+            <span>开场跨界找素材（联网）<span v-if="!canUseMuseSearch" class="lock-hint">🔒 创作者档</span></span>
+          </label>
+
+          <!-- 灵感扰动（免费）-->
+          <label class="muse-toggle">
+            <input type="checkbox" :checked="!disableSpark"
+                   @change="disableSpark = !($event.target as HTMLInputElement).checked" />
+            <span>灵感扰动（每轮随机激发）</span>
+          </label>
+        </div>
+
         <div class="config-cta">
           <button
             @click="startConversation"
@@ -168,11 +205,42 @@
           </div>
         </div>
 
+        <!-- N 路发散结果卡片（旗舰档）-->
+        <div v-if="divergeSeeds.length" class="diverge-results">
+          <div class="diverge-results-head">缪斯给了你 {{ divergeSeeds.length }} 个迥异方向，挑一个继续：</div>
+          <div class="diverge-cards">
+            <button
+              v-for="seed in divergeSeeds"
+              :key="seed.id"
+              class="diverge-card"
+              @click="pickDivergeSeed(seed)"
+            >
+              <div class="diverge-card-title">
+                {{ seed.title || '未命名方向' }}
+                <span v-if="typeof seed.score === 'number'" class="diverge-score">{{ seed.score }}/30</span>
+              </div>
+              <div class="diverge-card-logline">{{ seed.logline }}</div>
+              <div v-if="seed.hook" class="diverge-card-hook">🪝 {{ seed.hook }}</div>
+              <div v-if="seed.twist" class="diverge-card-twist">🔄 {{ seed.twist }}</div>
+              <div v-if="seed.verdict" class="diverge-card-verdict">{{ seed.verdict }}</div>
+            </button>
+          </div>
+        </div>
+
         <!-- Input bar (hidden when blueprint confirmation/display is showing) -->
         <div
           v-if="!showBlueprintConfirmation && !showBlueprint"
           class="chat-input-bar"
         >
+          <button
+            v-if="canUseDivergence"
+            class="diverge-trigger"
+            :disabled="isDiverging || novelStore.isLoading"
+            @click="handleDiverge"
+            title="一次生成 5 个迥异世界观种子并智能评分（旗舰）"
+          >
+            {{ isDiverging ? '✨ 缪斯发散中…' : '✨ 给我 5 个狂点子' }}
+          </button>
           <ConversationInput
             :ui-control="currentUIControl"
             :loading="novelStore.isLoading"
@@ -189,7 +257,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
-import { NovelAPI, type ReferenceNovelSummary, type UIControl, type Blueprint } from '@/api/novel'
+import { NovelAPI, type ReferenceNovelSummary, type UIControl, type Blueprint, type MusePersona, type DivergeSeed } from '@/api/novel'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConversationInput from '@/components/ConversationInput.vue'
 import BlueprintConfirmation from '@/components/BlueprintConfirmation.vue'
@@ -231,6 +299,20 @@ const referenceSearchStatus = ref<'idle' | 'searching' | 'success' | 'error' | '
 const referenceSearchMessage = ref('')
 const exclusions = ref('')
 const showExclusions = ref(false)
+
+// ── 缪斯高级特性（分档：免费 / 创作者 / 旗舰）──
+const musePersonas = ref<MusePersona[]>([])
+const selectedPersona = ref('default')
+const userTier = ref<'free' | 'creator' | 'flagship'>('free')
+const featureAccess = ref({ muse_persona: false, muse_search: false, muse_divergence: false })
+const disableMuseSearch = ref(false) // 「一键找素材」开关（默认开启=找）
+const disableSpark = ref(false)      // 「灵感扰动」开关（默认开启）
+const divergeSeeds = ref<DivergeSeed[]>([])
+const isDiverging = ref(false)
+
+const canUsePersona = computed(() => featureAccess.value.muse_persona)
+const canUseMuseSearch = computed(() => featureAccess.value.muse_search)
+const canUseDivergence = computed(() => featureAccess.value.muse_divergence)
 
 const normalizedReferenceNovels = computed(() =>
   referenceNovels.value
@@ -461,7 +543,10 @@ const handleUserInput = async (
     const mergedOptions = {
       ...options,
       ...(referenceContext.value.trim() ? { referenceContext: referenceContext.value.trim() } : {}),
-      ...(exclusions.value.trim() ? { exclusions: exclusions.value.trim() } : {})
+      ...(exclusions.value.trim() ? { exclusions: exclusions.value.trim() } : {}),
+      ...(canUsePersona.value && selectedPersona.value !== 'default' ? { musePersona: selectedPersona.value } : {}),
+      disableSpark: disableSpark.value,
+      disableMuseSearch: disableMuseSearch.value || !canUseMuseSearch.value
     }
     const response = await novelStore.sendConversation(userInput, mergedOptions)
 
@@ -545,7 +630,68 @@ const scrollToBottom = async () => {
   }
 }
 
+async function loadMuseCapabilities() {
+  try {
+    const resp = await NovelAPI.listMusePersonas()
+    musePersonas.value = resp.personas || []
+    userTier.value = resp.tier || 'free'
+    featureAccess.value = resp.features || { muse_persona: false, muse_search: false, muse_divergence: false }
+    if (!canUsePersona.value) selectedPersona.value = 'default'
+  } catch (error) {
+    console.warn('加载缪斯人格/档位失败（不影响基础对话）:', error)
+  }
+}
+
+const seedToText = (s: DivergeSeed): string => {
+  const parts = [s.title, s.logline].filter(Boolean)
+  let text = parts.join('：')
+  if (s.hook) text += `（钩子：${s.hook}）`
+  return text || s.logline || s.title
+}
+
+async function handleDiverge() {
+  if (!canUseDivergence.value) {
+    globalAlert.showError('N 路发散为旗舰档特性，升级旗舰版即可一次生成多个迥异世界观种子并智能评分。', '需要升级')
+    return
+  }
+  if (!novelStore.currentProject) {
+    globalAlert.showError('请先开启灵感模式（创建项目）再使用发散。', '提示')
+    return
+  }
+  const seed = (referenceContext.value || '').trim()
+    || normalizedReferenceNovels.value.join('、')
+    || (chatMessages.value.find((m) => m.type === 'user')?.content || '').trim()
+  if (!seed) {
+    globalAlert.showError('请先在对话里给一个故事点子，再让缪斯发散。', '提示')
+    return
+  }
+  isDiverging.value = true
+  divergeSeeds.value = []
+  try {
+    const resp = await NovelAPI.divergeConcepts(novelStore.currentProject.id, seed, {
+      exclusions: exclusions.value.trim() || undefined,
+      n: 5,
+      keep: 3
+    })
+    divergeSeeds.value = resp.seeds || []
+    if (!divergeSeeds.value.length) {
+      globalAlert.showError('这次没发散出可用种子，换个点子或稍后再试。', '提示')
+    }
+  } catch (error) {
+    globalAlert.showError(`发散失败：${error instanceof Error ? error.message : '未知错误'}`, '失败')
+  } finally {
+    isDiverging.value = false
+  }
+}
+
+function pickDivergeSeed(seed: DivergeSeed) {
+  divergeSeeds.value = []
+  // 把选中的种子作为用户输入投喂给「文思」继续落地
+  handleUserInput({ id: 'diverge_pick', value: seedToText(seed) })
+}
+
 onMounted(() => {
+  loadMuseCapabilities()
   const projectId = route.query.project_id as string
   if (projectId) {
     restoreConversation(projectId)
@@ -1038,4 +1184,85 @@ onMounted(() => {
     min-height: 0;
   }
 }
+
+/* ──────────── 缪斯设定 / N路发散 ──────────── */
+.muse-config {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.muse-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.muse-config-title { font-size: 13px; font-weight: 600; opacity: 0.9; }
+.tier-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.tier-free { color: #9aa0a6; }
+.tier-creator { color: #6ad29a; }
+.tier-flagship { color: #f5c451; }
+.muse-field-label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; opacity: 0.85; margin: 8px 0 4px;
+}
+.lock-hint { font-size: 11px; opacity: 0.7; }
+.muse-select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.muse-select:disabled { opacity: 0.5; cursor: not-allowed; }
+.muse-field-hint { font-size: 11px; opacity: 0.6; margin: 4px 0 0; }
+.muse-toggle {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; margin-top: 10px; cursor: pointer;
+}
+.muse-toggle.disabled { opacity: 0.55; cursor: not-allowed; }
+
+.diverge-results { padding: 10px 16px; }
+.diverge-results-head { font-size: 13px; opacity: 0.85; margin-bottom: 8px; }
+.diverge-cards { display: flex; flex-direction: column; gap: 8px; }
+.diverge-card {
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.diverge-card:hover { border-color: #f5c451; background: rgba(245, 196, 81, 0.08); }
+.diverge-card-title {
+  display: flex; align-items: center; justify-content: space-between;
+  font-weight: 600; font-size: 14px; margin-bottom: 4px;
+}
+.diverge-score { font-size: 12px; color: #f5c451; }
+.diverge-card-logline { font-size: 13px; opacity: 0.9; }
+.diverge-card-hook,
+.diverge-card-twist { font-size: 12px; opacity: 0.75; margin-top: 4px; }
+.diverge-card-verdict { font-size: 11px; opacity: 0.6; margin-top: 6px; font-style: italic; }
+.diverge-trigger {
+  align-self: stretch;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #f5c451;
+  background: rgba(245, 196, 81, 0.12);
+  color: #f5c451;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.diverge-trigger:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

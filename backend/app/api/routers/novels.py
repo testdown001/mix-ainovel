@@ -564,11 +564,21 @@ async def converse_with_concept(
 
 @router.get("/concept/personas")
 async def list_muse_personas(
+    session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """列出可选缪斯人格（前端人格选择器用；选择本身在 converse 时按档位门控）。"""
+    """列出可选缪斯人格 + 当前用户订阅档位与各特性可用性（前端据此渲染/门控 UI）。"""
     from ...services.muse_persona import list_personas
-    return {"personas": list_personas()}
+    tier = await get_user_tier(session, current_user.id)
+    return {
+        "personas": list_personas(),
+        "tier": tier,
+        "features": {
+            "muse_persona": tier_allows(tier, "muse_persona"),
+            "muse_search": tier_allows(tier, "muse_search"),
+            "muse_divergence": tier_allows(tier, "muse_divergence"),
+        },
+    }
 
 
 @router.post("/{project_id}/concept/diverge")

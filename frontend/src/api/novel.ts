@@ -271,6 +271,42 @@ export interface UIControl {
   placeholder?: string
 }
 
+export interface MusePersona {
+  key: string
+  label: string
+  blurb: string
+}
+
+export interface MusePersonasResponse {
+  personas: MusePersona[]
+  tier: 'free' | 'creator' | 'flagship'
+  features: {
+    muse_persona: boolean
+    muse_search: boolean
+    muse_divergence: boolean
+  }
+}
+
+export interface DivergeSeed {
+  id: number
+  title: string
+  logline: string
+  hook: string
+  world: string
+  tone: string
+  twist: string
+  novelty?: number
+  marketability?: number
+  coherence?: number
+  score?: number
+  verdict?: string
+}
+
+export interface DivergeResponse {
+  seeds: DivergeSeed[]
+  tier: string
+}
+
 export interface ChapterGenerationResponse {
   versions: ChapterVersion[] // Renamed from chapter_versions for consistency
   evaluation: string | null
@@ -432,6 +468,9 @@ export class NovelAPI {
       referenceNovels?: string[]
       referenceContext?: string
       exclusions?: string
+      musePersona?: string
+      disableSpark?: boolean
+      disableMuseSearch?: boolean
     } = {}
   ): Promise<ConverseResponse> {
     const formattedUserInput = userInput || { id: null, value: null }
@@ -439,6 +478,11 @@ export class NovelAPI {
       user_input: formattedUserInput,
       conversation_state: conversationState
     }
+    if (options.musePersona && options.musePersona !== 'default') {
+      payload.muse_persona = options.musePersona
+    }
+    if (options.disableSpark) payload.disable_spark = true
+    if (options.disableMuseSearch) payload.disable_muse_search = true
     const normalizedReferenceNovels = (options.referenceNovels || [])
       .map((name) => (name || '').trim())
       .filter(Boolean)
@@ -455,6 +499,28 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/concept/converse`, {
       method: 'POST',
       body: JSON.stringify(payload)
+    })
+  }
+
+  /** 获取缪斯人格清单 + 当前用户订阅档位与特性可用性。 */
+  static async listMusePersonas(): Promise<MusePersonasResponse> {
+    return request(`${NOVELS_BASE}/concept/personas`)
+  }
+
+  /** N 路发散（旗舰档）：一次生成 N 个迥异种子并评分收敛到 Top。 */
+  static async divergeConcepts(
+    projectId: string,
+    seedTopic: string,
+    options: { exclusions?: string; n?: number; keep?: number } = {}
+  ): Promise<DivergeResponse> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/diverge`, {
+      method: 'POST',
+      body: JSON.stringify({
+        seed_topic: seedTopic,
+        exclusions: options.exclusions || undefined,
+        n: options.n ?? 5,
+        keep: options.keep ?? 3
+      })
     })
   }
 

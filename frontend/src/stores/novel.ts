@@ -107,6 +107,9 @@ export const useNovelStore = defineStore('novel', () => {
       referenceNovels?: string[]
       referenceContext?: string
       exclusions?: string
+      musePersona?: string
+      disableSpark?: boolean
+      disableMuseSearch?: boolean
     } = {}
   ): Promise<ConverseResponse> {
     isLoading.value = true
