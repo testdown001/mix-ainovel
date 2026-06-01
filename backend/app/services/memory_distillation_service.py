@@ -9,10 +9,20 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
+
 logger = logging.getLogger(__name__)
 
 DISTILL_THRESHOLD = 100
 DISTILL_BATCH_SIZE = 50
+
+
+class DistillBatchResult(BaseModel):
+    """记忆蒸馏单批次结构化输出 schema（保留额外字段，元素为原始 dict）。"""
+    model_config = ConfigDict(extra="allow")
+    kept: List[Any] = Field(default_factory=list)
+    merged: List[Any] = Field(default_factory=list)
+    obsolete: List[Any] = Field(default_factory=list)
 
 DISTILL_PROMPT = """你是记忆蒸馏专家。给定一组关于同一小说项目的事实性记忆条目，请：
 1. 合并：同一事件/状态的多条记忆合并为一条精炼陈述
@@ -186,34 +196,30 @@ class MemoryDistillationService:
 
         prompt = DISTILL_PROMPT + json.dumps(entries, ensure_ascii=False, indent=1)
 
-        try:
-            response = await self.llm_service.get_grader_llm_response(
-                system_prompt="你是记忆蒸馏专家。请严格按照 JSON 格式输出。",
-                conversation_history=[{"role": "user", "content": prompt}],
+        # 走 grader 专用通道的结构化输出（schema 校验 + 失败回喂重问），
+        # 替代脆弱的 find('{')..rfind('}') 切片解析。
+        async def _grader_responder(p: str, sys: str) -> str:
+            return await self.llm_service.get_grader_llm_response(
+                system_prompt=sys,
+                conversation_history=[{"role": "user", "content": p}],
                 temperature=0.1,
                 user_id=user_id,
+            )
+
+        try:
+            model = await self.llm_service.generate_structured(
+                prompt=prompt,
+                schema=DistillBatchResult,
+                system_prompt="你是记忆蒸馏专家。请严格按照 JSON 格式输出。",
+                responder=_grader_responder,
+                default=DistillBatchResult(kept=memories),
             )
         except Exception as e:
             err_str = str(e)
             if "grader" in err_str.lower() or "not configured" in err_str.lower():
                 logger.info("记忆蒸馏: grader LLM 未配置，静默跳过")
-                return {"kept": memories, "merged": [], "obsolete": []}
-            logger.warning("记忆蒸馏: LLM 调用失败", exc_info=True)
+            else:
+                logger.warning("记忆蒸馏: LLM 调用失败", exc_info=True)
             return {"kept": memories, "merged": [], "obsolete": []}
 
-        # 解析 JSON
-        try:
-            content = response if isinstance(response, str) else str(response)
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                parsed = json.loads(content[json_start:json_end])
-                return {
-                    "kept": parsed.get("kept", []),
-                    "merged": parsed.get("merged", []),
-                    "obsolete": parsed.get("obsolete", []),
-                }
-        except (json.JSONDecodeError, ValueError):
-            logger.warning("记忆蒸馏: LLM 返回非法 JSON，全量保留")
-
-        return {"kept": memories, "merged": [], "obsolete": []}
+        return {"kept": model.kept, "merged": model.merged, "obsolete": model.obsolete}

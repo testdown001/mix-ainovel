@@ -4,6 +4,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from app.services.llm_service import LLMService
 from app.services.memory_distillation_service import (
     DISTILL_THRESHOLD,
     MemoryDistillationService,
@@ -17,7 +18,9 @@ def _make_memories(n, prefix="fact"):
 
 
 def _mock_llm(*, grader_configured=True, response_json=None, raise_error=False):
-    llm = SimpleNamespace()
+    # 用真实 LLMService（跳过 __init__）以便 generate_structured 可用，
+    # 仅替换 grader 出口。
+    llm = LLMService.__new__(LLMService)
 
     if grader_configured:
         if raise_error:

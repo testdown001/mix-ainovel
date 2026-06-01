@@ -10,14 +10,27 @@
 6. 冲突检测
 """
 from typing import Optional, Dict, Any, List
-import json
 
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .constitution_service import ConstitutionService
 from .writer_persona_service import WriterPersonaService
 from .llm_service import LLMService
 from .prompt_service import PromptService
+
+
+class SixDimensionResult(BaseModel):
+    """六维度审查结构化输出 schema（保留额外字段；dimensions 为嵌套维度映射）。"""
+    model_config = ConfigDict(extra="allow")
+    overall_score: int = 80
+    dimensions: Dict[str, Any] = Field(default_factory=dict)
+    critical_issues_count: int = 0
+    warning_issues_count: int = 0
+    info_issues_count: int = 0
+    summary: str = ""
+    priority_fixes: List[Any] = Field(default_factory=list)
+    recommendations: List[Any] = Field(default_factory=list)
 
 
 class SixDimensionReviewService:
@@ -77,24 +90,24 @@ class SixDimensionReviewService:
         prompt = prompt.replace("{{character_profiles}}", character_profiles or "（无角色档案）")
         prompt = prompt.replace("{{world_setting}}", world_setting or "（无世界设定）")
         
-        # 调用 LLM 进行审查
-        response = await self.llm_service.generate(
-            prompt=prompt,
-            system_prompt="你是一位资深的小说编辑，负责对章节进行全面的六维度审查。请以 JSON 格式输出审查结果。"
+        # 结构化输出（schema 校验 + 失败回喂重问），替代脆弱的切大括号解析。
+        # 维度结构复杂多变，schema 用 extra=allow 仅声明下游强依赖的键、保留其余字段。
+        fallback = SixDimensionResult.model_validate(
+            self._create_default_result("审查完成，但结果解析失败")
         )
-        
-        # 解析结果
         try:
-            content = response or ""
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
-                return result
-        except json.JSONDecodeError:
-            pass
-        
-        return self._create_default_result("审查完成，但结果解析失败")
+            model = await self.llm_service.generate_structured(
+                prompt=prompt,
+                schema=SixDimensionResult,
+                system_prompt=(
+                    "你是一位资深的小说编辑，负责对章节进行全面的六维度审查。"
+                    "请以 JSON 格式输出审查结果。"
+                ),
+                default=fallback,
+            )
+        except Exception:
+            model = fallback
+        return model.model_dump()
 
     async def quick_review(
         self,

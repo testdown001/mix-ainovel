@@ -150,6 +150,7 @@ class LLMService:
         max_tokens: Optional[int] = None,
         max_validation_retries: int = 1,
         default: Optional[_StructuredT] = None,
+        responder: Optional[Callable[[str, str], Awaitable[str]]] = None,
     ) -> _StructuredT:
         """Prompt → 经校验的 Pydantic 模型（借鉴 Pydantic AI 的结构化输出范式）。
 
@@ -161,6 +162,8 @@ class LLMService:
         - max_validation_retries: 校验失败后的纠正性重问次数（默认 1，共最多 2 次调用）。
         - default: 若全部尝试仍失败：default 非 None 时返回它（软失败，对齐旧的"取默认值"行为），
           否则抛 StructuredOutputError（硬失败，便于上层显式处理）。
+        - responder: 可选的"出口"回调 async (prompt, system_prompt) -> str，用于适配非默认
+          LLM 通道（如证据评分专用的 get_grader_llm_response）。默认走 self.generate。
         """
         schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
         base_system = (
@@ -170,19 +173,24 @@ class LLMService:
             + schema_json
         )
 
-        current_prompt = prompt
-        raw = ""
-        last_error: Optional[Exception] = None
-
-        for attempt in range(max_validation_retries + 1):
-            raw = await self.generate(
-                prompt=current_prompt,
-                system_prompt=base_system,
+        async def _default_responder(p: str, sys: str) -> str:
+            return await self.generate(
+                prompt=p,
+                system_prompt=sys,
                 temperature=temperature,
                 user_id=user_id,
                 response_format="json_object",
                 max_tokens=max_tokens,
             )
+
+        respond = responder or _default_responder
+
+        current_prompt = prompt
+        raw = ""
+        last_error: Optional[Exception] = None
+
+        for attempt in range(max_validation_retries + 1):
+            raw = await respond(current_prompt, base_system)
             cleaned = repair_json(unwrap_markdown_json(remove_think_tags(raw or "")))
             try:
                 return schema.model_validate_json(cleaned)

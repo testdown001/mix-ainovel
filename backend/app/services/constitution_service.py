@@ -3,15 +3,24 @@
 
 提供小说宪法的 CRUD 操作和合规检查功能。
 """
-from typing import Optional
-import json
+from typing import Any, List, Optional
 
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ..models.constitution import NovelConstitution
 from .llm_service import LLMService
 from .prompt_service import PromptService
+
+
+class ConstitutionCheckResult(BaseModel):
+    """小说宪法合规检查结构化输出 schema（保留额外字段）。"""
+    model_config = ConfigDict(extra="allow")
+    overall_compliance: bool = True
+    overall_score: int = 100
+    violations: List[Any] = Field(default_factory=list)
+    summary: str = ""
 
 
 class ConstitutionService:
@@ -83,29 +92,24 @@ class ConstitutionService:
         prompt = prompt.replace("{{chapter_content}}", chapter_content)
         
         # 调用 LLM 进行检查
-        response = await self.llm_service.generate(
-            prompt=prompt,
-            system_prompt="你是一位严格的小说编辑，负责检查章节内容是否符合小说宪法。请以 JSON 格式输出检查结果。"
+        # 结构化输出（schema 校验 + 失败回喂重问），替代脆弱的切大括号解析
+        fallback = ConstitutionCheckResult(
+            overall_compliance=True, overall_score=80,
+            summary="合规检查完成，但结果解析失败",
         )
-        
-        # 解析结果
         try:
-            # 尝试提取 JSON
-            content = response or ""
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
-                return result
-        except json.JSONDecodeError:
-            pass
-        
-        return {
-            "overall_compliance": True,
-            "overall_score": 80,
-            "violations": [],
-            "summary": "合规检查完成，但结果解析失败"
-        }
+            model = await self.llm_service.generate_structured(
+                prompt=prompt,
+                schema=ConstitutionCheckResult,
+                system_prompt=(
+                    "你是一位严格的小说编辑，负责检查章节内容是否符合小说宪法。"
+                    "请以 JSON 格式输出检查结果。"
+                ),
+                default=fallback,
+            )
+        except Exception:
+            model = fallback
+        return model.model_dump()
 
     def get_constitution_context(self, constitution: Optional[NovelConstitution]) -> str:
         """获取宪法上下文（用于注入到写作提示词）"""
