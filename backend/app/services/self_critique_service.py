@@ -8,6 +8,7 @@ from enum import Enum
 import json
 import logging
 
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .llm_service import LLMService
@@ -24,6 +25,24 @@ class CritiqueDimension(str, Enum):
     PACING = "pacing"  # 节奏控制
     EMOTION = "emotion"  # 情感表达
     DIALOGUE = "dialogue"  # 对话质量
+
+
+class CritiqueIssue(BaseModel):
+    """单条批评问题（结构化输出 schema）。"""
+    severity: str = "minor"
+    location: str = ""
+    problem: str = ""
+    suggestion: str = ""
+    example: str = ""
+
+
+class CritiqueResult(BaseModel):
+    """单维度批评结果（结构化输出 schema，字段均带默认值以容忍 LLM 缺字段）。"""
+    dimension: str = ""
+    overall_score: int = 70
+    issues: List[CritiqueIssue] = Field(default_factory=list)
+    strengths: List[str] = Field(default_factory=list)
+    summary: str = ""
 
 
 class SelfCritiqueService:
@@ -169,33 +188,30 @@ class SelfCritiqueService:
 - major：较大问题，建议修改
 - minor：小问题，可以优化"""
 
+        # 借鉴 Pydantic AI 结构化输出范式：schema 校验 + 失败回喂重问，
+        # 替代原先脆弱的 content.find('{')..rfind('}') 切片 + json.loads。
+        fallback = CritiqueResult(
+            dimension=dimension.value, overall_score=70, summary="无法完成审查"
+        )
         try:
-            response = await self.llm_service.get_llm_response(
-                system_prompt=f"你是一位专注于{dim_config['name']}的严格编辑。请客观、具体地指出问题。",
-                conversation_history=[{"role": "user", "content": prompt}],
+            critique_model = await self.llm_service.generate_structured(
+                prompt=prompt,
+                schema=CritiqueResult,
+                system_prompt=(
+                    f"你是一位专注于{dim_config['name']}的严格编辑。请客观、具体地指出问题。"
+                ),
                 temperature=0.3,
                 user_id=user_id,
-                timeout=120.0
+                default=fallback,
             )
-            
-            content = response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                result = json.loads(content[json_start:json_end])
-                result["weight"] = dim_config["severity_weight"]
-                return result
-        except Exception as e:
+        except Exception as e:  # 网络等非校验异常的兜底
             logger.warning(f"批评维度 {dimension.value} 失败: {e}")
-        
-        return {
-            "dimension": dimension.value,
-            "overall_score": 70,
-            "issues": [],
-            "strengths": [],
-            "summary": "无法完成审查",
-            "weight": dim_config["severity_weight"]
-        }
+            critique_model = fallback
+
+        result = critique_model.model_dump()
+        result["dimension"] = result.get("dimension") or dimension.value
+        result["weight"] = dim_config["severity_weight"]
+        return result
 
     async def full_critique(
         self,

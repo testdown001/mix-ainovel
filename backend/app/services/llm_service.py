@@ -2,13 +2,17 @@
 import asyncio
 import hashlib
 import inspect
+import json
 import logging
 import os
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Type, TypeVar
 
 import httpx
 from cachetools import LRUCache
 from fastapi import HTTPException, status
+from pydantic import BaseModel, ValidationError
+
+from ..utils.json_utils import remove_think_tags, repair_json, unwrap_markdown_json
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalServerError, PermissionDeniedError, AuthenticationError, NotFoundError, BadRequestError
 
 from ..core.config import settings
@@ -21,6 +25,21 @@ from ..services.usage_service import UsageService
 from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient, _build_http_client
 
 logger = logging.getLogger(__name__)
+
+_StructuredT = TypeVar("_StructuredT", bound=BaseModel)
+
+
+class StructuredOutputError(ValueError):
+    """LLM 结构化输出经修复与重试后仍无法通过 Pydantic schema 校验时抛出。"""
+
+    def __init__(self, schema_name: str, raw: str, last_error: Exception):
+        self.schema_name = schema_name
+        self.raw = raw
+        self.last_error = last_error
+        super().__init__(
+            f"结构化输出校验失败 (schema={schema_name}): {last_error}"
+        )
+
 
 try:  # pragma: no cover - 运行环境未安装时兼容
     from ollama import AsyncClient as OllamaAsyncClient
@@ -119,6 +138,73 @@ class LLMService:
             max_tokens=max_tokens,
             top_p=top_p,
         )
+
+    async def generate_structured(
+        self,
+        *,
+        prompt: str,
+        schema: Type[_StructuredT],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.3,
+        user_id: Optional[int] = None,
+        max_tokens: Optional[int] = None,
+        max_validation_retries: int = 1,
+        default: Optional[_StructuredT] = None,
+    ) -> _StructuredT:
+        """Prompt → 经校验的 Pydantic 模型（借鉴 Pydantic AI 的结构化输出范式）。
+
+        在现有 generate(response_format=json_object) + json_utils 修复之上，补齐
+        “schema 校验失败 → 把校验错误回喂给模型，要求修正后重答”这一层，
+        消除全仓散落的 `repair_json → loads → dict.get(默认值)` 静默腐烂问题。
+
+        - schema: 期望输出的 Pydantic 模型类。其 JSON Schema 会注入 system prompt 引导模型。
+        - max_validation_retries: 校验失败后的纠正性重问次数（默认 1，共最多 2 次调用）。
+        - default: 若全部尝试仍失败：default 非 None 时返回它（软失败，对齐旧的"取默认值"行为），
+          否则抛 StructuredOutputError（硬失败，便于上层显式处理）。
+        """
+        schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        base_system = (
+            (system_prompt or "你是一个严格输出 JSON 的助手。")
+            + "\n\n你必须只输出符合以下 JSON Schema 的合法 JSON 对象，"
+            + "不要输出任何解释、Markdown 代码块或多余文字：\n"
+            + schema_json
+        )
+
+        current_prompt = prompt
+        raw = ""
+        last_error: Optional[Exception] = None
+
+        for attempt in range(max_validation_retries + 1):
+            raw = await self.generate(
+                prompt=current_prompt,
+                system_prompt=base_system,
+                temperature=temperature,
+                user_id=user_id,
+                response_format="json_object",
+                max_tokens=max_tokens,
+            )
+            cleaned = repair_json(unwrap_markdown_json(remove_think_tags(raw or "")))
+            try:
+                return schema.model_validate_json(cleaned)
+            except (ValidationError, ValueError) as exc:
+                last_error = exc
+                logger.warning(
+                    "generate_structured 校验失败 (schema=%s, attempt=%d/%d): %s",
+                    schema.__name__, attempt + 1, max_validation_retries + 1, exc,
+                )
+                # 把校验错误与上次原始输出回喂，引导模型自我修正
+                current_prompt = (
+                    f"{prompt}\n\n———\n你上一次的输出未通过 JSON Schema 校验。\n"
+                    f"校验错误：\n{exc}\n\n上次输出（截断）：\n{(raw or '')[:1200]}\n\n"
+                    f"请严格按 schema 重新输出**合法且完整**的 JSON 对象。"
+                )
+
+        if default is not None:
+            logger.warning(
+                "generate_structured 最终失败，返回 default (schema=%s)", schema.__name__
+            )
+            return default
+        raise StructuredOutputError(schema.__name__, raw, last_error or ValueError("unknown"))
 
     async def chat_with_tools(
         self,
