@@ -14,9 +14,6 @@ from ..services.llm_service import LLMService
 from ..services.prompt_service import PromptService
 from .message import AgentCapability, AgentContext, AgentResult
 
-if TYPE_CHECKING:
-    from .message_bus import AgentMessageBus
-
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +37,6 @@ class BaseAgent(ABC):
         self.session = session
         self.llm_service = LLMService(session)
         self.prompt_service = PromptService(session)
-        self.message_bus: Optional[AgentMessageBus] = None
 
         # 奏折相关
         self._archive_service = None
@@ -122,73 +118,8 @@ class BaseAgent(ABC):
         """清理资源"""
         logger.info(f"Cleaning up agent: {self.AGENT_NAME}")
 
-    # ========== 消息发送 ==========
-
-    async def send_message(
-        self,
-        recipient: str,
-        message_type: str,
-        payload: Dict[str, Any],
-        task_id: Optional[str] = None,
-        project_id: Optional[str] = None,
-        chapter_number: Optional[int] = None,
-    ) -> None:
-        """发送消息给其他 Agent"""
-        if not self._can_send_to(recipient):
-            raise PermissionError(
-                f"Agent {self.AGENT_NAME} cannot send message to {recipient}"
-            )
-
-        from .message import AgentMessage
-
-        message = AgentMessage(
-            sender=self.AGENT_NAME,
-            recipient=recipient,
-            message_type=message_type,
-            payload=payload,
-            task_id=task_id,
-            project_id=project_id,
-            chapter_number=chapter_number,
-        )
-
-        await self.message_bus.publish(
-            channel=f"agent.{recipient}",
-            message=message.model_dump()
-        )
-        logger.debug(f"Message sent: {self.AGENT_NAME} -> {recipient}")
-
-    async def broadcast(
-        self,
-        message_type: str,
-        payload: Dict[str, Any],
-        task_id: Optional[str] = None,
-    ) -> None:
-        """广播消息"""
-        from .message import AgentMessage
-
-        message = AgentMessage(
-            sender=self.AGENT_NAME,
-            recipient="*",
-            message_type=message_type,
-            payload=payload,
-            task_id=task_id,
-        )
-
-        await self.message_bus.publish(
-            channel="agent.broadcast",
-            message=message.model_dump()
-        )
-
-    # ========== 权限检查 ==========
-
-    def _can_send_to(self, target: str) -> bool:
-        """检查是否可以发送消息给目标 Agent。
-
-        收敛后主流程不再使用 Agent 间消息传递（改为顺序调用 + 返回值驱动），
-        PERMISSION_MATRIX 已移除。此方法保留作为兼容入口，默认放行；
-        如未来重新引入消息总线协作，可在此恢复白名单校验。
-        """
-        return True
+    # 说明：原 send_message/broadcast/_can_send_to（基于 AgentMessageBus 的 Agent 间消息传递）
+    # 已移除。收敛后主流程为顺序调用 + 返回值驱动，不存在 Agent 互发消息；消息总线已删除。
 
     def _register_capabilities(self) -> None:
         """注册 Agent 能力（子类可重写）"""

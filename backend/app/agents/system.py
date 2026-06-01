@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .base import BaseAgent
 from .message import AgentContext, AgentMessageType
-from .message_bus import AgentMessageBus
 
 if TYPE_CHECKING:
     from .taizi_agent import TaiziAgent
@@ -44,7 +43,6 @@ class WritingAgentSystem:
     def __init__(self, session: AsyncSession, archive_service=None):
         self.session = session
         self.archive_service = archive_service
-        self.message_bus = AgentMessageBus()
         self._agents: Dict[str, BaseAgent] = {}
         self._initialized = False
 
@@ -58,8 +56,6 @@ class WritingAgentSystem:
         if self._initialized:
             return
 
-        await self.message_bus.initialize()
-
         # 注册所有 Agent
         self._register_agents()
 
@@ -69,7 +65,6 @@ class WritingAgentSystem:
                 agent_id=f"{name}_{uuid.uuid4().hex[:8]}",
                 session=self.session
             )
-            agent.message_bus = self.message_bus
 
             # 设置档案服务
             if self.archive_service:
@@ -102,7 +97,6 @@ class WritingAgentSystem:
         """关闭系统"""
         for agent in self._agents.values():
             await agent.cleanup()
-        await self.message_bus.shutdown()
         self._initialized = False
 
     def get_agent(self, name: str) -> Optional[BaseAgent]:

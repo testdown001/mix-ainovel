@@ -27,7 +27,6 @@ from .message import (
     AgentMessageType,
     AgentResult,
 )
-from .message_bus import AgentMessageBus
 from .system import WritingAgentSystem
 from .taizi_agent import TaiziAgent
 from .zhongshu_agent import ZhongshuAgent
@@ -40,7 +39,6 @@ __all__ = [
     "AgentContext",
     "AgentResult",
     "AgentCapability",
-    "AgentMessageBus",
     # System
     "WritingAgentSystem",
     "HybridExecutor",

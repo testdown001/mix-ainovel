@@ -7,7 +7,7 @@ import logging
 from typing import Any, Dict
 
 from .base import BaseAgent
-from .message import AgentContext, AgentMessageType, AgentResult
+from .message import AgentContext, AgentResult
 
 logger = logging.getLogger(__name__)
 
@@ -166,13 +166,13 @@ class MenxiaAgent(BaseAgent):
         context: AgentContext,
         review_result: Dict[str, Any],
     ) -> None:
-        """广播任务完成"""
-        await self.broadcast(
-            message_type=AgentMessageType.TASK_COMPLETED.value,
-            payload={
-                "project_id": context.project_id,
-                "chapter_number": context.chapter_number,
-                "review_result": review_result,
-            },
-            task_id=context.task_id,
+        """记录任务完成。
+
+        历史上此处向消息总线 broadcast TASK_COMPLETED，但无任何订阅者消费（总线空转），
+        消息总线已移除；保留方法作为完成钩子，仅记日志。
+        """
+        logger.debug(
+            "Menxia review completed: project=%s chapter=%s",
+            context.project_id,
+            context.chapter_number,
         )
