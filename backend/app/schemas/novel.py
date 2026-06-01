@@ -52,6 +52,10 @@ class ConverseRequest(BaseModel):
         default=False,
         description="关闭灵感扰动注入（默认开启，用于让概念对话更发散、更有灵气）",
     )
+    disable_muse_search: Optional[bool] = Field(
+        default=False,
+        description="关闭开场的跨界素材联网发现（默认开启；未配置搜索模型时自动跳过）",
+    )
 
 
 class ReferenceSearchRequest(BaseModel):

@@ -40,6 +40,7 @@ from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
 from ...services.inspiration_spark import pick_spark, build_spark_injection
+from ...services.muse_material_service import MuseMaterialService
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -119,6 +120,35 @@ def _inject_exclusions(system_prompt: str, exclusions: str) -> str:
         "你必须在整个概念对话中严格遵守这些限制，不要提议任何涉及以下内容的选项：\n"
         f"{text}\n"
     )
+
+
+def _inject_muse_material(system_prompt: str, material: str) -> str:
+    text = (material or "").strip()
+    if not text:
+        return system_prompt
+    return (
+        f"{system_prompt}\n\n"
+        "## 跨界灵感素材（仅你可见，联网检索所得，切勿原样罗列给用户）\n"
+        "以下是与用户点子相关的冷门真实跨域素材。请把它当作'敢于跳出俗套'的弹药——"
+        "在抛方向/给提案时自然地嫁接其中能制造惊喜的点，转化为故事里的设定/冲突/细节；"
+        "不契合则忽略，不要堆砌、不要照搬、不要提及'素材库/检索'之类元话术：\n"
+        f"{text}\n"
+    )
+
+
+def _extract_seed_topic(user_input: Any) -> str:
+    """从首轮 user_input 中提取作为跨界检索种子的点子文本。"""
+    if isinstance(user_input, str):
+        return user_input.strip()
+    if isinstance(user_input, dict):
+        for key in ("value", "text", "content", "idea", "message"):
+            val = user_input.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        # 兜底：拼接所有字符串值
+        parts = [v.strip() for v in user_input.values() if isinstance(v, str) and v.strip()]
+        return " ".join(parts).strip()
+    return ""
 
 
 def _merge_reference_novels(*groups: List[ReferenceNovel]) -> List[ReferenceNovel]:
@@ -446,6 +476,24 @@ async def converse_with_concept(
     exclusions = (request.exclusions or "").strip()
     if exclusions:
         system_prompt = _inject_exclusions(system_prompt, exclusions)
+
+    # 跨界素材发现（仅开场首轮触发一次）：联网找冷门真实跨域素材供缪斯嫁接，
+    # 开场提案吸收后会自然进入后续对话历史，无需每轮重搜。未配置搜索模型时优雅跳过。
+    if not history_records and not request.disable_muse_search:
+        seed_topic = _extract_seed_topic(request.user_input)
+        if seed_topic:
+            try:
+                muse_material = await MuseMaterialService(session).discover_cross_domain_material(
+                    seed_topic=seed_topic,
+                    user_id=current_user.id,
+                    exclusions=exclusions,
+                )
+            except Exception as exc:  # pragma: no cover - 防御性降级
+                logger.warning("项目 %s 跨界素材发现失败，继续: %s", project_id, exc)
+                muse_material = None
+            if muse_material:
+                system_prompt = _inject_muse_material(system_prompt, muse_material)
+                logger.info("项目 %s 概念对话注入跨界素材: user=%s", project_id, current_user.id)
 
     # 灵感扰动注入（默认开启）：每轮随机一张创意激发卡，促使发散、避免雷同套路
     if not request.disable_spark:
