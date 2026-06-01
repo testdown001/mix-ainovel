@@ -19,6 +19,13 @@ type Config struct {
 	TaskDispatcher TaskDispatcherConfig `mapstructure:"task_dispatcher"`
 	Log            LogConfig            `mapstructure:"log"`
 	Metrics        MetricsConfig        `mapstructure:"metrics"`
+	CORS           CORSConfig           `mapstructure:"cors"`
+}
+
+// CORSConfig 跨域配置。Origins 为空或包含 "*" 时按通配处理；
+// 否则仅当请求 Origin 命中白名单才回显该 Origin（与 Python 端 CORS 收紧保持一致）。
+type CORSConfig struct {
+	Origins []string `mapstructure:"origins"`
 }
 
 type PaymentGatewayConfig struct {
@@ -128,6 +135,9 @@ type TaskDispatcherConfig struct {
 	PollInterval      time.Duration `mapstructure:"poll_interval"`
 	WorkerCallbackURL string        `mapstructure:"worker_callback_url"`
 	WorkerGRPCAddr    string        `mapstructure:"worker_grpc_addr"`
+	// InternalCallbackSecret 内部回调共享密钥；为空则不校验（向后兼容），
+	// 非空时 Worker 进度回调须携带匹配的 X-Internal-Secret 头。
+	InternalCallbackSecret string `mapstructure:"internal_callback_secret"`
 }
 
 var globalConfig *Config
@@ -205,6 +215,9 @@ func setDefaults() {
 
 	viper.SetDefault("metrics.enabled", true)
 	viper.SetDefault("metrics.path", "/metrics")
+
+	// CORS：默认通配，保持既有行为；生产可通过 cors.origins 收紧。
+	viper.SetDefault("cors.origins", []string{"*"})
 
 	viper.SetDefault("task_dispatcher.enabled", true)
 	viper.SetDefault("task_dispatcher.max_concurrency", 20)

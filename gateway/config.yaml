@@ -82,6 +82,12 @@ metrics:
   enabled: true
   path: "/metrics"
 
+# 跨域配置：留空或包含 "*" 为通配（默认，保持既有行为）；
+# 生产建议收紧为与 Python 端 CORS_ORIGINS 一致的白名单，例如：
+#   origins: ["https://app.example.com"]
+cors:
+  origins: ["*"]
+
 task_dispatcher:
   enabled: true
   max_concurrency: 20       # 全局最大并发任务数
@@ -93,3 +99,4 @@ task_dispatcher:
   poll_interval: 100ms       # 队列轮询间隔
   worker_callback_url: "http://localhost:8000/api/internal/tasks"  # Python Worker
   worker_grpc_addr: "localhost:50051"  # gRPC 地址（预留）
+  internal_callback_secret: ""  # 内部进度回调共享密钥；留空不校验，非空时回调须带 X-Internal-Secret 头

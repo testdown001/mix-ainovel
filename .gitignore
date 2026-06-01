@@ -34,3 +34,9 @@ __pycache__/
 # 日志文件
 /backend/logs/
 /backend/.enve/
+
+# Go 网关编译产物（勿提交二进制）
+/gateway/api
+/gateway/gateway
+/gateway/bin/
+/gateway/logs/

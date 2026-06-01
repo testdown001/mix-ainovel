@@ -22,12 +22,13 @@ import (
 
 // Handler HTTP 处理器
 type Handler struct {
-	dispatcher *Dispatcher
+	dispatcher     *Dispatcher
+	internalSecret string
 }
 
-// NewHandler 创建处理器
-func NewHandler(dispatcher *Dispatcher) *Handler {
-	return &Handler{dispatcher: dispatcher}
+// NewHandler 创建处理器。internalSecret 为空时不校验内部回调（向后兼容）。
+func NewHandler(dispatcher *Dispatcher, internalSecret string) *Handler {
+	return &Handler{dispatcher: dispatcher, internalSecret: internalSecret}
 }
 
 // RegisterRoutes 注册路由
@@ -251,6 +252,11 @@ type UpdateProgressRequest struct {
 
 // UpdateProgress Worker 进度回调
 func (h *Handler) UpdateProgress(c *fiber.Ctx) error {
+	// 内部回调鉴权：仅当配置了密钥时校验（向后兼容）
+	if h.internalSecret != "" && c.Get("X-Internal-Secret") != h.internalSecret {
+		return c.Status(401).JSON(fiber.Map{"error": "未授权的内部回调"})
+	}
+
 	taskID := c.Params("id")
 
 	var req UpdateProgressRequest

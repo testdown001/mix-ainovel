@@ -144,6 +144,8 @@ type Config struct {
 	// Worker
 	WorkerCallbackURL string `mapstructure:"worker_callback_url"` // Python Worker HTTP 回调地址
 	WorkerGRPCAddr    string `mapstructure:"worker_grpc_addr"`    // Python Worker gRPC 地址
+	// 内部回调共享密钥；为空则不校验（向后兼容）
+	InternalCallbackSecret string `mapstructure:"internal_callback_secret"`
 }
 
 // DefaultConfig 默认配置

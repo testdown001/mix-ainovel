@@ -61,10 +61,48 @@ func Recovery() fiber.Handler {
 	}
 }
 
-// CORS 跨域中间件
+// CORS 跨域中间件（通配，保留给 cmd/api 等旧调用方）。
 func CORS() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		c.Set("Access-Control-Allow-Origin", "*")
+		c.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Set("Access-Control-Max-Age", "3600")
+
+		if c.Method() == "OPTIONS" {
+			return c.SendStatus(fiber.StatusNoContent)
+		}
+
+		return c.Next()
+	}
+}
+
+// CORSWithOrigins 基于白名单的跨域中间件。
+// origins 为空或包含 "*" 时按通配处理（与旧版 CORS 行为一致）；
+// 否则仅当请求 Origin 命中白名单才回显该 Origin 并允许携带凭证，附带 Vary: Origin。
+func CORSWithOrigins(origins []string) fiber.Handler {
+	allowAll := len(origins) == 0
+	allowed := make(map[string]struct{}, len(origins))
+	for _, o := range origins {
+		if o == "*" {
+			allowAll = true
+		}
+		allowed[o] = struct{}{}
+	}
+
+	return func(c *fiber.Ctx) error {
+		if allowAll {
+			c.Set("Access-Control-Allow-Origin", "*")
+		} else {
+			origin := c.Get("Origin")
+			if origin != "" {
+				if _, ok := allowed[origin]; ok {
+					c.Set("Access-Control-Allow-Origin", origin)
+					c.Set("Access-Control-Allow-Credentials", "true")
+				}
+			}
+			c.Set("Vary", "Origin")
+		}
 		c.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		c.Set("Access-Control-Max-Age", "3600")
