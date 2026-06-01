@@ -99,6 +99,14 @@ async def create_order(
                 plan_name=plan.name,
                 amount=plan.price,
             )
+        elif payload.channel == "stripe":
+            order = await service.create_stripe_order(
+                user_id=current_user.id,
+                plan_id=plan.id,
+                plan_name=plan.name,
+                amount=plan.price,
+                return_url=payload.return_url,
+            )
         else:
             raise HTTPException(status_code=400, detail=f"不支持的支付渠道: {payload.channel}")
     except ValueError as e:
@@ -157,6 +165,29 @@ async def wechat_notify(
     if order:
         return {"code": "SUCCESS", "message": "OK"}
     return PlainTextResponse('{"code":"FAIL","message":"签名验证失败"}', status_code=400)
+
+
+# ------------------------------------------------------------------
+# Stripe webhook 回调（checkout.session.completed → 激活会员）
+# ------------------------------------------------------------------
+
+@router.post("/stripe/webhook")
+async def stripe_webhook(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Stripe 异步回调。验证 Stripe-Signature 后在支付完成时激活会员。"""
+    payload = await request.body()
+    sig_header = request.headers.get("Stripe-Signature", "")
+    logger.info("收到 Stripe webhook: body_len=%d", len(payload))
+
+    service = PaymentService(session)
+    try:
+        await service.verify_stripe_webhook(payload, sig_header)
+    except PermissionError:
+        # 仅签名/校验失败返回 400（拒收）；其余"签名通过但无需动作"返回 200，避免 Stripe 无限重试
+        return PlainTextResponse('{"received": false}', status_code=400)
+    return {"received": True}
 
 
 # ------------------------------------------------------------------

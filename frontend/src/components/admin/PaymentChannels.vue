@@ -67,14 +67,26 @@
               </n-form-item>
             </n-gi>
           </n-grid>
-          <n-form-item label="支持的货币">
-            <n-select
-              v-model:value="stripeForm.currencies"
-              multiple
-              :options="currencyOptions"
-              placeholder="选择支持的货币"
-            />
-          </n-form-item>
+          <n-grid :cols="3" :x-gap="16">
+            <n-gi>
+              <n-form-item label="结算货币">
+                <n-input v-model:value="stripeForm.currency" placeholder="usd / eur / hkd ..." />
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item label="支付成功跳转">
+                <n-input v-model:value="stripeForm.success_url" placeholder="https://你的域名/pay/success" />
+              </n-form-item>
+            </n-gi>
+            <n-gi>
+              <n-form-item label="支付取消跳转">
+                <n-input v-model:value="stripeForm.cancel_url" placeholder="https://你的域名/pay/cancel" />
+              </n-form-item>
+            </n-gi>
+          </n-grid>
+          <n-alert type="info" :show-icon="false" style="margin-bottom:12px">
+            Webhook 地址（在 Stripe 后台配置）：<code>https://你的域名/api/payment/stripe/webhook</code>，事件选 checkout.session.completed。
+          </n-alert>
           <n-space justify="end">
             <n-button @click="testConnection('stripe')" :loading="stripeTesting" size="small">
               测试连接
@@ -283,12 +295,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import {
   NSpace, NCard, NButton, NTag, NSwitch, NForm, NFormItem, NInput,
   NSelect, NGrid, NGi, NSpin, NAlert, NRadioGroup, NRadio,
   NCheckboxGroup, NCheckbox, useMessage
 } from 'naive-ui'
+import { AdminAPI } from '@/api/admin'
 
 const message = useMessage()
 
@@ -306,6 +319,9 @@ const stripeForm = reactive({
   secret_key: '',
   webhook_secret: '',
   mode: 'test',
+  currency: 'usd',
+  success_url: '',
+  cancel_url: '',
   currencies: ['CNY', 'USD']
 })
 
@@ -351,11 +367,48 @@ const onStripeToggle = (val: boolean) => {
   }
 }
 
+// 各渠道表单字段 → 后端 SystemConfig 键（pay.{channel}.{field}）。
+// 只持久化后端实际读取的字段（与 PaymentService._get_*_config 对齐）。
+const channelKeyFields: Record<string, string[]> = {
+  stripe: ['enabled', 'publishable_key', 'secret_key', 'webhook_secret', 'mode', 'currency', 'success_url', 'cancel_url'],
+  alipay: ['enabled', 'app_id', 'private_key', 'alipay_public_key', 'notify_url', 'mode'],
+  wechat: ['enabled', 'mch_id', 'app_id', 'api_v3_key', 'serial_no', 'private_key', 'notify_url'],
+}
+const formOf = (channel: string): Record<string, any> =>
+  channel === 'stripe' ? stripeForm : channel === 'alipay' ? alipayForm : wechatForm
+
+const loadChannels = async () => {
+  stripeLoading.value = true; alipayLoading.value = true; wechatLoading.value = true
+  try {
+    const list = await AdminAPI.listSystemConfigs()
+    const map: Record<string, string> = {}
+    for (const c of list || []) map[c.key] = c.value
+    for (const [channel, fields] of Object.entries(channelKeyFields)) {
+      const form = formOf(channel)
+      for (const f of fields) {
+        const key = `pay.${channel}.${f}`
+        if (key in map) {
+          form[f] = f === 'enabled' ? ['1', 'true', 'yes', 'on'].includes((map[key] || '').toLowerCase()) : map[key]
+        }
+      }
+    }
+  } catch {
+    // 静默：未配置时表单保持默认
+  } finally {
+    stripeLoading.value = false; alipayLoading.value = false; wechatLoading.value = false
+  }
+}
+
 const saveChannel = async (channel: string) => {
   const savingRef = channel === 'stripe' ? stripeSaving : channel === 'alipay' ? alipaySaving : wechatSaving
   savingRef.value = true
   try {
-    await new Promise(r => setTimeout(r, 600))
+    const form = formOf(channel)
+    for (const f of channelKeyFields[channel]) {
+      const raw = form[f]
+      const value = f === 'enabled' ? (raw ? 'true' : 'false') : String(raw ?? '')
+      await AdminAPI.upsertSystemConfig(`pay.${channel}.${f}`, { value })
+    }
     message.success(`${channel === 'stripe' ? 'Stripe' : channel === 'alipay' ? '支付宝' : '微信支付'} 配置已保存`)
   } catch {
     message.error('保存失败，请重试')
@@ -376,6 +429,8 @@ const testConnection = async (channel: string) => {
     testingRef.value = false
   }
 }
+
+onMounted(loadChannels)
 </script>
 
 <style scoped>

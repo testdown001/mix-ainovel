@@ -1,8 +1,13 @@
+import hashlib
+import hmac
+import json
 import logging
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -196,6 +201,161 @@ class PaymentService:
             logger.info("支付宝交易关闭: order_no=%s", out_trade_no)
 
         await self.session.commit()
+        return order
+
+    # ------------------------------------------------------------------
+    # Stripe（Checkout Session，httpx 直连 REST，不引入 stripe SDK）
+    # ------------------------------------------------------------------
+
+    async def _get_stripe_config(self) -> Dict[str, str]:
+        keys = [
+            "pay.stripe.enabled", "pay.stripe.secret_key", "pay.stripe.webhook_secret",
+            "pay.stripe.currency", "pay.stripe.success_url", "pay.stripe.cancel_url",
+            "pay.stripe.mode",
+        ]
+        cfg: Dict[str, str] = {}
+        for k in keys:
+            cfg[k.replace("pay.stripe.", "")] = (await self._get_config(k)) or ""
+        return cfg
+
+    async def create_stripe_order(
+        self,
+        *,
+        user_id: int,
+        plan_id: int,
+        plan_name: str,
+        amount: float,
+        return_url: Optional[str] = None,
+    ) -> PaymentOrder:
+        cfg = await self._get_stripe_config()
+        if cfg.get("enabled") != "true":
+            raise ValueError("Stripe 渠道未启用")
+        secret_key = cfg.get("secret_key")
+        if not secret_key:
+            raise ValueError("Stripe 配置不完整，请在管理后台填写 Secret Key")
+
+        currency = (cfg.get("currency") or "usd").lower()
+        success_url = cfg.get("success_url") or return_url
+        cancel_url = cfg.get("cancel_url") or return_url
+        if not success_url or not cancel_url:
+            raise ValueError("Stripe 配置不完整，请配置 success_url / cancel_url（或在下单时传 return_url）")
+
+        order_no = f"ST{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:16].upper()}"
+        # Stripe 金额以最小货币单位计（如分）；零小数币种(jpy 等)不乘 100
+        zero_decimal = {"jpy", "krw", "vnd", "clp"}
+        unit_amount = int(round(float(amount))) if currency in zero_decimal else int(round(float(amount) * 100))
+
+        form = {
+            "mode": "payment",
+            "client_reference_id": order_no,
+            "success_url": success_url,
+            "cancel_url": cancel_url,
+            "metadata[order_no]": order_no,
+            "line_items[0][quantity]": "1",
+            "line_items[0][price_data][currency]": currency,
+            "line_items[0][price_data][unit_amount]": str(unit_amount),
+            "line_items[0][price_data][product_data][name]": f"Arboris - {plan_name}",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.stripe.com/v1/checkout/sessions",
+                    data=form,
+                    headers={"Authorization": f"Bearer {secret_key}"},
+                )
+                data = resp.json()
+        except Exception as exc:
+            logger.warning("Stripe 创建会话异常: %s", exc)
+            raise ValueError("Stripe 下单失败，请稍后重试")
+
+        if resp.status_code >= 400 or not data.get("url"):
+            msg = (data.get("error") or {}).get("message") or "未知错误"
+            logger.warning("Stripe 创建会话失败: %s", msg)
+            raise ValueError(f"Stripe 下单失败: {msg}")
+
+        order = PaymentOrder(
+            order_no=order_no,
+            user_id=user_id,
+            plan_id=plan_id,
+            plan_name=plan_name,
+            amount=amount,
+            currency=currency.upper(),
+            channel="stripe",
+            status="pending",
+            transaction_id=data.get("id"),  # Stripe checkout session id
+            pay_url=data.get("url"),
+        )
+        self.session.add(order)
+        await self.session.commit()
+        await self.session.refresh(order)
+        logger.info("Stripe 订单已创建: order_no=%s session=%s user=%s", order_no, data.get("id"), user_id)
+        return order
+
+    async def verify_stripe_webhook(self, payload: bytes, sig_header: str) -> Optional[PaymentOrder]:
+        """验证 Stripe webhook 签名并在支付完成时激活会员。"""
+        cfg = await self._get_stripe_config()
+        webhook_secret = cfg.get("webhook_secret")
+        if not webhook_secret:
+            logger.error("未配置 Stripe webhook_secret，拒绝处理回调")
+            raise PermissionError("stripe webhook 未配置")
+
+        # 解析 Stripe-Signature: t=...,v1=...
+        parts = dict(
+            kv.split("=", 1) for kv in (sig_header or "").split(",") if "=" in kv
+        )
+        ts = parts.get("t")
+        v1 = parts.get("v1")
+        if not ts or not v1:
+            logger.warning("Stripe webhook 签名头格式错误")
+            raise PermissionError("stripe 签名头无效")
+        # 时间戳容差 5 分钟，防重放
+        try:
+            if abs(time.time() - int(ts)) > 300:
+                logger.warning("Stripe webhook 时间戳超出容差")
+                raise PermissionError("stripe 时间戳超差")
+        except ValueError:
+            raise PermissionError("stripe 时间戳无效")
+
+        signed_payload = f"{ts}.".encode("utf-8") + payload
+        expected = hmac.new(webhook_secret.encode("utf-8"), signed_payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, v1):
+            logger.warning("Stripe webhook 签名验证失败")
+            raise PermissionError("stripe 签名不匹配")
+
+        try:
+            event = json.loads(payload.decode("utf-8"))
+        except Exception:
+            logger.warning("Stripe webhook payload 解析失败")
+            return None
+
+        if event.get("type") != "checkout.session.completed":
+            logger.info("Stripe webhook 忽略事件类型: %s", event.get("type"))
+            return None
+
+        sess = (event.get("data") or {}).get("object") or {}
+        order_no = sess.get("client_reference_id") or (sess.get("metadata") or {}).get("order_no")
+        if sess.get("payment_status") not in ("paid", None) and sess.get("payment_status") != "paid":
+            logger.info("Stripe 会话未支付完成: order_no=%s status=%s", order_no, sess.get("payment_status"))
+            return None
+
+        result = await self.session.execute(
+            select(PaymentOrder).where(PaymentOrder.order_no == order_no)
+        )
+        order = result.scalar_one_or_none()
+        if not order:
+            logger.warning("Stripe webhook 订单不存在: order_no=%s", order_no)
+            return None
+        if order.status != "pending":  # 幂等
+            logger.info("Stripe webhook 订单已处理（幂等）: order_no=%s status=%s", order_no, order.status)
+            return order
+
+        order.status = "paid"
+        order.transaction_id = sess.get("payment_intent") or sess.get("id") or order.transaction_id
+        order.paid_at = datetime.now()
+        await self.session.flush()
+        await self._activate_membership(order)
+        await self.session.commit()
+        logger.info("Stripe 支付成功并激活会员: order_no=%s", order_no)
         return order
 
     # ------------------------------------------------------------------

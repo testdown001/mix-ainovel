@@ -37,6 +37,19 @@
       </div>
     </div>
 
+    <!-- 支付渠道选择 -->
+    <div class="flex items-center gap-2 mb-3">
+      <span class="text-xs" style="color:#888;">支付方式</span>
+      <button v-for="ch in channelOptions" :key="ch.value"
+        @click="selectedChannel = ch.value"
+        class="px-3 py-1 rounded-full text-xs transition-colors"
+        :style="selectedChannel === ch.value
+          ? 'background:#FFE500;color:#000;font-weight:600;'
+          : 'background:#1A1A1A;border:1px solid #2A2A2A;color:#888;'">
+        {{ ch.label }}
+      </button>
+    </div>
+
     <!-- Plans heading -->
     <div class="flex items-center justify-between mb-4" ref="plansRef">
       <h2 class="text-base font-bold text-white">选择套餐</h2>
@@ -201,25 +214,16 @@
       </div>
     </div>
 
-    <!-- Subscription info -->
+    <!-- Subscription info（基于会员配额，到期自动降级；后端暂无主动取消端点，故不展示取消按钮）-->
     <div v-if="subscription" class="rounded-xl border p-4 mt-4" style="background:#141414; border-color:#2A2A2A;">
-      <div class="flex items-center justify-between">
-        <div>
-          <div class="text-sm font-bold text-white">当前订阅</div>
-          <div class="text-xs mt-1" style="color:#888;">
-            到期时间: {{ new Date(subscription.current_period_end).toLocaleDateString('zh-CN') }}
-          </div>
-          <div v-if="subscription.status === 'cancelled'" class="text-xs mt-1" style="color:#FF6B6B;">
-            已取消，到期后降级为免费版
-          </div>
+      <div>
+        <div class="text-sm font-bold text-white">当前会员</div>
+        <div class="text-xs mt-1" style="color:#888;">
+          <template v-if="subscription.current_period_end">
+            到期时间: {{ new Date(subscription.current_period_end).toLocaleDateString('zh-CN') }}（到期后自动降级为免费版）
+          </template>
+          <template v-else>长期有效</template>
         </div>
-        <button v-if="subscription.status === 'active'"
-          @click="handleCancelSubscription"
-          :disabled="cancelLoading"
-          class="px-4 py-2 rounded-lg text-xs font-semibold transition-colors"
-          style="background:transparent;border:1px solid #2A2A2A;color:#888;">
-          {{ cancelLoading ? '处理中...' : '取消订阅' }}
-        </button>
       </div>
     </div>
   </div>
@@ -237,8 +241,13 @@ const showUpgradeDialog = ref(false)
 const checkoutLoading = ref(false)
 const checkoutError = ref('')
 const checkoutUrl = ref('')
-const cancelLoading = ref(false)
 const plansRef = ref<HTMLElement | null>(null)
+const selectedChannel = ref<'stripe' | 'alipay' | 'wechat'>('stripe')
+const channelOptions: { value: 'stripe' | 'alipay' | 'wechat'; label: string }[] = [
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'alipay', label: '支付宝' },
+  { value: 'wechat', label: '微信支付' },
+]
 const subscription = ref<SubType | null>(null)
 const selectedPlanDbId = ref<number | null>(null)
 
@@ -338,16 +347,22 @@ const getPlanCardStyle = (plan: typeof plans[0]) => {
   return 'background:#141414;border:1px solid #2A2A2A;'
 }
 
+// 本地套餐 id → 后端订阅档位（订阅由配额推导，仅有 plan_tier，无具体 plan_id）
+const planTier = (plan: typeof plans[0]): string =>
+  plan.id === 'pro' ? 'flagship' : plan.id === 'creator' ? 'creator' : 'free'
+const isCurrentPremiumPlan = (plan: typeof plans[0]): boolean =>
+  currentPlan.value === 'premium' && subscription.value?.plan_tier === planTier(plan)
+
 const getCtaLabel = (plan: typeof plans[0]) => {
   if (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) return '当前套餐'
   if (plan.id === 'free') return '降级'
-  if (currentPlan.value === 'premium' && subscription.value?.plan_id === plan.dbId) return '当前套餐'
+  if (isCurrentPremiumPlan(plan)) return '当前套餐'
   return '立即订阅'
 }
 
 const getCtaStyle = (plan: typeof plans[0]) => {
   const isCurrent = (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) ||
-    (currentPlan.value === 'premium' && subscription.value?.plan_id === plan.dbId)
+    (isCurrentPremiumPlan(plan))
   if (isCurrent) return 'background:transparent;border:1px solid #2A2A2A;color:#888888;cursor:default;'
   if (plan.id === 'creator') return 'background:#FFE500;color:#000;'
   if (plan.id === 'pro') return 'background:linear-gradient(135deg,#7C3AED,#4F46E5);color:#fff;box-shadow:0 4px 16px rgba(124,58,237,0.3);'
@@ -363,7 +378,7 @@ const closeDialog = () => {
 
 const handleUpgrade = async (plan: typeof plans[0]) => {
   if (plan.id === 'free') return
-  if (currentPlan.value === 'premium' && subscription.value?.plan_id === plan.dbId) return
+  if (isCurrentPremiumPlan(plan)) return
 
   showUpgradeDialog.value = true
   checkoutLoading.value = true
@@ -371,9 +386,9 @@ const handleUpgrade = async (plan: typeof plans[0]) => {
   checkoutUrl.value = ''
 
   try {
-    // 后端支持的渠道为 alipay / wechat（不支持 stripe）。国内默认走支付宝；
-    // 如需微信支付或让用户选择渠道，可改为 'wechat' 或在此加渠道选择器。
-    const result = await paymentApi.createOrder(plan.dbId, 'alipay')
+    // 后端支持渠道: stripe / alipay / wechat。此处默认走 Stripe（用户指定）。
+    // 如需让用户选择渠道，可在升级弹窗加渠道选择器并把 selectedChannel 传入。
+    const result = await paymentApi.createOrder(plan.dbId, selectedChannel.value)
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
       window.open(result.pay_url, '_blank')
@@ -385,18 +400,7 @@ const handleUpgrade = async (plan: typeof plans[0]) => {
   }
 }
 
-const handleCancelSubscription = async () => {
-  if (!confirm('确定取消订阅吗？取消后到期将自动降为免费版。')) return
-  cancelLoading.value = true
-  try {
-    await paymentApi.cancelSubscription()
-    subscription.value = await paymentApi.getSubscription()
-  } catch {
-    // error handled by http layer
-  } finally {
-    cancelLoading.value = false
-  }
-}
+// 取消订阅：后端无主动取消端点，会员到期自动降级；故移除取消入口(见模板说明)。
 
 onMounted(async () => {
   try {

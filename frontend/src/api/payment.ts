@@ -39,13 +39,16 @@ export interface PaymentOrder {
   created_at: string | null
 }
 
+// 订阅状态由配额(/api/quota/me)推导（系统以配额表达会员状态，无独立订阅表）。
+// 多数字段可选，以适配"从配额派生"的最小形态。
 export interface Subscription {
-  id: number
-  user_id: number
-  plan_id: number
   status: string
-  current_period_start: string
-  current_period_end: string
+  plan_tier?: string
+  current_period_end?: string | null
+  id?: number
+  user_id?: number
+  plan_id?: number
+  current_period_start?: string
   cancelled_at?: string
 }
 
@@ -65,13 +68,11 @@ export const paymentApi = {
   },
 
   /**
-   * 创建支付订单。
-   * 注意：后端当前仅支持 channel = 'alipay' | 'wechat'（不支持 'stripe'）。
-   * 调用方需传入受支持的渠道，否则后端返回 400。
+   * 创建支付订单。后端支持渠道：alipay / wechat / stripe。
    */
   async createOrder(
     planId: number,
-    channel: 'alipay' | 'wechat',
+    channel: 'alipay' | 'wechat' | 'stripe',
     returnUrl?: string
   ): Promise<CreateOrderResponse> {
     const { data } = await http.post<CreateOrderResponse>(`${PAYMENT}/create-order`, {
@@ -94,20 +95,24 @@ export const paymentApi = {
   },
 
   /**
-   * 查询当前订阅。
-   * ⚠️ 后端暂未实现订阅(subscription)端点（仅有订单/配额）。此处优雅降级返回 null，
-   * 避免请求不存在的路由报错。如需"当前订阅"展示，应先在后端补订阅端点，
-   * 或改为基于 /api/quota 的会员状态(plan_tier/premium_expires_at)推导。
+   * 查询当前订阅 —— 基于配额(/api/quota/me)推导（系统以会员配额表达订阅状态，无独立订阅表）。
+   * 非会员返回 null；会员返回 {status:'active', plan_tier, current_period_end=到期时间}。
    */
   async getSubscription(): Promise<Subscription | null> {
-    return null
-  },
-
-  /**
-   * 取消订阅。
-   * ⚠️ 同上，后端暂无订阅取消端点。保留接口占位，调用即抛出明确提示，避免静默失败。
-   */
-  async cancelSubscription(): Promise<void> {
-    throw new Error('订阅取消功能尚未在后端实现，请联系管理员或通过工单处理。')
+    try {
+      const { data } = await http.get<{
+        is_premium: boolean
+        plan_tier?: string
+        premium_expires_at?: string | null
+      }>('/api/quota/me')
+      if (!data?.is_premium) return null
+      return {
+        status: 'active',
+        plan_tier: data.plan_tier,
+        current_period_end: data.premium_expires_at ?? null,
+      }
+    } catch {
+      return null
+    }
   },
 }
