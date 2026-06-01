@@ -27,6 +27,11 @@ class UserRepository(BaseRepository[User]):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
+    async def get_by_phone(self, phone: str) -> Optional[User]:
+        stmt = select(User).where(User.phone == phone)
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
     async def list_all(self) -> Iterable[User]:
         result = await self.session.execute(select(User))
         return result.scalars().all()

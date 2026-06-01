@@ -219,6 +219,13 @@ async def _ensure_schema_updates() -> None:
                     "tier": "tier VARCHAR(32) NOT NULL DEFAULT 'free'",
                 },
             )
+            _ensure_columns(
+                "users",
+                {
+                    "phone": "phone VARCHAR(32) NULL",
+                },
+            )
+            _ensure_index("users", "ix_users_phone", ["phone"])
 
             def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
                 """为既有库补建缺失的复合索引（幂等）。"""

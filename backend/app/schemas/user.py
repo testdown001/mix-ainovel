@@ -89,5 +89,8 @@ class AuthOptions(BaseModel):
 
     allow_registration: bool = Field(..., description="是否允许开放用户注册")
     enable_linuxdo_login: bool = Field(..., description="是否启用 Linux.do 登录")
+    enable_wechat_login: bool = Field(False, description="是否启用微信登录")
+    enable_google_login: bool = Field(False, description="是否启用谷歌登录")
+    enable_phone_login: bool = Field(False, description="是否启用手机号登录")
     captcha_enabled: bool = Field(False, description="是否启用注册人机验证")
     captcha_site_key: Optional[str] = Field(None, description="Turnstile Site Key")

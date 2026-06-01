@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import random
+import re
 import secrets
 import string
 import time
@@ -219,6 +220,191 @@ class AuthService:
             return True
 
         return False
+
+    # ==================== 手机号登录（验证码登录即注册）====================
+
+    _PHONE_RE = re.compile(r"^1[3-9]\d{9}$")
+
+    @classmethod
+    def _normalize_phone(cls, phone: str) -> str:
+        return (phone or "").strip().replace(" ", "")
+
+    async def is_phone_login_enabled(self) -> bool:
+        return self._parse_bool(await self._get_config_value("auth.phone_enabled"), False)
+
+    async def _generate_unique_username(self, base: str) -> str:
+        """基于昵称/手机号生成不冲突的用户名。"""
+        cleaned = re.sub(r"\s+", "", base or "").strip() or "用户"
+        cleaned = cleaned[:40]
+        candidate = cleaned
+        for _ in range(6):
+            if await self.user_repo.get_by_username(candidate) is None:
+                return candidate
+            candidate = f"{cleaned}_{secrets.token_hex(3)}"
+        return f"u_{secrets.token_hex(6)}"
+
+    async def send_phone_code(self, phone: str) -> None:
+        """下发手机验证码（验证码登录即注册）。"""
+        if not await self.is_phone_login_enabled():
+            raise HTTPException(status_code=403, detail="未启用手机号登录")
+        phone = self._normalize_phone(phone)
+        if not self._PHONE_RE.match(phone):
+            raise HTTPException(status_code=400, detail="手机号格式不正确")
+
+        cache_key = f"phone_login:{phone}"
+        rate_limit_key = f"rate_limit:{cache_key}"
+        now = time.time()
+        code = "".join(random.choices(string.digits, k=6))
+
+        redis = await self._get_redis()
+        if redis:
+            try:
+                last_send = await redis.get(rate_limit_key)
+                if last_send and now - float(last_send) < 60:
+                    raise HTTPException(status_code=429, detail="请稍后再试，1分钟内不可重复发送")
+                await redis.setex(f"verify_code:{cache_key}", 300, code)
+                await redis.setex(rate_limit_key, 60, str(now))
+            except HTTPException:
+                raise
+            except Exception as exc:
+                self._logger.error("Redis 操作失败，降级内存缓存: %s", exc)
+                redis = None
+        if redis is None:
+            if cache_key in self._last_send_time and now - self._last_send_time[cache_key] < 60:
+                raise HTTPException(status_code=429, detail="请稍后再试，1分钟内不可重复发送")
+            self._verification_cache[cache_key] = (code, now + 300)
+            self._last_send_time[cache_key] = now
+
+        from .sms_service import SmsService
+
+        sent = await SmsService(self.session).send_code(phone, code)
+        if not sent:
+            raise HTTPException(status_code=500, detail="短信发送失败，请检查短信服务配置或稍后重试")
+
+    async def login_with_phone(self, phone: str, code: str) -> Token:
+        """手机号 + 验证码登录；首次自动创建账号。"""
+        if not await self.is_phone_login_enabled():
+            raise HTTPException(status_code=403, detail="未启用手机号登录")
+        phone = self._normalize_phone(phone)
+        if not self._PHONE_RE.match(phone):
+            raise HTTPException(status_code=400, detail="手机号格式不正确")
+        if not await self.verify_code(phone, code, purpose="phone_login"):
+            raise HTTPException(status_code=400, detail="验证码错误或已过期")
+
+        user = await self.user_repo.get_by_phone(phone)
+        if user is None:
+            username = await self._generate_unique_username(f"手机用户{phone[-4:]}")
+            user = User(
+                username=username,
+                phone=phone,
+                hashed_password=hash_password(secrets.token_urlsafe(16)),
+            )
+            self.session.add(user)
+            await self.session.commit()
+            await self.session.refresh(user)
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="账号已被禁用")
+        return await self.create_access_token(user)
+
+    # ==================== 微信 / 谷歌 OAuth ====================
+
+    async def is_wechat_login_enabled(self) -> bool:
+        return self._parse_bool(await self._get_config_value("auth.wechat_enabled"), False)
+
+    async def is_google_login_enabled(self) -> bool:
+        return self._parse_bool(await self._get_config_value("auth.google_enabled"), False)
+
+    async def build_wechat_authorize_url(self) -> str:
+        if not await self.is_wechat_login_enabled():
+            raise HTTPException(status_code=404, detail="未启用微信登录")
+        app_id = await self._get_config_value("wechat.app_id")
+        redirect_uri = await self._get_config_value("wechat.redirect_uri")
+        if not all([app_id, redirect_uri]):
+            raise HTTPException(status_code=500, detail="未配置微信 OAuth 参数")
+        from urllib.parse import quote
+        # 网站应用扫码登录（开放平台）
+        return (
+            "https://open.weixin.qq.com/connect/qrconnect"
+            f"?appid={app_id}&redirect_uri={quote(redirect_uri, safe='')}"
+            "&response_type=code&scope=snsapi_login&state=arboris#wechat_redirect"
+        )
+
+    async def handle_wechat_callback(self, code: str) -> Token:
+        if not await self.is_wechat_login_enabled():
+            raise HTTPException(status_code=403, detail="未启用微信登录")
+        app_id = await self._get_config_value("wechat.app_id")
+        app_secret = await self._get_config_value("wechat.app_secret")
+        if not all([app_id, app_secret]):
+            raise HTTPException(status_code=500, detail="未配置微信 OAuth 参数")
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_resp = await client.get(
+                "https://api.weixin.qq.com/sns/oauth2/access_token",
+                params={"appid": app_id, "secret": app_secret, "code": code,
+                        "grant_type": "authorization_code"},
+            )
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            openid = token_data.get("openid")
+            if not access_token or not openid:
+                raise HTTPException(status_code=400, detail=f"微信授权失败: {token_data.get('errmsg', '未知错误')}")
+            info_resp = await client.get(
+                "https://api.weixin.qq.com/sns/userinfo",
+                params={"access_token": access_token, "openid": openid},
+            )
+            info = info_resp.json()
+        unionid = info.get("unionid") or token_data.get("unionid")
+        external_id = f"wechat:{unionid or openid}"
+        nickname = info.get("nickname") or f"微信用户{openid[:6]}"
+        return await self._login_or_create_oauth(external_id, nickname, email=None)
+
+    async def handle_google_callback(self, code: str) -> Token:
+        if not await self.is_google_login_enabled():
+            raise HTTPException(status_code=403, detail="未启用谷歌登录")
+        client_id = await self._get_config_value("google.client_id")
+        client_secret = await self._get_config_value("google.client_secret")
+        redirect_uri = await self._get_config_value("google.redirect_uri")
+        if not all([client_id, client_secret, redirect_uri]):
+            raise HTTPException(status_code=500, detail="未配置 Google OAuth 参数")
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_resp = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={"code": code, "client_id": client_id, "client_secret": client_secret,
+                      "redirect_uri": redirect_uri, "grant_type": "authorization_code"},
+            )
+            token_data = token_resp.json()
+            access_token = token_data.get("access_token")
+            if not access_token:
+                raise HTTPException(status_code=400, detail="谷歌授权失败，未获取到访问令牌")
+            info_resp = await client.get(
+                "https://www.googleapis.com/oauth2/v3/userinfo",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            info = info_resp.json()
+        sub = info.get("sub")
+        if not sub:
+            raise HTTPException(status_code=400, detail="谷歌授权失败，未获取到用户标识")
+        external_id = f"google:{sub}"
+        name = info.get("name") or info.get("email") or f"google_{sub[:6]}"
+        return await self._login_or_create_oauth(external_id, name, email=info.get("email"))
+
+    async def _login_or_create_oauth(self, external_id: str, display_name: str, email: Optional[str]) -> Token:
+        """OAuth 通用：按 external_id 找用户，无则建号；校验启用态后发令牌。"""
+        user = await self.user_repo.get_by_external_id(external_id)
+        if user is None:
+            username = await self._generate_unique_username(display_name)
+            safe_email = email if email and await self.user_repo.get_by_email(email) is None else None
+            user = User(
+                username=username,
+                email=safe_email,
+                external_id=external_id,
+                hashed_password=hash_password(secrets.token_urlsafe(16)),
+            )
+            self.session.add(user)
+            await self.session.commit()
+            await self.session.refresh(user)
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="账号已被禁用")
+        return await self.create_access_token(user)
 
     async def _load_smtp_config(self) -> Optional[Dict[str, str]]:
         keys = [
@@ -495,6 +681,9 @@ class AuthService:
         return AuthOptions(
             allow_registration=allow_registration,
             enable_linuxdo_login=enable_linuxdo_login,
+            enable_wechat_login=await self.is_wechat_login_enabled(),
+            enable_google_login=await self.is_google_login_enabled(),
+            enable_phone_login=await self.is_phone_login_enabled(),
             captcha_enabled=captcha_enabled,
             captcha_site_key=captcha_site_key,
         )
