@@ -9,12 +9,15 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from .core.config import settings
 from .core.rate_limit_middleware import RateLimitMiddleware
 from .core.request_id_middleware import RequestIdFilter, RequestIdMiddleware
+from .core.request_size_limit_middleware import RequestSizeLimitMiddleware
+from .core.security_headers_middleware import SecurityHeadersMiddleware
 from .db.init_db import init_db
 from .services.prompt_service import PromptService
 from .utils.rerank_utils import get_rerank_runtime_status
@@ -140,17 +143,38 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# HTTPS 强制重定向（仅生产环境）
+if not settings.debug:
+    app.add_middleware(HTTPSRedirectMiddleware)
+
 # CORS 配置，通过 CORS_ORIGINS 环境变量控制允许的来源
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "User-Agent",
+        "DNT",
+        "Cache-Control",
+        "X-Requested-With",
+    ],
+    expose_headers=["Content-Length", "X-Request-ID"],
+    max_age=600,  # 预检请求缓存 10 分钟
 )
 
 # API 限流中间件（IP + 用户级请求限流）
 app.add_middleware(RateLimitMiddleware)
+
+# 请求体大小限制（10MB）
+app.add_middleware(RequestSizeLimitMiddleware, max_size=10 * 1024 * 1024)
+
+# 安全响应头中间件
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Request ID 中间件（最外层，确保所有日志可关联）
 app.add_middleware(RequestIdMiddleware)

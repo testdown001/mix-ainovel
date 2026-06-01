@@ -162,8 +162,9 @@ class PaymentService:
             logger.warning("支付宝回调订单不存在: out_trade_no=%s", out_trade_no)
             return None
 
+        # 幂等性保护：订单已处理则直接返回（防止重复回调）
         if order.status != "pending":
-            logger.info("支付宝回调但订单已处理: order_no=%s status=%s", out_trade_no, order.status)
+            logger.info("支付宝回调但订单已处理（幂等性保护）: order_no=%s status=%s", out_trade_no, order.status)
             return order
 
         if trade_status in ("TRADE_SUCCESS", "TRADE_FINISHED"):
@@ -177,6 +178,12 @@ class PaymentService:
             except (ValueError, TypeError):
                 logger.error("支付宝回调金额解析失败: order_no=%s total_amount=%s", out_trade_no, callback_amount)
                 return None
+
+            # 再次检查状态（防止并发回调）
+            await self.session.refresh(order)
+            if order.status != "pending":
+                logger.warning("支付宝回调并发检测：订单已被处理: order_no=%s status=%s", out_trade_no, order.status)
+                return order
 
             order.status = "paid"
             order.transaction_id = trade_no
@@ -296,8 +303,9 @@ class PaymentService:
             logger.warning("微信支付回调订单不存在: out_trade_no=%s", out_trade_no)
             return None
 
+        # 幂等性保护：订单已处理则直接返回（防止重复回调）
         if order.status != "pending":
-            logger.info("微信支付回调但订单已处理: order_no=%s status=%s", out_trade_no, order.status)
+            logger.info("微信支付回调但订单已处理（幂等性保护）: order_no=%s status=%s", out_trade_no, order.status)
             return order
 
         if trade_state == "SUCCESS":
@@ -309,6 +317,12 @@ class PaymentService:
                 logger.error("微信回调金额不匹配: order_no=%s 订单=%d分 回调=%d分",
                              out_trade_no, expected_fen, callback_total)
                 return None
+
+            # 再次检查状态（防止并发回调）
+            await self.session.refresh(order)
+            if order.status != "pending":
+                logger.warning("微信支付回调并发检测：订单已被处理: order_no=%s status=%s", out_trade_no, order.status)
+                return order
 
             order.status = "paid"
             order.transaction_id = transaction_id
