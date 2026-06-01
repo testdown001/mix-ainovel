@@ -62,6 +62,7 @@ from ..services.generation_prefetch_service import GenerationPrefetchService
 from ..services.user_style_service import UserStyleService
 from ..services.fingerprint_service import FingerprintService
 from ..services.trajectory_analysis_service import TrajectoryAnalysisService
+from ..services.generation_state import PreCollectedContext
 from ..services.writer_prompt_service import WriterPromptService
 from ..services.writer_shared import (
     build_blueprint_constraints_for_mission,
@@ -278,7 +279,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
         )
 
         raw_flow_config = flow_config or {}
-        pre_collected_context = raw_flow_config.get("pre_collected_context") or {}
+        # 类型化共享状态（替代 stringly-typed dict；wire 格式仍为 dict）
+        pcc = PreCollectedContext.from_dict(raw_flow_config.get("pre_collected_context"))
 
         stage_started = time.perf_counter()
         config = await self.pipeline_config_service.resolve_config(raw_flow_config)
@@ -303,7 +305,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         outlines_map = {item.chapter_number: item for item in project.outlines}
         stage_started = time.perf_counter()
-        history_context = pre_collected_context.get("history_context") or {}
+        history_context = pcc.history_context or {}
         if history_context:
             logger.info(
                 "复用预收集历史上下文: project=%s chapter=%s",
@@ -324,7 +326,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         stage_started = time.perf_counter()
         project_schema = await self.novel_service._serialize_project(project)
         blueprint_dict = normalize_blueprint_relationships(project_schema.blueprint.model_dump())
-        pre_blueprint = pre_collected_context.get("blueprint")
+        pre_blueprint = pcc.blueprint
         if isinstance(pre_blueprint, dict) and pre_blueprint:
             blueprint_dict = pre_blueprint
 
@@ -353,7 +355,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             "rag_mode": config.rag_mode,
             "rag_retrieval_mode": config.rag_retrieval_mode,
         }
-        pre_context_plan = pre_collected_context.get("context_plan")
+        pre_context_plan = pcc.context_plan
         if isinstance(pre_context_plan, dict) and pre_context_plan:
             context_plan = ContextPlan.from_dict(pre_context_plan)
         else:
@@ -373,7 +375,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 },
                 history_context=history_context,
             )
-            pre_collected_context["context_plan"] = context_plan.to_dict()
+            pcc.context_plan = context_plan.to_dict()
         context_plan_payload = context_plan.to_dict()
         await telemetry.emit_context_plan(context_plan_payload)
         fast_rag_queries = self.generation_support_service.build_fast_rag_queries(
@@ -408,8 +410,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         # ========== Mission 生成 + 上下文准备（并行化：不依赖 Mission 的任务提前启动） ==========
 
-        pre_rag_context = pre_collected_context.get("rag_context")
-        pre_rag_stats = pre_collected_context.get("rag_stats")
+        pre_rag_context = pcc.rag_context
+        pre_rag_stats = pcc.rag_stats
         prefetch_tasks = self.generation_prefetch_service.schedule_prefetch_tasks(
             config=config,
             project=project,
@@ -676,7 +678,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             writing_notes=writing_notes,
             project_reference_novels=project_reference_novels,
             introduced_characters=introduced_characters,
-            pre_collected_context=pre_collected_context,
+            pre_collected_context=pcc.to_dict(),
             prefetch_tasks=prefetch_tasks,
             resolved_prefetch=resolved_prefetch,
             prediction=(outline.metadata_ or {}).get("prediction"),
