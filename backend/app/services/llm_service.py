@@ -5,6 +5,7 @@ import inspect
 import json
 import logging
 import os
+import re
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type, TypeVar
 
 import httpx
@@ -269,13 +270,13 @@ class LLMService:
                 entry["name"] = msg["name"]
             api_messages.append(entry)
 
-        _is_claude_thinking = any(
-            kw in model_name.lower()
-            for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4", "sonnet-4")
-        )
+        _is_claude_thinking = self._is_claude_thinking_model(model_name)
         effective_temperature = temperature
         if _is_claude_thinking and temperature != 1.0:
             logger.info("chat_with_tools: 跳过 temperature=%.2f (thinking model %s)", temperature, model_name)
+            effective_temperature = 1.0
+        elif self._is_openai_reasoning_model(model_name) and temperature != 1.0:
+            logger.info("chat_with_tools: 跳过 temperature=%.2f (OpenAI 推理模型 %s)", temperature, model_name)
             effective_temperature = 1.0
 
         payload: Dict[str, Any] = {
@@ -481,6 +482,49 @@ class LLMService:
         """判断模型名称是否为 Gemini 系列。"""
         return bool(model_name and model_name.lower().startswith("gemini"))
 
+    @staticmethod
+    def _is_claude_thinking_model(model_name: Optional[str]) -> bool:
+        """Claude 思考模型（opus-4 / sonnet-4 / claude-3-7 等）。
+
+        其 thinking 模式与 temperature/top_p/response_format 不兼容；当经 OpenAI/Anthropic
+        代理调用时代理可能自动开启 thinking，故需在请求侧主动剔除这些参数。
+        统一判定，避免在 _stream_and_collect 与 chat_with_tools 两处各维护一份关键词表导致漂移。
+        """
+        m = (model_name or "").lower()
+        return any(kw in m for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4", "sonnet-4"))
+
+    @staticmethod
+    def _is_openai_reasoning_model(model_name: Optional[str]) -> bool:
+        """OpenAI o 系列推理模型（o1 / o3 / o4，含 -mini/-preview）。
+
+        这些模型经 chat/completions 调用时仅接受 temperature=1（其余值报 400），
+        且不支持 top_p。需在请求侧主动剔除。容忍 "openai/o3-mini" 这类带 provider 前缀的命名。
+        """
+        m = (model_name or "").strip().lower().split("/")[-1]
+        return bool(re.match(r"^o[1-9]([.\-]|$)", m))
+
+    @classmethod
+    def _is_temperature_unsupported_error(cls, exc: Exception) -> bool:
+        """判断 400 错误是否为"该模型不支持 temperature/top_p"（推理模型常见）。"""
+        detail = (cls._extract_provider_error_detail(exc) or "").lower()
+        if not detail.strip():
+            return False
+        mentions_param = "temperature" in detail or "top_p" in detail or "top-p" in detail
+        mentions_unsupported = any(
+            marker in detail
+            for marker in (
+                "unsupported value",
+                "does not support",
+                "not support",
+                "only the default",
+                "unsupported parameter",
+                "is not supported",
+                "不支持",
+                "无效",
+            )
+        )
+        return mentions_param and mentions_unsupported
+
     def _resolve_api_format(self, api_format_setting: Optional[str], base_url: Optional[str], model_name: Optional[str]) -> str:
         """根据配置决定使用哪种 API 格式。
 
@@ -552,10 +596,9 @@ class LLMService:
         # 当通过 OpenAI/Anthropic 代理调用时，代理可能自动开启 thinking，
         # 此时传入 temperature!=1.0 会导致空响应或报错
         # 覆盖: opus-4 系列、sonnet-4 系列、claude-3-7-sonnet、claude-4 系列
-        _is_claude_thinking_model = any(
-            kw in model_name.lower()
-            for kw in ("claude-opus", "opus-4", "claude-3-7", "claude-4", "sonnet-4")
-        )
+        is_claude_thinking = self._is_claude_thinking_model(model_name)
+        # OpenAI o 系列推理模型经 chat/completions 调用仅接受 temperature=1，且不支持 top_p
+        is_openai_reasoning = api_format == "openai" and self._is_openai_reasoning_model(model_name)
         effective_temperature = temperature
         effective_top_p = top_p
         effective_response_format = response_format
@@ -572,7 +615,7 @@ class LLMService:
                 effective_response_format,
             )
             effective_response_format = None
-        if _is_claude_thinking_model and api_format != "anyrouter":
+        if is_claude_thinking and api_format != "anyrouter":
             if temperature is not None and temperature != 1.0:
                 logger.info(
                     "跳过 temperature=%.2f（Claude thinking 模型不兼容），model=%s format=%s",
@@ -585,6 +628,16 @@ class LLMService:
             if response_format is not None:
                 logger.info("跳过 response_format=%s（Claude thinking 模型不兼容），model=%s", response_format, model_name)
                 effective_response_format = None
+        if is_openai_reasoning:
+            if temperature is not None and temperature != 1.0:
+                logger.info(
+                    "跳过 temperature=%.2f（OpenAI o 系列推理模型仅支持默认值），model=%s",
+                    temperature, model_name,
+                )
+                effective_temperature = None
+            if top_p is not None:
+                logger.info("跳过 top_p=%.2f（OpenAI o 系列推理模型不支持），model=%s", top_p, model_name)
+                effective_top_p = None
 
         # Gemini 系列模型不支持 response_format，前置跳过避免首次 400 错误
         if "gemini" in model_name.lower() and effective_response_format is not None:
@@ -615,6 +668,7 @@ class LLMService:
         last_exc = None
         response_format_fallback_applied = False
         responses_endpoint_fallback_applied = False
+        temperature_fallback_applied = False
         _active_format: Optional[str] = None
         client = None
         for attempt in range(1, max_retries + 2):  # max_retries + 1 次总尝试
@@ -733,6 +787,22 @@ class LLMService:
                         max_retries + 1,
                         detail,
                     )
+                    continue
+                if (
+                    isinstance(exc, BadRequestError)
+                    and api_format in ("openai", "openai-responses")
+                    and not temperature_fallback_applied
+                    and (effective_temperature is not None or effective_top_p is not None)
+                    and self._is_temperature_unsupported_error(exc)
+                ):
+                    temperature_fallback_applied = True
+                    logger.warning(
+                        "检测到模型不支持 temperature/top_p（多为推理模型），剔除后自动重试: "
+                        "base_url=%s model=%s attempt=%d/%d detail=%s",
+                        config.get("base_url"), model_name, attempt, max_retries + 1, detail,
+                    )
+                    effective_temperature = None
+                    effective_top_p = None
                     continue
                 if (
                     isinstance(exc, BadRequestError)
