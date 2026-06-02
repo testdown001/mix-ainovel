@@ -22,6 +22,7 @@ from ..repositories.user_repository import UserRepository
 from ..services.admin_setting_service import AdminSettingService
 from ..services.prompt_service import PromptService
 from ..services.usage_service import UsageService
+from ..services.api_usage_recorder import record_usage, estimate_tokens
 from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient, _build_http_client
 
 logger = logging.getLogger(__name__)
@@ -537,6 +538,7 @@ class LLMService:
         thinking_budget: Optional[int] = None,
         disable_thinking: bool = False,
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
+        api_type: str = "default",
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
         config["base_url"] = self._normalize_base_url(config.get("base_url"))
@@ -954,6 +956,14 @@ class LLMService:
             )
 
         await self._increment_usage_metric("api_request_count")
+        # 记录 API 用量（请求次数精确；token 为中英混合估算）。失败不影响生成。
+        prompt_text = "".join(m.get("content") or "" for m in messages)
+        await self._record_token_usage(
+            model=model_name,
+            api_type=api_type,
+            prompt_tokens=estimate_tokens(prompt_text),
+            completion_tokens=estimate_tokens(full_response),
+        )
         logger.info(
             "LLM response success: base_url=%s model=%s user_id=%s chars=%d",
             config.get("base_url"),
@@ -968,6 +978,28 @@ class LLMService:
         async with self._db_access_lock:
             async with AsyncSessionLocal() as session:
                 await UsageService(session).increment(key)
+
+    async def _record_token_usage(
+        self,
+        *,
+        model: Optional[str],
+        api_type: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> None:
+        """记录一次 API 调用的 token 用量（后台用量统计）。失败仅告警，不影响主流程。"""
+        try:
+            async with self._db_access_lock:
+                async with AsyncSessionLocal() as session:
+                    await record_usage(
+                        session,
+                        model=model,
+                        api_type=api_type,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                    )
+        except Exception as exc:  # pragma: no cover - 记录失败不应中断生成
+            logger.warning("记录 API 用量失败(已忽略): %s", exc)
 
     async def _get_config_value_for_session(self, session, key: str) -> Optional[str]:
         record = await SystemConfigRepository(session).get_by_key(key)
@@ -1114,6 +1146,7 @@ class LLMService:
             config_override=config,
             response_format=None,
             max_tokens=max_tokens,
+            api_type="polish",
         )
 
     async def get_search_llm_response(
@@ -1137,6 +1170,7 @@ class LLMService:
             config_override=config,
             response_format=None,
             max_tokens=max_tokens,
+            api_type="search",
         )
 
     async def get_grader_llm_response(
@@ -1162,7 +1196,77 @@ class LLMService:
             config_override=config,
             response_format=None,
             max_tokens=max_tokens,
+            api_type="grader",
         )
+
+    async def test_channel(self, channel_type: str) -> Dict[str, Any]:
+        """真实检测某个已配置的 LLM / embedding 通道是否可用（管理后台「测试」按钮）。
+
+        channel_type: default | fallback | polish | search | embedding
+        返回: {ok: bool, model: str, latency_ms: int, detail: str}
+        - 真正发起一次最小调用（LLM 回 "ok" / embedding 取一条向量），验证密钥/地址/模型可达。
+        - 任何异常都被捕获为 ok=False + detail，绝不抛出。
+        """
+        import time as _time
+
+        prefix_map = {
+            "default": "llm",
+            "fallback": "llm_fallback",
+            "polish": "llm_optimize",
+            "search": "llm_search",
+        }
+        start = _time.monotonic()
+        try:
+            if channel_type == "embedding":
+                model = (
+                    await self._get_config_value("embedding.model")
+                    or await self._get_config_value("ollama.embedding_model")
+                    or ""
+                )
+                vec = await self.get_embedding("连接测试", user_id=None)
+                latency = int((_time.monotonic() - start) * 1000)
+                if vec:
+                    return {"ok": True, "model": model, "latency_ms": latency, "detail": f"返回向量维度 {len(vec)}"}
+                return {"ok": False, "model": model, "latency_ms": latency, "detail": "未返回向量，请检查 embedding 配置"}
+
+            prefix = prefix_map.get(channel_type)
+            if not prefix:
+                return {"ok": False, "model": "", "latency_ms": 0, "detail": f"未知通道类型: {channel_type}"}
+
+            api_key = await self._get_config_value(f"{prefix}.api_key")
+            base_url = self._normalize_base_url(await self._get_config_value(f"{prefix}.base_url"))
+            model = await self._get_config_value(f"{prefix}.model")
+            api_format = await self._get_config_value(f"{prefix}.api_format")
+
+            # 润色/搜索通道未单独配置时回退到默认 llm.*（与实际调用回退逻辑一致）
+            if channel_type in ("polish", "search") and not api_key:
+                api_key = await self._get_config_value("llm.api_key")
+                base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
+                model = model or await self._get_config_value("llm.model")
+                api_format = api_format or await self._get_config_value("llm.api_format")
+
+            if not api_key:
+                return {"ok": False, "model": model or "", "latency_ms": 0, "detail": "未配置 API Key"}
+
+            override = {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+            resp = await self._stream_and_collect(
+                [{"role": "user", "content": "ping，请只回复：ok"}],
+                temperature=0.0,
+                user_id=None,
+                timeout=30.0,
+                config_override=override,
+                response_format=None,
+                max_tokens=16,
+                max_retries=0,
+                api_type=channel_type,
+            )
+            latency = int((_time.monotonic() - start) * 1000)
+            if resp and resp.strip():
+                return {"ok": True, "model": model or "", "latency_ms": latency, "detail": f"模型响应正常：{resp.strip()[:40]}"}
+            return {"ok": False, "model": model or "", "latency_ms": latency, "detail": "模型返回空响应"}
+        except Exception as exc:  # noqa: BLE001 - 测试不应抛出
+            latency = int((_time.monotonic() - start) * 1000)
+            return {"ok": False, "model": "", "latency_ms": latency, "detail": str(exc)[:200]}
 
     async def get_embedding(
         self,
@@ -1261,6 +1365,12 @@ class LLMService:
                 dimension = int(vector_size_str)
         if dimension:
             self._embedding_dimensions[target_model] = dimension
+        await self._record_token_usage(
+            model=target_model,
+            api_type="embedding",
+            prompt_tokens=estimate_tokens(text),
+            completion_tokens=0,
+        )
         return embedding
 
     async def get_embeddings_batch(
@@ -1348,6 +1458,14 @@ class LLMService:
                     dimension = len(batch_embeddings[0])
                     if dimension:
                         self._embedding_dimensions[target_model] = dimension
+
+                # 记录用量：每个批次算一次请求，token 估算为批内文本之和
+                await self._record_token_usage(
+                    model=target_model,
+                    api_type="embedding",
+                    prompt_tokens=sum(estimate_tokens(t) for t in batch),
+                    completion_tokens=0,
+                )
 
             except Exception as exc:
                 logger.error(

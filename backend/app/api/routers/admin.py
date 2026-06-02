@@ -3,6 +3,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -403,3 +404,31 @@ async def change_password(
 ) -> None:
     await service.change_password(current_admin.username, payload.old_password, payload.new_password)
     logger.info("管理员 %s 修改密码", current_admin.username)
+
+
+# ------------------------------------------------------------------
+# LLM / embedding 通道可用性测试（「测试」按钮）
+# ------------------------------------------------------------------
+
+_TESTABLE_CHANNELS = {"default", "fallback", "polish", "search", "embedding"}
+
+
+class TestChannelRequest(BaseModel):
+    channel_type: str  # default | fallback | polish | search | embedding
+
+
+@router.post("/test-llm-channel")
+async def test_llm_channel(
+    payload: TestChannelRequest,
+    session: AsyncSession = Depends(get_session),
+    _: UserSchema = Depends(get_current_admin),
+):
+    """真实检测某个已配置的 LLM / embedding 通道是否可用（发起一次最小调用）。"""
+    if payload.channel_type not in _TESTABLE_CHANNELS:
+        raise HTTPException(status_code=400, detail=f"不支持的通道类型: {payload.channel_type}")
+    from ...services.llm_service import LLMService
+
+    llm = LLMService(session)
+    result = await llm.test_channel(payload.channel_type)
+    logger.info("管理员测试 LLM 通道 %s → ok=%s", payload.channel_type, result.get("ok"))
+    return result

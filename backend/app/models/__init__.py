@@ -68,6 +68,7 @@ from .chapter_review import ChapterReview
 from .writing_archive import WritingArchive, EdictStatus
 from .plan import Plan
 from .payment_order import PaymentOrder
+from .api_usage_log import ApiUsageLog
 
 # 补全集中注册（此前依赖导入副作用建表，易漏建）
 from .constitution import NovelConstitution
@@ -137,6 +138,7 @@ __all__ = [
     "EdictStatus",
     "Plan",
     "PaymentOrder",
+    "ApiUsageLog",
     # 补全集中注册
     "NovelConstitution",
     "Faction",

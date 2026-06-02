@@ -10,6 +10,42 @@ const adminRequest = <T = any>(path: string, options: RequestInit = {}) =>
   requestJson<T>(`${API_BASE_URL}${ADMIN_API_PREFIX}${path}`, options)
 
 // 类型定义
+export type ChannelType = 'default' | 'fallback' | 'polish' | 'search' | 'embedding'
+
+export interface TestChannelResult {
+  ok: boolean
+  model: string
+  latency_ms: number
+  detail: string
+}
+
+export interface ApiUsageRow {
+  log_date: string
+  model: string
+  api_type: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
+export interface ApiUsageStats {
+  period: string
+  start_date: string
+  end_date: string
+  rows: ApiUsageRow[]
+  summary: Array<{
+    model: string
+    api_type: string
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    request_count: number
+  }>
+  grand_total_tokens: number
+  grand_total_requests: number
+}
+
 export interface Statistics {
   novel_count: number
   user_count: number
@@ -276,5 +312,27 @@ export class AdminAPI {
         new_password: newPassword
       })
     })
+  }
+
+  /** 真实检测某个 LLM/embedding 通道是否可用（发起一次最小调用）。 */
+  static testLlmChannel(channelType: ChannelType): Promise<TestChannelResult> {
+    return this.request('/test-llm-channel', {
+      method: 'POST',
+      body: JSON.stringify({ channel_type: channelType })
+    })
+  }
+
+  /** API 用量统计（注意：走 /api/api-usage，而非 /api/admin）。 */
+  static getApiUsageStats(params: {
+    period: 'day' | 'week' | 'month' | 'custom'
+    startDate?: string
+    endDate?: string
+  }): Promise<ApiUsageStats> {
+    const q = new URLSearchParams({ period: params.period })
+    if (params.period === 'custom' && params.startDate && params.endDate) {
+      q.set('start_date', params.startDate)
+      q.set('end_date', params.endDate)
+    }
+    return requestJson<ApiUsageStats>(`/api/api-usage/stats?${q.toString()}`)
   }
 }

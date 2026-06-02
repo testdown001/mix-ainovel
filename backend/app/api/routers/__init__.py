@@ -27,6 +27,7 @@ from .task_worker import router as task_worker_router
 from .tasks import router as tasks_router
 from .quota import router as quota_router
 from .plans import router as plans_router
+from .api_usage import router as api_usage_router
 from .payment import router as payment_router
 
 
@@ -88,6 +89,9 @@ api_router.include_router(task_worker_router, tags=["Internal"])
 
 # 套餐管理 - plans.py 已经定义了 prefix
 api_router.include_router(plans_router, tags=["Plans"])
+
+# API 用量统计 - api_usage.py 已经定义了 prefix
+api_router.include_router(api_usage_router, tags=["ApiUsage"])
 
 # 支付 - payment.py 已经定义了 prefix="/api/payment"
 api_router.include_router(payment_router, tags=["Payment"])
