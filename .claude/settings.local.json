@@ -85,7 +85,16 @@
       "Bash(/home/aikev/code/arboris-novel/backend/.venv/bin/python3 -c \"from app.models import NovelConstitution, Faction, FactionRelationship, FactionMember, FactionRelationshipHistory, UserQuota, WriterPersona; print\\('All 7 models imported OK'\\)\")",
       "Bash(PYTHONPATH=/home/aikev/code/arboris-novel/backend .venv/bin/python3 -c \"from app.models import NovelConstitution, Faction, FactionRelationship, FactionMember, FactionRelationshipHistory, UserQuota, WriterPersona; print\\('All 7 models imported OK'\\)\")",
       "Bash(git check-ignore *)",
-      "Bash(python -m pytest tests/ -v -k \"auth\" --tb=short)"
+      "Bash(python -m pytest tests/ -v -k \"auth\" --tb=short)",
+      "Bash(awk 'NF==3 {plus+=$1; minus+=$2} END {printf\\(\"总增加: %d 行\\\\n总删除: %d 行\\\\n净增长: %d 行\\\\n\", plus, minus, plus-minus\\)}')",
+      "Bash(cloc backend/app --quiet)",
+      "Bash(sed -n '44,60p' app/agents/taizi_agent.py)",
+      "Bash(sed -n '143,160p' app/agents/zhongshu_agent.py)",
+      "Bash(sed -n '146,165p' app/agents/bingbu_agent.py)",
+      "Bash(git rm *)",
+      "Bash(echo \"deleted. exit=$?\")",
+      "Bash(git mv *)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }
