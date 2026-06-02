@@ -1,4 +1,4 @@
-<!-- AIMETA P=API管理_模型配置与用量统计|R=API配置_用量图表|E=component:ApiManagement|X=ui|A=API管理组件|D=vue|S=dom,net -->
+<!-- AIMETA P=API管理_模型配置|R=多通道LLM配置CRUD(写入SystemConfig)|E=component:ApiManagement|X=ui|A=API管理组件|D=vue|S=dom,net -->
 <template>
   <n-space vertical size="large">
     <n-tabs v-model:value="activeTab" type="line" animated>
@@ -144,105 +144,16 @@
         </n-space>
       </n-tab-pane>
 
-      <!-- ===== Tab 2: 用量统计 ===== -->
-      <n-tab-pane name="usage" tab="用量统计">
-        <n-space vertical size="large" style="margin-top: 16px;">
-
-          <!-- 时间范围选择 -->
-          <n-card :bordered="false">
-            <n-space align="center" justify="space-between">
-              <n-space align="center" :size="12">
-                <span style="color:#888; font-size:13px;">统计周期</span>
-                <n-radio-group v-model:value="period" @update:value="fetchStats">
-                  <n-radio-button value="day">今天</n-radio-button>
-                  <n-radio-button value="week">近 7 天</n-radio-button>
-                  <n-radio-button value="month">近 30 天</n-radio-button>
-                </n-radio-group>
-              </n-space>
-              <n-button quaternary size="small" @click="fetchStats" :loading="statsLoading">刷新</n-button>
-            </n-space>
-          </n-card>
-
-          <!-- 汇总卡片 -->
-          <n-grid :cols="3" :x-gap="16" :y-gap="16">
-            <n-gi>
-              <n-card :bordered="false" class="stat-card">
-                <div class="stat-icon">🔤</div>
-                <n-statistic label="总 Token 消耗" :value="stats?.grand_total_tokens ?? 0" show-separator>
-                  <template #suffix>tokens</template>
-                </n-statistic>
-              </n-card>
-            </n-gi>
-            <n-gi>
-              <n-card :bordered="false" class="stat-card">
-                <div class="stat-icon">⚡</div>
-                <n-statistic label="总请求次数" :value="stats?.grand_total_requests ?? 0" show-separator>
-                  <template #suffix>次</template>
-                </n-statistic>
-              </n-card>
-            </n-gi>
-            <n-gi>
-              <n-card :bordered="false" class="stat-card">
-                <div class="stat-icon">📅</div>
-                <n-statistic label="统计模型数" :value="stats?.summary?.length ?? 0" show-separator>
-                  <template #suffix>个</template>
-                </n-statistic>
-              </n-card>
-            </n-gi>
-          </n-grid>
-
-          <!-- 各模型汇总 -->
-          <n-card :bordered="false">
-            <template #header>
-              <span class="card-title">各模型用量汇总</span>
-            </template>
-            <n-spin :show="statsLoading">
-              <n-empty v-if="!stats?.summary?.length && !statsLoading" description="暂无用量数据，API 调用后将自动开始统计">
-                <template #icon><span style="font-size:40px">📊</span></template>
-              </n-empty>
-              <n-data-table
-                v-else
-                :columns="summaryColumns"
-                :data="stats?.summary ?? []"
-                :bordered="false"
-                size="small"
-              />
-            </n-spin>
-          </n-card>
-
-          <!-- 每日明细 -->
-          <n-card :bordered="false">
-            <template #header>
-              <span class="card-title">每日明细</span>
-            </template>
-            <n-spin :show="statsLoading">
-              <n-empty v-if="!stats?.rows?.length && !statsLoading" description="暂无明细数据">
-                <template #icon><span style="font-size:40px">📋</span></template>
-              </n-empty>
-              <n-data-table
-                v-else
-                :columns="rowColumns"
-                :data="stats?.rows ?? []"
-                :bordered="false"
-                size="small"
-                :pagination="{ pageSize: 20 }"
-              />
-            </n-spin>
-          </n-card>
-
-        </n-space>
-      </n-tab-pane>
-
     </n-tabs>
   </n-space>
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import {
-  NAlert, NButton, NCard, NDataTable, NEmpty, NForm, NFormItem,
-  NGi, NGrid, NInput, NRadioButton, NRadioGroup, NSelect, NSpace,
-  NSpin, NStatistic, NTabPane, NTabs, NTag, type DataTableColumns
+  NAlert, NButton, NCard, NForm, NFormItem,
+  NGi, NGrid, NInput, NSelect, NSpace,
+  NSpin, NTabPane, NTabs, NTag
 } from 'naive-ui'
 import { AdminAPI } from '@/api/admin'
 import { useAlert } from '@/composables/useAlert'
@@ -330,67 +241,8 @@ const saveConfig = async (type: ConfigKey) => {
   }
 }
 
-// ---- Usage stats ----
-const period = ref<'day' | 'week' | 'month'>('week')
-const statsLoading = ref(false)
-const stats = ref<any>(null)
-
-const fetchStats = async () => {
-  statsLoading.value = true
-  try {
-    const res = await fetch(`/api/api-usage/stats?period=${period.value}`, {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-    })
-    if (!res.ok) throw new Error('加载用量统计失败')
-    stats.value = await res.json()
-  } catch (err) {
-    showAlert(err instanceof Error ? err.message : '加载失败', 'error')
-  } finally {
-    statsLoading.value = false
-  }
-}
-
-const formatNum = (n: number) => n.toLocaleString('zh-CN')
-
-const API_TYPE_LABEL: Record<string, string> = {
-  default: '默认',
-  fallback: '兜底',
-  polish: '润色',
-  search: '搜索',
-}
-
-const summaryColumns: DataTableColumns = [
-  { title: '模型', key: 'model', ellipsis: true, width: 200 },
-  { title: '用途', key: 'api_type', width: 80,
-    render: (row: any) => h('span', API_TYPE_LABEL[row.api_type] || row.api_type) },
-  { title: '输入 Tokens', key: 'prompt_tokens', align: 'right',
-    render: (row: any) => h('span', formatNum(row.prompt_tokens)) },
-  { title: '输出 Tokens', key: 'completion_tokens', align: 'right',
-    render: (row: any) => h('span', formatNum(row.completion_tokens)) },
-  { title: '总 Tokens', key: 'total_tokens', align: 'right', sorter: 'default',
-    render: (row: any) => h('span', { style: 'color:#FFE500; font-weight:600' }, formatNum(row.total_tokens)) },
-  { title: '请求次数', key: 'request_count', align: 'right',
-    render: (row: any) => h('span', formatNum(row.request_count)) },
-]
-
-const rowColumns: DataTableColumns = [
-  { title: '日期', key: 'log_date', width: 110 },
-  { title: '模型', key: 'model', ellipsis: true },
-  { title: '用途', key: 'api_type', width: 80,
-    render: (row: any) => h('span', API_TYPE_LABEL[row.api_type] || row.api_type) },
-  { title: '输入', key: 'prompt_tokens', align: 'right',
-    render: (row: any) => h('span', { style: 'font-size:12px; color:#aaa' }, formatNum(row.prompt_tokens)) },
-  { title: '输出', key: 'completion_tokens', align: 'right',
-    render: (row: any) => h('span', { style: 'font-size:12px; color:#aaa' }, formatNum(row.completion_tokens)) },
-  { title: '总 Tokens', key: 'total_tokens', align: 'right',
-    render: (row: any) => h('span', { style: 'color:#FFE500' }, formatNum(row.total_tokens)) },
-  { title: '请求次数', key: 'request_count', align: 'right', width: 90,
-    render: (row: any) => h('span', formatNum(row.request_count)) },
-]
-
 onMounted(() => {
   fetchAllConfigs()
-  fetchStats()
 })
 </script>
 

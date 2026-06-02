@@ -39,6 +39,25 @@ export interface PaymentOrder {
   created_at: string | null
 }
 
+// 管理员订单视图（比用户视图多 username/currency/transaction_id 等，与后端 list_orders_for_admin 对齐）
+export interface AdminPaymentOrder {
+  id: number
+  order_no: string
+  username?: string
+  user_id: number
+  plan_id: number
+  plan_name: string
+  amount: number
+  currency: string
+  channel: string
+  status: string
+  transaction_id?: string | null
+  paid_at?: string | null
+  refunded_at?: string | null
+  remark?: string | null
+  created_at: string | null
+}
+
 // 订阅状态由配额(/api/quota/me)推导（系统以配额表达会员状态，无独立订阅表）。
 // 多数字段可选，以适配"从配额派生"的最小形态。
 export interface Subscription {
@@ -80,6 +99,30 @@ export const paymentApi = {
       channel,
       return_url: returnUrl,
     })
+    return data
+  },
+
+  /**
+   * 管理员查询全部支付订单（后端 GET /api/payment/admin/orders）。
+   * 支持按渠道/状态过滤；返回原始 {items,total,page,page_size}。
+   */
+  async adminListOrders(params: {
+    channel?: string
+    status?: string
+    page?: number
+    pageSize?: number
+  } = {}): Promise<{ items: AdminPaymentOrder[]; total: number; page: number; page_size: number }> {
+    const q = new URLSearchParams()
+    if (params.channel) q.set('channel', params.channel)
+    if (params.status) q.set('status', params.status)
+    q.set('page', String(params.page ?? 1))
+    q.set('page_size', String(params.pageSize ?? 20))
+    const { data } = await http.get<{
+      items: AdminPaymentOrder[]
+      total: number
+      page: number
+      page_size: number
+    }>(`${PAYMENT}/admin/orders?${q.toString()}`)
     return data
   },
 

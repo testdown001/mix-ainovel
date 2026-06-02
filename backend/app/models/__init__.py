@@ -2,7 +2,6 @@
 """集中导出 ORM 模型，确保 SQLAlchemy 元数据在初始化时被正确加载。"""
 
 from .admin_setting import AdminSetting
-from .llm_config import LLMConfig
 from .novel import (
     BlueprintCharacter,
     BlueprintRelationship,
@@ -69,7 +68,6 @@ from .chapter_review import ChapterReview
 from .writing_archive import WritingArchive, EdictStatus
 from .plan import Plan
 from .payment_order import PaymentOrder
-from .api_usage_log import ApiUsageLog
 
 # 补全集中注册（此前依赖导入副作用建表，易漏建）
 from .constitution import NovelConstitution
@@ -85,7 +83,6 @@ from .writer_persona import WriterPersona
 __all__ = [
     # 基础模型
     "AdminSetting",
-    "LLMConfig",
     "NovelConversation",
     "NovelBlueprint",
     "BlueprintCharacter",
@@ -140,7 +137,6 @@ __all__ = [
     "EdictStatus",
     "Plan",
     "PaymentOrder",
-    "ApiUsageLog",
     # 补全集中注册
     "NovelConstitution",
     "Faction",

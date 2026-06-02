@@ -88,9 +88,6 @@
             Webhook 地址（在 Stripe 后台配置）：<code>https://你的域名/api/payment/stripe/webhook</code>，事件选 checkout.session.completed。
           </n-alert>
           <n-space justify="end">
-            <n-button @click="testConnection('stripe')" :loading="stripeTesting" size="small">
-              测试连接
-            </n-button>
             <n-button type="primary" :loading="stripeSaving" @click="saveChannel('stripe')">
               保存配置
             </n-button>
@@ -173,9 +170,6 @@
             </n-radio-group>
           </n-form-item>
           <n-space justify="end">
-            <n-button @click="testConnection('alipay')" :loading="alipayTesting" size="small">
-              测试连接
-            </n-button>
             <n-button type="primary" :loading="alipaySaving" @click="saveChannel('alipay')">
               保存配置
             </n-button>
@@ -281,9 +275,6 @@
             </n-gi>
           </n-grid>
           <n-space justify="end">
-            <n-button @click="testConnection('wechat')" :loading="wechatTesting" size="small">
-              测试连接
-            </n-button>
             <n-button type="primary" :loading="wechatSaving" @click="saveChannel('wechat')">
               保存配置
             </n-button>
@@ -347,17 +338,14 @@ const wechatForm = reactive({
 
 const stripeLoading = ref(false)
 const stripeSaving = ref(false)
-const stripeTesting = ref(false)
 const stripeError = ref<string | null>(null)
 
 const alipayLoading = ref(false)
 const alipaySaving = ref(false)
-const alipayTesting = ref(false)
 const alipayError = ref<string | null>(null)
 
 const wechatLoading = ref(false)
 const wechatSaving = ref(false)
-const wechatTesting = ref(false)
 const wechatError = ref<string | null>(null)
 
 const onStripeToggle = (val: boolean) => {
@@ -414,19 +402,6 @@ const saveChannel = async (channel: string) => {
     message.error('保存失败，请重试')
   } finally {
     savingRef.value = false
-  }
-}
-
-const testConnection = async (channel: string) => {
-  const testingRef = channel === 'stripe' ? stripeTesting : channel === 'alipay' ? alipayTesting : wechatTesting
-  testingRef.value = true
-  try {
-    await new Promise(r => setTimeout(r, 800))
-    message.success('连接测试成功 ✓')
-  } catch {
-    message.error('连接测试失败，请检查配置')
-  } finally {
-    testingRef.value = false
   }
 }
 
