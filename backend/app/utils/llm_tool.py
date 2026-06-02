@@ -188,6 +188,9 @@ class LLMClient:
         # OpenAI chat/completions 不支持这些控制参数，移除避免透传导致 SDK 抛错
         kwargs.pop("thinking_budget", None)
         kwargs.pop("disable_thinking", None)
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        enable_usage = kwargs.pop("enable_usage", False)
+        use_max_completion_tokens = kwargs.pop("use_max_completion_tokens", False)
 
         payload = {
             "model": model or os.environ.get("MODEL", "gpt-3.5-turbo"),
@@ -203,7 +206,13 @@ class LLMClient:
         if top_p is not None:
             payload["top_p"] = top_p
         if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
+            # o 系列官方接口要求 max_completion_tokens（由上层反应式兜底触发）
+            payload["max_completion_tokens" if use_max_completion_tokens else "max_tokens"] = max_tokens
+        if reasoning_effort:
+            payload["reasoning_effort"] = reasoning_effort
+        if enable_usage:
+            # 让流在结束时附带真实 token 用量（含推理模型 reasoning token）
+            payload["stream_options"] = {"include_usage": True}
 
         msg_summary = [
             {"role": m.role, "content_length": len(m.content)} for m in messages
@@ -242,6 +251,17 @@ class LLMClient:
         try:
             async for chunk in stream:
                 _chunk_count += 1
+                # include_usage 模式下最终 usage 帧 choices 为空，单独捕获后透传给上层
+                chunk_usage = getattr(chunk, "usage", None)
+                if chunk_usage is not None:
+                    yield {
+                        "content": None,
+                        "finish_reason": None,
+                        "usage": {
+                            "prompt_tokens": getattr(chunk_usage, "prompt_tokens", 0) or 0,
+                            "completion_tokens": getattr(chunk_usage, "completion_tokens", 0) or 0,
+                        },
+                    }
                 if not chunk.choices:
                     continue
                 choice = chunk.choices[0]
@@ -1173,6 +1193,13 @@ class OpenAIResponsesLLMClient:
 
         instructions = "\n\n".join(system_parts) if system_parts else None
 
+        # 上层可能透传这些，但 Responses 仅用 reasoning_effort；其余在此消费避免污染 payload
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        kwargs.pop("thinking_budget", None)
+        kwargs.pop("disable_thinking", None)
+        kwargs.pop("enable_usage", None)
+        kwargs.pop("use_max_completion_tokens", None)
+
         payload: Dict = {
             "model": model or "gpt-4o",
             "input": api_input,
@@ -1188,6 +1215,9 @@ class OpenAIResponsesLLMClient:
             payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_output_tokens"] = max_tokens
+        if reasoning_effort:
+            # Responses API 的推理深度控制（o 系列 / gpt-5）
+            payload["reasoning"] = {"effort": reasoning_effort}
 
         def _clone_payload(src: Dict) -> Dict:
             cloned = dict(src)

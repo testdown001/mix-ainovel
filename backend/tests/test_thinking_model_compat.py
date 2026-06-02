@@ -55,3 +55,34 @@ def test_temperature_unsupported_error_detection():
     assert not LLMService._is_temperature_unsupported_error(_FakeError("response_format json_object is invalid"))
     assert not LLMService._is_temperature_unsupported_error(_FakeError("rate limit exceeded"))
     assert not LLMService._is_temperature_unsupported_error(_FakeError(""))
+
+
+def test_max_completion_tokens_and_stream_options_error_detection():
+    assert LLMService._is_max_completion_tokens_error(
+        _FakeError("Use 'max_completion_tokens' instead of 'max_tokens'")
+    )
+    assert not LLMService._is_max_completion_tokens_error(_FakeError("max_tokens too large"))
+    assert LLMService._is_stream_options_unsupported_error(
+        _FakeError("stream_options is not supported")
+    )
+    assert not LLMService._is_stream_options_unsupported_error(_FakeError("temperature unsupported"))
+
+
+def test_build_extra_kwargs_gating():
+    b = LLMService._build_stream_extra_kwargs
+    # reasoning_effort 仅推理模型 + openai/responses
+    assert b("openai", thinking_budget=None, disable_thinking=False,
+             reasoning_effort="high", model_name="o3-mini", enable_usage=True) == {
+        "reasoning_effort": "high", "enable_usage": True}
+    # 普通模型不带 reasoning_effort
+    assert "reasoning_effort" not in b("openai", thinking_budget=None, disable_thinking=False,
+                                       reasoning_effort="high", model_name="gpt-4o")
+    # gpt-5 走 responses 支持 effort
+    assert b("openai-responses", thinking_budget=None, disable_thinking=False,
+             reasoning_effort="medium", model_name="gpt-5") == {"reasoning_effort": "medium"}
+    # anthropic 不受影响（仅 thinking_budget）
+    assert b("anthropic", thinking_budget=2000, disable_thinking=False,
+             reasoning_effort="high", model_name="claude-opus-4") == {"thinking_budget": 2000}
+    # 非法 effort 值忽略
+    assert "reasoning_effort" not in b("openai", thinking_budget=None, disable_thinking=False,
+                                       reasoning_effort="ultra", model_name="o3")

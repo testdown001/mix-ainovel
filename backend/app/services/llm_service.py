@@ -358,6 +358,8 @@ class LLMService:
     )
     # 进程级缓存：记录不支持 response_format 的 provider 组合（base_url|model）
     _UNSUPPORTED_RESPONSE_FORMAT_TARGETS: set[str] = set()
+    # 进程级缓存：记录不支持 stream_options.include_usage 的 provider 组合（避免每次先失败再重试）
+    _UNSUPPORTED_STREAM_OPTIONS_TARGETS: set[str] = set()
 
     @staticmethod
     def _normalize_base_url(base_url: Optional[str]) -> Optional[str]:
@@ -525,6 +527,18 @@ class LLMService:
         )
         return mentions_param and mentions_unsupported
 
+    @classmethod
+    def _is_stream_options_unsupported_error(cls, exc: Exception) -> bool:
+        """判断 400 是否为 provider 不支持 stream_options(.include_usage)。"""
+        detail = (cls._extract_provider_error_detail(exc) or "").lower()
+        return "stream_options" in detail or "stream options" in detail
+
+    @classmethod
+    def _is_max_completion_tokens_error(cls, exc: Exception) -> bool:
+        """判断 400 是否要求改用 max_completion_tokens（OpenAI o 系列官方接口）。"""
+        detail = (cls._extract_provider_error_detail(exc) or "").lower()
+        return "max_completion_tokens" in detail
+
     def _resolve_api_format(self, api_format_setting: Optional[str], base_url: Optional[str], model_name: Optional[str]) -> str:
         """根据配置决定使用哪种 API 格式。
 
@@ -547,12 +561,17 @@ class LLMService:
             return "openai-responses"
         return "openai"
 
-    @staticmethod
+    @classmethod
     def _build_stream_extra_kwargs(
+        cls,
         api_format: str,
         *,
         thinking_budget: Optional[int],
         disable_thinking: bool,
+        reasoning_effort: Optional[str] = None,
+        model_name: Optional[str] = None,
+        enable_usage: bool = False,
+        use_max_completion_tokens: bool = False,
     ) -> Dict[str, Any]:
         """按 provider 能力构建可透传的附加参数。"""
         extra_kwargs: Dict[str, Any] = {}
@@ -564,6 +583,24 @@ class LLMService:
         # disable_thinking 当前仅 AnyRouter 客户端实现了显式关闭逻辑。
         if disable_thinking and api_format == "anyrouter":
             extra_kwargs["disable_thinking"] = True
+
+        # reasoning_effort：仅 OpenAI 兼容 / Responses，且为推理模型(o系列/gpt-5)时透传，
+        # 否则普通模型会因未知参数 400。
+        effort = (reasoning_effort or "").strip().lower()
+        if (
+            effort in {"low", "medium", "high", "minimal"}
+            and api_format in {"openai", "openai-responses"}
+            and (cls._is_openai_reasoning_model(model_name) or (model_name or "").strip().lower().startswith("gpt-5"))
+        ):
+            extra_kwargs["reasoning_effort"] = effort
+
+        # 真实 token 用量：请求 OpenAI 流附带 usage（含推理模型的 reasoning token）。
+        if enable_usage and api_format == "openai":
+            extra_kwargs["enable_usage"] = True
+
+        # o 系列官方接口要求 max_completion_tokens 而非 max_tokens（反应式兜底触发）。
+        if use_max_completion_tokens and api_format == "openai":
+            extra_kwargs["use_max_completion_tokens"] = True
 
         return extra_kwargs
 
@@ -665,10 +702,13 @@ class LLMService:
             api_format,
         )
 
+        reasoning_effort = config.get("reasoning_effort")
         last_exc = None
         response_format_fallback_applied = False
         responses_endpoint_fallback_applied = False
         temperature_fallback_applied = False
+        use_max_completion_tokens = False
+        real_usage: Optional[Dict[str, int]] = None
         _active_format: Optional[str] = None
         client = None
         for attempt in range(1, max_retries + 2):  # max_retries + 1 次总尝试
@@ -678,12 +718,19 @@ class LLMService:
                 _active_format = api_format
             full_response = ""
             finish_reason = None
+            real_usage = None
 
             try:
+                # 真实 token 用量：仅对未知不支持的 provider 组合启用 stream_options.include_usage
+                stream_usage_enabled = response_format_target not in self._UNSUPPORTED_STREAM_OPTIONS_TARGETS
                 extra_kwargs = self._build_stream_extra_kwargs(
                     api_format,
                     thinking_budget=thinking_budget,
                     disable_thinking=disable_thinking,
+                    reasoning_effort=reasoning_effort,
+                    model_name=model_name,
+                    enable_usage=stream_usage_enabled,
+                    use_max_completion_tokens=use_max_completion_tokens,
                 )
                 async for part in client.stream_chat(
                     messages=chat_messages,
@@ -707,6 +754,8 @@ class LLMService:
                                 logger.debug("LLM on_chunk 回调异常（已忽略）: %s", callback_exc)
                     if part.get("finish_reason"):
                         finish_reason = part["finish_reason"]
+                    if part.get("usage"):
+                        real_usage = part["usage"]
                 # 流式读取正常完成，跳出重试循环
                 break
 
@@ -786,6 +835,31 @@ class LLMService:
                         attempt,
                         max_retries + 1,
                         detail,
+                    )
+                    continue
+                if (
+                    isinstance(exc, BadRequestError)
+                    and api_format == "openai"
+                    and response_format_target not in self._UNSUPPORTED_STREAM_OPTIONS_TARGETS
+                    and self._is_stream_options_unsupported_error(exc)
+                ):
+                    self._UNSUPPORTED_STREAM_OPTIONS_TARGETS.add(response_format_target)
+                    logger.warning(
+                        "provider 不支持 stream_options.include_usage，禁用后自动重试(后续将回退 token 估算): "
+                        "base_url=%s model=%s", config.get("base_url"), model_name,
+                    )
+                    continue
+                if (
+                    isinstance(exc, BadRequestError)
+                    and api_format == "openai"
+                    and not use_max_completion_tokens
+                    and max_tokens is not None
+                    and self._is_max_completion_tokens_error(exc)
+                ):
+                    use_max_completion_tokens = True
+                    logger.warning(
+                        "模型要求 max_completion_tokens(而非 max_tokens)，改参后自动重试: "
+                        "base_url=%s model=%s", config.get("base_url"), model_name,
                     )
                     continue
                 if (
@@ -1026,13 +1100,20 @@ class LLMService:
             )
 
         await self._increment_usage_metric("api_request_count")
-        # 记录 API 用量（请求次数精确；token 为中英混合估算）。失败不影响生成。
-        prompt_text = "".join(m.get("content") or "" for m in messages)
+        # 记录 API 用量（请求次数精确）。token 优先用服务端返回的真实 usage（含推理模型 reasoning token），
+        # 拿不到时回退中英混合估算。失败不影响生成。
+        if real_usage and (real_usage.get("prompt_tokens") or real_usage.get("completion_tokens")):
+            rec_prompt = int(real_usage.get("prompt_tokens") or 0)
+            rec_completion = int(real_usage.get("completion_tokens") or 0)
+        else:
+            prompt_text = "".join(m.get("content") or "" for m in messages)
+            rec_prompt = estimate_tokens(prompt_text)
+            rec_completion = estimate_tokens(full_response)
         await self._record_token_usage(
             model=model_name,
             api_type=api_type,
-            prompt_tokens=estimate_tokens(prompt_text),
-            completion_tokens=estimate_tokens(full_response),
+            prompt_tokens=rec_prompt,
+            completion_tokens=rec_completion,
         )
         logger.info(
             "LLM response success: base_url=%s model=%s user_id=%s chars=%d",
@@ -1100,6 +1181,7 @@ class LLMService:
                 base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
                 model = await self._get_config_value_for_session(session, "llm.model")
                 api_format = await self._get_config_value_for_session(session, "llm.api_format")
+                reasoning_effort = await self._get_config_value_for_session(session, "llm.reasoning_effort")
 
                 if not api_key:
                     logger.error("未配置系统 LLM API Key，用户 %s 无法使用", user_id)
@@ -1108,7 +1190,7 @@ class LLMService:
                         detail="系统 LLM API Key 未配置，请联系管理员在后台配置"
                     )
 
-                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format, "reasoning_effort": reasoning_effort}
 
     async def _resolve_optimize_llm_config(self) -> Dict[str, Optional[str]]:
         """解析润色优化专用 LLM 配置，未设置的字段回退到默认 llm.* 配置。"""
@@ -1118,18 +1200,20 @@ class LLMService:
                 opt_base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm_optimize.base_url"))
                 opt_model = await self._get_config_value_for_session(session, "llm_optimize.model")
                 opt_api_format = await self._get_config_value_for_session(session, "llm_optimize.api_format")
+                opt_reasoning = await self._get_config_value_for_session(session, "llm_optimize.reasoning_effort")
 
                 has_any = any(v for v in (opt_api_key, opt_base_url, opt_model, opt_api_format))
                 if not has_any:
                     api_key = await self._get_config_value_for_session(session, "llm.api_key")
                     base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
                     model = await self._get_config_value_for_session(session, "llm.model")
+                    reasoning_effort = await self._get_config_value_for_session(session, "llm.reasoning_effort")
                     if not api_key:
                         raise HTTPException(
                             status_code=500,
                             detail="未配置润色优化模型，且默认 LLM API Key 也未设置",
                         )
-                    return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None}
+                    return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": None, "reasoning_effort": reasoning_effort}
 
                 api_key = opt_api_key or await self._get_config_value_for_session(session, "llm.api_key")
                 base_url = opt_base_url or self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
@@ -1142,7 +1226,7 @@ class LLMService:
                         detail="润色优化模型与默认 LLM 均未配置 API Key",
                     )
 
-                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format, "reasoning_effort": opt_reasoning}
 
     async def _resolve_grader_llm_config(self) -> Optional[Dict[str, Optional[str]]]:
         """解析证据评分专用 LLM 配置（轻量级小模型）。未配置时返回 None（静默跳过）。"""
@@ -1161,11 +1245,12 @@ class LLMService:
                 base_url = grader_base_url or self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
                 model = grader_model or await self._get_config_value_for_session(session, "llm.model")
                 api_format = grader_api_format
+                reasoning_effort = await self._get_config_value_for_session(session, "llm_grader.reasoning_effort")
 
                 if not api_key:
                     return None
 
-                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format, "reasoning_effort": reasoning_effort}
 
     async def _resolve_search_llm_config(self) -> Dict[str, Optional[str]]:
         """解析参考小说搜索专用 LLM 配置；未启用 llm_search.* 时返回未配置错误。"""
@@ -1187,6 +1272,7 @@ class LLMService:
                 base_url = search_base_url or self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
                 model = search_model or await self._get_config_value_for_session(session, "llm.model")
                 api_format = search_api_format
+                reasoning_effort = await self._get_config_value_for_session(session, "llm_search.reasoning_effort")
 
                 if not api_key:
                     raise HTTPException(
@@ -1194,7 +1280,7 @@ class LLMService:
                         detail="搜索模型与默认 LLM 均未配置 API Key",
                     )
 
-                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
+                return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format, "reasoning_effort": reasoning_effort}
 
     async def get_optimize_llm_response(
         self,

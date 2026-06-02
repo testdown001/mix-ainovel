@@ -33,6 +33,9 @@
                   <n-gi><n-form-item label="API 格式">
                     <n-select v-model:value="defaultForm.api_format" :options="apiFormatOptions" placeholder="留空自动识别" clearable />
                   </n-form-item></n-gi>
+                  <n-gi><n-form-item label="推理深度 reasoning_effort">
+                    <n-select v-model:value="defaultForm.reasoning_effort" :options="reasoningEffortOptions" placeholder="仅推理模型(o系列/gpt-5)生效，留空即可" clearable />
+                  </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.default" @click="testChannel('default')">测试连接</n-button>
@@ -69,6 +72,9 @@
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="API 格式">
                     <n-select v-model:value="fallbackForm.api_format" :options="apiFormatOptions" placeholder="留空自动识别" clearable />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="推理深度 reasoning_effort">
+                    <n-select v-model:value="fallbackForm.reasoning_effort" :options="reasoningEffortOptions" placeholder="仅推理模型生效，留空即可" clearable />
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
@@ -107,6 +113,9 @@
                   <n-gi><n-form-item label="API 格式">
                     <n-select v-model:value="polishForm.api_format" :options="apiFormatOptions" placeholder="留空使用默认" clearable />
                   </n-form-item></n-gi>
+                  <n-gi><n-form-item label="推理深度 reasoning_effort">
+                    <n-select v-model:value="polishForm.reasoning_effort" :options="reasoningEffortOptions" placeholder="仅推理模型生效，留空即可" clearable />
+                  </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.polish" @click="testChannel('polish')">测试连接</n-button>
@@ -143,6 +152,9 @@
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="API 格式">
                     <n-select v-model:value="searchForm.api_format" :options="apiFormatOptions" placeholder="留空自动识别" clearable />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="推理深度 reasoning_effort">
+                    <n-select v-model:value="searchForm.reasoning_effort" :options="reasoningEffortOptions" placeholder="仅推理模型生效，留空即可" clearable />
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
@@ -273,11 +285,19 @@ const apiFormatOptions = [
   { label: 'openai-responses', value: 'openai-responses' },
 ]
 
+// reasoning_effort：仅 OpenAI o 系列 / gpt-5 等推理模型生效（控制推理深度），其它模型留空即可
+const reasoningEffortOptions = [
+  { label: 'minimal', value: 'minimal' },
+  { label: 'low', value: 'low' },
+  { label: 'medium', value: 'medium' },
+  { label: 'high', value: 'high' },
+]
+
 // ---- API forms ----
-const defaultForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null })
-const fallbackForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null })
-const polishForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null })
-const searchForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null })
+const defaultForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
+const fallbackForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
+const polishForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
+const searchForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
 
 const defaultSaving = ref(false)
 const fallbackSaving = ref(false)
@@ -314,6 +334,7 @@ const fetchAllConfigs = async () => {
       form.base_url = map.get(`${prefix}.base_url`) || ''
       form.model = map.get(`${prefix}.model`) || ''
       form.api_format = map.get(`${prefix}.api_format`) || null
+      form.reasoning_effort = map.get(`${prefix}.reasoning_effort`) || null
     }
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '加载配置失败', 'error')
@@ -333,6 +354,7 @@ const saveConfig = async (type: ConfigKey) => {
       { key: `${prefix}.base_url`, value: form.base_url, description: `${label} Base URL` },
       { key: `${prefix}.model`, value: form.model, description: `${label} 模型名称` },
       { key: `${prefix}.api_format`, value: form.api_format || '', description: `${label} API 格式` },
+      { key: `${prefix}.reasoning_effort`, value: form.reasoning_effort || '', description: `${label} 推理深度(reasoning_effort)` },
     ]
     for (const entry of entries) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
