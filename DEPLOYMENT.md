@@ -335,13 +335,15 @@ docker compose -f docker-compose.prod.yml up -d --scale celery-worker-chapter=5
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `VECTOR_DB_URL` | `file:./storage/rag_vectors.db` | libsql 向量库路径 |
+| `QDRANT_HOST` | 空 | Qdrant 地址，留空则禁用向量库（RAG + Mem0） |
+| `QDRANT_PORT` | `6333` | Qdrant 端口 |
+| `QDRANT_API_KEY` | 空 | Qdrant API Key（远程云服务或启用认证时填写） |
 | `VECTOR_TOP_K_CHUNKS` | `5` | RAG 检索返回的文本块数 |
 | `VECTOR_TOP_K_SUMMARIES` | `3` | RAG 检索返回的摘要数 |
 | `VECTOR_CHUNK_SIZE` | `480` | 文本分块大小（字符） |
 | `VECTOR_CHUNK_OVERLAP` | `120` | 分块重叠大小 |
-| `QDRANT_HOST` | `127.0.0.1` | Qdrant 地址（Mem0 使用） |
-| `QDRANT_PORT` | `6333` | Qdrant 端口 |
+| `RAG_RETRIEVAL_MODE` | `vector` | `vector` 或 `hybrid`；`hybrid` 启用向量 + BM25 + RRF |
+| `RAG_BM25_WEIGHT` | `0.4` | 混合检索中 BM25 权重 |
 
 ### 生成参数
 

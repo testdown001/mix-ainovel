@@ -282,7 +282,7 @@ class WritingArchiveService:
             archive_id: 档案ID
             final_version_id: 最终选定的版本ID
             version_count: 生成版本数量
-            gatekeeper_score: 审核评分（门下省评分）
+            gatekeeper_score: 审核评分（质量审核评分）
             user_rating: 用户满意度（1-5分）
 
         Returns:

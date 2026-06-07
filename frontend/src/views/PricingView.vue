@@ -57,7 +57,7 @@
       <!-- Page header -->
       <div class="text-center mb-10">
         <h1 class="text-4xl font-bold mb-3" style="font-family:'Space Grotesk',sans-serif;">选择你的创作套餐</h1>
-        <p class="text-lg mb-8" style="color:#888888;">用 AI 加速你的小说创作之旅</p>
+        <p class="text-lg mb-8" style="color:#888888;">从灵感开局到长篇稳定连载，把 AI 变成可控的创作工作流</p>
 
         <!-- Annual toggle -->
         <div class="inline-flex items-center gap-3 px-4 py-2 rounded-full border" style="background:#141414; border-color:#2A2A2A;">
@@ -299,84 +299,81 @@ const plans = [
     id: 'free',
     name: '免费版',
     price: 0,
-    desc: '轻度体验，够用就好',
+    desc: '体验完整主线',
     color: '#888888',
     badge: null,
     cta: '当前套餐',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>',
     features: [
       { text: '1 个小说项目', ok: true },
-      { text: '20次 AI章节生成 / 月', ok: true },
-      { text: '基础角色管理', ok: true },
-      { text: '标准生成队列', ok: true },
+      { text: '20次基础章节生成 / 月', ok: true },
+      { text: '灵感到蓝图主流程', ok: true },
+      { text: '基础角色与大纲管理', ok: true },
       { text: 'TXT 导出', ok: true },
-      { text: '无限小说项目', ok: false },
-      { text: '世界观 / 伏笔 / 情感曲线', ok: false },
-      { text: '优先生成队列', ok: false },
-      { text: '自定义 LLM 接入', ok: false },
+      { text: '跨界素材与多缪斯开局', ok: false },
+      { text: '稳定连载生成模式', ok: false },
+      { text: '关键章节精修', ok: false },
     ],
   },
   {
     id: 'creator',
     name: '创作者版',
     price: 29,
-    desc: '认真写作的最佳选择',
+    desc: '稳定连载的最佳选择',
     color: '#FFE500',
     badge: '最受欢迎',
     cta: '免费试用 3 天',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>',
     features: [
       { text: '无限 小说项目', ok: true },
-      { text: '200次 AI章节生成 / 月', ok: true },
-      { text: '完整角色 / 人物关系图', ok: true },
-      { text: '世界观 / 伏笔 / 情感曲线', ok: true },
-      { text: '优先生成队列（快 3×）', ok: true },
-      { text: '章节大纲智能生成', ok: true },
+      { text: '200次章节生成 / 月', ok: true },
+      { text: '多风格灵感缪斯', ok: true },
+      { text: '跨界素材嫁接', ok: true },
+      { text: '稳定连载生成模式', ok: true },
+      { text: '章节体检与返工建议', ok: true },
       { text: 'TXT / DOCX 导出', ok: true },
-      { text: '自定义 LLM 接入', ok: false },
-      { text: '专属客服支持', ok: false },
+      { text: '关键章节精修', ok: false },
     ],
   },
   {
     id: 'pro',
-    name: '无限版',
+    name: '旗舰版',
     price: 69,
-    desc: '为重度创作者与团队打造',
+    desc: '精品章节与重度创作',
     color: '#C084FC',
     badge: '全功能解锁',
     cta: '免费试用 3 天',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>',
     features: [
       { text: '无限 小说项目', ok: true },
-      { text: '无限 AI章节生成', ok: true },
-      { text: '完整角色 / 人物关系图', ok: true },
-      { text: '世界观 / 伏笔 / 情感曲线', ok: true },
+      { text: '无限章节生成', ok: true },
+      { text: '多方向开局筛选', ok: true },
+      { text: '关键章节精修', ok: true },
+      { text: '读者模拟与自我批判', ok: true },
       { text: '最高优先队列（最快）', ok: true },
-      { text: '章节大纲智能生成', ok: true },
       { text: 'TXT / DOCX / EPUB 导出', ok: true },
       { text: '自定义 LLM 接入（自带 Key）', ok: true },
-      { text: '专属客服支持', ok: true },
     ],
   },
 ]
 
 const comparisonRows: { label: string; vals: (string | boolean)[] }[] = [
   { label: '小说项目数量', vals: ['1 个', '无限', '无限'] },
-  { label: 'AI章节生成', vals: ['20次/月', '200次/月', '无限次'] },
-  { label: '优先生成队列', vals: [false, '快 3×', '最快'] },
-  { label: '世界观 / 伏笔管理', vals: [false, true, true] },
-  { label: '情感曲线分析', vals: [false, true, true] },
-  { label: '章节大纲生成', vals: [false, true, true] },
+  { label: '章节生成额度', vals: ['20次/月', '200次/月', '无限次'] },
+  { label: '灵感模式增强', vals: ['基础对话', '缪斯 + 素材', '多方向筛选'] },
+  { label: '生成质量链路', vals: ['快速生成', '稳定连载', '关键章节精修'] },
+  { label: '章节体检', vals: [false, true, true] },
+  { label: '长篇一致性工具', vals: [false, true, true] },
   { label: '导出格式', vals: ['TXT', 'TXT / DOCX', 'TXT / DOCX / EPUB'] },
   { label: '自定义 LLM 接入', vals: [false, false, true] },
-  { label: '专属客服', vals: [false, false, true] },
 ]
 
 const faqs = [
   { q: '3天试用需要绑定信用卡吗？', a: '不需要。注册即可激活创作者版3天试用，无需填写任何支付信息。试用到期后自动降为免费版，不会产生任何扣费。' },
   { q: '试用期结束后数据会丢失吗？', a: '不会。你的所有小说项目和章节数据会完整保留。升级后即可继续使用所有内容。' },
   { q: '可以随时取消订阅吗？', a: '可以。订阅可在任意时间取消，取消后当前计费周期结束前仍可继续使用付费功能。' },
-  { q: '「自定义LLM接入」是什么意思？', a: '无限版用户可以在设置中填写自己的 API Key（支持 OpenAI、DeepSeek、Qwen 等），使用自己的模型配额，不受平台生成次数限制。' },
+  { q: '章节体检有什么用？', a: '章节体检会把生成耗时、RAG 命中、评审分数和正文结构转成可执行的返工建议，帮助你判断这一章是直接定稿、局部修改，还是重新生成。' },
+  { q: '「自定义LLM接入」是什么意思？', a: '旗舰版用户可以在设置中填写自己的 API Key（支持 OpenAI、DeepSeek、Qwen 等），使用自己的模型配额，不受平台生成次数限制。' },
 ]
 
 const displayPrice = (plan: typeof plans[0]) => {

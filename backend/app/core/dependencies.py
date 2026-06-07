@@ -8,6 +8,7 @@ from ..db.session import get_session
 from ..repositories.user_repository import UserRepository
 from ..schemas.user import UserInDB
 from ..services.auth_service import AuthService
+from ..services.quota_service import QuotaService
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
@@ -38,6 +39,17 @@ async def get_current_user(
     service = AuthService(session)
     schema = UserInDB.model_validate(user)
     schema.must_change_password = service.requires_password_reset(user)
+
+    # 注入 quota tier 信息
+    quota_service = QuotaService(session)
+    quota = await quota_service.get_quota(user.id)
+    if quota:
+        schema.plan_tier = quota.plan_tier or "free"
+        schema.effective_tier = quota.effective_tier
+    else:
+        schema.plan_tier = "free"
+        schema.effective_tier = "free"
+
     return schema
 
 

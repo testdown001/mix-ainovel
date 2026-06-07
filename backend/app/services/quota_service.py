@@ -39,11 +39,15 @@ class QuotaService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_or_create_quota(self, user_id: int) -> UserQuota:
-        """获取或创建用户配额"""
+    async def get_quota(self, user_id: int) -> Optional[UserQuota]:
+        """获取用户配额；不存在时返回 None，不创建记录。"""
         stmt = select(UserQuota).where(UserQuota.user_id == user_id)
         result = await self.session.execute(stmt)
-        quota = result.scalars().first()
+        return result.scalars().first()
+
+    async def get_or_create_quota(self, user_id: int) -> UserQuota:
+        """获取或创建用户配额"""
+        quota = await self.get_quota(user_id)
 
         if not quota:
             quota = UserQuota(
@@ -180,14 +184,20 @@ class QuotaService:
         优先使用后台显式配置的 plan.tier；缺失时回退按 plan.name 关键字猜测；
         无 plan 时按通用 premium 视作 creator。
         """
-        explicit = (getattr(plan, "tier", "") or "").strip().lower()
-        if explicit in ("free", "creator", "flagship"):
-            return explicit
         name = (getattr(plan, "name", "") or "")
+        explicit = (getattr(plan, "tier", "") or "").strip().lower()
+        if explicit in ("creator", "flagship"):
+            return explicit
         if "旗舰" in name or "flagship" in name.lower():
             return "flagship"
         if "创作者" in name or "creator" in name.lower():
             return "creator"
+        if explicit == "free":
+            try:
+                price = float(getattr(plan, "price", 0) or 0)
+            except (TypeError, ValueError):
+                price = 0
+            return "free" if price <= 0 else "creator"
         return "creator"  # 任意已付费套餐至少为 creator
 
     async def upgrade_to_premium(

@@ -69,7 +69,7 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
-          <span class="card-title">三省六部 Agent 系统</span>
+          <span class="card-title">自创先进多 Agent 架构</span>
         </div>
       </template>
       <n-spin :show="agentLoading">
@@ -77,7 +77,7 @@
           {{ agentError }}
         </n-alert>
         <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
-          启用后，章节生成将使用三省六部多 Agent 协作系统（太子省 → 中书省 → 尚书省 → 兵部 → 门下省），替代传统单流水线生成。
+          启用后，章节生成将使用自创先进多 Agent 架构，联动规划、技能、上下文、生成与审核模块，替代传统单流水线生成。
         </n-alert>
         <n-form label-placement="left" class="agent-form">
           <n-form-item label="启用 Agent 系统">
@@ -289,7 +289,7 @@ const saveCaptchaConfig = async () => {
   }
 }
 
-// ---- 三省六部 Agent 系统开关 ----
+// ---- 自创先进多 Agent 架构开关 ----
 const agentLoading = ref(false)
 const agentSaving = ref(false)
 const agentError = ref<string | null>(null)
@@ -316,9 +316,9 @@ const saveAgentSetting = async (val: boolean) => {
   try {
     await AdminAPI.upsertSystemConfig(AGENT_CONFIG_KEY, {
       value: val ? 'true' : 'false',
-      description: '是否启用三省六部多 Agent 系统生成章节'
+      description: '是否启用自创先进多 Agent 架构生成章节'
     })
-    showAlert(val ? '已启用三省六部 Agent 系统' : '已关闭三省六部 Agent 系统', 'success')
+    showAlert(val ? '已启用自创先进多 Agent 架构' : '已关闭自创先进多 Agent 架构', 'success')
   } catch (err) {
     // 保存失败时回滚开关状态
     agentEnabled.value = !val

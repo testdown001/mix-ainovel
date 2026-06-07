@@ -2,7 +2,7 @@
 """生成管线的类型化共享状态（借鉴 LangGraph typed state 思想）。
 
 背景：`pre_collected_context` 历史上是一个 stringly-typed dict，用魔法字符串 key
-跨组件传递（中书省 zhongshu → system flow_config → PipelineOrchestrator / 证据阶段），
+跨组件传递（规划智能体 zhongshu → system flow_config → PipelineOrchestrator / 证据阶段），
 读取处散落 `.get("history_context")`/`.get("rag_context")` 等，键名拼写错误无法静态发现。
 
 本模块用强类型 dataclass 建模这份跨阶段共享状态，并保留 `from_dict/to_dict` 序列化边界：

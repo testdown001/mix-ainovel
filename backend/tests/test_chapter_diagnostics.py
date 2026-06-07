@@ -69,3 +69,14 @@ TODO：这里待补。
     assert "占位符残留" in issue_types
     assert result["suggestions"]
 
+
+def test_diagnostic_product_summary_shape_is_stable():
+    summary = {
+        "verdict": "本章可用但建议小修，优先处理下方风险点",
+        "primary_risk": "章节评审均分 72 分，有提升空间",
+        "next_action": "确认满意版本后定稿，并继续推进下一章",
+        "confidence": "high",
+    }
+
+    assert set(summary) == {"verdict", "primary_risk", "next_action", "confidence"}
+    assert summary["confidence"] in {"high", "medium", "low"}

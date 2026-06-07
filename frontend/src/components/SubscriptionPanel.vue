@@ -37,6 +37,17 @@
       </div>
     </div>
 
+    <!-- 升级收益 -->
+    <div class="rounded-xl border p-4 mb-5" style="background:#101010; border-color:#2A2A2A;">
+      <div class="text-sm font-bold text-white mb-3">升级后优先解决</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div v-for="item in upgradeOutcomes" :key="item.title" class="rounded-lg p-3" style="background:#141414;">
+          <div class="text-xs font-semibold text-white">{{ item.title }}</div>
+          <div class="text-[11px] mt-1 leading-relaxed" style="color:#888;">{{ item.desc }}</div>
+        </div>
+      </div>
+    </div>
+
     <!-- 支付渠道选择 -->
     <div class="flex items-center gap-2 mb-3">
       <span class="text-xs" style="color:#888;">支付方式</span>
@@ -265,24 +276,30 @@ const scrollToPlans = () => {
   plansRef.value?.scrollIntoView({ behavior: 'smooth' })
 }
 
+const upgradeOutcomes = [
+  { title: '开局不落俗套', desc: '用缪斯人格、参考作品和跨界素材，快速找到更有记忆点的题材切口。' },
+  { title: '长篇更稳', desc: '用标准/精品生成、知识库和章节体检，降低人物跑偏、伏笔遗漏和设定冲突。' },
+  { title: '减少返工', desc: '多版本、评审和关键章节精修，让你在定稿前看到风险和替代方案。' },
+]
+
 const plans = [
   {
     id: 'free',
     dbId: 0,
     name: '免费版',
     price: 0,
-    desc: '轻度体验',
+    desc: '体验完整主线',
     color: '#888888',
     badge: null,
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>',
     features: [
       { text: '1 个小说项目', ok: true },
-      { text: '20次 AI生成 / 月', ok: true },
-      { text: '基础角色管理', ok: true },
-      { text: '标准生成队列', ok: true },
-      { text: '无限项目 / 世界观管理', ok: false },
-      { text: '优先生成队列', ok: false },
-      { text: '自定义 LLM 接入', ok: false },
+      { text: '20次基础章节生成 / 月', ok: true },
+      { text: '灵感到蓝图主流程', ok: true },
+      { text: '基础角色与大纲管理', ok: true },
+      { text: '跨界素材与多缪斯开局', ok: false },
+      { text: '稳定连载生成模式', ok: false },
+      { text: '关键章节精修', ok: false },
     ],
   },
   {
@@ -290,36 +307,36 @@ const plans = [
     dbId: 2,
     name: '创作者版',
     price: 29,
-    desc: '认真写作的首选',
+    desc: '稳定连载的首选',
     color: '#FFE500',
     badge: '最受欢迎',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>',
     features: [
       { text: '无限 小说项目', ok: true },
-      { text: '200次 AI生成 / 月', ok: true },
-      { text: '完整角色 / 关系图', ok: true },
-      { text: '世界观 / 伏笔 / 情感曲线', ok: true },
-      { text: '优先队列（快 3×）', ok: true },
-      { text: 'TXT / DOCX 导出', ok: true },
-      { text: '自定义 LLM 接入', ok: false },
+      { text: '200次章节生成 / 月', ok: true },
+      { text: '多风格灵感缪斯', ok: true },
+      { text: '跨界素材嫁接', ok: true },
+      { text: '稳定连载生成模式', ok: true },
+      { text: '章节体检与返工建议', ok: true },
+      { text: '关键章节精修', ok: false },
     ],
   },
   {
     id: 'pro',
     dbId: 3,
-    name: '无限版',
+    name: '旗舰版',
     price: 69,
-    desc: '重度创作者',
+    desc: '精品章节与重度创作',
     color: '#C084FC',
     badge: '全功能解锁',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>',
     features: [
       { text: '无限 小说项目', ok: true },
-      { text: '无限 AI生成次数', ok: true },
-      { text: '完整角色 / 关系图', ok: true },
-      { text: '世界观 / 伏笔 / 情感曲线', ok: true },
+      { text: '无限章节生成', ok: true },
+      { text: '多方向开局筛选', ok: true },
+      { text: '关键章节精修', ok: true },
+      { text: '读者模拟与自我批判', ok: true },
       { text: '最高优先队列', ok: true },
-      { text: 'TXT / DOCX / EPUB 导出', ok: true },
       { text: '自定义 LLM 接入（自带 Key）', ok: true },
     ],
   },
@@ -327,12 +344,11 @@ const plans = [
 
 const comparisonRows: { label: string; vals: (string | boolean)[] }[] = [
   { label: '小说项目数量', vals: ['1 个', '无限', '无限'] },
-  { label: 'AI章节生成', vals: ['20次/月', '200次/月', '无限次'] },
-  { label: '优先生成队列', vals: [false, '快 3×', '最快'] },
-  { label: '世界观 / 伏笔管理', vals: [false, true, true] },
-  { label: '情感曲线分析', vals: [false, true, true] },
-  { label: '章节大纲生成', vals: [false, true, true] },
-  { label: '导出格式', vals: ['TXT', 'TXT / DOCX', 'EPUB 等全格式'] },
+  { label: '章节生成额度', vals: ['20次/月', '200次/月', '无限次'] },
+  { label: '灵感模式增强', vals: ['基础对话', '缪斯 + 素材', '多方向筛选'] },
+  { label: '生成质量链路', vals: ['快速生成', '稳定连载', '关键章节精修'] },
+  { label: '章节体检', vals: [false, true, true] },
+  { label: '长篇一致性工具', vals: [false, true, true] },
   { label: '自定义 LLM 接入', vals: [false, false, true] },
 ]
 

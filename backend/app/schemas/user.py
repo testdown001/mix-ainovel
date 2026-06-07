@@ -47,6 +47,8 @@ class User(UserBase):
     is_admin: bool = Field(default=False, description="是否为管理员")
     is_active: bool = Field(default=True, description="是否激活")
     must_change_password: bool = Field(default=False, description="是否需要强制修改密码")
+    plan_tier: Optional[str] = Field(default="free", description="订阅档位: free/creator/flagship")
+    effective_tier: Optional[str] = Field(default="free", description="实际生效档位（考虑Premium失效回退）")
 
 
 class UserInDB(User):

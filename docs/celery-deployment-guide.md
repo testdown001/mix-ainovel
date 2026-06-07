@@ -1,5 +1,7 @@
 # Celery 任务队列系统部署指南
 
+> 当前状态提示（2026-06-02）：本文是历史部署文档，不代表当前运行代码。当前索引中没有 `app/tasks/chapter_tasks.py`，章节异步生成主要通过 Go Gateway task dispatcher + `backend/app/api/routers/task_worker.py`；Celery 当前保留 `celery_app.py` 和 `foreshadowing_tasks.py`，`/api/tasks/*` 仅用于 Celery task id 的状态/取消/结果查询。
+
 ## 已完成的改造
 
 ### 1. Celery 核心组件

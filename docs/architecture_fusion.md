@@ -1,5 +1,7 @@
 # AI-Novel 架构融合文档
 
+> 当前状态提示（2026-06-02）：本文是历史融合设计文档，不代表当前运行代码。当前索引中没有 `KnowledgeRetrievalService`；RAG 访问层以 `ContextAccessService`、`ChapterContextService`、`EvidenceRouterService`、`HybridRetrievalService` 和 `VectorStoreService` 为准。
+
 ## 概述
 
 本文档描述了从 [AI_NovelGenerator](https://github.com/YILING0013/AI_NovelGenerator) 项目融合的核心功能和设计理念。

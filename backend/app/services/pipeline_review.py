@@ -11,7 +11,13 @@ from ..services.consistency_service import ConsistencyService, ViolationSeverity
 from ..services.enrichment_service import EnrichmentService
 from ..services.reader_simulator_service import ReaderSimulatorService, ReaderType
 from ..services.self_critique_service import CritiqueDimension, SelfCritiqueService
-from ..utils.json_utils import remove_think_tags, repair_json, sanitize_chapter_plain_text, unwrap_markdown_json
+from ..utils.json_utils import (
+    is_probable_chapter_plain_text,
+    remove_think_tags,
+    repair_json,
+    sanitize_chapter_plain_text,
+    unwrap_markdown_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -359,6 +365,8 @@ class PipelineReviewMixin:
 - 保持情节走向、人物关系、对话内容完全不变
 {word_count_principle}
 - 优化要自然融入，不能有明显修补痕迹
+- optimized_content 字段必须只填写小说正文，禁止包含分析任务、原文本分析、人物分析、氛围分析、优化说明、标题或任何编辑备注
+- optimization_notes 字段只填写简短优化说明，不得混入 optimized_content
 
 [原章节内容]
 {chapter_content}
@@ -372,7 +380,10 @@ class PipelineReviewMixin:
         try:
             _optimizer_max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_llm_response(
-                system_prompt="你是一位擅长多维度同步优化网文章节的资深编辑。只输出JSON，不要其他内容。",
+                system_prompt=(
+                    "你是一位擅长多维度同步优化网文章节的资深编辑。"
+                    "只输出JSON。optimized_content 只能是小说正文，禁止输出分析任务、原文本分析或编辑说明。"
+                ),
                 conversation_history=[{"role": "user", "content": optimize_prompt}],
                 temperature=0.7,
                 user_id=user_id,
@@ -395,15 +406,28 @@ class PipelineReviewMixin:
                 dimension_label += "+polish"
             if include_density:
                 dimension_label += "+density"
+            optimized_raw = parsed.get("optimized_content", cleaned) if parsed else cleaned
+            optimized_text = optimized_raw if isinstance(optimized_raw, str) else ""
+            optimized_content = sanitize_chapter_plain_text(optimized_text.strip())
+            if not optimized_content or not is_probable_chapter_plain_text(optimized_content):
+                logger.warning("综合优化结果不是有效章节正文，保留原文")
+                return chapter_content, {
+                    "steps": [{
+                        "dimension": dimension_label,
+                        "notes": "优化结果不是有效章节正文，已保留原文",
+                    }],
+                    "applied": False,
+                    "reason": "invalid_chapter_response",
+                }
             if parsed:
-                return parsed.get("optimized_content", cleaned), {
+                return optimized_content, {
                     "steps": [{
                         "dimension": dimension_label,
                         "notes": parsed.get("optimization_notes", "综合优化完成"),
                     }],
                 }
             else:
-                return cleaned, {"steps": [{"dimension": dimension_label, "notes": "优化完成（响应格式非标准JSON）"}]}
+                return optimized_content, {"steps": [{"dimension": dimension_label, "notes": "优化完成（响应格式非标准JSON）"}]}
         except Exception as exc:
             logger.warning("综合优化失败: %s", exc)
             return chapter_content, {"steps": []}
@@ -419,16 +443,20 @@ class PipelineReviewMixin:
 4. 润色对话：使角色语言更有个性和感染力
 5. 打磨节奏：优化段落过渡和叙事节奏
 6. 保持原文字数规模，总字数不得超过 {max_word_count} 字，不增删情节
+7. 禁止输出分析任务、原文本分析、人物分析、氛围分析、优化说明、标题或任何编辑备注
 
 [原章节内容]
 {chapter_content}
 
-直接输出润色后的完整章节，不要输出其他内容。"""
+直接输出润色后的完整章节正文。第一个字必须是小说正文的第一个字，不要输出任何非正文内容。"""
 
         try:
             _polish_max_tokens = int(max_word_count * 1.2) if max_word_count else None
             response = await self.llm_service.get_optimize_llm_response(
-                system_prompt="你是一位擅长小说润色的文学编辑，你的任务是在保持原有情节不变的前提下，提升文字的文学性和画面感。",
+                system_prompt=(
+                    "你是一位擅长小说润色的文学编辑。"
+                    "只输出润色后的小说正文，禁止输出分析任务、原文本分析、人物分析、氛围分析或编辑说明。"
+                ),
                 conversation_history=[{"role": "user", "content": polish_prompt}],
                 temperature=0.75,
                 timeout=180.0,
@@ -440,6 +468,9 @@ class PipelineReviewMixin:
                 return chapter_content, {"applied": False, "reason": "empty_response"}
 
             final = sanitize_chapter_plain_text(cleaned.strip())
+            if not final or not is_probable_chapter_plain_text(final):
+                logger.warning("独立模型润色结果不是有效章节正文，保留原文")
+                return chapter_content, {"applied": False, "reason": "invalid_chapter_response"}
             logger.info(
                 "独立模型润色完成: original_len=%d, polished_len=%d",
                 len(chapter_content), len(final),

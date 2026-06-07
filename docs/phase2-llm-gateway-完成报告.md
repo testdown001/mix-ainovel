@@ -1,5 +1,7 @@
 # Phase 2.2 - Go LLM Gateway 开发完成报告
 
+> 当前状态提示（2026-06-02）：本文是历史完成报告，不代表当前运行代码。当前索引中 `gateway/internal/llmgateway/` 已不存在，Go 侧生产入口只有 `gateway/cmd/gateway/main.go`；LLM 调用仍以 Python 后端 `llm_service.py` 为准。
+
 **完成日期**: 2026-03-13
 **开发时间**: < 1 小时（AI 辅助）
 **状态**: ✅ 全部完成

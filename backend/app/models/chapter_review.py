@@ -1,5 +1,5 @@
-# AIMETA P=章节审核模型_门下省质量审核|R=审核结果存储|NR=记录章节质量审核结果|ChapterReview|X=internal|A=SQLAlchemy|D=orm|S=none|RD=./README.ai
-"""章节审核模型 - 门下省质量审核机制"""
+# AIMETA P=章节审核模型_质量审核|R=审核结果存储|NR=记录章节质量审核结果|ChapterReview|X=internal|A=SQLAlchemy|D=orm|S=none|RD=./README.ai
+"""章节审核模型 - 质量审核机制"""
 from datetime import datetime
 from typing import Optional
 
@@ -12,7 +12,7 @@ BIGINT_PK_TYPE = BigInteger().with_variant(Integer, "sqlite")  # SQLite 需 INTE
 
 
 class ChapterReview(Base):
-    """章节审核记录 - 门下省审核结果"""
+    """章节审核记录 - 质量审核结果"""
 
     __tablename__ = "chapter_reviews"
 

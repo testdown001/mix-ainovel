@@ -1,5 +1,5 @@
-# AIMETA P=中书省Agent|R=规划中枢|NR=收集上下文并构建写作任务|E=ZhongshuAgent|X=internal|A=Agent实现|D=asyncio
-"""中书省 Agent - 规划中枢"""
+# AIMETA P=规划智能体|R=上下文规划|NR=收集上下文并构建写作任务|E=ZhongshuAgent|X=internal|A=Agent实现|D=asyncio
+"""规划智能体 - 上下文规划"""
 from __future__ import annotations
 
 import json
@@ -11,7 +11,7 @@ from .message import AgentContext, AgentMessageType, AgentResult
 
 logger = logging.getLogger(__name__)
 
-ZHONGSHU_SYSTEM_PROMPT = """你是小说写作系统的"中书省"规划智能体。你的职责是为即将生成的章节收集并组装所需的上下文信息。
+ZHONGSHU_SYSTEM_PROMPT = """你是小说写作系统的规划智能体。你的职责是为即将生成的章节收集并组装所需的上下文信息。
 
 你拥有以下工具来检索信息：
 - rag_retrieve: 从知识库中检索与当前章节相关的情节、线索上下文
@@ -51,13 +51,13 @@ ZHONGSHU_TOOL_NAMES = [
 
 class ZhongshuAgent(BaseAgent):
     """
-    中书省 Agent - 规划中枢
+    规划智能体 - 上下文规划
 
     职责：
-    1. 接收太子省解析结果
+    1. 接收需求解析结果
     2. 收集项目上下文（蓝图、历史、RAG）
     3. 构建写作任务 Mission
-    4. 转发给尚书省
+    4. 交给生成智能体
     """
 
     AGENT_NAME = "zhongshu"
@@ -74,7 +74,7 @@ class ZhongshuAgent(BaseAgent):
         from .agentic_loop import AgenticLoop, AgenticLoopConfig
         from .tools import create_default_registry
 
-        await self.emit_stage("agent:zhongshu:start", "中书省智能规划启动")
+        await self.emit_stage("agent:zhongshu:start", "规划智能体启动")
 
         registry = create_default_registry()
         user_id = int(context.metadata.get("user_id") or 0)
@@ -145,7 +145,7 @@ class ZhongshuAgent(BaseAgent):
 
         await self.emit_stage("agent:zhongshu:done", "Mission 构建完成")
 
-        # 收敛说明：原通过 send_message 转交尚书省调度，现主流程直接读取
+        # 收敛说明：原通过 send_message 转交调度角色，现主流程直接读取
         # 本方法返回的 writing_prompt / pre_collected_context 驱动生成阶段，
         # 转发调用已移除。next_agent 改为 bingbu 以反映真实下一步。
         return AgentResult(

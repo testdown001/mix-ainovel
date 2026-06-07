@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from app.services.chapter_post_processor import ChapterPostProcessor
-from app.services.novel_service import _collapse_chapters_by_number
+from app.services.novel_service import _collapse_chapters_by_number, _normalize_version_content
 
 
 class _ScalarListResult:
@@ -42,6 +42,12 @@ def test_collapse_chapters_by_number_prefers_contentful_duplicate():
     chapters_map = _collapse_chapters_by_number([chapter_empty, chapter_rich])
 
     assert chapters_map[34] is chapter_rich
+
+
+def test_normalize_version_content_does_not_fallback_to_metadata_text():
+    metadata = {"content": "这只是调试元数据，不应成为版本正文"}
+
+    assert _normalize_version_content("", metadata) == ""
 
 
 def test_chapter_post_processor_writes_summary_to_canonical_duplicate():

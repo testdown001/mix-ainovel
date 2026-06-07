@@ -1,7 +1,7 @@
 # Arboris Novel - AI Writing Platform
 
 ## Overview
-An AI-powered writing assistant platform for Chinese web novel authors. Features a "Triple Province and Six Ministry" (三省六部) Multi-Agent architecture for maintaining narrative consistency, managing world-settings, and generating high-quality drafts.
+An AI-powered writing assistant platform for Chinese web novel authors. Features a custom advanced Multi-Agent architecture for maintaining narrative consistency, managing world-settings, and generating high-quality drafts.
 
 ## Architecture
 - **Backend**: Python 3.12 + FastAPI (port 8000)

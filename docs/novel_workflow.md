@@ -114,12 +114,13 @@
 ### 3.2 向量存储
 
 - **后端服务**：`VectorStoreService`
-- **存储实现**：libsql（可本地 `file:`，亦可云端），需手动配置 `VECTOR_DB_URL`
-- **表结构**：
-  - `rag_chunks`（正文分块）：`id`、`project_id`、`chapter_number`、`chunk_index`、`chapter_title`、`content`、`embedding`、`metadata`
-  - `rag_summaries`（章节摘要）：`id`、`project_id`、`chapter_number`、`title`、`summary`、`embedding`
+- **存储实现**：Qdrant。`QDRANT_HOST` 留空时向量库禁用；配置后由服务自动确保 collection 存在。
+- **Collection**：
+  - `rag_chunks`：正文分块向量，payload 包含 `project_id`、`chapter_number`、`chunk_index`、`chapter_title`、`content`、`metadata`
+  - `rag_summaries`：章节摘要向量，payload 包含 `project_id`、`chapter_number`、`title`、`summary`
 - **检索策略**：
-  - 优先使用 libsql 的 `vector_distance_cosine`；若未启用，回退到 Python 端计算余弦距离（排序后截取 Top-K）。
+  - 默认使用 Qdrant cosine 向量相似度检索，按 `project_id` 隔离项目数据并截取 Top-K。
+  - 当 `RAG_RETRIEVAL_MODE=hybrid` 时，`HybridRetrievalService` 将 Qdrant 向量检索与 BM25 结果做 RRF 融合。
   - 查询向量由 `LLMService.get_embedding` 生成，支持 OpenAI 与 Ollama（通过 `EMBEDDING_PROVIDER` 切换）。
 
 ### 3.3 向量生命周期
@@ -137,8 +138,9 @@
 | `OPENAI_*` | 默认生成模型配置 | `.env` 或系统配置表 |
 | `EMBEDDING_PROVIDER` | 嵌入提供方（`openai` / `ollama`） | `.env` |
 | `EMBEDDING_MODEL` / `OLLAMA_EMBEDDING_MODEL` | 具体嵌入模型名 | `.env` |
-| `VECTOR_DB_URL` | libsql 数据库地址（支持 `file:`） | `.env` |
+| `QDRANT_HOST` / `QDRANT_PORT` / `QDRANT_API_KEY` | Qdrant 向量库连接配置，`QDRANT_HOST` 留空则禁用向量库 | `.env` |
 | `VECTOR_TOP_K_CHUNKS` / `VECTOR_TOP_K_SUMMARIES` | 检索数量 | `.env` / 系统配置 |
+| `RAG_RETRIEVAL_MODE` | 检索模式：`vector` / `hybrid` | `.env` / 系统配置 |
 | `WRITER_CHAPTER_VERSION_COUNT` | 章节候选版本数 | 系统配置 / 环境变量 |
 
 确保在部署环境中提前安装新依赖：

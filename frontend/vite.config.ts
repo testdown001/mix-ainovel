@@ -23,6 +23,16 @@ export default defineConfig({
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         timeout: 1800000,
+      },
+      '/tasks': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+        timeout: 1800000,
+      },
+      '/ws': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+        ws: true,
       }
     }
   }

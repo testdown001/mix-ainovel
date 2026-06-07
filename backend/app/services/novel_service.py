@@ -91,13 +91,8 @@ def _collapse_chapters_by_number(chapters: Iterable[Any]) -> Dict[int, Any]:
 
 
 def _normalize_version_content(raw_content: Any, metadata: Any) -> str:
-    # 优先使用原始内容
+    # 版本正文只能来自显式 content；metadata 是调试/追踪信息，不能兜底成正文。
     text = _coerce_text(raw_content)
-    if text:
-        return text
-    
-    # 如果没有原始内容，尝试从元数据提取（兼容旧逻辑）
-    text = _coerce_text(metadata)
     return text or ""
 
 

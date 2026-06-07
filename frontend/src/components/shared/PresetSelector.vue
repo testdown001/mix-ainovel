@@ -1,77 +1,79 @@
-<!-- AIMETA P=预设选择器_写作预设选择|R=预设选择_可视化说明|NR=|E=PresetSelector|X=ui|A=预设组件|D=vue|S=dom -->
+<!-- AIMETA P=生成模式选择器|R=模式选择_档位门控|NR=|E=PresetSelector|X=ui|A=模式组件|D=vue|S=dom -->
 <template>
   <div class="preset-selector">
-    <!-- 预设级别标签 -->
-    <div class="level-tabs">
-      <button 
-        v-for="level in levels" 
-        :key="level.id"
-        :class="['level-tab', { active: currentLevel === level.id }]"
-        @click="currentLevel = level.id"
-      >
-        <span class="level-icon">{{ level.icon }}</span>
-        <span class="level-name">{{ level.name }}</span>
-      </button>
+    <div class="preset-header">
+      <h3 class="preset-title">选择生成模式</h3>
+      <p class="preset-subtitle">不同模式适合不同创作需求</p>
     </div>
 
-    <!-- 预设卡片列表 -->
+    <!-- 模式卡片列表 -->
     <div class="preset-cards">
-      <div 
-        v-for="preset in currentPresets" 
-        :key="preset.name"
-        :class="['preset-card', { selected: modelValue === preset.name }]"
-        @click="selectPreset(preset.name)"
+      <div
+        v-for="preset in presets"
+        :key="preset.value"
+        :class="['preset-card', {
+          selected: modelValue === preset.value,
+          locked: preset.requiresTier && !canUsePreset(preset.requiresTier)
+        }]"
+        @click="selectPreset(preset)"
       >
-        <div class="preset-header">
-          <span class="preset-name">{{ preset.name }}</span>
-          <span class="preset-time">{{ preset.estimated_time }}</span>
+        <!-- 档位徽章 -->
+        <div v-if="preset.requiresTier" class="tier-badge" :class="getTierClass(preset.requiresTier)">
+          {{ getTierLabel(preset.requiresTier) }}
         </div>
-        <p class="preset-description">{{ preset.description }}</p>
-        
+
+        <!-- 锁定遮罩 -->
+        <div v-if="preset.requiresTier && !canUsePreset(preset.requiresTier)" class="lock-overlay">
+          <svg class="lock-icon" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+          <span class="lock-text">需要{{ getTierLabel(preset.requiresTier) }}</span>
+        </div>
+
+        <div class="preset-icon">{{ preset.icon }}</div>
+
+        <div class="preset-info">
+          <div class="preset-name-row">
+            <span class="preset-name">{{ preset.name }}</span>
+            <span class="preset-time">{{ preset.time }}</span>
+          </div>
+          <p class="preset-description">{{ preset.description }}</p>
+        </div>
+
         <!-- 特点标签 -->
         <div class="preset-features">
-          <span 
-            v-for="feature in preset.features" 
+          <span
+            v-for="feature in preset.features"
             :key="feature"
             class="feature-tag"
           >
             {{ feature }}
           </span>
         </div>
-        
-        <!-- 适用场景 -->
-        <div class="preset-suitable">
-          <span class="suitable-label">适用：</span>
-          <span 
-            v-for="scene in preset.suitable_for.slice(0, 2)" 
-            :key="scene"
-            class="scene-tag"
-          >
-            {{ scene }}
-          </span>
-        </div>
       </div>
     </div>
 
     <!-- 当前选择显示 -->
-    <div class="selected-preset" v-if="modelValue">
-      <span class="selected-label">当前选择：</span>
-      <span class="selected-name">{{ selectedPresetInfo?.name }}</span>
+    <div class="selected-info" v-if="modelValue">
+      <span class="info-label">当前模式：</span>
+      <span class="info-value">{{ selectedPreset?.name }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, onMounted } from 'vue'
+import { useAuthStore } from '@/stores/auth'
+import { useMessage } from 'naive-ui'
 
 interface PresetInfo {
+  value: string
   name: string
-  level: string
-  name_cn: string
+  icon: string
   description: string
   features: string[]
-  suitable_for: string[]
-  estimated_time: string
+  time: string
+  requiresTier?: 'creator' | 'flagship'  // 需要的最低档位
 }
 
 interface Props {
@@ -83,42 +85,82 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
-// 预设级别
-const levels = [
-  { id: 'beginner', name: '新手', icon: '🌱' },
-  { id: 'intermediate', name: '进阶', icon: '🚀' },
-  { id: 'advanced', name: '高阶', icon: '⚡' },
-]
+const authStore = useAuthStore()
+const message = useMessage()
 
-const currentLevel = ref('beginner')
+// 用户当前档位。后台分配订阅后，重新打开/点击模式时会刷新 /users/me。
+const userTier = computed(() => authStore.user?.effective_tier || 'free')
 
-// 预设数据（与后端 pipeline_config_service.py 对应）
-const allPresets: PresetInfo[] = [
-  // 初级
-  { name: 'basic', level: 'beginner', name_cn: '基础模式', description: '基础生成，单版本输出', features: ['RAG检索', '单版本', '基础质量'], suitable_for: ['日常写作', '快速记录'], estimated_time: '1-2分钟' },
-  { name: 'fast', level: 'beginner', name_cn: '极速模式', description: '最快速度生成，适合快速迭代', features: ['极速生成', '轻量处理', '快速路径'], suitable_for: ['快速迭代', '大纲测试'], estimated_time: '30-60秒' },
-
-  // 中级
-  { name: 'enhanced', level: 'intermediate', name_cn: '增强模式', description: '六维评审+文笔打磨，适合进阶作者', features: ['六维评审', '文笔打磨', '丰富化处理'], suitable_for: ['追求质量', '正式写作'], estimated_time: '3-5分钟' },
-  { name: 'ultimate', level: 'intermediate', name_cn: '终极模式', description: '完整功能+一致性检查', features: ['记忆层', '一致性检查', '六维评审'], suitable_for: ['长篇连载', '复杂剧情'], estimated_time: '4-6分钟' },
-
-  // 高级
-  { name: 'platinum', level: 'advanced', name_cn: '铂金模式', description: '最高质量，包含自我批判和读者模拟', features: ['自我批判', '读者模拟', '优化器'], suitable_for: ['精品创作', '高要求写作'], estimated_time: '5-10分钟' },
-  { name: 'literary', level: 'advanced', name_cn: '文学模式', description: '场景级分步生成，追求文学性', features: ['场景分步', '散文雕琢', '黄金段落'], suitable_for: ['文学创作', '精雕细琢'], estimated_time: '8-15分钟' },
-]
-
-// 当前级别的预设
-const currentPresets = computed(() => {
-  return allPresets.filter(p => p.level === currentLevel.value)
+onMounted(() => {
+  void authStore.fetchUser()
 })
+
+// 三种生成模式（与后端 pipeline_config_service.py 对应）
+const presets: PresetInfo[] = [
+  {
+    value: 'fast',
+    name: '快速模式',
+    icon: '🌱',
+    description: '极速生成，轻量处理，适合快速迭代和大纲测试',
+    features: ['极速路径', '轻量处理', '30-60秒'],
+    time: '30-60秒',
+    // free 用户可用，不设置 requiresTier
+  },
+  {
+    value: 'standard',
+    name: '标准模式',
+    icon: '🚀',
+    description: '六维评审 + 世界观注入 + 文笔打磨，适合日常创作',
+    features: ['六维评审', '世界观', '打磨', '3-5分钟'],
+    time: '3-5分钟',
+    requiresTier: 'creator',  // 创作者会员+
+  },
+  {
+    value: 'premium',
+    name: '精品模式',
+    icon: '⚡',
+    description: '完整流程 + 自我批判 + 读者模拟，适合精品创作',
+    features: ['自我批判', '读者模拟', '优化器', '5-10分钟'],
+    time: '5-10分钟',
+    requiresTier: 'flagship',  // 旗舰会员+
+  },
+]
 
 // 选中的预设信息
-const selectedPresetInfo = computed(() => {
-  return allPresets.find(p => p.name === props.modelValue)
+const selectedPreset = computed(() => {
+  return presets.find(p => p.value === props.modelValue)
 })
 
-function selectPreset(name: string) {
-  emit('update:modelValue', name)
+// 检查用户是否可以使用某个档位的功能
+function canUsePreset(requiredTier: 'creator' | 'flagship'): boolean {
+  const tierLevels = { free: 0, creator: 1, flagship: 2 }
+  const userLevel = tierLevels[userTier.value as keyof typeof tierLevels] || 0
+  const requiredLevel = tierLevels[requiredTier]
+  return userLevel >= requiredLevel
+}
+
+// 获取档位标签
+function getTierLabel(tier: 'creator' | 'flagship'): string {
+  return tier === 'creator' ? '创作者会员' : '旗舰会员'
+}
+
+// 获取档位样式类
+function getTierClass(tier: 'creator' | 'flagship'): string {
+  return tier === 'creator' ? 'tier-creator' : 'tier-flagship'
+}
+
+async function selectPreset(preset: PresetInfo) {
+  // 检查档位权限
+  if (preset.requiresTier && !canUsePreset(preset.requiresTier)) {
+    await authStore.fetchUser()
+  }
+
+  if (preset.requiresTier && !canUsePreset(preset.requiresTier)) {
+    message.warning(`${preset.name}需要${getTierLabel(preset.requiresTier)}，请升级后使用`)
+    return
+  }
+
+  emit('update:modelValue', preset.value)
 }
 </script>
 
@@ -126,57 +168,46 @@ function selectPreset(name: string) {
 .preset-selector {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
-.level-tabs {
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--md-outline-variant, #2A2A2A);
-  padding-bottom: 8px;
+.preset-header {
+  text-align: center;
 }
 
-.level-tab {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  border-radius: 20px;
-  transition: all 0.2s;
+.preset-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--md-on-surface, #FFFFFF);
+  margin-bottom: 8px;
+}
+
+.preset-subtitle {
+  font-size: 13px;
   color: var(--md-on-surface-variant, #888);
-  font-size: 14px;
-}
-
-.level-tab.active {
-  background: var(--md-primary-container, #2A2600);
-  color: var(--md-on-primary-container, #FFE500);
-}
-
-.level-icon {
-  font-size: 16px;
 }
 
 .preset-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
 }
 
 .preset-card {
-  padding: 16px;
-  border: 1px solid var(--md-outline-variant, #2A2A2A);
-  border-radius: 12px;
+  position: relative;
+  padding: 20px;
+  border: 2px solid var(--md-outline-variant, #2A2A2A);
+  border-radius: 16px;
   cursor: pointer;
   transition: all 0.2s;
   background: var(--md-surface-container-low, #141414);
+  overflow: hidden;
 }
 
-.preset-card:hover {
+.preset-card:hover:not(.locked) {
   border-color: var(--md-primary, #FFE500);
-  box-shadow: 0 2px 12px rgba(255, 229, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(255, 229, 0, 0.12);
+  transform: translateY(-2px);
 }
 
 .preset-card.selected {
@@ -184,7 +215,73 @@ function selectPreset(name: string) {
   background: var(--md-primary-container, #2A2600);
 }
 
-.preset-header {
+.preset-card.locked {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tier-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tier-badge.tier-creator {
+  background: rgba(255, 229, 0, 0.15);
+  color: #FFE500;
+  border: 1px solid rgba(255, 229, 0, 0.3);
+}
+
+.tier-badge.tier-flagship {
+  background: rgba(192, 132, 252, 0.15);
+  color: #C084FC;
+  border: 1px solid rgba(192, 132, 252, 0.3);
+}
+
+.lock-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 10;
+}
+
+.lock-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--md-on-surface-variant, #888);
+}
+
+.lock-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant, #888);
+}
+
+.preset-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+}
+
+.preset-info {
+  margin-bottom: 12px;
+}
+
+.preset-name-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -193,69 +290,55 @@ function selectPreset(name: string) {
 
 .preset-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--md-on-surface, #FFFFFF);
 }
 
 .preset-time {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--md-on-surface-variant, #888);
   background: var(--md-surface-container-high, #242424);
-  padding: 2px 8px;
+  padding: 3px 8px;
   border-radius: 10px;
 }
 
 .preset-description {
-  font-size: 12px;
-  color: var(--md-on-surface-variant, #888);
-  margin-bottom: 8px;
-  line-height: 1.4;
+  font-size: 13px;
+  color: var(--md-on-surface-variant, #AAAAAA);
+  line-height: 1.5;
 }
 
 .preset-features {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 8px;
+  gap: 6px;
 }
 
 .feature-tag {
-  font-size: 10px;
-  padding: 2px 6px;
+  font-size: 11px;
+  padding: 4px 8px;
   background: var(--md-secondary-container, #1C1C1C);
   color: var(--md-on-secondary-container, #CCCCCC);
-  border-radius: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--md-outline-variant, #2A2A2A);
 }
 
-.preset-suitable {
-  font-size: 11px;
-  color: var(--md-on-surface-variant, #888);
-}
-
-.suitable-label {
-  font-weight: 500;
-}
-
-.scene-tag {
-  margin-right: 4px;
-  color: var(--md-primary, #FFE500);
-}
-
-.selected-preset {
+.selected-info {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   padding: 12px;
   background: var(--md-surface-container, #1C1C1C);
-  border-radius: 8px;
+  border-radius: 12px;
   font-size: 14px;
 }
 
-.selected-label {
+.info-label {
   color: var(--md-on-surface-variant, #888);
 }
 
-.selected-name {
+.info-value {
   font-weight: 600;
   color: var(--md-primary, #FFE500);
 }

@@ -4,7 +4,7 @@
     <!-- 诊断控制栏 -->
     <div class="diagnostic-header">
       <div class="header-left">
-        <h3>🔧 诊断报告</h3>
+        <h3>章节体检报告</h3>
         <span class="diagnostic-hint">{{ diagnosticModeHint }}</span>
       </div>
       <div class="header-right">
@@ -13,8 +13,8 @@
           @click="runDiagnostic"
           :disabled="isRunning || !props.projectId"
         >
-          <span v-if="isRunning">🔄 分析中...</span>
-          <span v-else>▶️ 开始诊断</span>
+          <span v-if="isRunning">分析中...</span>
+          <span v-else>开始体检</span>
         </button>
       </div>
     </div>
@@ -29,7 +29,6 @@
       <!-- 概览 -->
       <div class="result-overview">
         <div class="overview-card" :class="overallStatus">
-          <span class="overview-icon">{{ overallStatusIcon }}</span>
           <div class="overview-info">
             <span class="overview-title">{{ overallStatusText }}</span>
             <span class="overview-mode">{{ isChapterMode ? `第 ${props.chapterNumber} 章` : '全书总览' }}</span>
@@ -38,11 +37,39 @@
         </div>
       </div>
 
+      <div class="product-summary">
+        <div class="summary-row">
+          <span class="summary-label">体检结论</span>
+          <span class="summary-text">{{ productSummary.verdict }}</span>
+        </div>
+        <div class="summary-row">
+          <span class="summary-label">主要风险</span>
+          <span class="summary-text">{{ productSummary.primary_risk }}</span>
+        </div>
+        <div class="summary-row next-action">
+          <span class="summary-label">下一步</span>
+          <span class="summary-text">{{ productSummary.next_action }}</span>
+        </div>
+      </div>
+
+      <div v-if="recommendedActions.length" class="diagnostic-actions">
+        <button
+          v-for="action in recommendedActions"
+          :key="action.key"
+          type="button"
+          class="diagnostic-action-btn"
+          @click="emit('action', action.key)"
+        >
+          <span>{{ action.label }}</span>
+          <small>{{ action.description }}</small>
+        </button>
+      </div>
+
       <!-- 详细指标 -->
       <div class="result-metrics">
         <!-- 性能指标 - 单章模式 -->
         <div class="metric-section" v-if="isChapterMode">
-          <h4>⚡ 性能分析</h4>
+          <h4>生成成本</h4>
           <div class="metric-grid">
             <div class="metric-item">
               <span class="metric-label">总耗时</span>
@@ -65,7 +92,7 @@
 
         <!-- 正文指标 - 单章模式 -->
         <div class="metric-section" v-if="isChapterMode && contentMetrics">
-          <h4>📝 正文分析</h4>
+          <h4>正文结构</h4>
           <div class="metric-grid">
             <div class="metric-item">
               <span class="metric-label">正文字数</span>
@@ -98,7 +125,7 @@
 
         <!-- 性能指标 - 全书模式 -->
         <div class="metric-section" v-else>
-          <h4>⚡ 性能总览</h4>
+          <h4>全书进度</h4>
           <div class="metric-grid">
             <div class="metric-item">
               <span class="metric-label">累计耗时</span>
@@ -121,7 +148,7 @@
 
         <!-- 章节明细（全书模式） -->
         <div class="metric-section" v-if="!isChapterMode && report.chapter_details?.length">
-          <h4>📖 章节明细</h4>
+          <h4>章节明细</h4>
           <div class="chapter-detail-list">
             <div
               v-for="ch in report.chapter_details"
@@ -140,7 +167,7 @@
 
         <!-- 质量问题 -->
         <div class="metric-section">
-          <h4>🎯 质量分析</h4>
+          <h4>风险点</h4>
           <div class="quality-list">
             <div
               v-for="(issue, idx) in report.quality.issues"
@@ -148,21 +175,20 @@
               class="quality-item"
               :class="issue.severity"
             >
-              <span class="quality-icon">{{ getIssueIcon(issue.severity) }}</span>
               <div class="quality-content">
                 <span class="quality-type">{{ issue.type }}</span>
                 <span class="quality-desc">{{ issue.description }}</span>
               </div>
             </div>
             <div v-if="!report.quality.issues?.length" class="no-issues">
-              ✅ 未发现质量问题
+              未发现明显质量问题
             </div>
           </div>
         </div>
 
         <!-- 建议 -->
         <div class="metric-section">
-          <h4>💡 优化建议</h4>
+          <h4>优化建议</h4>
           <ul class="suggestion-list">
             <li v-for="(suggestion, idx) in report.suggestions" :key="idx">
               {{ suggestion }}
@@ -180,9 +206,9 @@
 
     <!-- 空状态 -->
     <div v-else-if="!errorMsg" class="diagnostic-empty">
-      <div class="empty-icon">🔍</div>
-      <p>点击"开始诊断"生成诊断报告</p>
-      <p class="empty-hint">{{ isChapterMode ? '诊断当前选中章节的生成质量' : '诊断全书整体生成质量' }}</p>
+      <div class="empty-icon">✓</div>
+      <p>生成一份可执行的创作体检报告</p>
+      <p class="empty-hint">{{ isChapterMode ? '检查当前章节的质量、风险和下一步动作' : '检查全书进度、低分章节和长篇一致性风险' }}</p>
     </div>
   </div>
 </template>
@@ -194,6 +220,12 @@ import { diagnosticApi } from '@/api/novel'
 interface DiagnosticReport {
   mode?: 'chapter' | 'project'
   overall_score: number
+  product_summary?: {
+    verdict: string
+    primary_risk: string
+    next_action: string
+    confidence?: 'high' | 'medium' | 'low'
+  }
   performance: {
     total_time_ms: number
     avg_time_ms?: number
@@ -237,9 +269,26 @@ interface DiagnosticReport {
 interface Props {
   projectId?: string
   chapterNumber?: number
+  professionalMode?: boolean
 }
 
 const props = defineProps<Props>()
+type DiagnosticAction =
+  | 'regenerate_chapter'
+  | 'evaluate_chapter'
+  | 'rebuild_rag'
+  | 'preview_context_plan'
+  | 'switch_professional'
+
+interface DiagnosticRecommendedAction {
+  key: DiagnosticAction
+  label: string
+  description: string
+}
+
+const emit = defineEmits<{
+  (event: 'action', action: DiagnosticAction): void
+}>()
 
 const isRunning = ref(false)
 const report = ref<DiagnosticReport | null>(null)
@@ -263,27 +312,106 @@ const overallStatus = computed(() => {
   return 'error'
 })
 
-const overallStatusIcon = computed(() => {
-  const map: Record<string, string> = {
-    good: '✅',
-    warning: '⚠️',
-    error: '❌',
-    unknown: '❓',
-  }
-  return map[overallStatus.value]
-})
-
 const overallStatusText = computed(() => {
   const map: Record<string, string> = {
-    good: '状态良好',
-    warning: '需要优化',
-    error: '存在问题',
-    unknown: '等待诊断',
+    good: '可以继续推进',
+    warning: '建议小修后继续',
+    error: '建议先返工',
+    unknown: '等待体检',
   }
   return map[overallStatus.value]
 })
 
 const contentMetrics = computed(() => report.value?.quality.content_metrics)
+
+const productSummary = computed(() => {
+  if (report.value?.product_summary) return report.value.product_summary
+  if (!report.value) {
+    return {
+      verdict: '等待体检',
+      primary_risk: '暂无数据',
+      next_action: '先选择章节或项目后开始体检',
+    }
+  }
+  const firstIssue = report.value.quality.issues?.[0]
+  return {
+    verdict: overallStatusText.value,
+    primary_risk: firstIssue?.description || '未发现明显风险',
+    next_action: report.value.suggestions?.[0] || '保持当前配置并继续推进创作',
+  }
+})
+
+const diagnosticActionText = computed(() => {
+  const summary = productSummary.value
+  const issues = report.value?.quality.issues?.map((issue) => `${issue.type} ${issue.description}`) || []
+  return [
+    summary.primary_risk,
+    summary.next_action,
+    ...(report.value?.suggestions || []),
+    ...issues,
+  ].join(' ')
+})
+
+const recommendedActions = computed<DiagnosticRecommendedAction[]>(() => {
+  if (!report.value) return []
+
+  const actions: DiagnosticRecommendedAction[] = []
+  const used = new Set<DiagnosticAction>()
+  const text = diagnosticActionText.value
+  const addAction = (action: DiagnosticRecommendedAction) => {
+    if (used.has(action.key)) return
+    used.add(action.key)
+    actions.push(action)
+  }
+
+  if (/知识库|RAG|检索|记忆|上下文|一致性/.test(text)) {
+    addAction({
+      key: 'rebuild_rag',
+      label: '刷新知识库',
+      description: '更新长篇记忆和检索',
+    })
+  }
+
+  if (isChapterMode.value) {
+    if (report.value.overall_score < 60 || /重新生成|重写|返工|低分|失败|占位符/.test(text)) {
+      addAction({
+        key: 'regenerate_chapter',
+        label: '重新生成本章',
+        description: '用当前模式重出版本',
+      })
+    }
+
+    if (/评审|评分|质量|风险|低分/.test(text) || !report.value.quality.evaluation_scores?.length) {
+      addAction({
+        key: 'evaluate_chapter',
+        label: '补做章节评审',
+        description: '获得更完整质量评分',
+      })
+    }
+
+    addAction({
+      key: 'preview_context_plan',
+      label: '查看生成计划',
+      description: '检查 AI 将引用的信息',
+    })
+  } else if (report.value.overall_score < 70) {
+    addAction({
+      key: 'rebuild_rag',
+      label: '刷新知识库',
+      description: '先修复全书检索基础',
+    })
+  }
+
+  if (!props.professionalMode) {
+    addAction({
+      key: 'switch_professional',
+      label: '进入专业模式',
+      description: '展开计划、知识库和 Agent',
+    })
+  }
+
+  return actions.slice(0, 5)
+})
 
 function formatTime(ms: number): string {
   if (!ms) return '-'
@@ -310,15 +438,6 @@ function formatChars(value?: number): string {
 function formatPercent(value?: number): string {
   if (value === undefined || value === null) return '-'
   return `${(value * 100).toFixed(1)}%`
-}
-
-function getIssueIcon(severity: string): string {
-  const map: Record<string, string> = {
-    error: '🔴',
-    warning: '🟡',
-    info: '🔵',
-  }
-  return map[severity] || '⚪'
 }
 
 function getChapterScoreClass(score: number): string {
@@ -414,7 +533,7 @@ async function runDiagnostic() {
   align-items: center;
   gap: 12px;
   padding: 16px;
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .overview-card.good {
@@ -427,10 +546,6 @@ async function runDiagnostic() {
 
 .overview-card.error {
   background: var(--md-error-container, #ffebee);
-}
-
-.overview-icon {
-  font-size: 32px;
 }
 
 .overview-info {
@@ -453,6 +568,80 @@ async function runDiagnostic() {
   font-size: 24px;
   font-weight: 700;
   color: var(--md-primary, #1976d2);
+}
+
+.product-summary {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.summary-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  border-radius: 8px;
+  background: var(--md-surface-container-low, #fafafa);
+}
+
+.summary-row.next-action {
+  border-color: color-mix(in srgb, var(--md-primary, #1976d2) 35%, var(--md-outline-variant, #e0e0e0));
+  background: color-mix(in srgb, var(--md-primary-container, #e3f2fd) 45%, transparent);
+}
+
+.summary-label {
+  color: var(--md-on-surface-variant, #666);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.summary-text {
+  color: var(--md-on-surface, #333);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.diagnostic-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: -4px 0 20px;
+}
+
+.diagnostic-action-btn {
+  display: flex;
+  min-height: 58px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--md-primary, #1976d2) 28%, var(--md-outline-variant, #e0e0e0));
+  border-radius: 8px;
+  background: var(--md-surface-container-low, #fafafa);
+  color: var(--md-on-surface, #333);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.diagnostic-action-btn:hover {
+  border-color: var(--md-primary, #1976d2);
+  background: color-mix(in srgb, var(--md-primary-container, #e3f2fd) 42%, transparent);
+}
+
+.diagnostic-action-btn span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.diagnostic-action-btn small {
+  color: var(--md-on-surface-variant, #666);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .result-metrics {
@@ -586,10 +775,6 @@ async function runDiagnostic() {
   background: var(--md-primary-container, #e3f2fd);
 }
 
-.quality-icon {
-  font-size: 16px;
-}
-
 .quality-content {
   display: flex;
   flex-direction: column;
@@ -664,5 +849,11 @@ async function runDiagnostic() {
 .empty-hint {
   font-size: 12px;
   margin-top: 8px;
+}
+
+@media (max-width: 560px) {
+  .diagnostic-actions {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

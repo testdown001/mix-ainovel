@@ -41,7 +41,7 @@
           <h2 class="text-base font-semibold text-white mb-3">2. 服务说明</h2>
           <p class="mb-3">Arboris Novel 是一个 AI 驱动的中文网络小说创作平台，提供以下核心服务：</p>
           <ul class="space-y-2 pl-4">
-            <li class="flex items-start gap-2"><span style="color:#FFE500; margin-top:5px;">•</span><span>基于"三省六部"多智能体系统的 AI 辅助创作</span></li>
+            <li class="flex items-start gap-2"><span style="color:#FFE500; margin-top:5px;">•</span><span>基于自创先进多 Agent 架构的 AI 辅助创作</span></li>
             <li class="flex items-start gap-2"><span style="color:#FFE500; margin-top:5px;">•</span><span>灵感生成、大纲规划、章节写作等创作工具</span></li>
             <li class="flex items-start gap-2"><span style="color:#FFE500; margin-top:5px;">•</span><span>小说项目管理与存储</span></li>
           </ul>

@@ -18,6 +18,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from ...agents.hybrid_executor import HybridExecutor
+from ...core.config import settings
 from ...db.session import AsyncSessionLocal
 from ...services.novel_service import NovelService
 
@@ -77,8 +78,13 @@ class ProgressReporter:
             if self._client is None:
                 self._client = httpx.AsyncClient(timeout=5.0)
 
+            headers = {}
+            if settings.task_dispatcher_internal_callback_secret:
+                headers["X-Internal-Secret"] = settings.task_dispatcher_internal_callback_secret
+
             await self._client.post(
                 self.callback_url,
+                headers=headers,
                 json={
                     "progress": progress,
                     "stage": stage,

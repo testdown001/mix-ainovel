@@ -1,5 +1,5 @@
-# AIMETA P=太子省Agent|R=需求分拣|NR=解析用户指令并转发给中书省|E=TaiziAgent|X=internal|A=Agent实现|D=asyncio
-"""太子省 Agent - 需求分拣"""
+# AIMETA P=需求解析智能体|R=需求解析|NR=解析用户指令并转发给规划智能体|E=TaiziAgent|X=internal|A=Agent实现|D=asyncio
+"""需求解析智能体 - 需求解析"""
 from __future__ import annotations
 
 import json
@@ -11,13 +11,13 @@ from .message import AgentContext, AgentMessageType, AgentResult
 
 class TaiziAgent(BaseAgent):
     """
-    太子 Agent - 需求分拣
+    需求解析智能体 - 需求解析
 
     职责：
     1. 解析用户写作指令
     2. 识别章节类型和情绪目标
     3. 提取关键写作要求
-    4. 转发给中书省
+    4. 交给规划智能体
     """
 
     AGENT_NAME = "taizi"
@@ -45,7 +45,7 @@ class TaiziAgent(BaseAgent):
 
         await self.emit_stage("agent:taizi:done", f"指令解析完成，识别为【{chapter_type}】")
 
-        # 收敛说明：原通过 send_message 转发给中书省，现主流程直接读取
+        # 收敛说明：原通过 send_message 转发给规划智能体，现主流程直接读取
         # 本方法的返回值驱动下一阶段，转发调用已移除。
         return AgentResult(
             status="delegated",

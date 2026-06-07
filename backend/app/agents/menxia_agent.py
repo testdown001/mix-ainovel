@@ -1,5 +1,5 @@
-# AIMETA P=门下省Agent|R=质量审核|NR=章节质量审核|E=MenxiaAgent|X=internal|A=Agent实现|D=asyncio
-"""门下省 Agent - 质量审核"""
+# AIMETA P=审核智能体|R=质量审核|NR=章节质量审核|E=MenxiaAgent|X=internal|A=Agent实现|D=asyncio
+"""审核智能体 - 质量审核"""
 from __future__ import annotations
 
 import json
@@ -11,7 +11,7 @@ from .message import AgentContext, AgentResult
 
 logger = logging.getLogger(__name__)
 
-MENXIA_SYSTEM_PROMPT = """你是小说写作系统的"门下省"审核智能体。你的职责是对生成的章节内容进行质量审核。
+MENXIA_SYSTEM_PROMPT = """你是小说写作系统的审核智能体。你的职责是对生成的章节内容进行质量审核。
 
 你拥有以下工具：
 - review: 执行内容质量审核，评估文本质量并给出分数和建议
@@ -47,7 +47,7 @@ MENXIA_TOOL_NAMES = ["review", "consistency_check", "character_state", "foreshad
 
 class MenxiaAgent(BaseAgent):
     """
-    门下省 Agent - 质量审核
+    审核智能体 - 质量审核
 
     职责：
     1. 章节质量审核
@@ -69,7 +69,7 @@ class MenxiaAgent(BaseAgent):
         from .agentic_loop import AgenticLoop, AgenticLoopConfig
         from .tools import create_default_registry
 
-        await self.emit_stage("agent:menxia:start", "门下省智能审核启动")
+        await self.emit_stage("agent:menxia:start", "审核智能体启动")
 
         chapter = context.metadata.get("chapter", {})
         content = chapter.get("content", "")

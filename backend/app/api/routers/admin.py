@@ -1,15 +1,20 @@
 # AIMETA P=管理员API_用户管理和系统配置|R=管理员CRUD_系统配置_统计|NR=不含普通用户功能|E=route:POST_GET_/api/admin/*|X=http|A=用户CRUD_配置_统计|D=fastapi,sqlalchemy|S=db|RD=./README.ai
 import logging
+import uuid
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.dependencies import get_current_admin
 from ...db.session import get_session
 from ...models import NovelProject, UsageMetric, User
+from ...models.payment_order import PaymentOrder
+from ...models.plan import Plan
+from ...models.user_quota import UserQuota
 from ...schemas.admin import (
     AdminNovelSummary,
     DailyRequestLimit,
@@ -37,11 +42,122 @@ from ...services.admin_setting_service import AdminSettingService
 from ...services.config_service import ConfigService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
+from ...services.quota_service import QuotaService
 from ...services.update_log_service import UpdateLogService
 from ...services.user_service import UserService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
+
+
+class AdminUserSummary(UserSchema):
+    current_plan_name: str = "免费版"
+    premium_expires_at: Optional[str] = None
+
+
+class UserQuotaSummary(BaseModel):
+    is_premium: bool
+    plan_tier: str
+    effective_tier: str
+    premium_expires_at: Optional[str] = None
+    daily_chapter_limit: int
+    daily_chapter_used: int
+    monthly_token_limit: int
+    monthly_token_used: int
+    storage_limit: int
+    storage_used: int
+
+
+class AdminPlanSummary(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    price: float
+    period: str
+    tier: str
+    daily_chapter_limit: int
+    max_novels: int
+    is_active: bool
+
+
+class UserSubscriptionHistoryItem(BaseModel):
+    id: int
+    order_no: str
+    plan_id: int
+    plan_name: str
+    amount: float
+    currency: str
+    channel: str
+    status: str
+    paid_at: Optional[str] = None
+    created_at: Optional[str] = None
+    remark: Optional[str] = None
+
+
+class UserSubscriptionDetail(BaseModel):
+    user: UserSchema
+    quota: UserQuotaSummary
+    current_plan: Optional[AdminPlanSummary] = None
+    plans: List[AdminPlanSummary]
+    history: List[UserSubscriptionHistoryItem]
+
+
+class AssignSubscriptionRequest(BaseModel):
+    plan_id: int
+    period: str = "monthly"
+    remark: Optional[str] = None
+
+
+def _iso(value) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+def _tier_label(tier: str) -> str:
+    return {
+        "free": "免费版",
+        "creator": "创作者版",
+        "flagship": "旗舰版",
+    }.get(tier or "free", tier or "免费版")
+
+
+def _plan_summary(plan: Plan) -> AdminPlanSummary:
+    return AdminPlanSummary(
+        id=plan.id,
+        name=plan.name,
+        description=plan.description,
+        price=float(plan.price),
+        period=plan.period,
+        tier=QuotaService._derive_tier(plan),
+        daily_chapter_limit=plan.daily_chapter_limit,
+        max_novels=plan.max_novels,
+        is_active=plan.is_active,
+    )
+
+
+def _admin_user_summary(
+    user: UserSchema,
+    quota: Optional[UserQuota],
+    plan_by_tier: dict[str, Plan],
+) -> AdminUserSummary:
+    plan_tier = "free"
+    effective_tier = "free"
+    premium_expires_at = None
+    if quota:
+        plan_tier = quota.plan_tier or "free"
+        effective_tier = quota.effective_tier
+        premium_expires_at = _iso(quota.premium_expires_at)
+
+    current_plan = plan_by_tier.get(effective_tier)
+    user_data = UserSchema.model_validate(user).model_dump()
+    user_data.update(
+        plan_tier=plan_tier,
+        effective_tier=effective_tier,
+        current_plan_name=current_plan.name if current_plan else _tier_label(effective_tier),
+        premium_expires_at=premium_expires_at,
+    )
+    return AdminUserSummary(
+        **user_data,
+    )
 
 
 def get_prompt_service(session: AsyncSession = Depends(get_session)) -> PromptService:
@@ -85,14 +201,27 @@ async def read_statistics(
     return Statistics(novel_count=novel_count, user_count=user_count, api_request_count=api_request_count)
 
 
-@router.get("/users", response_model=List[UserSchema])
+@router.get("/users", response_model=List[AdminUserSummary])
 async def list_users(
+    session: AsyncSession = Depends(get_session),
     service: UserService = Depends(get_user_service),
     _: None = Depends(get_current_admin),
-) -> List[UserSchema]:
+) -> List[AdminUserSummary]:
     users = await service.list_users()
+    user_ids = [user.id for user in users]
+
+    plan_result = await session.execute(select(Plan).order_by(Plan.sort_order, Plan.id))
+    plan_by_tier: dict[str, Plan] = {}
+    for plan in plan_result.scalars().all():
+        plan_by_tier.setdefault(QuotaService._derive_tier(plan), plan)
+
+    quota_by_user_id: dict[int, UserQuota] = {}
+    if user_ids:
+        quota_result = await session.execute(select(UserQuota).where(UserQuota.user_id.in_(user_ids)))
+        quota_by_user_id = {quota.user_id: quota for quota in quota_result.scalars().all()}
+
     logger.info("管理员请求用户列表，共 %s 条", len(users))
-    return [UserSchema.model_validate(user) for user in users]
+    return [_admin_user_summary(user, quota_by_user_id.get(user.id), plan_by_tier) for user in users]
 
 
 @router.post("/users", response_model=UserSchema, status_code=status.HTTP_201_CREATED)
@@ -119,6 +248,127 @@ async def get_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return UserSchema.model_validate(user)
+
+
+@router.get("/users/{user_id}/subscription", response_model=UserSubscriptionDetail)
+async def get_user_subscription(
+    user_id: int,
+    session: AsyncSession = Depends(get_session),
+    service: UserService = Depends(get_user_service),
+    _: None = Depends(get_current_admin),
+) -> UserSubscriptionDetail:
+    user = await service.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    quota_service = QuotaService(session)
+    quota = await quota_service.get_or_create_quota(user_id)
+
+    plan_result = await session.execute(select(Plan).order_by(Plan.sort_order, Plan.id))
+    plans = list(plan_result.scalars().all())
+    current_plan = next(
+        (plan for plan in plans if QuotaService._derive_tier(plan) == quota.effective_tier),
+        None,
+    )
+
+    history_result = await session.execute(
+        select(PaymentOrder)
+        .where(PaymentOrder.user_id == user_id)
+        .order_by(desc(PaymentOrder.paid_at), desc(PaymentOrder.created_at), desc(PaymentOrder.id))
+        .limit(50)
+    )
+    history = history_result.scalars().all()
+
+    return UserSubscriptionDetail(
+        user=UserSchema.model_validate(user),
+        quota=UserQuotaSummary(
+            is_premium=quota.is_premium_active,
+            plan_tier=quota.plan_tier or "free",
+            effective_tier=quota.effective_tier,
+            premium_expires_at=_iso(quota.premium_expires_at),
+            daily_chapter_limit=quota.daily_chapter_limit,
+            daily_chapter_used=quota.daily_chapter_used,
+            monthly_token_limit=quota.monthly_token_limit,
+            monthly_token_used=quota.monthly_token_used,
+            storage_limit=quota.storage_limit,
+            storage_used=quota.storage_used,
+        ),
+        current_plan=_plan_summary(current_plan) if current_plan else None,
+        plans=[_plan_summary(plan) for plan in plans],
+        history=[
+            UserSubscriptionHistoryItem(
+                id=order.id,
+                order_no=order.order_no,
+                plan_id=order.plan_id,
+                plan_name=order.plan_name,
+                amount=float(order.amount),
+                currency=order.currency,
+                channel=order.channel,
+                status=order.status,
+                paid_at=_iso(order.paid_at),
+                created_at=_iso(order.created_at),
+                remark=order.remark,
+            )
+            for order in history
+        ],
+    )
+
+
+@router.post("/users/{user_id}/subscription", response_model=UserSubscriptionDetail)
+async def assign_user_subscription(
+    user_id: int,
+    payload: AssignSubscriptionRequest,
+    session: AsyncSession = Depends(get_session),
+    service: UserService = Depends(get_user_service),
+    current_admin=Depends(get_current_admin),
+) -> UserSubscriptionDetail:
+    user = await service.get_user(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+
+    if payload.period not in {"monthly", "yearly"}:
+        raise HTTPException(status_code=400, detail="订阅周期只支持 monthly 或 yearly")
+
+    plan = await session.get(Plan, payload.plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="套餐不存在")
+    if not plan.is_active:
+        raise HTTPException(status_code=400, detail="套餐已下架，不能分配")
+    plan_tier = QuotaService._derive_tier(plan)
+    if plan_tier == "free":
+        raise HTTPException(status_code=400, detail="免费套餐无需分配订阅")
+
+    days = 365 if payload.period == "yearly" else 30
+    expires_at = datetime.utcnow() + timedelta(days=days)
+
+    quota_service = QuotaService(session)
+    await quota_service.upgrade_to_premium(user_id, expires_at=expires_at, plan=plan)
+
+    order = PaymentOrder(
+        order_no=f"AD{datetime.utcnow().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:12].upper()}",
+        user_id=user_id,
+        plan_id=plan.id,
+        plan_name=plan.name,
+        amount=0,
+        currency="CNY",
+        channel="admin",
+        status="paid",
+        paid_at=datetime.utcnow(),
+        remark=payload.remark or f"管理员 {current_admin.username} 分配{days}天订阅",
+    )
+    session.add(order)
+    await session.commit()
+
+    logger.info(
+        "管理员 %s 给用户 %s 分配订阅: plan=%s period=%s expires_at=%s",
+        current_admin.username,
+        user_id,
+        plan.id,
+        payload.period,
+        expires_at,
+    )
+
+    return await get_user_subscription(user_id, session, service, current_admin)
 
 
 @router.patch("/users/{user_id}", response_model=UserSchema)

@@ -101,6 +101,52 @@
           </div>
         </div>
 
+        <div class="workflow-panel flex-shrink-0">
+          <div class="workflow-panel-header">
+            <div>
+              <p class="workflow-panel-title">创作主线</p>
+              <p class="workflow-panel-subtitle">{{ workflowSubtitle }}</p>
+            </div>
+            <span class="workflow-progress">{{ completedChapters }}/{{ totalChapters }}</span>
+          </div>
+          <div class="workflow-steps">
+            <div
+              v-for="step in workflowSteps"
+              :key="step.key"
+              class="workflow-step"
+              :class="{ done: step.done, active: step.active }"
+            >
+              <span class="workflow-step-dot"></span>
+              <span>{{ step.label }}</span>
+            </div>
+          </div>
+          <button
+            class="workflow-action"
+            type="button"
+            :disabled="!nextWorkflowAction.enabled || props.batchGenerating"
+            @click="runNextWorkflowAction"
+          >
+            <span>{{ nextWorkflowAction.label }}</span>
+            <span class="workflow-action-hint">{{ nextWorkflowAction.hint }}</span>
+          </button>
+          <div class="workflow-mode-switch" role="group" aria-label="写作台模式">
+            <button
+              type="button"
+              :class="{ active: !props.professionalMode }"
+              @click="$emit('update:professionalMode', false)"
+            >
+              主线模式
+            </button>
+            <button
+              type="button"
+              :class="{ active: props.professionalMode }"
+              @click="$emit('update:professionalMode', true)"
+            >
+              专业模式
+            </button>
+          </div>
+        </div>
+
         <!-- 章节列表 -->
         <div ref="listContainer" class="flex-1 overflow-y-auto">
           <div class="p-6 pb-4">
@@ -362,68 +408,79 @@
             </div>
             <div class="mt-3">
               <button
+                v-if="!props.professionalMode"
+                class="advanced-mode-entry"
+                type="button"
+                @click="$emit('update:professionalMode', true)"
+              >
+                <span>进入专业模式</span>
+                <small>知识库、计划、体检和 Agent 工具</small>
+              </button>
+              <button
+                v-else
+                class="advanced-toggle"
+                type="button"
+                @click="showProfessionalTools = !showProfessionalTools"
+              >
+                <span>专业工具</span>
+                <span>{{ showProfessionalTools ? '收起' : '展开' }}</span>
+              </button>
+            </div>
+            <div v-if="props.professionalMode && showProfessionalTools" class="advanced-tools">
+              <button
                 @click="$emit('rebuildRag', false)"
                 @contextmenu.prevent="$emit('rebuildRag', true)"
                 :disabled="props.isRebuildingRag"
-                class="md-btn md-btn-tonal md-ripple w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="advanced-tool-btn disabled:opacity-50 disabled:cursor-not-allowed"
                 title="左键：增量刷新 | 右键：强制全量刷新"
               >
-                <svg v-if="props.isRebuildingRag" class="w-5 h-5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-                </svg>
-                <svg v-else class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z"></path>
-                </svg>
                 <span>{{ props.isRebuildingRag ? '刷新中...' : '刷新知识库' }}</span>
+                <small>修复长篇记忆与检索</small>
               </button>
-            </div>
-            <!-- 工具按钮组 -->
-            <div class="mt-3 flex gap-2">
-              <button
-                @click="$emit('openSkillSelector')"
-                :disabled="!props.agentEnabled"
-                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                :title="props.agentEnabled ? '配置 Agent 技能增强' : '启用 Agent 模式后可配置技能'"
-              >
-                <span>✨</span>
-                <span class="hidden sm:inline">技能</span>
-                <span v-if="props.selectedSkillCount" class="inline-flex min-w-[18px] h-[18px] items-center justify-center rounded-full bg-[var(--md-primary)] px-1 text-[10px] text-white">
-                  {{ props.selectedSkillCount }}
-                </span>
-              </button>
-              <button
-                @click="$emit('previewContextPlan')"
-                :disabled="!selectedChapterNumber"
-                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="预览本章生成计划"
-              >
-                <span>🧭</span>
-                <span class="hidden sm:inline">计划</span>
-              </button>
-              <button
-                @click="$emit('openMiddleProductViewer')"
-                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
-                title="查看生成中间产物"
-              >
-                <span>📊</span>
-                <span class="hidden sm:inline">中间产物</span>
-              </button>
-              <button
-                @click="$emit('openDiagnosticPanel')"
-                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
-                title="生成诊断报告"
-              >
-                <span>🔧</span>
-                <span class="hidden sm:inline">诊断</span>
-              </button>
-              <button
-                @click="$emit('openAgentVisualizer')"
-                class="md-btn md-btn-outlined md-ripple flex-1 flex items-center justify-center gap-1 !text-xs !py-2"
-                title="查看 Agent 协作流程"
-              >
-                <span>🤖</span>
-                <span class="hidden sm:inline">Agent</span>
-              </button>
+              <div class="advanced-tool-grid">
+                <button
+                  @click="$emit('openSkillSelector')"
+                  :disabled="!props.agentEnabled"
+                  class="advanced-tool-btn disabled:opacity-50 disabled:cursor-not-allowed"
+                  :title="props.agentEnabled ? '配置 Agent 技能增强' : '启用 Agent 模式后可配置技能'"
+                >
+                  <span>技能</span>
+                  <small>{{ props.selectedSkillCount ? `${props.selectedSkillCount} 个已选` : 'Agent 增强' }}</small>
+                </button>
+                <button
+                  @click="$emit('previewContextPlan')"
+                  :disabled="!selectedChapterNumber"
+                  class="advanced-tool-btn disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="预览本章生成计划"
+                >
+                  <span>计划</span>
+                  <small>查看 AI 写作依据</small>
+                </button>
+                <button
+                  @click="$emit('openMiddleProductViewer')"
+                  class="advanced-tool-btn"
+                  title="查看生成中间产物"
+                >
+                  <span>中间产物</span>
+                  <small>调试上下文与证据</small>
+                </button>
+                <button
+                  @click="$emit('openDiagnosticPanel')"
+                  class="advanced-tool-btn"
+                  title="生成诊断报告"
+                >
+                  <span>章节体检</span>
+                  <small>质量与风险报告</small>
+                </button>
+                <button
+                  @click="$emit('openAgentVisualizer')"
+                  class="advanced-tool-btn"
+                  title="查看 Agent 协作流程"
+                >
+                  <span>Agent</span>
+                  <small>协作流程可视化</small>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -474,6 +531,7 @@ interface Props {
   selectedPreset?: string
   selectedSkillCount?: number
   agentEnabled?: boolean
+  professionalMode?: boolean
   showMiddleProductViewer?: boolean
   showDiagnosticPanel?: boolean
   showAgentVisualizer?: boolean
@@ -498,7 +556,8 @@ const emit = defineEmits([
   'openMiddleProductViewer',
   'previewContextPlan',
   'openDiagnosticPanel',
-  'openAgentVisualizer'
+  'openAgentVisualizer',
+  'update:professionalMode'
 ])
 
 // 预设名称映射
@@ -519,6 +578,7 @@ const selectedForDeletion = ref<number[]>([])
 const listContainer = ref<HTMLElement | null>(null)
 const chapterRefs = ref<Record<number, HTMLElement | null>>({})
 const referenceLibraryVisible = ref(false)
+const showProfessionalTools = ref(!!props.professionalMode)
 
 const characterCount = computed(() => {
   return props.project?.blueprint?.characters?.length || 0
@@ -542,6 +602,104 @@ const lastChapterNumber = computed(() => {
 
 const totalChapters = computed(() => {
   return props.project?.blueprint?.chapter_outline?.length || 0
+})
+
+const completedChapters = computed(() => {
+  return props.project?.chapters?.filter(ch => ch.generation_status === 'successful').length || 0
+})
+
+const firstIncompleteChapter = computed(() => {
+  const outlines = [...(props.project?.blueprint?.chapter_outline || [])].sort(
+    (a, b) => a.chapter_number - b.chapter_number
+  )
+  return outlines.find(chapter => !isChapterCompleted(chapter.chapter_number)) || null
+})
+
+const waitingChapter = computed(() => {
+  const chapter = props.project?.chapters?.find(ch => ch.generation_status === 'waiting_for_confirm')
+  if (!chapter) return null
+  return props.project?.blueprint?.chapter_outline?.find(
+    outline => outline.chapter_number === chapter.chapter_number
+  ) || null
+})
+
+const workflowSubtitle = computed(() => {
+  if (!totalChapters.value) return '先把蓝图转成可执行章节'
+  if (waitingChapter.value) return `第 ${waitingChapter.value.chapter_number} 章等待选版`
+  if (firstIncompleteChapter.value) return `下一步推进第 ${firstIncompleteChapter.value.chapter_number} 章`
+  return '已完成当前大纲，可做体检或继续扩展'
+})
+
+const workflowSteps = computed(() => [
+  {
+    key: 'blueprint',
+    label: props.project.blueprint ? '蓝图已建立' : '建立故事蓝图',
+    done: !!props.project.blueprint,
+    active: !props.project.blueprint,
+  },
+  {
+    key: 'outline',
+    label: totalChapters.value ? `${totalChapters.value} 章大纲` : '生成章节大纲',
+    done: totalChapters.value > 0,
+    active: !!props.project.blueprint && totalChapters.value === 0,
+  },
+  {
+    key: 'draft',
+    label: completedChapters.value ? `${completedChapters.value} 章已定稿` : '生成第一章',
+    done: totalChapters.value > 0 && completedChapters.value === totalChapters.value,
+    active: totalChapters.value > 0 && completedChapters.value < totalChapters.value,
+  },
+])
+
+const nextWorkflowAction = computed(() => {
+  if (!totalChapters.value) {
+    return {
+      type: 'generate-outline',
+      enabled: !props.isGeneratingOutline,
+      label: props.isGeneratingOutline ? '正在生成大纲' : '生成章节大纲',
+      hint: '把蓝图拆成可写章节',
+      chapterNumber: null,
+    }
+  }
+
+  if (waitingChapter.value) {
+    return {
+      type: 'select-chapter',
+      enabled: true,
+      label: `处理第 ${waitingChapter.value.chapter_number} 章版本`,
+      hint: '选中满意版本并定稿',
+      chapterNumber: waitingChapter.value.chapter_number,
+    }
+  }
+
+  const selected = props.selectedChapterNumber
+  if (selected && canGenerateChapter(selected) && !isChapterGenerating(selected)) {
+    return {
+      type: 'generate-chapter',
+      enabled: !props.generatingChapter,
+      label: isChapterCompleted(selected) ? `重写第 ${selected} 章` : `生成第 ${selected} 章`,
+      hint: '按当前模式推进正文',
+      chapterNumber: selected,
+    }
+  }
+
+  if (firstIncompleteChapter.value) {
+    return {
+      type: 'select-chapter',
+      enabled: true,
+      label: `定位第 ${firstIncompleteChapter.value.chapter_number} 章`,
+      hint: '继续下一章创作',
+      chapterNumber: firstIncompleteChapter.value.chapter_number,
+    }
+  }
+
+  return {
+    type: 'diagnose',
+    enabled: true,
+    label: '生成全书体检',
+    hint: '检查一致性与返工风险',
+    chapterNumber: null,
+  }
 })
 
 const hasIncompleteChapters = computed(() => {
@@ -582,7 +740,17 @@ function handleDeleteSelected() {
 }
 
 async function confirmGenerateChapter(chapterNumber: number) {
-  const confirmed = await globalAlert.showConfirm('重新生成会覆盖当前章节的生成结果，确定继续吗？', '重新生成确认')
+  if (!isChapterCompleted(chapterNumber) && !hasChapterInProgress(chapterNumber) && !isChapterFailed(chapterNumber)) {
+    emit('generateChapter', chapterNumber)
+    return
+  }
+
+  const message = isChapterCompleted(chapterNumber)
+    ? '重新生成会覆盖当前章节的生成结果，确定继续吗？'
+    : hasChapterInProgress(chapterNumber)
+      ? '重新生成会替换当前待选择版本，确定继续吗？'
+      : '将重新尝试生成该章节，确定继续吗？'
+  const confirmed = await globalAlert.showConfirm(message, '生成确认')
   if (confirmed) {
     emit('generateChapter', chapterNumber)
   }
@@ -590,6 +758,29 @@ async function confirmGenerateChapter(chapterNumber: number) {
 
 function previewPrediction(chapterNumber: number) {
   emit('previewPrediction', chapterNumber)
+}
+
+async function runNextWorkflowAction() {
+  const action = nextWorkflowAction.value
+  if (!action.enabled) return
+  if (action.type === 'generate-outline') {
+    emit('generateOutline')
+    return
+  }
+  if (action.type === 'generate-chapter' && action.chapterNumber) {
+    await confirmGenerateChapter(action.chapterNumber)
+    return
+  }
+  if (action.type === 'select-chapter' && action.chapterNumber) {
+    const outline = props.project?.blueprint?.chapter_outline?.find(
+      chapter => chapter.chapter_number === action.chapterNumber
+    )
+    if (outline) handleSelectChapter(outline)
+    return
+  }
+  if (action.type === 'diagnose') {
+    emit('openDiagnosticPanel')
+  }
 }
 
 function handleSelectChapter(chapter: ChapterOutline) {
@@ -672,6 +863,13 @@ watch(
     if (!visible) {
       refreshReferenceNovels()
     }
+  }
+)
+
+watch(
+  () => props.professionalMode,
+  (enabled) => {
+    showProfessionalTools.value = !!enabled
   }
 )
 
@@ -874,6 +1072,212 @@ const canGenerateChapter = (chapterNumber: number) => {
 .reference-panel-empty {
   font-size: 0.75rem;
   color: #555555;
+}
+
+.workflow-panel {
+  margin: 0 1rem 1rem;
+  padding: 0.9rem;
+  border-radius: 1rem;
+  background: #141414;
+  border: 1px solid #2A2A2A;
+}
+
+.workflow-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.workflow-panel-title {
+  margin: 0;
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.workflow-panel-subtitle {
+  margin: 0.15rem 0 0;
+  color: #777777;
+  font-size: 0.72rem;
+}
+
+.workflow-progress {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+  color: #FFE500;
+  background: rgba(255, 229, 0, 0.08);
+  border: 1px solid rgba(255, 229, 0, 0.18);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.workflow-steps {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.8rem;
+}
+
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #666666;
+  font-size: 0.74rem;
+}
+
+.workflow-step.done {
+  color: #A0A0A0;
+}
+
+.workflow-step.active {
+  color: #FFFFFF;
+}
+
+.workflow-step-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: #333333;
+}
+
+.workflow-step.done .workflow-step-dot {
+  background: #2ED573;
+}
+
+.workflow-step.active .workflow-step-dot {
+  background: #FFE500;
+  box-shadow: 0 0 0 3px rgba(255, 229, 0, 0.12);
+}
+
+.workflow-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  border: none;
+  border-radius: 0.85rem;
+  background: #FFE500;
+  color: #000000;
+  cursor: pointer;
+  font-size: 0.83rem;
+  font-weight: 800;
+}
+
+.workflow-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.workflow-action-hint {
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.workflow-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  background: #0F0F0F;
+  border: 1px solid #242424;
+}
+
+.workflow-mode-switch button {
+  min-height: 2rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: #777777;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.workflow-mode-switch button.active {
+  background: #FFE500;
+  color: #000000;
+}
+
+.advanced-mode-entry {
+  display: flex;
+  width: 100%;
+  min-height: 3rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px dashed rgba(255, 229, 0, 0.32);
+  border-radius: 0.85rem;
+  background: rgba(255, 229, 0, 0.05);
+  color: #FFE500;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: left;
+}
+
+.advanced-mode-entry small {
+  color: #777777;
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+
+.advanced-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid #2A2A2A;
+  border-radius: 0.85rem;
+  background: #141414;
+  color: #A0A0A0;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.advanced-tools {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.6rem;
+}
+
+.advanced-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.advanced-tool-btn {
+  display: flex;
+  min-height: 3.2rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #2A2A2A;
+  border-radius: 0.85rem;
+  background: #141414;
+  color: #FFFFFF;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.advanced-tool-btn small {
+  color: #666666;
+  font-size: 0.66rem;
+  font-weight: 500;
 }
 </style>
 

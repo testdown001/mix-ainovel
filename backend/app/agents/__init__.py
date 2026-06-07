@@ -1,7 +1,7 @@
 # AIMETA P=Agent模块导出|R=统一导出所有Agent|NR=提供外部调用入口|E=agents|X=public|A=模块入口|D=none
-"""三省六部 Agent 系统
+"""自创先进多 Agent 架构
 
-多 Agent 协作写作系统，借鉴中国古代官制设计。
+面向长篇网文创作的多 Agent 协作写作系统。
 
 Usage:
     from app.agents import WritingAgentSystem, HybridExecutor

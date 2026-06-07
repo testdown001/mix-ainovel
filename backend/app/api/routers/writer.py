@@ -29,6 +29,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from ...core.config import settings
 from ...core.dependencies import get_current_user
+from ...core.feature_gating import TIER_LABELS, load_min_tiers, tier_allows
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
 from ...models.writing_archive import WritingArchive
@@ -269,6 +270,35 @@ async def _set_chapter_failed_status(
         await session.commit()
 
 
+_PRESET_FEATURES = {
+    "standard": ("preset_standard", "标准生成模式", "creator"),
+    "premium": ("preset_premium", "精品生成模式", "flagship"),
+}
+
+
+async def _ensure_generation_preset_allowed(
+    session: AsyncSession,
+    preset: str,
+    effective_tier: str,
+) -> None:
+    feature_info = _PRESET_FEATURES.get(preset)
+    if not feature_info:
+        return
+
+    feature_key, preset_label, default_required_tier = feature_info
+    min_tiers = await load_min_tiers(session)
+    required_tier = min_tiers.get(feature_key, default_required_tier)
+    if tier_allows(effective_tier, feature_key, min_tiers):
+        return
+
+    required_label = TIER_LABELS.get(required_tier, required_tier)
+    current_label = TIER_LABELS.get(effective_tier, effective_tier or "free")
+    raise HTTPException(
+        status_code=403,
+        detail=f"{preset_label}需要{required_label}（当前：{current_label}）",
+    )
+
+
 # 已移除腐坏的 Celery 异步端点 /async/generate（chapter_tasks.generate_chapter_task
 # 与 PipelineOrchestrator.generate_chapter 签名双重不匹配，命中即入队崩溃）。
 # 生产异步生成由 Go Gateway → /api/internal/tasks/execute (task_worker.py) 承担。
@@ -282,14 +312,28 @@ async def advanced_generate_chapter(
     current_user: UserInDB = Depends(get_current_user),
 ) -> AdvancedGenerateResponse:
     """
-    高级写作入口：通过 HybridExecutor 支持传统流水线或 Agent 多代理系统。
-    设置 flow_config.use_agent=true 启用 Agent 系统。
+    高级写作入口：通过 HybridExecutor 支持传统流水线。
+
+    生成模式会员门控：
+    - fast（快速模式）：free 用户可用
+    - standard（标准模式）：creator+ 用户可用
+    - premium（精品模式）：flagship+ 用户可用
     """
     from ...agents.hybrid_executor import HybridExecutor
+    from ...services.quota_service import QuotaService
+
+    # ===== 会员档位门控 =====
+    quota_service = QuotaService(session)
+    user_quota = await quota_service.get_or_create_quota(current_user.id)
+    effective_tier = user_quota.effective_tier
+
+    preset = request.flow_config.preset or "fast"
+
+    await _ensure_generation_preset_allowed(session, preset, effective_tier)
 
     executor = HybridExecutor(session, user_id=current_user.id)
 
-    # 检查是否启用 Agent 系统
+    # 检查是否启用 Agent 系统（保留，但不推荐使用）
     use_agent = request.flow_config.use_agent or False
 
     if use_agent:
@@ -377,8 +421,28 @@ async def advanced_generate_chapter(
 @router.post("/advanced/generate/stream")
 async def advanced_generate_chapter_stream(
     request: AdvancedGenerateRequest,
+    session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> StreamingResponse:
+    """
+    高级写作流式入口（SSE）。
+
+    生成模式会员门控：
+    - fast（快速模式）：free 用户可用
+    - standard（标准模式）：creator+ 用户可用
+    - premium（精品模式）：flagship+ 用户可用
+    """
+    from ...services.quota_service import QuotaService
+
+    # ===== 会员档位门控 =====
+    quota_service = QuotaService(session)
+    user_quota = await quota_service.get_or_create_quota(current_user.id)
+    effective_tier = user_quota.effective_tier
+
+    preset = request.flow_config.preset or "fast"
+
+    await _ensure_generation_preset_allowed(session, preset, effective_tier)
+
     use_agent = request.flow_config.use_agent or False
 
     event_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
@@ -2503,8 +2567,43 @@ async def diagnose_chapter(
     if error_issues:
         score = max(0, score - 15)
 
+    summary_score = max(0, min(100, score))
+    blocking_issues = [i for i in issues if i["severity"] == "error"]
+    warning_issues = [i for i in issues if i["severity"] == "warning"]
+    if summary_score >= 80:
+        verdict = "本章状态良好，可以进入选版/定稿并继续下一章"
+    elif summary_score >= 60:
+        verdict = "本章可用但建议小修，优先处理下方风险点"
+    else:
+        verdict = "本章存在明显返工风险，建议调整指令或切换生成模式后重试"
+
+    if blocking_issues:
+        primary_risk = blocking_issues[0]["description"]
+    elif warning_issues:
+        primary_risk = warning_issues[0]["description"]
+    else:
+        primary_risk = "未发现明显质量风险"
+
+    if blocking_issues:
+        next_action = "先处理高风险问题，再重新生成或手动修订本章"
+    elif not blueprint or not blueprint.brief_summary:
+        next_action = "补全章节蓝图纲要，再生成或重写本章"
+    elif rag_hit_rate > 0 and rag_hit_rate < 0.7:
+        next_action = "刷新知识库或完善前文章节摘要后再生成"
+    elif total_time_ms > 60000:
+        next_action = "如需更快出稿，可切换极速模式或减少版本数"
+    else:
+        next_action = "确认满意版本后定稿，并继续推进下一章"
+
     return {
-        "overall_score": score,
+        "mode": "chapter",
+        "overall_score": summary_score,
+        "product_summary": {
+            "verdict": verdict,
+            "primary_risk": primary_risk,
+            "next_action": next_action,
+            "confidence": "high" if telemetry_available or evaluation_scores else "medium",
+        },
         "performance": {
             "total_time_ms": total_time_ms,
             "llm_calls": llm_calls,
@@ -2698,9 +2797,41 @@ async def diagnose_project(
     if low_score_chapters:
         score = max(0, score - len(low_score_chapters) * 3)
 
+    final_score = max(0, min(100, score))
+    blocking_issues = [i for i in issues if i["severity"] == "error"]
+    warning_issues = [i for i in issues if i["severity"] == "warning"]
+    if final_score >= 80:
+        verdict = "全书生成状态稳定，可以继续按当前配置推进"
+    elif final_score >= 60:
+        verdict = "全书整体可推进，但建议先处理低分章节和检索问题"
+    else:
+        verdict = "全书存在较高返工风险，建议先做结构修复再继续批量生成"
+
+    if blocking_issues:
+        primary_risk = blocking_issues[0]["description"]
+    elif warning_issues:
+        primary_risk = warning_issues[0]["description"]
+    else:
+        primary_risk = "未发现明显全书级风险"
+
+    if low_score_chapters:
+        next_action = "优先重写低分章节，再继续生成后续章节"
+    elif avg_rag > 0 and avg_rag < 0.7:
+        next_action = "完善章节纲要并刷新知识库，提高长篇一致性"
+    elif generated_count < total_chapter_count:
+        next_action = "继续生成未完成章节，完成后再做一次全书体检"
+    else:
+        next_action = "保持当前配置，必要时进入精品模式做关键章节精修"
+
     return {
         "mode": "project",
-        "overall_score": max(0, min(100, score)),
+        "overall_score": final_score,
+        "product_summary": {
+            "verdict": verdict,
+            "primary_risk": primary_risk,
+            "next_action": next_action,
+            "confidence": "high" if all_scores or all_rag_rates else "medium",
+        },
         "performance": {
             "total_time_ms": total_time,
             "avg_time_ms": avg_time,

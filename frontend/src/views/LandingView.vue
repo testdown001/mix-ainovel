@@ -83,9 +83,9 @@ onMounted(fetchPlans)
 const features = [
   {
     icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>`,
-    title: '三省六部多智能体',
-    subtitle: '仿古代官制的创作体系',
-    desc: '中书省发令、门下省审核、尚书省执行，六部分司其职，实现全流程智能协作，让每章创作都达到出版水准。',
+    title: '自创先进多 Agent 架构',
+    subtitle: '为长篇网文定制的协作引擎',
+    desc: '规划、生成、审核、记忆与技能模块协同工作，从章节目标到成稿质量全链路把关，让每章创作都达到发布水准。',
     color: '#FFE500',
   },
   {
@@ -106,7 +106,7 @@ const features = [
     icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>`,
     title: '章节质量审核',
     subtitle: '出版级标准智能把关',
-    desc: '仿门下省机制的章节评审系统，从文笔流畅度、情节连贯性到角色一致性，多维度打分并提出优化建议。',
+    desc: '面向长篇连载的章节评审系统，从文笔流畅度、情节连贯性到角色一致性，多维度打分并提出优化建议。',
     color: '#F97316',
   },
   {
@@ -127,8 +127,8 @@ const features = [
 
 const steps = [
   { num: '01', title: '创建你的小说项目', desc: '填写书名、类型与核心设定，AI帮你拓展世界观与角色体系', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>` },
-  { num: '02', title: '激活三省六部协作', desc: '中书省分析章节目标，六部各司其职，协同完成高质量草稿', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>` },
-  { num: '03', title: '审核与完善章节', desc: '门下省自动审核，你只需确认并微调，章节即可达到发布水准', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>` },
+  { num: '02', title: '激活多 Agent 协作', desc: '规划智能体分析章节目标，生成、审核、记忆模块协同完成高质量草稿', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>` },
+  { num: '03', title: '审核与完善章节', desc: '质量审核智能体自动评估，你只需确认并微调，章节即可达到发布水准', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>` },
   { num: '04', title: '持续积累，完成大作', desc: '每日高效产出，伏笔追踪确保故事无漏，朝百万字长篇迈进', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>` },
 ]
 
@@ -230,7 +230,7 @@ const stats = [
         <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-8 text-xs font-medium"
           style="background:#141400; border-color:#FFE50030; color:#FFE500;">
           <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:#FFE500;"></span>
-          三省六部 · AI 驱动的中国网络小说创作平台
+          自创先进多 Agent 架构 · AI 驱动的中国网络小说创作平台
         </div>
 
         <!-- Headline -->
@@ -241,7 +241,7 @@ const stats = [
 
         <!-- Subheadline -->
         <p class="text-lg mb-10 max-w-2xl mx-auto" style="color:#888888; line-height:1.7;">
-          Arboris Novel 用仿古代三省六部的多智能体协作体系，帮你突破创作瓶颈——
+          Arboris Novel 用我们自创的先进多 Agent 架构，帮你突破创作瓶颈——
           从灵感到定稿，全流程 AI 加持，让日更 5000 字成为常态。
         </p>
 
@@ -510,10 +510,10 @@ const stats = [
         <div class="space-y-3">
           <details v-for="faq in [
             {q:'AI生成的内容版权归谁？', a:'所有由你输入的内容及AI输出的结果，版权完全归你所有。我们不会使用你的创作内容训练模型或用于其他用途。'},
-            {q:'免费版和付费版有什么区别？', a:'免费版每日可生成3章，最多管理2个项目，适合轻度体验。付费版解锁更高每日章节数、更多项目、完整的三省六部协作系统及高级功能。'},
+            {q:'免费版和付费版有什么区别？', a:'免费版每日可生成3章，最多管理2个项目，适合轻度体验。付费版解锁更高每日章节数、更多项目、完整的先进多 Agent 协作系统及高级功能。'},
             {q:'如何取消订阅？', a:'你可以在「设置」→「账户」中随时一键取消，取消后仍可使用至当前账单周期结束，不会立即降级。'},
             {q:'支持哪些支付方式？', a:'目前支持支付宝、微信支付和国际信用卡（通过Stripe）。后续将持续扩展更多支付渠道。'},
-            {q:'AI写的内容质量如何把控？', a:'我们的门下省审核机制会自动对每章内容进行多维评分，包括文笔、逻辑和角色一致性，并给出修改建议，最终定稿权始终在你手中。'},
+            {q:'AI写的内容质量如何把控？', a:'我们的质量审核智能体会自动对每章内容进行多维评分，包括文笔、逻辑和角色一致性，并给出修改建议，最终定稿权始终在你手中。'},
           ]" :key="faq.q"
             class="rounded-xl border overflow-hidden"
             style="background:#0D0D0D; border-color:#1E1E1E;">
@@ -570,7 +570,7 @@ const stats = [
               </div>
               <span class="font-bold" style="font-family:'Space Grotesk',sans-serif;">Arboris Novel</span>
             </div>
-            <p class="text-xs leading-relaxed" style="color:#444;">AI驱动的中国网络小说创作平台，用三省六部多智能体体系助力每一位创作者。</p>
+            <p class="text-xs leading-relaxed" style="color:#444;">AI驱动的中国网络小说创作平台，用自创先进多 Agent 架构助力每一位创作者。</p>
           </div>
           <!-- Links -->
           <div class="grid grid-cols-2 md:grid-cols-3 gap-8 text-sm">
@@ -600,7 +600,7 @@ const stats = [
         </div>
         <div class="flex flex-col md:flex-row items-center justify-between gap-3 pt-6" style="border-top:1px solid #141414;">
           <p class="text-xs" style="color:#333;">© 2025 Arboris Novel. 保留所有权利。</p>
-          <p class="text-xs" style="color:#333;">Powered by AI · 三省六部多智能体协作体系</p>
+          <p class="text-xs" style="color:#333;">Powered by AI · 自创先进多 Agent 协作架构</p>
         </div>
       </div>
     </footer>

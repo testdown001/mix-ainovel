@@ -1,4 +1,4 @@
-<!-- AIMETA P=门下省审核结果_章节质量审核展示|R=审核结果展示|NR=不含审核逻辑|GatekeeperResult|X=ui|A=审核展示|D=vue|S=dom|RD=./README.ai -->
+<!-- AIMETA P=章节质量审核结果_审核展示|R=审核结果展示|NR=不含审核逻辑|GatekeeperResult|X=ui|A=审核展示|D=vue|S=dom|RD=./README.ai -->
 <template>
   <div class="gatekeeper-result">
     <!-- 审核状态头部 -->

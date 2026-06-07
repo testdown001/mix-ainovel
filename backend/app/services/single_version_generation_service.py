@@ -3,8 +3,16 @@ from __future__ import annotations
 import json
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from fastapi import HTTPException
+
 from ..core.config import settings
-from ..utils.json_utils import extract_text_from_json, remove_think_tags, sanitize_chapter_plain_text, unwrap_markdown_json
+from ..utils.json_utils import (
+    extract_text_from_json,
+    is_probable_chapter_plain_text,
+    remove_think_tags,
+    sanitize_chapter_plain_text,
+    unwrap_markdown_json,
+)
 
 
 class SingleVersionGenerationService:
@@ -70,7 +78,13 @@ class SingleVersionGenerationService:
         }
 
         content = ""
-        if config.enable_preview:
+        used_direct_generation = False
+        final_prompt_input = prompt_input
+        dynamic_max_tokens = min(
+            settings.writer_max_tokens,
+            int(max_word_count * 1.5),
+        )
+        if getattr(config, "enable_preview", False):
             content, preview_meta = await self.generate_with_preview(
                 project_id=project_id,
                 chapter_number=chapter_number,
@@ -86,13 +100,8 @@ class SingleVersionGenerationService:
             metadata["preview"] = preview_meta
 
         if not content:
-            final_prompt_input = prompt_input
             if style_text:
                 final_prompt_input = f"[版本风格策略]\n{style_text}\n\n{final_prompt_input}"
-            dynamic_max_tokens = min(
-                settings.writer_max_tokens,
-                int(max_word_count * 1.5),
-            )
             response = await self.llm_service.get_llm_response(
                 system_prompt=writer_prompt,
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
@@ -106,6 +115,7 @@ class SingleVersionGenerationService:
             )
             cleaned = remove_think_tags(response)
             content = unwrap_markdown_json(cleaned or response)
+            used_direct_generation = True
 
         omniscient_tolerance = "medium"
         if genre_profile:
@@ -158,6 +168,43 @@ class SingleVersionGenerationService:
             parsed_json = None
 
         final_text = sanitize_chapter_plain_text(extracted_text or content)
+        if not is_probable_chapter_plain_text(final_text) and used_direct_generation:
+            retry_prompt_input = (
+                f"{final_prompt_input}\n\n"
+                "[上一次输出无效]\n"
+                "你刚才输出了提示词、任务分析或编辑说明，而不是小说正文。\n"
+                "现在必须直接写出本章小说正文：不要分析、不要解释、不要标题、不要 JSON、不要列提纲。"
+            )
+            retry_response = await self.llm_service.get_llm_response(
+                system_prompt=(
+                    f"{writer_prompt}\n\n"
+                    "硬性输出要求：只输出小说章节正文。第一个字必须是正文，不允许输出分析任务、原文本分析、"
+                    "角色目标限制、编辑说明、标题、JSON 或 Markdown。"
+                ),
+                conversation_history=[{"role": "user", "content": retry_prompt_input}],
+                temperature=max(0.2, resolved_temp - 0.15),
+                user_id=user_id,
+                timeout=180.0,
+                response_format=None,
+                max_tokens=dynamic_max_tokens,
+                disable_thinking=not settings.writer_enable_thinking,
+                on_chunk=stream_callback,
+            )
+            retry_cleaned = remove_think_tags(retry_response)
+            content = unwrap_markdown_json(retry_cleaned or retry_response)
+            parsed_json = None
+            extracted_text = None
+            try:
+                parsed_json = json.loads(content)
+                extracted_text = extract_text_from_json(parsed_json)
+            except Exception:
+                parsed_json = None
+            final_text = sanitize_chapter_plain_text(extracted_text or content)
+            metadata["invalid_output_retry"] = True
+
+        if not is_probable_chapter_plain_text(final_text):
+            raise HTTPException(status_code=502, detail="章节生成失败：模型没有返回小说正文，请重试")
+
         overflow_threshold = int(max_word_count * 1.02)
         if len(final_text) > overflow_threshold:
             compressed = await self.text_compression_service.compress_overlength(

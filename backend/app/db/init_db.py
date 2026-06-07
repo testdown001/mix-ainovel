@@ -156,6 +156,18 @@ async def _ensure_schema_updates() -> None:
                         continue
                     sync_conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
 
+            def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
+                """为既有库补建缺失的复合索引（幂等）。"""
+                if not inspector.has_table(table_name):
+                    return
+                existing = {idx["name"] for idx in inspector.get_indexes(table_name)}
+                if index_name in existing:
+                    return
+                cols = ", ".join(columns)
+                sync_conn.execute(
+                    text(f"CREATE INDEX {index_name} ON {table_name} ({cols})")
+                )
+
             _ensure_columns(
                 "chapter_outlines",
                 {
@@ -226,18 +238,6 @@ async def _ensure_schema_updates() -> None:
                 },
             )
             _ensure_index("users", "ix_users_phone", ["phone"])
-
-            def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
-                """为既有库补建缺失的复合索引（幂等）。"""
-                if not inspector.has_table(table_name):
-                    return
-                existing = {idx["name"] for idx in inspector.get_indexes(table_name)}
-                if index_name in existing:
-                    return
-                cols = ", ".join(columns)
-                sync_conn.execute(
-                    text(f"CREATE INDEX {index_name} ON {table_name} ({cols})")
-                )
 
             # 热点联合过滤补复合索引（与模型 __table_args__ 对齐，覆盖既有库）
             _ensure_index("chapters", "ix_chapters_project_chapter",

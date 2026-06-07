@@ -50,8 +50,9 @@ services:
       GATEWAY_JWT_SECRET: ${SECRET_KEY}
       GATEWAY_BACKEND_FASTAPI_URL: "http://app:8000"
       GATEWAY_TASK_DISPATCHER_WORKER_CALLBACK_URL: "http://app:8000/api/internal/tasks"
+      GATEWAY_TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET: ${TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET:?请设置任务回调共享密钥}
     volumes:
-      - ../gateway/config.yaml:/app/config.yaml:ro
+      - ./gateway-config.yaml:/root/config.yaml:ro
     restart: unless-stopped
     depends_on:
       - redis
@@ -95,6 +96,7 @@ services:
 
       # Redis 配置
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET: ${TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET:?请设置任务回调共享密钥}
 
       # 管理员配置
       ADMIN_DEFAULT_USERNAME: ${ADMIN_DEFAULT_USERNAME:-admin}

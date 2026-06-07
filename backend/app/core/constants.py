@@ -4,14 +4,14 @@ from enum import Enum
 
 
 class WritingStage(str, Enum):
-    """写作进度阶段枚举 - 对应"三省六部"各职能"""
+    """写作进度阶段枚举 - 对应先进多 Agent 架构各职能"""
     INIT = "init"                      # 初始化
-    PARSE_REQUIREMENT = "parse"        # 太子分拣 - 解析需求
-    PLAN_STRATEGY = "plan"             # 中书规划 - 制定策略
+    PARSE_REQUIREMENT = "parse"        # 需求解析
+    PLAN_STRATEGY = "plan"             # 上下文规划
     PREVIEW_GENERATION = "preview"     # 预览生成
-    MAIN_WRITING = "writing"           # 兵部写作 - 核心生成
+    MAIN_WRITING = "writing"           # 章节生成
     POST_PROCESSING = "post_process"   # 后处理 - 润色优化
-    REVIEW = "review"                   # 门下审核 - 质量评审
+    REVIEW = "review"                   # 质量评审
     FINALIZE = "finalize"              # 最终确认
 
 
@@ -50,7 +50,7 @@ STAGE_CONFIG = {
     WritingStage.MAIN_WRITING: {
         "name": "章节生成",
         "icon": "✍️",
-        "description": "兵部写作 - 核心内容生成"
+        "description": "核心内容生成"
     },
     WritingStage.POST_PROCESSING: {
         "name": "后处理",

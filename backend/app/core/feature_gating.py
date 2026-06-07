@@ -35,12 +35,19 @@ class Capability:
 
 # ── 能力注册表（代码唯一真相源；新增能力在此登记即自动接入门控+定价展示）──
 CAPABILITIES: List[Capability] = [
-    Capability("muse_persona", "缪斯人格选择",
-               "切换赛博朋克/神话史诗/暗黑悬疑/沙雕脑洞等多种灵感缪斯人格。", "creator"),
-    Capability("muse_search", "开场跨界找素材",
-               "灵感开场联网检索冷门真实的跨领域素材，供故事嫁接，跳出俗套。", "creator"),
-    Capability("muse_divergence", "N 路发散评分收敛",
-               "一次生成多个迥异世界观种子并智能评分，挑选最佳方向。", "flagship"),
+    # 灵感模式会员功能
+    Capability("muse_persona", "多风格灵感缪斯",
+               "用不同创作人格陪你开局，快速试出更适合题材的口味和表达方向。", "creator"),
+    Capability("muse_search", "跨界素材嫁接",
+               "开场自动寻找真实跨领域素材，帮设定跳出常见套路，形成更有记忆点的卖点。", "creator"),
+    Capability("muse_divergence", "多方向开局筛选",
+               "一次生成多个迥异故事方向并评分收敛，降低开局选错题材后的返工成本。", "flagship"),
+
+    # 章节生成模式会员功能
+    Capability("preset_standard", "稳定连载生成",
+               "结合评审、世界观和文笔打磨，适合持续产出可读、可选、可定稿的日更章节。", "creator"),
+    Capability("preset_premium", "关键章节精修",
+               "加入自我批判、读者模拟和优化器，适合开篇、高潮、转折等高要求章节。", "flagship"),
 ]
 
 _CAP_BY_KEY: Dict[str, Capability] = {c.key: c for c in CAPABILITIES}

@@ -25,11 +25,11 @@ class BaseAgent(ABC):
 
     # Agent 名称映射到中文名称
     STAGE_NAMES = {
-        "taizi": "太子分拣",
-        "zhongshu": "中书规划",
-        "bingbu": "兵部生成",
-        "hubu": "户部技能",
-        "menxia": "门下审核",
+        "taizi": "需求解析",
+        "zhongshu": "上下文规划",
+        "bingbu": "章节生成",
+        "hubu": "技能增强",
+        "menxia": "质量审核",
     }
 
     def __init__(self, agent_id: str, session: AsyncSession):

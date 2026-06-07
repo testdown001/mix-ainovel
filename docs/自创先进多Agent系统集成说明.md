@@ -1,6 +1,8 @@
-# 三省六部多 Agent 系统集成说明
+# 自创先进多 Agent 系统集成说明
 
 > 本文档说明如何启用和使用多 Agent 协作写作系统。
+>
+> 当前状态提示（2026-06-02）：本文是历史集成说明。当前 Agent 主流程是 `taizi -> hubu -> zhongshu -> bingbu -> menxia` 的顺序返回值驱动流程，不再使用 `message_bus.py` / `PERMISSION_MATRIX` 路由；生成仍通过 `generation_bridge.py` 复用 `PipelineOrchestrator`。
 
 ## 一、系统架构
 
@@ -57,14 +59,14 @@ result = await executor.generate_chapter(
 
 ```
 ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│ 太子省   │───▶│ 中书省    │───▶│ 尚书省    │───▶│ 门下省    │
+│ 需求解析智能体   │───▶│ 规划智能体    │───▶│ 协调智能体    │───▶│ 审核智能体    │
 │ Taizi   │    │ Zhongshu │    │ Shangshu │    │ Menxia   │
 └─────────┘    └──────────┘    └──────────┘    └──────────┘
                                            │
                         ┌──────────────────┼──────────────────┐
                         ▼                  ▼                  ▼
                    ┌──────────┐       ┌──────────┐       ┌──────────┐
-                   │ 兵部      │       │ 户部      │       │ 吏部      │
+                   │ 生成智能体      │       │ 技能智能体      │       │ 一致性智能体      │
                    │ Bingbu   │       │ Hubu     │       │ Libu     │
                    └──────────┘       └──────────┘       └──────────┘
 ```
@@ -73,13 +75,13 @@ result = await executor.generate_chapter(
 
 | Agent | 名称 | 职责 |
 |-------|------|------|
-| **Taizi** | 太子省 | 需求解析、指令分拣 |
-| **Zhongshu** | 中书省 | 策略规划、上下文组装 |
-| **Shangshu** | 尚书省 | 任务分发、结果汇总 |
-| **Bingbu** | 兵部 | 章节核心生成 |
-| **Hubu** | 户部 | 技能系统、技能调度 |
-| **Libu** | 吏部 | 角色管理、人物一致性 |
-| **Menxia** | 门下省 | 质量审核、最终把关 |
+| **Taizi** | 需求解析智能体 | 需求解析、指令分拣 |
+| **Zhongshu** | 规划智能体 | 策略规划、上下文组装 |
+| **Shangshu** | 协调智能体 | 任务分发、结果汇总 |
+| **Bingbu** | 生成智能体 | 章节核心生成 |
+| **Hubu** | 技能智能体 | 技能系统、技能调度 |
+| **Libu** | 一致性智能体 | 角色管理、人物一致性 |
+| **Menxia** | 审核智能体 | 质量审核、最终把关 |
 
 ---
 
@@ -135,13 +137,13 @@ backend/app/agents/
 ├── message.py               # 消息定义
 ├── system.py                # WritingAgentSystem
 ├── message_bus.py           # AgentMessageBus
-├── taizi_agent.py           # 太子省
-├── zhongshu_agent.py        # 中书省
-├── shangshu_agent.py        # 尚书省
-├── bingbu_agent.py          # 兵部
-├── hubu_agent.py            # 户部
-├── libu_agent.py            # 吏部
-├── menxia_agent.py          # 门下省
+├── taizi_agent.py           # 需求解析智能体
+├── zhongshu_agent.py        # 规划智能体
+├── shangshu_agent.py        # 协调智能体
+├── bingbu_agent.py          # 生成智能体
+├── hubu_agent.py            # 技能智能体
+├── libu_agent.py            # 一致性智能体
+├── menxia_agent.py          # 审核智能体
 └── hybrid_executor.py       # 混合执行器
 ```
 
@@ -169,7 +171,7 @@ export LOG_LEVEL=DEBUG
 
 ### 消息超时
 
-Agent 系统默认超时 300 秒（兵部生成），可通过配置调整：
+Agent 系统默认超时 300 秒（章节生成），可通过配置调整：
 
 ```python
 config = {

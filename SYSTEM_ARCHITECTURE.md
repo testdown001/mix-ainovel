@@ -1,6 +1,6 @@
 # 小说写作系统完整架构文档 v1.0
 
-> **Arboris-Novel** — AI 辅助小说创作平台，基于"三省六部"多 Agent 架构实现从灵感到成稿的全链路闭环。
+> **Arboris-Novel** — AI 辅助小说创作平台，通过服务化生成流水线与可选自创先进多 Agent 架构，实现从灵感到成稿的全链路闭环。
 
 ---
 
@@ -13,7 +13,7 @@
 | 职责 | 实现组件 | 说明 |
 |------|---------|------|
 | **模式路由** | `HybridExecutor` | 根据 `use_agent` 标志决定走 Agent 系统还是传统流水线 |
-| **Agent 编排** | `WritingAgentSystem` | 按序调度七个 Agent，管理上下文在 Agent 间的传递 |
+| **Agent 编排** | `WritingAgentSystem` | 按序调度五个 Agent，通过返回值传递上下文 |
 | **流水线执行** | `PipelineOrchestrator` | 执行 RAG 检索、上下文组装、多版本生成、审核评分的完整流水线 |
 | **全局状态管理** | `WritingArchiveService`（奏折系统） | 记录每次生成任务的完整工作流、耗时、阶段产物 |
 | **质量把控** | `GatekeeperReviewService` + `SixDimensionReviewService` | 多层审核把关，不合格可触发重写 |
@@ -51,7 +51,7 @@ class CentralControlHub:
             return await self._pipeline_path(request)
 
     async def _agent_path(self, request):
-        # 太子分拣 → 中书规划 → 尚书调度 → 兵部生成 → 门下审核
+        # 需求解析 → 上下文规划 → 流程调度 → 章节生成 → 质量审核
         system = WritingAgentSystem(session, archive_service)
         return await system.execute_chapter_generation(
             project_id=request.project_id,
@@ -60,7 +60,7 @@ class CentralControlHub:
             user_id=request.user_id,
             stream_handler=request.stream_handler,
         )
-        # 兵部内部通过 AgentGenerationBridge 调用 PipelineOrchestrator
+        # 生成智能体内部通过 AgentGenerationBridge 调用 PipelineOrchestrator
         # 实现 Agent 架构与传统流水线能力的无缝融合
 
     async def _pipeline_path(self, request):
@@ -87,13 +87,13 @@ graph TD
     B -->|是| C[WritingAgentSystem]
     B -->|否| D[PipelineOrchestrator]
 
-    C --> C1[太子分拣]
-    C1 --> C2[中书规划]
-    C2 --> C3[尚书调度]
-    C3 --> C4[兵部生成]
+    C --> C1[需求解析]
+    C1 --> C2[上下文规划]
+    C2 --> C3[流程调度]
+    C3 --> C4[章节生成]
     C4 --> C4B[AgentGenerationBridge]
     C4B --> D
-    C4 --> C5[门下审核]
+    C4 --> C5[质量审核]
 
     D --> D1[解析配置 _resolve_config]
     D1 --> D2[收集上下文 + RAG 检索]
@@ -132,7 +132,7 @@ Arboris-Novel 的目标是构建一个**从灵感到成稿的全链路 AI 写作
 | 后端框架 | Python 3.11 + FastAPI + SQLAlchemy（全异步） |
 | 前端框架 | Vue 3 + TypeScript + Naive UI + TailwindCSS 4 |
 | 数据库 | MySQL 8.0+（asyncmy 驱动） |
-| 向量数据库 | libsql（RAG 存储）+ Qdrant（mem0 记忆层） |
+| 向量数据库 | Qdrant（RAG 分块/摘要 + mem0 记忆层），可选 BM25 混合检索 |
 | LLM 接口 | OpenAI 兼容 API（支持自定义 base_url，可接入 Gemini/Claude/DeepSeek 等） |
 | 实时通信 | Server-Sent Events（SSE） |
 
@@ -248,40 +248,33 @@ AI：这是一个经典的"废材逆袭"题材。让我帮你细化几个关键�
 
 ---
 
-### 4. 三省六部审核机制（Triple Province & Six Ministry Review System）
+### 4. 自创先进多 Agent 审核与协作机制
 
-**定义**：借鉴中国古代"三省六部制"的多 Agent 协作架构，将章节生成拆解为分拣、规划、调度、生成、校验、审核六个职能。
+**定义**：面向长篇网文创作自研的可选 Agent 执行模式。当前代码主流程已收敛为顺序调用，Agent 系统负责需求解析、技能注入、上下文规划、生成桥接和质量审核；核心正文生成仍通过 `PipelineOrchestrator` 完成。
 
 **关键文件**：
 - 系统入口：`backend/app/agents/system.py`（`WritingAgentSystem`）
 - 基类：`backend/app/agents/base.py`（`BaseAgent`）
 - 消息协议：`backend/app/agents/message.py`
-- 七个 Agent：`taizi_agent.py`、`zhongshu_agent.py`、`shangshu_agent.py`、`bingbu_agent.py`、`hubu_agent.py`、`libu_agent.py`、`menxia_agent.py`
+- 五个 Agent：`taizi_agent.py`、`hubu_agent.py`、`zhongshu_agent.py`、`bingbu_agent.py`、`menxia_agent.py`
+- 生成桥接：`backend/app/agents/generation_bridge.py`
 
-#### 三省分工
+#### 当前顺序流程
 
-| 省 | Agent | 职责 | 审核维度 |
-|----|-------|------|---------|
-| **太子省** | TaiziAgent | 需求分拣：解析用户指令，识别章节类型、情绪目标、写作偏好 | 输入完整性 |
-| **中书省** | ZhongshuAgent | 规划中枢：收集项目上下文、RAG 检索、构建 Mission 和 Writing Prompt | 上下文充分性 |
-| **门下省** | MenxiaAgent | 质量审核：调用 GatekeeperReviewService 执行内容合规检查和质量评分 | 合规性、质量分 |
+| 阶段 | Agent / 服务 | 职责 | 审核/执行维度 |
+|------|--------------|------|-------------|
+| 规划 1 | TaiziAgent | 需求解析：解析用户指令，识别章节类型、情绪目标、写作偏好 | 输入完整性 |
+| 规划 2 | HubuAgent | 可选技能注入：根据 selected_skills 构造技能策略和 prompt 注入 | 技能增强 |
+| 规划 3 | ZhongshuAgent | 上下文规划：收集项目上下文、RAG/证据、构建 Mission 和 Writing Prompt | 上下文充分性 |
+| 生成 | BingbuAgent | 章节生成：通过 AgentGenerationBridge 调用 PipelineOrchestrator | 内容生成 |
+| 审核 | MenxiaAgent | 质量审核：调用审核服务执行内容合规检查和质量评分 | 合规性、质量分 |
+| 服务职能 | GatekeeperReviewService / ChapterPostProcessor | 内容合规、摘要提取、向量化入库、记忆更新 | 合规红线 / 数据工程 |
 
-#### 六部分工
-
-| 部 | Agent | 职责 | 审核/执行维度 |
-|----|-------|------|-------------|
-| **兵部** | BingbuAgent | 章节生成：通过 AgentGenerationBridge 调用 PipelineOrchestrator 执行完整生成流水线 | 内容生成 |
-| **吏部** | LibuAgent | 角色管理：角色一致性检查、角色档案维护 | 角色一致性 |
-| **户部** | HubuAgent | 技能系统：管理和应用文本处理技能（可扩展的后处理管道） | 技能增强 |
-| **礼部** | （预留） | 排版规范：段落格式、对话标点、章节结构规范（当前由 Prompt 约束实现） | — |
-| **刑部** | GatekeeperReviewService | 内容合规：涉政/涉暴/敏感词检测与自动修复 | 合规红线 |
-| **工部** | ChapterPostProcessor | 后处理工程：摘要提取、向量化入库、记忆更新 | 数据工程 |
-
-> 注：礼部、刑部、工部当前以服务形式实现而非独立 Agent，但职能完整对应。
+> 注：`ShangshuAgent`、`LibuAgent`、`PERMISSION_MATRIX` 和消息总线路由已不在当前主流程中；不要按旧七 Agent 设计扩展。
 
 #### 审核打分标准
 
-**GatekeeperReview（门下省核心）**：
+**GatekeeperReview（质量审核核心）**：
 - 审核评分 0-100，`passed` 阈值为系统配置
 - 不通过时返回 `violations[]`（具体违规条目）和修复建议
 
@@ -502,11 +495,11 @@ graph TB
         WD --> CFG[选择预设 + 填写写作指令]
         CFG --> GEN{use_agent?}
 
-        GEN -->|Agent 模式| T[太子分拣]
-        T --> ZS[中书规划]
-        ZS --> SS[尚书调度]
-        SS --> BB[兵部生成]
-        BB --> MX[门下审核]
+        GEN -->|Agent 模式| T[需求解析]
+        T --> ZS[上下文规划]
+        ZS --> SS[流程调度]
+        SS --> BB[章节生成]
+        BB --> MX[质量审核]
 
         GEN -->|传统模式| PO[PipelineOrchestrator]
 
@@ -539,20 +532,20 @@ graph TB
 
 1. **灵感阶段**：用户输入"想写一个修仙废材逆袭的故事"→ AI 用 3-8 轮对话细化世界观、角色、冲突 → 生成包含 10-50 章大纲的完整蓝图
 2. **预生成检查**：用户在写作台选择目标章节，选定预设（fast/platinum/literary），可附加写作指令或应用模板
-3. **Agent 链路**（若启用）：太子省解析指令 → 中书省汇聚 RAG + 上下文 → 尚书省协调 → 兵部调用 PipelineOrchestrator 生成 → 门下省审核
+3. **Agent 链路**（若启用）：需求解析 → 可选技能增强 → 上下文规划汇聚 RAG 与项目上下文 → 生成智能体调用 PipelineOrchestrator 生成 → 质量审核
 4. **流水线执行**：上下文收集（蓝图+前章摘要+角色档案+RAG 检索+伏笔+宪法）→ Prompt 组装 → LLM 生成 1-3 个版本 → AI 评审打分 → 护栏检查
 5. **用户决策**：版本选择器展示所有版本及其 AI 评分，用户选择或要求重写
-6. **后处理闭环**：章节摘要提取 → 文本分块向量化（480 字/120 字重叠）→ 存入 libsql → 更新 mem0 记忆层（角色状态、时间线、因果链）→ 下一章生成时这些数据自动被 RAG 检索命中
+6. **后处理闭环**：章节摘要提取 → 文本分块向量化（480 字/120 字重叠）→ 写入 Qdrant `rag_chunks` / `rag_summaries` → 可选同步 BM25 索引 → 更新 mem0 记忆层（角色状态、时间线、因果链）→ 下一章生成时这些数据自动被 RAG 检索命中
 
 ---
 
 ## 优化点建议
 
-### 当前最关键痛点：中书省与兵部的上下文重复收集
+### 当前最关键痛点：上下文规划与章节生成的重复收集
 
-**问题描述**：当三省六部 Agent 系统启用时，存在双重上下文收集——`ZhongshuAgent._collect_context()` 收集一次项目上下文和 RAG 结果，随后 `BingbuAgent` 通过 `AgentGenerationBridge` 调用 `PipelineOrchestrator`，后者在 `generate_chapter()` 中**再次**执行完整的上下文收集和 RAG 检索。两次 RAG 检索使用不同的 query（中书省用 mission query，流水线用 chapter outline），但大部分结果重叠，造成 Embedding API 调用翻倍和额外 200-500ms 延迟。
+**问题描述**：当先进多 Agent 架构启用时，存在双重上下文收集——`ZhongshuAgent._collect_context()` 收集一次项目上下文和 RAG 结果，随后 `BingbuAgent` 通过 `AgentGenerationBridge` 调用 `PipelineOrchestrator`，后者在 `generate_chapter()` 中**再次**执行完整的上下文收集和 RAG 检索。两次 RAG 检索使用不同的 query（规划智能体用 mission query，流水线用 chapter outline），但大部分结果重叠，造成 Embedding API 调用翻倍和额外 200-500ms 延迟。
 
-**优化方案**：将中书省的上下文收集结果透传给兵部，兵部在调用 PipelineOrchestrator 时通过 `flow_config` 注入预收集的上下文，流水线检测到已有上下文后跳过重复收集。
+**优化方案**：将规划智能体的上下文收集结果透传给生成智能体，生成智能体在调用 PipelineOrchestrator 时通过 `flow_config` 注入预收集的上下文，流水线检测到已有上下文后跳过重复收集。
 
 **预期收益**：
 - Embedding API 调用减少 50%
@@ -642,7 +635,7 @@ async def generate_chapter(self, *, flow_config, **kwargs):
 
 1. 灵感模式（多轮对话 → 生成蓝图）
 2. 章节大纲（蓝图 → 结构化大纲，含情感弧线/伏笔操作/悬念密度）
-3. 三省六部 Agent 系统（太子分拣 → 中书规划 → 兵部生成 → 门下审核）
+3. 自创先进多 Agent 架构（需求解析 → 上下文规划 → 章节生成 → 质量审核）
 4. 生成流水线 PipelineOrchestrator（上下文收集 → RAG → Prompt 组装 → 多版本 LLM 生成 → AI 评审）
 5. Writer Persona（写手风格对齐，含反 AI 检测规则）
 6. 后处理闭环（摘要 → 向量化 → 记忆更新 → 供下一章 RAG 检索）
@@ -671,7 +664,7 @@ async def generate_chapter(self, *, flow_config, **kwargs):
 | **ChapterBlueprint** | 单章蓝图元数据，包含 chapter_function、emotional_arc、foreshadowing_ops 等结构化字段 |
 | **PipelineOrchestrator** | 章节生成流水线编排器，负责从上下文收集到多版本产出的完整流程 |
 | **PipelineConfig** | 流水线配置对象，包含 40+ 个开关和参数，由 preset 名称解析生成 |
-| **WritingAgentSystem** | 三省六部 Agent 系统入口，负责按序调度各 Agent |
+| **WritingAgentSystem** | 自创先进多 Agent 架构入口，负责按序调度各 Agent |
 | **AgentGenerationBridge** | Agent 系统与 PipelineOrchestrator 之间的桥接层 |
 | **AgentContext** | Agent 执行上下文（Pydantic 模型），包含 task_id、project_id、metadata 等 |
 | **AgentResult** | Agent 执行结果，包含 status（completed/failed/delegated）、output、next_agent |

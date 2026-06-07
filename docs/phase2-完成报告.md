@@ -1,5 +1,7 @@
 # Phase 2 完成报告 - Go 混合架构
 
+> 当前状态提示（2026-06-02）：本文是历史完成报告，不代表当前运行代码。当前索引中旧 `cmd/api` 和 `internal/llmgateway` 已不存在，Go Gateway 只负责 JWT/限流/反向代理/WebSocket/任务分发，业务 API 以 Python FastAPI 为准。
+
 **完成日期**: 2026-03-13
 **状态**: ✅ 全部完成（3/3 模块）
 

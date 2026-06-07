@@ -1,5 +1,7 @@
 # Phase 1 改造完成报告
 
+> 当前状态提示（2026-06-02）：本文是 2026-03 阶段完成报告，保留作历史记录，不代表当前运行代码。当前索引中没有 `backend/app/tasks/chapter_tasks.py`，章节异步任务已转向 Go Gateway task dispatcher + Python `task_worker.py`。
+
 **完成日期**: 2026-03-12
 **改造方案**: Python 深度优化（快速上线方案）
 **状态**: ✅ 全部完成 (6/6)

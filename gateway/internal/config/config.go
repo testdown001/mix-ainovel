@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -144,11 +145,13 @@ var globalConfig *Config
 
 // Load 加载配置文件
 func Load(configPath string) (*Config, error) {
+	viper.Reset()
 	viper.SetConfigFile(configPath)
 	viper.SetConfigType("yaml")
 
 	// 设置默认值
 	setDefaults()
+	bindEnvOverrides()
 
 	// 读取配置文件
 	if err := viper.ReadInConfig(); err != nil {
@@ -168,6 +171,91 @@ func Load(configPath string) (*Config, error) {
 // Get 获取全局配置
 func Get() *Config {
 	return globalConfig
+}
+
+func bindEnvOverrides() {
+	viper.SetEnvPrefix("GATEWAY")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	for _, key := range []string{
+		"server.host",
+		"server.port",
+		"server.read_timeout",
+		"server.write_timeout",
+		"server.prefork",
+		"backend.fastapi_url",
+		"backend.timeout",
+		"jwt.secret",
+		"jwt.issuer",
+		"jwt.audience",
+		"redis.mode",
+		"redis.addr",
+		"redis.addrs",
+		"redis.password",
+		"redis.db",
+		"redis.pool_size",
+		"redis.min_idle",
+		"redis.master_name",
+		"redis.sentinel_addrs",
+		"database.enabled",
+		"database.host",
+		"database.port",
+		"database.user",
+		"database.password",
+		"database.name",
+		"database.read_hosts",
+		"database.writer_max_open",
+		"database.writer_max_idle",
+		"database.writer_max_lifetime",
+		"database.writer_max_idle_time",
+		"database.reader_max_open",
+		"database.reader_max_idle",
+		"database.reader_max_lifetime",
+		"database.reader_max_idle_time",
+		"database.slow_threshold",
+		"database.log_level",
+		"payment.enabled",
+		"payment.stripe_secret_key",
+		"payment.stripe_webhook_secret",
+		"payment.success_url",
+		"payment.cancel_url",
+		"payment.webhook_workers",
+		"payment.webhook_queue_size",
+		"rate_limit.default_tpm",
+		"rate_limit.default_concurrent",
+		"rate_limit.default_rpm",
+		"rate_limit.default_rps",
+		"rate_limit.premium_tpm",
+		"rate_limit.premium_concurrent",
+		"rate_limit.premium_rpm",
+		"rate_limit.premium_rps",
+		"websocket.max_connections",
+		"websocket.read_buffer_size",
+		"websocket.write_buffer_size",
+		"websocket.ping_interval",
+		"websocket.pong_timeout",
+		"log.level",
+		"log.format",
+		"log.output",
+		"log.file_path",
+		"metrics.enabled",
+		"metrics.path",
+		"cors.origins",
+		"task_dispatcher.enabled",
+		"task_dispatcher.max_concurrency",
+		"task_dispatcher.max_per_user",
+		"task_dispatcher.default_timeout",
+		"task_dispatcher.batch_timeout",
+		"task_dispatcher.max_retries",
+		"task_dispatcher.retry_delay",
+		"task_dispatcher.poll_interval",
+		"task_dispatcher.worker_callback_url",
+		"task_dispatcher.worker_grpc_addr",
+		"task_dispatcher.internal_callback_secret",
+	} {
+		_ = viper.BindEnv(key)
+	}
 }
 
 func setDefaults() {

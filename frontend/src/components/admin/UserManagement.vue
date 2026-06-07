@@ -99,6 +99,92 @@
         </n-space>
       </template>
     </n-modal>
+
+    <n-drawer v-model:show="showDetailDrawer" :width="720">
+      <n-drawer-content title="用户详情" closable>
+        <n-spin :show="detailLoading">
+          <n-space v-if="subscriptionDetail" vertical size="large">
+            <n-descriptions label-placement="left" bordered :column="2" size="small">
+              <n-descriptions-item label="用户 ID">
+                {{ subscriptionDetail.user.id }}
+              </n-descriptions-item>
+              <n-descriptions-item label="用户名">
+                {{ subscriptionDetail.user.username }}
+              </n-descriptions-item>
+              <n-descriptions-item label="邮箱">
+                {{ subscriptionDetail.user.email || '—' }}
+              </n-descriptions-item>
+              <n-descriptions-item label="状态">
+                {{ subscriptionDetail.user.is_active ? '激活' : '禁用' }}
+              </n-descriptions-item>
+              <n-descriptions-item label="当前套餐">
+                {{ subscriptionDetail.current_plan?.name || tierLabel(subscriptionDetail.quota.effective_tier) }}
+              </n-descriptions-item>
+              <n-descriptions-item label="有效档位">
+                <n-tag :type="subscriptionDetail.quota.is_premium ? 'success' : 'default'" size="small">
+                  {{ tierLabel(subscriptionDetail.quota.effective_tier) }}
+                </n-tag>
+              </n-descriptions-item>
+              <n-descriptions-item label="订阅有效期">
+                {{ formatDate(subscriptionDetail.quota.premium_expires_at) }}
+              </n-descriptions-item>
+              <n-descriptions-item label="章节额度">
+                {{ subscriptionDetail.quota.daily_chapter_used }} / {{ limitLabel(subscriptionDetail.quota.daily_chapter_limit) }}
+              </n-descriptions-item>
+            </n-descriptions>
+
+            <section class="detail-section">
+              <h3 class="detail-section-title">分配订阅套餐</h3>
+              <n-form label-placement="left" label-width="90">
+                <n-form-item label="套餐">
+                  <n-select
+                    v-model:value="assignForm.plan_id"
+                    :options="assignPlanOptions"
+                    placeholder="选择要分配的套餐"
+                  />
+                </n-form-item>
+                <n-form-item label="周期">
+                  <n-radio-group v-model:value="assignForm.period">
+                    <n-radio-button value="monthly">月付 30 天</n-radio-button>
+                    <n-radio-button value="yearly">年付 365 天</n-radio-button>
+                  </n-radio-group>
+                </n-form-item>
+                <n-form-item label="备注">
+                  <n-input
+                    v-model:value="assignForm.remark"
+                    type="textarea"
+                    :autosize="{ minRows: 2, maxRows: 4 }"
+                    placeholder="可选，记录后台分配原因"
+                  />
+                </n-form-item>
+                <n-space justify="end">
+                  <n-button
+                    type="primary"
+                    :loading="assignLoading"
+                    :disabled="!assignForm.plan_id"
+                    @click="handleAssignSubscription"
+                  >
+                    分配订阅
+                  </n-button>
+                </n-space>
+              </n-form>
+            </section>
+
+            <section class="detail-section">
+              <h3 class="detail-section-title">订阅历史</h3>
+              <n-data-table
+                :columns="historyColumns"
+                :data="subscriptionDetail.history"
+                :bordered="false"
+                :pagination="{ pageSize: 8 }"
+                size="small"
+              />
+            </section>
+          </n-space>
+          <n-empty v-else description="暂无详情" />
+        </n-spin>
+      </n-drawer-content>
+    </n-drawer>
   </n-card>
 </template>
 
@@ -109,11 +195,19 @@ import {
   NButton,
   NCard,
   NDataTable,
+  NDescriptions,
+  NDescriptionsItem,
+  NDrawer,
+  NDrawerContent,
+  NEmpty,
   NForm,
   NFormItem,
   NInput,
   NModal,
   NPopconfirm,
+  NRadioButton,
+  NRadioGroup,
+  NSelect,
   NSpin,
   NSwitch,
   NTag,
@@ -125,7 +219,13 @@ import {
   type FormItemRule
 } from 'naive-ui'
 
-import { AdminAPI, type AdminUser, type UserCreatePayload } from '@/api/admin'
+import {
+  AdminAPI,
+  type AdminUser,
+  type AdminUserSubscriptionDetail,
+  type AdminUserSubscriptionHistoryItem,
+  type UserCreatePayload
+} from '@/api/admin'
 
 const message = useMessage()
 const users = ref<AdminUser[]>([])
@@ -138,6 +238,11 @@ const submitting = ref(false)
 const isEditMode = ref(false)
 const editingId = ref<number | null>(null)
 const formRef = ref<FormInst | null>(null)
+const showDetailDrawer = ref(false)
+const detailLoading = ref(false)
+const assignLoading = ref(false)
+const subscriptionDetail = ref<AdminUserSubscriptionDetail | null>(null)
+const detailUserId = ref<number | null>(null)
 
 const formModel = reactive({
   username: '',
@@ -145,6 +250,16 @@ const formModel = reactive({
   password: '',
   is_admin: false,
   is_active: true
+})
+
+const assignForm = reactive<{
+  plan_id: number | null
+  period: 'monthly' | 'yearly'
+  remark: string
+}>({
+  plan_id: null,
+  period: 'monthly',
+  remark: ''
 })
 
 const rules: FormRules = {
@@ -222,12 +337,46 @@ const columns: DataTableColumns<AdminUser> = [
     }
   },
   {
+    title: '当前套餐',
+    key: 'current_plan_name',
+    width: 130,
+    render(row) {
+      const tier = row.effective_tier || 'free'
+      return h(
+        NTag,
+        {
+          type: tier === 'free' ? 'default' : 'success',
+          bordered: false,
+          size: 'small'
+        },
+        { default: () => row.current_plan_name || tierLabel(tier) }
+      )
+    }
+  },
+  {
+    title: '有效期',
+    key: 'premium_expires_at',
+    width: 170,
+    render(row) {
+      return formatDate(row.premium_expires_at)
+    }
+  },
+  {
     title: '操作',
     key: 'actions',
     align: 'center',
     render(row) {
       return h(NSpace, { justify: 'center', size: 'small' }, {
         default: () => [
+          h(
+            NButton,
+            {
+              size: 'small',
+              secondary: true,
+              onClick: () => handleViewDetail(row)
+            },
+            { default: () => '详情' }
+          ),
           h(
             NButton,
             {
@@ -263,6 +412,62 @@ const columns: DataTableColumns<AdminUser> = [
   }
 ]
 
+const historyColumns: DataTableColumns<AdminUserSubscriptionHistoryItem> = [
+  {
+    title: '时间',
+    key: 'paid_at',
+    width: 150,
+    render(row) {
+      return formatDate(row.paid_at || row.created_at)
+    }
+  },
+  {
+    title: '套餐',
+    key: 'plan_name',
+    ellipsis: { tooltip: true }
+  },
+  {
+    title: '渠道',
+    key: 'channel',
+    width: 90,
+    render(row) {
+      return row.channel === 'admin' ? '后台分配' : row.channel
+    }
+  },
+  {
+    title: '状态',
+    key: 'status',
+    width: 90,
+    render(row) {
+      return h(
+        NTag,
+        {
+          type: row.status === 'paid' ? 'success' : row.status === 'pending' ? 'warning' : 'default',
+          size: 'small',
+          bordered: false
+        },
+        { default: () => statusLabel(row.status) }
+      )
+    }
+  },
+  {
+    title: '金额',
+    key: 'amount',
+    width: 100,
+    render(row) {
+      return `${row.currency} ${Number(row.amount || 0).toFixed(2)}`
+    }
+  },
+  {
+    title: '备注',
+    key: 'remark',
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.remark || '—'
+    }
+  }
+]
+
 const filteredUsers = computed(() => {
   if (!keyword.value.trim()) {
     return users.value
@@ -277,7 +482,59 @@ const filteredUsers = computed(() => {
 
 const modalTitle = computed(() => isEditMode.value ? '编辑用户' : '新建用户')
 
+const assignPlanOptions = computed(() =>
+  (subscriptionDetail.value?.plans || [])
+    .filter((plan) => plan.is_active && plan.tier !== 'free')
+    .map((plan) => ({
+      label: `${plan.name} · ${tierLabel(plan.tier)} · ${limitLabel(plan.daily_chapter_limit)}章/日`,
+      value: plan.id
+    }))
+)
+
 const rowKey = (row: AdminUser) => row.id
+
+const tierLabel = (tier?: string | null) => {
+  switch (tier) {
+    case 'creator':
+      return '创作者版'
+    case 'flagship':
+      return '旗舰版'
+    case 'free':
+      return '免费版'
+    default:
+      return tier || '—'
+  }
+}
+
+const statusLabel = (status: string) => {
+  switch (status) {
+    case 'paid':
+      return '已支付'
+    case 'pending':
+      return '待支付'
+    case 'cancelled':
+      return '已取消'
+    case 'refunded':
+      return '已退款'
+    default:
+      return status || '—'
+  }
+}
+
+const formatDate = (value?: string | null) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+const limitLabel = (value: number) => (value <= 0 ? '无限' : String(value))
 
 const fetchUsers = async () => {
   loading.value = true
@@ -317,6 +574,48 @@ const handleEdit = (row: AdminUser) => {
   formModel.is_admin = row.is_admin
   formModel.is_active = row.is_active
   showModal.value = true
+}
+
+const loadUserSubscription = async (id: number) => {
+  detailLoading.value = true
+  try {
+    subscriptionDetail.value = await AdminAPI.getUserSubscription(id)
+    const firstAssignable = assignPlanOptions.value[0]
+    assignForm.plan_id = firstAssignable ? Number(firstAssignable.value) : null
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '获取用户详情失败')
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const handleViewDetail = async (row: AdminUser) => {
+  detailUserId.value = row.id
+  subscriptionDetail.value = null
+  assignForm.plan_id = null
+  assignForm.period = 'monthly'
+  assignForm.remark = ''
+  showDetailDrawer.value = true
+  await loadUserSubscription(row.id)
+}
+
+const handleAssignSubscription = async () => {
+  if (!detailUserId.value || !assignForm.plan_id) return
+  assignLoading.value = true
+  try {
+    subscriptionDetail.value = await AdminAPI.assignUserSubscription(detailUserId.value, {
+      plan_id: assignForm.plan_id,
+      period: assignForm.period,
+      remark: assignForm.remark || null
+    })
+    assignForm.remark = ''
+    await fetchUsers()
+    message.success('订阅分配成功')
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '订阅分配失败')
+  } finally {
+    assignLoading.value = false
+  }
 }
 
 const handleDelete = async (id: number) => {
@@ -393,6 +692,17 @@ onMounted(fetchUsers)
 
 .search-input {
   width: min(230px, 60vw);
+}
+
+.detail-section {
+  padding-top: 4px;
+}
+
+.detail-section-title {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 @media (max-width: 767px) {

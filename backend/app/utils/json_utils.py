@@ -217,6 +217,162 @@ def repair_json(text: str) -> str:
 _UNSET = object()
 
 
+_TASK_ANALYSIS_PREFIX_RE = re.compile(
+    r"^\s*(?:\d+[\.、]\s*)?"
+    r"(?:版本内容为|分析任务要求|分析任务|任务分析|需求分析|审题|"
+    r"原文本分析|原文分析|文本分析|章节分析|处理思路|润色思路|修改思路)"
+    r"[：:]?"
+)
+_VERSION_CONTENT_MARKER_RE = re.compile(r"^\s*版本内容为[：:]\s*(.*)$")
+_TASK_ANALYSIS_LABEL_RE = re.compile(
+    r"^\s*(?:[-*+]\s*)?(?:\d+[\.、]\s*)?"
+    r"(?:角色|目标|限制|任务|要求|原则|核心原则|润色原则|优化维度|输出格式|输出要求|"
+    r"注意事项|字数要求|情节|人物|氛围|需要提升的地方|画面感|感官描写|文学性|"
+    r"节奏|对话|场景细节|微表情|声音|触觉|视觉)"
+    r"[：:]"
+)
+_CHAPTER_BODY_MARKER_RE = re.compile(
+    r"^\s*(?:\d+[\.、]\s*)?"
+    r"(?:润色后(?:的)?(?:完整)?(?:章节|内容|正文)?|修改后(?:的)?(?:完整)?(?:章节|内容|正文)?|"
+    r"优化后(?:的)?(?:完整)?(?:章节|内容|正文)?|最终(?:章节|内容|正文)|正文|小说正文|章节正文|完整章节)"
+    r"(?:为)?[：:]\s*(.*)$"
+)
+_ORIGINAL_CONTENT_MARKER_RE = re.compile(r"^\s*\[(?:原章节内容|章节内容|正文|小说正文)\]\s*$")
+_NON_CHAPTER_OUTPUT_MARKER_RE = re.compile(
+    r"(分析任务|任务分析|原文本分析|原文分析|文本分析|章节分析|润色思路|修改思路|处理思路|"
+    r"优化说明|编辑备注|输出要求|角色：|目标：|限制：|原则：|需要提升的地方：|"
+    r"画面感：|感官描写：|文学性：|情节：|人物：|氛围：)"
+)
+
+
+def _looks_like_task_analysis_prefix(lines: list[str], start: int) -> bool:
+    head_lines = [line.strip() for line in lines[start : start + 8] if line.strip()]
+    if not head_lines:
+        return False
+    head_text = "\n".join(head_lines)
+    if _TASK_ANALYSIS_PREFIX_RE.match(head_lines[0]):
+        return True
+    label_hits = sum(1 for line in head_lines if _TASK_ANALYSIS_LABEL_RE.match(line))
+    strong_markers = (
+        "分析任务要求",
+        "分析任务",
+        "文学功底深厚",
+        "擅长小说润色",
+        "润色编辑",
+        "优化专家",
+        "原文本分析",
+        "提升文字的文学性",
+        "直接输出",
+        "不要输出其他",
+        "不增删情节",
+    )
+    return label_hits >= 2 and any(marker in head_text for marker in strong_markers)
+
+
+def _is_task_analysis_line(stripped: str) -> bool:
+    if not stripped:
+        return True
+    if _TASK_ANALYSIS_PREFIX_RE.match(stripped) or _TASK_ANALYSIS_LABEL_RE.match(stripped):
+        return True
+    if re.match(
+        r"^\s*(?:[-*+]\s*)?\d+[\.、]\s*"
+        r"(?:保持|提升|强化|润色|打磨|不增删|字数|优化|修改|修订|检查|保留|限制|要求|"
+        r"分析任务|原文本分析|原文分析|文本分析)",
+        stripped,
+    ):
+        return True
+    if re.match(
+        r"^\s*(?:[-*+]\s*)?(?:\d+[\.、]\s*)?[^：:\n]{1,24}[：:].*"
+        r"(?:男主|女主|主角|配角|前妻|儿子|女嘉宾|角色|人设|控制狂|懂事|氛围|情节|"
+        r"画面感|感官|文学性|节奏|提升|细节|微表情|视觉|听觉|触觉|对话)",
+        stripped,
+    ):
+        return True
+    return bool(
+        re.match(r"^\s*(?:直接输出|不要输出|禁止输出|请只输出|无其他|字数不得|总字数|不增删情节)", stripped)
+    )
+
+
+def _strip_task_analysis_prefix(text: str) -> str:
+    """移除模型把编辑任务拆解当作正文输出的前缀块。"""
+    lines = text.split("\n")
+    first_content_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip():
+            first_content_idx = idx
+            break
+    if first_content_idx is None or not _looks_like_task_analysis_prefix(lines, first_content_idx):
+        return text
+
+    scan_limit = min(len(lines), first_content_idx + 80)
+    for idx in range(first_content_idx, scan_limit):
+        stripped = lines[idx].strip()
+        if not stripped:
+            continue
+
+        version_match = _VERSION_CONTENT_MARKER_RE.match(stripped)
+        if version_match:
+            remainder = version_match.group(1).strip()
+            if remainder and not _TASK_ANALYSIS_PREFIX_RE.match(remainder):
+                return "\n".join([remainder] + lines[idx + 1 :]).strip()
+            continue
+
+        body_match = _CHAPTER_BODY_MARKER_RE.match(stripped)
+        if body_match:
+            remainder = body_match.group(1).strip()
+            rest = lines[idx + 1 :]
+            if remainder:
+                rest = [remainder] + rest
+            return "\n".join(rest).strip()
+
+        if _ORIGINAL_CONTENT_MARKER_RE.match(stripped):
+            return "\n".join(lines[idx + 1 :]).strip()
+
+    skip_to = first_content_idx
+    while skip_to < len(lines):
+        stripped = lines[skip_to].strip()
+        if not _is_task_analysis_line(stripped):
+            break
+        skip_to += 1
+
+    return "\n".join(lines[skip_to:]).strip()
+
+
+def is_probable_chapter_plain_text(text: str) -> bool:
+    """判断一段文本是否更像小说正文，而不是提示词、任务分析或编辑说明。"""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+
+    compact = re.sub(r"\s+", "", stripped)
+    if len(compact) < 80:
+        return False
+
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    first_lines = lines[:12]
+    head_text = "\n".join(first_lines)
+
+    if first_lines and _looks_like_task_analysis_prefix(lines, 0):
+        return False
+
+    marker_hits = len(_NON_CHAPTER_OUTPUT_MARKER_RE.findall(head_text))
+    label_lines = sum(1 for line in first_lines if _TASK_ANALYSIS_LABEL_RE.match(line))
+    numbered_analysis_lines = sum(
+        1
+        for line in first_lines
+        if re.match(r"^\s*\d+[\.、]\s*(?:分析|原文|任务|角色|目标|限制|原则)", line)
+    )
+    if marker_hits >= 2 or label_lines >= 3 or numbered_analysis_lines >= 1:
+        return False
+
+    # 正文通常含有较多叙事标点；分析提纲常由短标签行组成。
+    punctuation_count = sum(compact.count(ch) for ch in "，。！？“”‘’、；")
+    if punctuation_count < 8 and len(compact) < 300:
+        return False
+
+    return True
+
+
 def parse_llm_json(raw, default=_UNSET):
     """统一的 LLM JSON 解析入口（对象/数组通用）。
 
@@ -245,6 +401,7 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
 
     # 先剥离可能泄漏的推理文本
     text = remove_think_tags(raw_text)
+    text = _strip_task_analysis_prefix(text)
 
     # ── 去除 LLM 对话式前言（安全网） ──
     # 某些 LLM 会在正文前添加 "可以，下面是…" "好的，以下是第X章…" 等回应
@@ -290,7 +447,8 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
         if re.match(
             r'^(您需要|需要我|希望我|如果您|如有需要|如需|是否需要|'
             r'我已经为您|我已为您|以上是|以上就是|以上为|'
-            r'如果你|你需要|要我|还是继续|希望对您)',
+            r'如果你|你需要|要我|还是继续|希望对您|'
+            r'直接输出|不要输出|禁止输出|请只输出|输出要求)',
             stripped,
         ):
             tail_skip += 1

@@ -33,11 +33,11 @@ class WritingAgentSystem:
 
     # Agent 阶段名称映射（用于奏折记录）
     STAGE_NAMES = {
-        "taizi": "太子分拣",
-        "zhongshu": "中书规划",
-        "bingbu": "兵部生成",
-        "hubu": "户部技能",
-        "menxia": "门下审核",
+        "taizi": "需求解析",
+        "zhongshu": "上下文规划",
+        "bingbu": "章节生成",
+        "hubu": "技能增强",
+        "menxia": "质量审核",
     }
 
     def __init__(self, session: AsyncSession, archive_service=None):
@@ -79,7 +79,7 @@ class WritingAgentSystem:
         """注册所有 Agent 类"""
         if not self.AGENT_REGISTRY:
             # 收敛说明：主流程仅顺序调用 taizi/zhongshu/hubu/bingbu/menxia 五个 Agent。
-            # 原 shangshu(尚书省调度)/libu(吏部角色管理) 从不被 execute_chapter_generation
+            # 原 shangshu(调度角色)/libu(角色管理) 从不被 execute_chapter_generation
             # 调用，已删除，不再注册。
             from .taizi_agent import TaiziAgent
             from .zhongshu_agent import ZhongshuAgent
@@ -140,7 +140,7 @@ class WritingAgentSystem:
         for agent in self._agents.values():
             agent.set_stream_handler(stream_handler)
 
-        await self._emit_stage(stream_handler, "agent:system:start", "三省六部系统启动")
+        await self._emit_stage(stream_handler, "agent:system:start", "先进多 Agent 架构启动")
 
         task_id = str(uuid.uuid4())
         effective_config = config or {}
@@ -169,13 +169,13 @@ class WritingAgentSystem:
 
         try:
             # ============================================================
-            # 阶段 A · 规划（Planner）：太子分拣 + 户部技能 + 中书规划
+            # 阶段 A · 规划（Planner）：需求解析 + 技能增强 + 上下文规划
             # 收敛说明：原 taizi/hubu/zhongshu 三步同属"规划"语义，
             # 均通过 process() 返回值串联，主流程不依赖消息总线。
             # ============================================================
             await self._emit_stage(stream_handler, "agent:plan:start", "规划阶段：解析指令并组装上下文")
 
-            # ---- 规划 1: 太子分拣（指令解析） ----
+            # ---- 规划 1: 需求解析 ----
             taizi = self._agents.get("taizi")
             if not taizi:
                 raise RuntimeError("TaiziAgent not initialized")
@@ -191,7 +191,7 @@ class WritingAgentSystem:
             taizi_result = await taizi.process(taizi_context)
             taizi_output = taizi_result.output or {}
 
-            # ---- 规划 2: 户部技能（可选，注入写作技能） ----
+            # ---- 规划 2: 技能增强（可选，注入写作技能） ----
             selected_skills = effective_config.get("selected_skills") or []
             skill_context = None
             skill_policies = []
@@ -249,10 +249,10 @@ class WritingAgentSystem:
             zhongshu_output = zhongshu_result.output or {}
 
             # ============================================================
-            # 阶段 B · 生成（Writer）：兵部生成章节版本
-            # 收敛说明：原"尚书调度"阶段在主流程中仅为占位事件，
+            # 阶段 B · 生成（Writer）：生成章节版本
+            # 收敛说明：原调度阶段在主流程中仅为占位事件，
             # 实际调度由 system.py 直接顺序调用 bingbu 完成，
-            # 故并入生成阶段，不再单独保留尚书省调用。
+            # 故并入生成阶段，不再单独保留调度调用。
             # ============================================================
             await self._emit_stage(stream_handler, "agent:write:start", "生成阶段：开始生成章节版本")
 
@@ -294,7 +294,7 @@ class WritingAgentSystem:
             )
 
             # ============================================================
-            # 阶段 C · 审查（Reviewer）：门下审核
+            # 阶段 C · 审查（Reviewer）：质量审核
             # ============================================================
             await self._emit_stage(stream_handler, "agent:review:start", "审查阶段：质量与一致性审核")
 
@@ -348,7 +348,7 @@ class WritingAgentSystem:
                 except Exception as e:
                     logger.warning(f"Failed to update archive: {e}")
 
-            await self._emit_stage(stream_handler, "agent:system:done", "三省六部系统执行完成")
+            await self._emit_stage(stream_handler, "agent:system:done", "先进多 Agent 架构执行完成")
             return payload
 
         except Exception as e:

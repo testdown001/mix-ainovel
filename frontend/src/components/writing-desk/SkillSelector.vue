@@ -207,7 +207,7 @@ function getSkillName(skillId: string): string {
 
 const selectorSubtitle = computed(() =>
   props.selectionOnly
-    ? '选择要注入三省六部 Agent 生成链路的技能要求'
+    ? '选择要注入先进多 Agent 生成链路的技能要求'
     : '选择技能优化章节内容'
 )
 

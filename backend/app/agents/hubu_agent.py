@@ -1,5 +1,5 @@
-# AIMETA P=户部Agent|R=技能系统|NR=管理和执行技能|E=HubuAgent|X=internal|A=Agent实现|D=asyncio
-"""户部 Agent - 技能系统"""
+# AIMETA P=技能智能体|R=技能系统|NR=管理和执行技能|E=HubuAgent|X=internal|A=Agent实现|D=asyncio
+"""技能智能体 - 技能系统"""
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -11,7 +11,7 @@ from .message import AgentCapability, AgentContext, AgentResult
 
 class HubuAgent(BaseAgent):
     """
-    户部 Agent - 技能系统
+    技能智能体 - 技能系统
 
     职责：
     1. 管理技能注册

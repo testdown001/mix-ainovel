@@ -106,13 +106,13 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   agents: () => [
-    { id: 'taizi', name: '太子省', role: '需求分拣', icon: '👶', status: 'pending' },
-    { id: 'zhongshu', name: '中书省', role: '规划中枢', icon: '📜', status: 'pending' },
-    { id: 'shangshu', name: '尚书省', role: '调度协调', icon: '🏛️', status: 'pending' },
-    { id: 'bingbu', name: '兵部', role: '章节生成', icon: '⚔️', status: 'pending' },
-    { id: 'libu', name: '吏部', role: '角色管理', icon: '📋', status: 'pending' },
-    { id: 'hubu', name: '户部', role: '技能系统', icon: '🎯', status: 'pending' },
-    { id: 'menxia', name: '门下省', role: '质量审核', icon: '🔍', status: 'pending' },
+    { id: 'taizi', name: '需求智能体', role: '目标提取', icon: '👶', status: 'pending' },
+    { id: 'zhongshu', name: '规划智能体', role: '上下文规划', icon: '📜', status: 'pending' },
+    { id: 'shangshu', name: '协调智能体', role: '流程编排', icon: '🏛️', status: 'pending' },
+    { id: 'bingbu', name: '生成智能体', role: '章节生成', icon: '⚔️', status: 'pending' },
+    { id: 'libu', name: '一致性智能体', role: '角色一致性', icon: '📋', status: 'pending' },
+    { id: 'hubu', name: '技能智能体', role: '技能系统', icon: '🎯', status: 'pending' },
+    { id: 'menxia', name: '审核智能体', role: '质量审核', icon: '🔍', status: 'pending' },
   ],
   currentAgentId: null,
   isRunning: false,

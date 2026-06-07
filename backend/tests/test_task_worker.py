@@ -97,3 +97,35 @@ def test_task_worker_uses_hybrid_executor_contract(monkeypatch):
         "best_version_index": 0,
         "preset": "agent",
     }
+
+
+def test_progress_reporter_sends_internal_secret(monkeypatch):
+    captured = {}
+
+    class _FakeClient:
+        async def post(self, url, **kwargs):
+            captured["url"] = url
+            captured["kwargs"] = kwargs
+
+        async def aclose(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(task_worker.httpx, "AsyncClient", lambda timeout: _FakeClient())
+    monkeypatch.setattr(
+        task_worker.settings,
+        "task_dispatcher_internal_callback_secret",
+        "shared-secret",
+    )
+
+    reporter = task_worker.ProgressReporter("http://gateway:3000/internal/tasks/task-1/progress", "task-1")
+    asyncio.run(reporter.report(35, "llm_generation", "正在生成章节..."))
+    asyncio.run(reporter.close())
+
+    assert captured["url"] == "http://gateway:3000/internal/tasks/task-1/progress"
+    assert captured["kwargs"]["headers"] == {"X-Internal-Secret": "shared-secret"}
+    assert captured["kwargs"]["json"] == {
+        "progress": 35,
+        "stage": "llm_generation",
+        "message": "正在生成章节...",
+    }
+    assert captured["closed"] is True

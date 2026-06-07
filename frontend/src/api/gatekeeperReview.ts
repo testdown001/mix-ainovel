@@ -1,4 +1,4 @@
-// 门下省审核 API
+// 章节质量审核 API
 import { requestJson } from './http'
 
 export interface GatekeeperIssue {

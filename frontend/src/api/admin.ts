@@ -58,6 +58,63 @@ export interface AdminUser {
   email?: string | null
   is_admin: boolean
   is_active: boolean
+  plan_tier?: string | null
+  effective_tier?: string | null
+  current_plan_name?: string | null
+  premium_expires_at?: string | null
+}
+
+export interface AdminUserQuotaSummary {
+  is_premium: boolean
+  plan_tier: string
+  effective_tier: string
+  premium_expires_at?: string | null
+  daily_chapter_limit: number
+  daily_chapter_used: number
+  monthly_token_limit: number
+  monthly_token_used: number
+  storage_limit: number
+  storage_used: number
+}
+
+export interface AdminPlanSummary {
+  id: number
+  name: string
+  description?: string | null
+  price: number
+  period: string
+  tier: string
+  daily_chapter_limit: number
+  max_novels: number
+  is_active: boolean
+}
+
+export interface AdminUserSubscriptionHistoryItem {
+  id: number
+  order_no: string
+  plan_id: number
+  plan_name: string
+  amount: number
+  currency: string
+  channel: string
+  status: string
+  paid_at?: string | null
+  created_at?: string | null
+  remark?: string | null
+}
+
+export interface AdminUserSubscriptionDetail {
+  user: AdminUser
+  quota: AdminUserQuotaSummary
+  current_plan?: AdminPlanSummary | null
+  plans: AdminPlanSummary[]
+  history: AdminUserSubscriptionHistoryItem[]
+}
+
+export interface AssignSubscriptionPayload {
+  plan_id: number
+  period: 'monthly' | 'yearly'
+  remark?: string | null
 }
 
 export interface UserCreatePayload {
@@ -182,6 +239,20 @@ export class AdminAPI {
 
   static getUser(id: number): Promise<AdminUser> {
     return this.request(`/users/${id}`)
+  }
+
+  static getUserSubscription(id: number): Promise<AdminUserSubscriptionDetail> {
+    return this.request(`/users/${id}/subscription`)
+  }
+
+  static assignUserSubscription(
+    id: number,
+    payload: AssignSubscriptionPayload
+  ): Promise<AdminUserSubscriptionDetail> {
+    return this.request(`/users/${id}/subscription`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
   }
 
   static updateUser(id: number, payload: UserUpdatePayload): Promise<AdminUser> {

@@ -70,6 +70,7 @@
             :selected-preset="selectedPreset"
             :selected-skill-count="selectedGenerationSkills.length"
             :agent-enabled="useAgent"
+            :professional-mode="professionalMode"
             @close-sidebar="closeSidebar"
             @select-chapter="selectChapter"
             @preview-prediction="handlePreviewPrediction"
@@ -80,12 +81,13 @@
             @rebuild-rag="rebuildRag"
             @batch-generate="openBatchGenerateModal"
             @cancel-batch="cancelBatchGenerate"
-            @open-preset-selector="showPresetSelector = true"
+            @open-preset-selector="openPresetSelector"
             @open-skill-selector="showSkillSelector = true"
             @open-middle-product-viewer="showMiddleProductViewer = true"
             @preview-context-plan="handlePreviewContextPlan"
             @open-diagnostic-panel="showDiagnosticPanel = true"
             @open-agent-visualizer="showAgentVisualizer = true"
+            @update:professional-mode="setProfessionalMode"
           />
 
           <div class="flex-1 min-w-0">
@@ -394,6 +396,8 @@
         <DiagnosticPanel
           :project-id="project?.id"
           :chapter-number="selectedChapterNumber || undefined"
+          :professional-mode="professionalMode"
+          @action="handleDiagnosticAction"
         />
       </n-modal>
 
@@ -425,6 +429,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { NModal, NButton, NConfigProvider, darkTheme, type GlobalThemeOverrides } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
+import { useAuthStore } from '@/stores/auth'
 import { NovelAPI } from '@/api/novel'
 import type {
   Chapter,
@@ -528,6 +533,7 @@ const naiveThemeOverrides: GlobalThemeOverrides = {
 const props = defineProps<Props>()
 const router = useRouter()
 const novelStore = useNovelStore()
+const authStore = useAuthStore()
 
 // 状态管理
 const selectedChapterNumber = ref<number | null>(null)
@@ -551,6 +557,8 @@ const showSkillApplyModal = ref(false)
 const showSkillPreviewModal = ref(false)
 const storedPreset = localStorage.getItem('arboris_preset')
 const selectedPreset = ref<WritingPreset>(isWritingPreset(storedPreset) ? storedPreset : 'fast')
+const storedWorkbenchMode = localStorage.getItem('arboris_workbench_mode')
+const professionalMode = ref(storedWorkbenchMode === 'professional')
 const predictionTargetChapter = ref<number | null>(null)
 const predictionExclusions = ref('')
 const predictionGeneratingChapter = ref<number | null>(null)
@@ -565,7 +573,24 @@ function confirmPreset() {
   showPresetSelector.value = false
 }
 
-// 三省六部Agent系统开关
+async function openPresetSelector() {
+  await authStore.fetchUser()
+  showPresetSelector.value = true
+}
+
+const setProfessionalMode = (enabled: boolean) => {
+  professionalMode.value = enabled
+  localStorage.setItem('arboris_workbench_mode', enabled ? 'professional' : 'guided')
+}
+
+type DiagnosticAction =
+  | 'regenerate_chapter'
+  | 'evaluate_chapter'
+  | 'rebuild_rag'
+  | 'preview_context_plan'
+  | 'switch_professional'
+
+// 自创先进多 Agent 架构开关
 const useAgent = ref(false)
 const fetchAgentSetting = async () => {
   try {
@@ -612,13 +637,13 @@ const agentLLMCalls = ref(0)
 const agentToolCalls = ref(0)
 let _agentStartTime = 0
 const agentNodes = ref<AgentNode[]>([
-  { id: 'taizi', name: '太子省', role: '需求分拣', icon: '👶', status: 'pending', logs: [] },
-  { id: 'zhongshu', name: '中书省', role: '规划中枢', icon: '📜', status: 'pending', logs: [] },
-  { id: 'shangshu', name: '尚书省', role: '调度协调', icon: '🏛️', status: 'pending', logs: [] },
-  { id: 'bingbu', name: '兵部', role: '章节生成', icon: '⚔️', status: 'pending', logs: [] },
-  { id: 'libu', name: '吏部', role: '角色管理', icon: '📋', status: 'pending', logs: [] },
-  { id: 'hubu', name: '户部', role: '技能系统', icon: '🎯', status: 'pending', logs: [] },
-  { id: 'menxia', name: '门下省', role: '质量审核', icon: '🔍', status: 'pending', logs: [] },
+  { id: 'taizi', name: '需求智能体', role: '目标提取', icon: '👶', status: 'pending', logs: [] },
+  { id: 'zhongshu', name: '规划智能体', role: '上下文规划', icon: '📜', status: 'pending', logs: [] },
+  { id: 'shangshu', name: '协调智能体', role: '流程编排', icon: '🏛️', status: 'pending', logs: [] },
+  { id: 'bingbu', name: '生成智能体', role: '章节生成', icon: '⚔️', status: 'pending', logs: [] },
+  { id: 'libu', name: '一致性智能体', role: '角色一致性', icon: '📋', status: 'pending', logs: [] },
+  { id: 'hubu', name: '技能智能体', role: '技能系统', icon: '🎯', status: 'pending', logs: [] },
+  { id: 'menxia', name: '审核智能体', role: '质量审核', icon: '🔍', status: 'pending', logs: [] },
 ])
 
 // Stage → Agent 状态映射：将后端推送的 stage 事件映射到 Agent 节点状态变更
@@ -641,7 +666,7 @@ function _addAgentLog(
 }
 
 function updateAgentByStage(stage: string, message?: string) {
-  // 处理 agent:xxx:yyy 格式的事件（三省六部系统）
+  // 处理 agent:xxx:yyy 格式的事件（先进多 Agent 架构）
   const agentMatch = stage.match(/^agent:(\w+):(\w+)$/)
   if (agentMatch) {
     const [, agentId, action] = agentMatch
@@ -1091,6 +1116,47 @@ const handlePreviewContextPlan = async () => {
     showMiddleProductViewer.value = true
   } catch (err: any) {
     globalAlert.showError(err?.response?.data?.detail || '预览计划失败')
+  }
+}
+
+const handleDiagnosticAction = async (action: DiagnosticAction) => {
+  if (action === 'switch_professional') {
+    setProfessionalMode(true)
+    return
+  }
+
+  if (action === 'rebuild_rag') {
+    await rebuildRag(false)
+    return
+  }
+
+  if (!selectedChapterNumber.value) {
+    globalAlert.showError('请先选择一个章节', '操作失败')
+    return
+  }
+
+  if (action === 'preview_context_plan') {
+    showDiagnosticPanel.value = false
+    await handlePreviewContextPlan()
+    return
+  }
+
+  if (action === 'evaluate_chapter') {
+    await evaluateChapter()
+    return
+  }
+
+  if (action === 'regenerate_chapter') {
+    const chapterNumber = selectedChapterNumber.value
+    const message = hasChapterInProgress(chapterNumber)
+      ? '重新生成会替换当前待选择版本，确定继续吗？'
+      : isChapterFailed(chapterNumber)
+        ? '将重新尝试生成该章节，确定继续吗？'
+        : '重新生成会覆盖当前章节的生成结果，确定继续吗？'
+    const confirmed = await globalAlert.showConfirm(message, '生成确认')
+    if (!confirmed) return
+    showDiagnosticPanel.value = false
+    await generateChapter(chapterNumber)
   }
 }
 

@@ -107,17 +107,17 @@ async def review_consistency(
     return {"project_id": request.project_id, "review": report}
 
 
-# ========== 门下省审核 API ==========
+# ========== 章节质量审核 API ==========
 
 class GatekeeperReviewRequest(BaseModel):
-    """门下省审核请求"""
+    """章节质量审核请求"""
     project_id: str
     chapter_number: int
     chapter_version_id: Optional[int] = None  # 指定版本ID，不指定则取最新
 
 
 class GatekeeperReviewResponse(BaseModel):
-    """门下省审核响应"""
+    """章节质量审核响应"""
     id: int
     project_id: str
     chapter_number: int
@@ -136,7 +136,7 @@ async def review_gatekeeper(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """执行门下省章节审核"""
+    """执行章节质量审核"""
     novel_service = NovelService(session)
     project = await novel_service.get_project(request.project_id)
     if not project:
@@ -251,7 +251,7 @@ async def get_gatekeeper_review(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """获取章节的门下省审核结果"""
+    """获取章节质量审核结果"""
     novel_service = NovelService(session)
     project = await novel_service.get_project(project_id)
     if not project:

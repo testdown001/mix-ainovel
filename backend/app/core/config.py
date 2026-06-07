@@ -77,6 +77,15 @@ class Settings(BaseSettings):
         env="REDIS_URL",
         description="Redis 连接串（支持 redis://:password@host:port/db 格式）",
     )
+    task_dispatcher_internal_callback_secret: str = Field(
+        default="",
+        env="TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET",
+        validation_alias=AliasChoices(
+            "TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET",
+            "GATEWAY_TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET",
+        ),
+        description="Go Gateway 任务进度回调共享密钥，需与 gateway task_dispatcher.internal_callback_secret 一致",
+    )
 
     # -------------------- Qdrant 向量数据库配置 (统一向量存储：RAG + Mem0 长期记忆) --------------------
     qdrant_host: str = Field(default="", env="QDRANT_HOST", description="Qdrant 主机地址（留空则禁用向量库）")

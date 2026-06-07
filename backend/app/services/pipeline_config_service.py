@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PipelineConfig:
-    preset: str = "basic"
+    preset: str = "fast"  # 默认快速模式（免费档位）
     version_count: int = 2
     enable_preview: bool = False
     enable_optimizer: bool = False
@@ -59,32 +59,28 @@ class PipelineConfig:
 
 
 class PipelineConfigService:
-    """统一解析 pipeline flow_config 到运行时 PipelineConfig。"""
-
     def __init__(self, session):
         self.session = session
 
     async def resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
         """解析最终生效的 PipelineConfig。
 
-        开关生效遵循固定的 4 层覆写顺序（后者覆盖前者），排障时按此顺序判断生效值：
-          1) preset 块：basic/fast/enhanced/ultimate/platinum/literary 各自硬编码一组开关；
-          2) settings 全局开关：writer_fast_mode（强制 preset=fast，literary 除外）、
+        开关生效遵循固定的 3 层覆写顺序（后者覆盖前者）：
+          1) preset 块：fast/standard/premium 各自硬编码一组开关；
+          2) settings 全局开关：writer_fast_mode（强制 preset=fast）、
              enable_humanization / enable_author_fingerprint / enable_pacing_control 等；
-          3) writer_ultra_fast_mode：进一步关闭几乎所有后处理；
-          4) flow_config 显式覆写：仅下方 allowlist 中的键允许被请求覆盖。
+          3) flow_config 显式覆写：仅下方 allowlist 中的键允许被请求覆盖。
 
-        开关使用率审计结论（2026-06-01）：当前 ~44 个布尔开关均"可达"——
-        要么被某个 preset 置 True，要么在 flow_config allowlist 中可被显式开启，
-        不存在"永远为假的死分支"可安全删除；复杂度集中在上述覆写顺序而非死代码。
-        后续可考虑的合并：humanization 三开关
-        (enable_humanization / humanization_threshold / enable_lightweight_humanization)
-        归并为单一 level 枚举，降低组合维度。
+        🎯 三种生成模式（2026-06-02 精简）：
+          - fast (free):     极速路径，轻量处理，30-60秒
+          - standard (creator+): 六维评审+世界观+打磨，3-5分钟
+          - premium (flagship+): 完整流程+自我批判+读者模拟，5-10分钟
         """
         flow_config = flow_config or {}
-        preset = flow_config.get("preset", "basic")
+        preset = flow_config.get("preset", "fast")
 
-        if getattr(settings, "writer_fast_mode", False) and preset not in ("literary",):
+        # 全局快速模式强制覆盖
+        if getattr(settings, "writer_fast_mode", False):
             preset = "fast"
 
         config = PipelineConfig(preset=preset)
@@ -103,72 +99,7 @@ class PipelineConfigService:
         if getattr(settings, "enable_author_fingerprint", True):
             config.enable_fingerprint = True
 
-        if preset in ("enhanced", "ultimate", "platinum"):
-            config.enable_constitution = True
-            config.enable_persona = True
-            config.enable_foreshadowing = True
-            config.enable_faction = True
-            config.enable_power_system = True
-            config.enable_character_relationships = True
-            config.enable_trajectory_analysis = True
-            config.enable_temporal_state = True
-            config.rag_mode = settings.rag_default_mode
-            if getattr(settings, "enable_entity_registry", True):
-                config.enable_anti_hallucination = True
-
-        if preset == "enhanced":
-            config.enable_six_dimension = True
-            config.enable_enrichment = True
-            config.enable_polish = True
-
-        if preset == "ultimate":
-            config.enable_memory = True
-            config.enable_six_dimension = True
-            config.enable_consistency = True
-            config.enable_enrichment = True
-            config.enable_polish = True
-
-        if preset == "platinum":
-            config.version_count = 1
-            config.enable_memory = True
-            config.enable_six_dimension = True
-            config.enable_self_critique = True
-            config.enable_reader_sim = True
-            config.enable_consistency = True
-            config.enable_enrichment = True
-            config.enable_polish = True
-            config.enable_optimizer = True
-
-        if preset == "literary":
-            config.version_count = 1
-            config.enable_rag = True
-            config.rag_mode = settings.rag_default_mode
-            config.enable_constitution = True
-            config.enable_persona = True
-            config.enable_foreshadowing = True
-            config.enable_faction = True
-            config.enable_power_system = True
-            config.enable_character_relationships = True
-            config.enable_trajectory_analysis = True
-            config.enable_temporal_state = True
-            config.enable_memory = True
-            config.enable_humanization = True
-            config.enable_fingerprint = True
-            config.enable_mission_brief = True
-            config.enable_scene_by_scene = True
-            config.enable_prose_sculpting = True
-            config.enable_golden_paragraph = True
-            config.enable_reference_prose = True
-            config.enable_voice_samples = True
-            config.enable_narrative_variety = True
-            config.use_slim_prompt = True
-            if getattr(settings, "enable_entity_registry", True):
-                config.enable_anti_hallucination = True
-
-        if preset == "basic":
-            config.enable_rag = True
-            config.version_count = 1
-
+        # === 快速模式 (free) ===
         if preset == "fast":
             config.version_count = 1
             config.enable_fast_path = True
@@ -206,6 +137,59 @@ class PipelineConfigService:
             config.use_local_anti_hallucination = True
             config.enable_anti_hallucination = bool(getattr(settings, "enable_entity_registry", True))
 
+        # === 标准模式 (creator+) ===
+        elif preset == "standard":
+            config.enable_constitution = True
+            config.enable_persona = True
+            config.enable_foreshadowing = True
+            config.enable_faction = True
+            config.enable_power_system = True
+            config.enable_character_relationships = True
+            config.enable_trajectory_analysis = True
+            config.enable_temporal_state = True
+            config.enable_six_dimension = True
+            config.enable_enrichment = True
+            config.enable_polish = True
+            config.rag_mode = settings.rag_default_mode
+            if getattr(settings, "enable_entity_registry", True):
+                config.enable_anti_hallucination = True
+
+        # === 精品模式 (flagship+) ===
+        elif preset == "premium":
+            config.version_count = 1
+            config.enable_constitution = True
+            config.enable_persona = True
+            config.enable_foreshadowing = True
+            config.enable_faction = True
+            config.enable_power_system = True
+            config.enable_character_relationships = True
+            config.enable_trajectory_analysis = True
+            config.enable_temporal_state = True
+            config.enable_memory = True
+            config.enable_six_dimension = True
+            config.enable_self_critique = True
+            config.enable_reader_sim = True
+            config.enable_consistency = True
+            config.enable_enrichment = True
+            config.enable_polish = True
+            config.enable_optimizer = True
+            config.rag_mode = settings.rag_default_mode
+            if getattr(settings, "enable_entity_registry", True):
+                config.enable_anti_hallucination = True
+
+        # === 兼容旧 preset 名称（优雅回退）===
+        elif preset in ("basic", "enhanced", "ultimate", "platinum", "literary"):
+            logger.warning(f"已弃用的 preset '{preset}'，自动映射到新模式")
+            # basic/enhanced → standard
+            if preset in ("basic", "enhanced"):
+                config.preset = "standard"
+                return await self.resolve_config({"preset": "standard", **flow_config})
+            # ultimate/platinum/literary → premium
+            else:
+                config.preset = "premium"
+                return await self.resolve_config({"preset": "premium", **flow_config})
+
+        # === Ultra Fast Mode（settings 级别覆盖）===
         if getattr(settings, "writer_ultra_fast_mode", False):
             config.version_count = 1
             config.enable_fast_path = True
@@ -238,6 +222,7 @@ class PipelineConfigService:
             config.use_local_anti_hallucination = True
             logger.info("Ultra fast mode: 已启用快速路径并跳过所有后处理步骤")
 
+        # === flow_config 显式覆写（白名单机制）===
         for key in (
             "enable_preview",
             "enable_optimizer",

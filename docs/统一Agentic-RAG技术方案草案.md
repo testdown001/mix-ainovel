@@ -1,5 +1,7 @@
 # 统一 Agentic RAG 技术方案草案
 
+> 当前状态提示（2026-06-02）：本文是方案草案，不代表当前运行代码的完整事实。当前 RAG 访问层以 `ContextAccessService`、`ChapterContextService`、`EvidenceRouterService`、`HybridRetrievalService` 和 `VectorStoreService` 为准；当前索引中没有 `KnowledgeRetrievalService`，Agent 主流程也已收敛为顺序返回值驱动。
+
 > 版本：v0.3
 > 日期：2026-03-16
 > 适用范围：`Arboris-Novel` 中文 AI 小说生成系统
@@ -9,7 +11,7 @@
 
 ## 一、方案摘要
 
-本方案旨在将系统中现有的 **Prompt 模板体系**、**Skill 技能体系**、**章节上下文检索体系**、**三省六部 Agent 编排体系** 统一收敛到一个可控、可扩展、可观测的 `Agentic RAG` 决策层中。
+本方案旨在将系统中现有的 **Prompt 模板体系**、**Skill 技能体系**、**章节上下文检索体系**、**自创先进多 Agent 编排体系** 统一收敛到一个可控、可扩展、可观测的 `Agentic RAG` 决策层中。
 
 本方案不追求把“Agentic”完全交给模型侧 `tools` 自主调用，而是采用更适合小说生成场景的路线：
 
@@ -125,7 +127,7 @@
 当前系统已经具备实现 Narrative Agentic RAG 的良好基础：
 
 - 已有统一章节编排入口：`PipelineOrchestrator`
-- 已有三省六部多 Agent 体系：`WritingAgentSystem`
+- 已有自创先进多 Agent 体系：`WritingAgentSystem`
 - 已有 Prompt 模板与缓存加载：`PromptService`
 - 已有历史章节、RAG、记忆层、伏笔、角色状态等上下文来源
 - 已有 Skill 系统，并已开始接入 Agent 生成前链路
@@ -527,17 +529,17 @@ Skill 不再只是：
 - `backend/app/services/single_version_generation_service.py`
 - `backend/app/services/batch_generation_service.py`
 
-### 8.3 与三省六部的职责映射
+### 8.3 与先进多 Agent 架构的职责映射
 
 | Agent | 新职责建议 |
 |-------|------------|
-| 太子 | 需求解析、任务类型判断 |
-| 中书 | 生成 `ContextPlan` |
-| 户部 | 编译 SkillPolicy |
-| 尚书 | 调度 retrieval / verify / writer |
-| 兵部 | 专注正文生成 |
-| 吏部 | 连续性 / 状态类校验 |
-| 门下 | 质量审核、最终把关 |
+| 需求解析 | 需求解析、任务类型判断 |
+| 规划 | 生成 `ContextPlan` |
+| 技能智能体 | 编译 SkillPolicy |
+| 协调 | 调度 retrieval / verify / writer |
+| 生成智能体 | 专注正文生成 |
+| 一致性智能体 | 连续性 / 状态类校验 |
+| 审核 | 质量审核、最终把关 |
 
 ---
 
@@ -983,7 +985,7 @@ class NarrativeVerifierService:
 
 ### 13.3 一句话总结
 
-> 用 `ContextPlan` 统一 Prompt、Skill、检索、验证，使三省六部从“多 Agent 写作流程”升级为“多 Agent 叙事决策流程”。
+> 用 `ContextPlan` 统一 Prompt、Skill、检索、验证，使自创先进多 Agent 架构从“多 Agent 写作流程”升级为“多 Agent 叙事决策流程”。
 
 ---
 

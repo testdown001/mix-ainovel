@@ -61,7 +61,7 @@ from .power_system import PowerSystem, PowerLevel
 # 新增：写作模板模型
 from .writing_template import WritingTemplate
 
-# 新增：章节审核模型（门下省机制）
+# 新增：章节审核模型（质量审核机制）
 from .chapter_review import ChapterReview
 
 # 新增：写作任务档案模型
@@ -131,7 +131,7 @@ __all__ = [
     "PowerLevel",
     # 写作模板模型
     "WritingTemplate",
-    # 章节审核模型（门下省机制）
+    # 章节审核模型（质量审核机制）
     "ChapterReview",
     # 写作任务档案模型
     "WritingArchive",

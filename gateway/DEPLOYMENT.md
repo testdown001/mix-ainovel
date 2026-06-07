@@ -1,43 +1,24 @@
 # Arboris Go 服务部署文档
 
+> 当前代码状态（2026-06-02）：`gateway/cmd/` 下只有 `cmd/gateway/main.go` 一个生产入口。旧的 `cmd/api` / `arboris-api` 双二进制设计已从当前索引代码中移除，业务 API 以 Python FastAPI 为准。本文件保留部分历史段落供追溯，实际部署请按 `arboris-gateway -> FastAPI` 拓扑执行。
+
 ## 一、系统架构概览
 
 ```
-                  ┌──────────────┐
-                  │   Nginx LB   │ :80 / :443
-                  └──────┬───────┘
-                         │
-              ┌──────────┴──────────┐
-              │                     │
-     ┌────────▼────────┐   ┌───────▼────────┐
-     │  Go Gateway     │   │  Go API Server │
-     │  (arboris-gw)   │   │  (arboris-api) │
-     │  :3000 反向代理  │   │  :3000 业务API  │
-     └────────┬────────┘   └───────┬────────┘
-              │                     │
-     ┌────────▼─────────────────────▼────────┐
-     │              Redis :6379               │
-     │  (缓存 / 限流 / 分布式锁 / Pub/Sub /   │
-     │   Streams MQ / Celery Broker)          │
-     └────────┬──────────────────────────────┘
-              │
-     ┌────────▼─────────────────────┐
-     │       MySQL 8.0 :3306        │
-     │  (主库 + 可选读副本)          │
-     └──────────────────────────────┘
-              │
-     ┌────────▼─────────────────────┐
-     │  FastAPI (Python) :8000      │
-     │  (LLM编排 / 章节生成 / RAG)   │
-     └──────────────────────────────┘
+Nginx :80/:443
+  -> Go Gateway :3000
+       - JWT / rate limit / reverse proxy
+       - WebSocket / task dispatcher
+       - Redis for limiters, task queue, and progress Pub/Sub
+  -> Python FastAPI :8000
+       - business APIs / LLM orchestration / chapter generation / RAG
 ```
 
-Go 服务包含两个二进制文件：
+当前 Go 服务包含一个二进制文件：
 
 | 二进制 | 入口 | 职责 |
 |--------|------|------|
 | `arboris-gateway` | `cmd/gateway/main.go` | API 网关：JWT 鉴权、限流、反向代理、WebSocket、任务分发 |
-| `arboris-api` | `cmd/api/main.go` | 业务 API：认证、支付、项目查询、章节生成、配额管理 |
 
 ---
 
@@ -62,33 +43,25 @@ Go 服务包含两个二进制文件：
 ```bash
 # 1. 启动依赖服务
 redis-server &
-# MySQL 需要已启动并创建 arboris 数据库
+# Python FastAPI / MySQL / Qdrant 按后端部署文档启动
 
 # 2. 编译 Go 服务
 cd gateway
-make build-all
+go build -o arboris-gateway cmd/gateway/main.go
 
-# 3. 启动 Gateway（反向代理模式）
+# 3. 启动 Gateway
 ./arboris-gateway
-
-# 4. 启动 API Server（业务模式，需要 MySQL）
-# 先编辑 config.yaml 将 database.enabled 设为 true
-./arboris-api
 ```
 
 ### 3.2 使用 go run
 
 ```bash
-# Gateway
-make run
-
-# API Server
-make run-api
+go run cmd/gateway/main.go
 ```
 
 ### 3.3 仅需 Redis（不启用 DB）
 
-如果只运行 Gateway 模式（反向代理到 Python），无需 MySQL。`database.enabled: false` 时 API Server 也可启动，但支付/项目等 DB 相关功能将不可用。
+当前 Go Gateway 只负责反向代理、限流、WebSocket 和任务分发；业务数据库由 Python FastAPI 访问。Gateway 本身依赖 Redis，用于限流、任务队列和 WebSocket 进度广播。
 
 ---
 
@@ -212,13 +185,7 @@ cd gateway
 docker build -t arboris-gateway:latest .
 ```
 
-需要同时构建 API Server 时，修改 `Dockerfile` 的 CMD 或使用多阶段构建：
-
-```dockerfile
-# 在 builder 阶段同时编译两个二进制
-RUN CGO_ENABLED=0 GOOS=linux go build -o gateway cmd/gateway/main.go
-RUN CGO_ENABLED=0 GOOS=linux go build -o api cmd/api/main.go
-```
+当前代码只构建 `cmd/gateway/main.go`。不要再按旧文档构建 `cmd/api/main.go`。
 
 ### 5.2 生产环境 Docker Compose
 
@@ -260,9 +227,7 @@ MySQL → Redis → Qdrant → FastAPI App → Go Gateway → Nginx
 
 ### 6.1 自动迁移（GORM AutoMigrate）
 
-API Server 启动时自动创建/更新表结构：
-- `payment_orders`
-- `subscriptions`
+当前 Go Gateway 不直连业务数据库，也不执行 GORM AutoMigrate。业务表结构由 Python FastAPI 的 `init_db()` / repair helpers 和 `backend/migrations/` 维护。
 
 ### 6.2 手动迁移（SQL 脚本）
 
@@ -289,7 +254,7 @@ mysql -u arboris -p arboris < gateway/migrations/002_partitions.sql
 ### 7.1 健康检查
 
 ```bash
-# Gateway / API Server
+# Gateway
 curl http://localhost:3000/health
 
 # 返回示例：
@@ -417,9 +382,17 @@ go run test/loadtest/main.go \
 | GET | `/health` | 健康检查 |
 | GET | `/metrics` | Prometheus 指标 |
 | ALL | `/api/*` | 反向代理到 FastAPI |
-| WS | `/ws/:project_id` | WebSocket（实时进度） |
+| WS | `/ws` | WebSocket（任务进度，token 通过 query 参数传入） |
+| POST | `/tasks/submit` | 提交 Go dispatcher 任务 |
+| GET | `/tasks/:id/status` | 查询任务状态 |
+| POST | `/tasks/:id/cancel` | 取消任务 |
+| GET | `/tasks/user/:user_id` | 查询用户任务 |
+| GET | `/tasks/stats` | 调度器统计 |
+| POST | `/internal/tasks/:id/progress` | Python worker 进度回调 |
 
 ### 10.2 API Server 端点（arboris-api）
+
+> 以下 `arboris-api` / `/api/v2/*` 端点属于旧双二进制设计，当前代码中没有 `cmd/api/main.go`。当前业务 API 通过 Gateway 的 `/api/*` 反向代理到 Python FastAPI。
 
 **认证**
 
@@ -475,10 +448,7 @@ go run test/loadtest/main.go \
 
 ### Q: Gateway 和 API Server 需要同时运行吗？
 
-不一定。两者可以独立部署：
-- **仅 Gateway**：作为反向代理，所有请求转发到 Python FastAPI。无需 MySQL。
-- **仅 API Server**：直接暴露 `/api/v2/*` 端点，提供认证、支付、项目查询等。需要 MySQL + Redis。
-- **两者同时**：Gateway 处理限流/WebSocket/代理，API Server 处理业务逻辑。Nginx 根据路径分流。
+当前代码没有独立的 Go API Server。生产拓扑是 Gateway 处理限流/WebSocket/代理/任务分发，业务请求通过 `/api/*` 转发给 Python FastAPI。
 
 ### Q: 如何从 standalone Redis 切换到 Sentinel？
 
@@ -500,7 +470,7 @@ go run test/loadtest/main.go \
    database:
      read_hosts: ["reader1:3306", "reader2:3306"]
    ```
-3. 重启 API Server。GORM `dbresolver` 自动将 SELECT 路由到读副本
+3. 当前 Go Gateway 不负责业务数据库读写分离；请在 Python 后端/数据库代理层落地相关配置。
 
 ### Q: Webhook 返回 429 怎么办？
 
@@ -532,6 +502,5 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 数据库回滚注意事项：
-- GORM AutoMigrate 只添加字段/索引，不会删除
-- 分区操作（002_partitions.sql）不可逆，执行前务必备份
-- 支付订单数据建议在操作前 `mysqldump` 备份
+- 当前 Go Gateway 不执行业务数据库迁移或回滚。
+- 业务库回滚请按 Python 后端和数据库运维流程处理；执行结构变更前务必备份。

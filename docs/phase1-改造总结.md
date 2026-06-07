@@ -1,5 +1,7 @@
 # Arboris-Novel 多人并发架构改造总结
 
+> 当前状态提示（2026-06-02）：本文是 2026-03 阶段总结，保留作历史记录，不代表当前运行代码。当前索引中没有 `backend/app/tasks/chapter_tasks.py` 或 `/api/writer/async/generate`；章节异步生成以 Go Gateway task dispatcher + Python `task_worker.py` 为准。
+
 **改造日期**: 2026-03-12
 **改造方案**: Phase 1 - Python 深度优化（快速上线方案）
 **目标**: 支撑 200-500 并发用户，为千人并发打下基础

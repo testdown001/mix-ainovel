@@ -1,5 +1,5 @@
-# AIMETA P=门下省审核服务_章节质量审核|R=章节质量审核|NR=调用LLM审核章节质量并保存结果|GatekeeperReviewService|X=internal|A=Service|D=business|S=async,llm|RD=./README.ai
-"""门下省质量审核服务"""
+# AIMETA P=质量审核服务_章节质量审核|R=章节质量审核|NR=调用LLM审核章节质量并保存结果|GatekeeperReviewService|X=internal|A=Service|D=business|S=async,llm|RD=./README.ai
+"""章节质量审核服务"""
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class GatekeeperReviewService:
-    """门下省质量审核服务"""
+    """章节质量审核服务"""
 
     REVIEW_THRESHOLDS = {
         "overall_score": 70,         # 综合评分 >= 70
@@ -141,7 +141,7 @@ class GatekeeperReviewService:
     def _get_default_prompt(self, context: Dict[str, Any]) -> str:
         """获取默认审核 prompt"""
         return f"""## 角色
-你是门下省审官，负责审核章节质量。你必须严格把关，不合格的内容必须封驳。
+你是章节质量审核智能体，负责审核章节质量。你必须严格把关，不合格的内容必须封驳。
 
 ## 小说信息
 - 小说标题：{context['project_title']}

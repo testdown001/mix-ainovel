@@ -1,5 +1,5 @@
-# AIMETA P=兵部Agent|R=章节生成|NR=调用LLM生成章节内容|E=BingbuAgent|X=internal|A=Agent实现|D=asyncio
-"""兵部 Agent - 章节生成"""
+# AIMETA P=生成智能体|R=章节生成|NR=调用LLM生成章节内容|E=BingbuAgent|X=internal|A=Agent实现|D=asyncio
+"""生成智能体 - 章节生成"""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +13,7 @@ from .generation_bridge import AgentGenerationBridge
 
 logger = logging.getLogger(__name__)
 
-BINGBU_SYSTEM_PROMPT = """你是小说写作系统的"兵部"生成智能体。你的职责是根据上下文和提示词生成高质量的章节内容。
+BINGBU_SYSTEM_PROMPT = """你是小说写作系统的生成智能体。你的职责是根据上下文和提示词生成高质量的章节内容。
 
 你拥有以下工具：
 - generate: 调用LLM生成章节内容（核心工具）
@@ -40,12 +40,12 @@ BINGBU_TOOL_NAMES = ["generate", "consistency_check", "skill_apply"]
 
 class BingbuAgent(BaseAgent):
     """
-    兵部 Agent - 核心章节生成
+    生成智能体 - 核心章节生成
 
     职责：
     1. 调用 LLM 生成章节内容
     2. 支持多版本生成
-    3. 完成后通知尚书省
+    3. 返回生成版本供审核阶段使用
     """
 
     AGENT_NAME = "bingbu"
@@ -63,7 +63,7 @@ class BingbuAgent(BaseAgent):
         from .agentic_loop import AgenticLoop, AgenticLoopConfig
         from .tools import create_default_registry
 
-        await self.emit_stage("agent:bingbu:start", "兵部智能生成启动")
+        await self.emit_stage("agent:bingbu:start", "生成智能体启动")
 
         registry = create_default_registry()
         user_id = int(context.metadata.get("user_id") or 0)
@@ -149,7 +149,7 @@ class BingbuAgent(BaseAgent):
         version_count_actual = len(result.get("versions", []))
         await self.emit_stage("agent:bingbu:done", f"生成完成，共产出 {version_count_actual} 个版本")
 
-        # 收敛说明：原通过 send_message 通知尚书省版本就绪，现主流程直接读取
+        # 收敛说明：原通过 send_message 通知调度角色版本就绪，现主流程直接读取
         # 本方法返回的 versions 驱动审查阶段，转发调用已移除。
         return AgentResult(
             status="completed",
@@ -169,7 +169,7 @@ class BingbuAgent(BaseAgent):
         """
         使用 Bridge 调用 PipelineOrchestrator 生成
         
-        这是兵部的核心实现，复用了传统流水线的完整能力：
+        这是生成智能体的核心实现，复用了传统流水线的完整能力：
         - RAG 检索
         - 上下文组装
         - 多版本生成

@@ -40,6 +40,8 @@ interface User {
   is_admin: boolean;
   is_premium?: boolean;
   must_change_password: boolean;
+  plan_tier?: string;  // 'free' | 'creator' | 'flagship'
+  effective_tier?: string;  // 实际生效档位（Premium 失效回落 free）
 }
 
 export const useAuthStore = defineStore('auth', {
@@ -176,6 +178,8 @@ export const useAuthStore = defineStore('auth', {
             is_admin: userData.is_admin || false,
             is_premium: userData.is_premium || false,
             must_change_password: userData.must_change_password || false,
+            plan_tier: userData.plan_tier || 'free',
+            effective_tier: userData.effective_tier || 'free',
           };
         } catch (error) {
           this.logout();

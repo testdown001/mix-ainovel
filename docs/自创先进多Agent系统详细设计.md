@@ -1,8 +1,10 @@
-# 三省六部多 Agent 协作系统 - 详细设计文档
+# 自创先进多 Agent 协作系统 - 详细设计文档
 
 > 版本：1.0
 > 日期：2026-03-07
-> 状态：**已实现并集成**
+> 状态：**历史设计文档，不代表当前运行代码**
+>
+> 当前状态提示（2026-06-02）：当前 Agent 主流程已收敛为 `taizi -> hubu -> zhongshu -> bingbu -> menxia` 的顺序返回值驱动流程；`ShangshuAgent`、`LibuAgent`、`PERMISSION_MATRIX`、消息总线路由和 `KnowledgeRetrievalService` 不在当前索引代码中。
 
 ---
 
@@ -51,7 +53,7 @@ starting → resolve_config → prepare_project_context → collect_history_cont
 │                        (Agent 协调中枢)                                  │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐         │
-│  │ 太子省   │───▶│ 中书省    │───▶│ 尚书省    │───▶│ 门下省    │         │
+│  │ 需求解析智能体   │───▶│ 规划智能体    │───▶│ 协调智能体    │───▶│ 审核智能体    │         │
 │  │ Taizi   │    │ Zhongshu │    │ Shangshu │    │ Menxia   │         │
 │  │ Agent   │    │ Agent    │    │ Agent    │    │ Agent    │         │
 │  └─────────┘    └──────────┘    └──────────┘    └──────────┘         │
@@ -59,19 +61,19 @@ starting → resolve_config → prepare_project_context → collect_history_cont
 │       │              │               ├───────────────┤                 │
 │       │              │               ▼               │                 │
 │       │              │        ┌──────────┐           │                 │
-│       │              │        │ 户部      │           │                 │
+│       │              │        │ 技能智能体      │           │                 │
 │       │              │        │ Hubu     │           │                 │
 │       │              │        │ Agent    │           │                 │
 │       │              │        └──────────┘           │                 │
 │       │              │               │               │                 │
 │       │              │        ┌──────────┐           │                 │
-│       │              │        │ 吏部      │           │                 │
+│       │              │        │ 一致性智能体      │           │                 │
 │       │              │        │ Libu     │           │                 │
 │       │              │        │ Agent    │           │                 │
 │       │              │        └──────────┘           │                 │
 │       │              │               │               │                 │
 │       │              │        ┌──────────┐           │                 │
-│       │              │        │ 兵部      │           │                 │
+│       │              │        │ 生成智能体      │           │                 │
 │       │              │        │ Bingbu   │───────────┘                 │
 │       │              │        │ Agent    │                             │
 │       │              │        └──────────┘                             │
@@ -92,13 +94,13 @@ starting → resolve_config → prepare_project_context → collect_history_cont
 
 | Agent | 名称 | 职责 | 对应原流水线阶段 |
 |-------|------|------|-----------------|
-| **Taizi** | 太子省 | 需求解析、指令分拣 | 新增 |
-| **Zhongshu** | 中书省 | 策略规划、上下文组装 | build_mission_inputs |
-| **Shangshu** | 尚书省 | 任务分发、结果汇总 | 调度层 |
-| **Bingbu** | 兵部 | 章节核心生成 | generate_scene_by_scene |
-| **Hubu** | 户部 | 技能系统、技能调度 | 技能执行 |
-| **Libu** | 吏部 | 角色管理、人物一致性 | consistency_service |
-| **Menxia** | 门下省 | 质量审核、最终把关 | gatekeeper_review |
+| **Taizi** | 需求解析智能体 | 需求解析、指令分拣 | 新增 |
+| **Zhongshu** | 规划智能体 | 策略规划、上下文组装 | build_mission_inputs |
+| **Shangshu** | 协调智能体 | 任务分发、结果汇总 | 调度层 |
+| **Bingbu** | 生成智能体 | 章节核心生成 | generate_scene_by_scene |
+| **Hubu** | 技能智能体 | 技能系统、技能调度 | 技能执行 |
+| **Libu** | 一致性智能体 | 角色管理、人物一致性 | consistency_service |
+| **Menxia** | 审核智能体 | 质量审核、最终把关 | gatekeeper_review |
 
 ### 2.3 Agent 权限矩阵
 
@@ -356,18 +358,18 @@ class BaseAgent(ABC):
         pass
 ```
 
-### 4.2 太子省 Agent (taizi_agent.py)
+### 4.2 需求解析智能体 Agent (taizi_agent.py)
 
 ```python
 class TaiziAgent(BaseAgent):
     """
-    太子 Agent - 需求分拣
+    需求解析 Agent - 需求分拣
     
     职责：
     1. 解析用户写作指令
     2. 识别章节类型和情绪目标
     3. 提取关键写作要求
-    4. 转发给中书省
+    4. 转发给规划智能体
     """
     
     AGENT_NAME = "taizi"
@@ -391,7 +393,7 @@ class TaiziAgent(BaseAgent):
         # 4. 提取写作偏好
         writing_preferences = await self._extract_writing_preferences(parsed)
         
-        # 5. 转发给中书省
+        # 5. 转发给规划智能体
         await self.send_message(
             recipient="zhongshu",
             message_type=AgentMessageType.TASK_DELEGATED,
@@ -467,18 +469,18 @@ class TaiziAgent(BaseAgent):
         }
 ```
 
-### 4.3 中书省 Agent (zhongshu_agent.py)
+### 4.3 规划智能体 Agent (zhongshu_agent.py)
 
 ```python
 class ZhongshuAgent(BaseAgent):
     """
-    中书省 Agent - 规划中枢
+    规划智能体 Agent - 规划中枢
     
     职责：
-    1. 接收太子省解析结果
+    1. 接收需求解析智能体解析结果
     2. 收集项目上下文（蓝图、历史、RAG）
     3. 构建写作任务 Mission
-    4. 转发给尚书省
+    4. 转发给协调智能体
     """
     
     AGENT_NAME = "zhongshu"
@@ -496,7 +498,7 @@ class ZhongshuAgent(BaseAgent):
         # 3. 生成写作提示词
         writing_prompt = await self._generate_writing_prompt(mission, context_data)
         
-        # 4. 转发给尚书省
+        # 4. 转发给协调智能体
         await self.send_message(
             recipient="shangshu",
             message_type=AgentMessageType.CHAPTER_GENERATE_REQUEST,
@@ -568,18 +570,18 @@ class ZhongshuAgent(BaseAgent):
         return results
 ```
 
-### 4.4 尚书省 Agent (shangshu_agent.py)
+### 4.4 协调智能体 Agent (shangshu_agent.py)
 
 ```python
 class ShangshuAgent(BaseAgent):
     """
-    尚书省 Agent - 调度协调
+    协调智能体 Agent - 调度协调
     
     职责：
-    1. 接收中书省的写作任务
-    2. 协调兵部、吏部、户部执行
+    1. 接收规划智能体的写作任务
+    2. 协调生成智能体、一致性智能体、技能智能体执行
     3. 汇总结果
-    4. 转发给门下省审核
+    4. 转发给审核智能体审核
     """
     
     AGENT_NAME = "shangshu"
@@ -588,23 +590,23 @@ class ShangshuAgent(BaseAgent):
         mission = context.mission
         writing_prompt = context.metadata.get("writing_prompt")
         
-        # 1. 调度兵部生成章节
+        # 1. 调度章节生成章节
         await self._dispatch_bingbu(context, writing_prompt)
         
-        # 2. 等待兵部完成（通过消息回调）
+        # 2. 等待生成智能体完成（通过消息回调）
         # 这里使用等待队列实现
         
         # 3. 获取生成结果
         chapter_versions = await self._wait_for_versions(context.task_id)
         
-        # 4. 如需后处理，调度吏部
+        # 4. 如需后处理，调度一致性智能体
         if context.config.get("enable_post_processing"):
             await self._dispatch_libu(context, chapter_versions)
         
         # 5. 汇总结果
         result = await self._aggregate_results(chapter_versions)
         
-        # 6. 转发给门下省审核
+        # 6. 转发给审核智能体审核
         await self.send_message(
             recipient="menxia",
             message_type=AgentMessageType.REVIEW_REQUEST,
@@ -624,7 +626,7 @@ class ShangshuAgent(BaseAgent):
         context: AgentContext,
         writing_prompt: str
     ) -> None:
-        """调度兵部生成章节"""
+        """调度章节生成章节"""
         await self.send_message(
             recipient="bingbu",
             message_type=AgentMessageType.CHAPTER_GENERATE_REQUEST,
@@ -637,17 +639,17 @@ class ShangshuAgent(BaseAgent):
         )
 ```
 
-### 4.5 兵部 Agent (bingbu_agent.py)
+### 4.5 生成智能体 Agent (bingbu_agent.py)
 
 ```python
 class BingbuAgent(BaseAgent):
     """
-    兵部 Agent - 核心章节生成
+    生成智能体 Agent - 核心章节生成
     
     职责：
     1. 调用 LLM 生成章节内容
     2. 支持多版本生成
-    3. 完成后通知尚书省
+    3. 完成后通知协调智能体
     """
     
     AGENT_NAME = "bingbu"
@@ -663,7 +665,7 @@ class BingbuAgent(BaseAgent):
             context=context
         )
         
-        # 通知尚书省
+        # 通知协调智能体
         await self.send_message(
             recipient="shangshu",
             message_type=AgentMessageType.CHAPTER_VERSION_READY,
@@ -692,12 +694,12 @@ class BingbuAgent(BaseAgent):
         pass
 ```
 
-### 4.6 户部 Agent (hubu_agent.py)
+### 4.6 技能智能体 Agent (hubu_agent.py)
 
 ```python
 class HubuAgent(BaseAgent):
     """
-    户部 Agent - 技能系统
+    技能智能体 Agent - 技能系统
     
     职责：
     1. 管理技能注册
@@ -742,12 +744,12 @@ class HubuAgent(BaseAgent):
         )
 ```
 
-### 4.7 吏部 Agent (libu_agent.py)
+### 4.7 一致性智能体 Agent (libu_agent.py)
 
 ```python
 class LibuAgent(BaseAgent):
     """
-    吏部 Agent - 角色管理
+    一致性智能体 Agent - 角色管理
     
     职责：
     1. 角色一致性检查
@@ -788,12 +790,12 @@ class LibuAgent(BaseAgent):
         )
 ```
 
-### 4.8 门下省 Agent (menxia_agent.py)
+### 4.8 审核智能体 Agent (menxia_agent.py)
 
 ```python
 class MenxiaAgent(BaseAgent):
     """
-    门下省 Agent - 质量审核
+    审核智能体 Agent - 质量审核
     
     职责：
     1. 章节质量审核
@@ -988,7 +990,7 @@ class WritingAgentSystem:
         # 1. 创建任务
         task_id = str(uuid4())
         
-        # 2. 启动太子省
+        # 2. 启动需求解析智能体
         taizi = self._agents["taizi"]
         context = AgentContext(
             task_id=task_id,
@@ -1064,13 +1066,13 @@ backend/app/agents/
 ├── message.py               # 消息定义
 ├── system.py                # WritingAgentSystem
 ├── message_bus.py           # AgentMessageBus
-├── taizi_agent.py           # 太子省
-├── zhongshu_agent.py        # 中书省
-├── shangshu_agent.py        # 尚书省
-├── bingbu_agent.py          # 兵部
-├── hubu_agent.py            # 户部
-├── libu_agent.py            # 吏部
-└── menxia_agent.py          # 门下省
+├── taizi_agent.py           # 需求解析智能体
+├── zhongshu_agent.py        # 规划智能体
+├── shangshu_agent.py        # 协调智能体
+├── bingbu_agent.py          # 生成智能体
+├── hubu_agent.py            # 技能智能体
+├── libu_agent.py            # 一致性智能体
+└── menxia_agent.py          # 审核智能体
 ```
 
 ---
