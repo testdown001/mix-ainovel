@@ -530,7 +530,7 @@ Nginx -> Go Gateway -> Python FastAPI workers
 - Qdrant is used for vector retrieval and memory-related storage
 - BM25 and hybrid retrieval paths exist alongside vector retrieval
 - table creation and some schema repair happen at startup through `init_db()` and helper routines
-- `backend/migrations/versions/3d0894d473c4_baseline_schema.py` exists as a baseline migration snapshot, but there is no current indexed `backend/alembic.ini`; treat runtime bootstrap/repair as the local source of truth unless migration config is restored
+- Alembic is configured: `backend/alembic.ini` + `backend/migrations/` with baseline `3d0894d473c4_baseline_schema.py`; startup `init_db()` bootstrap/repair still runs, Alembic is the versioned-migration path going forward
 
 ### Config Sources
 
@@ -675,6 +675,6 @@ Testing approach:
 - Security settings include `CORS_ORIGINS`, `DEBUG=false` for production HTTPS redirects, rate limits, and request-size limits from `main.py` middleware wiring
 - Embedding settings include `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL`, and `EMBEDDING_BASE_URL`
 - Vector settings include `QDRANT_HOST`, `QDRANT_PORT`, `VECTOR_TOP_K_CHUNKS`, `VECTOR_TOP_K_SUMMARIES`, and `VECTOR_CHUNK_SIZE`
-- Database settings include `DB_PROVIDER`, `SQLITE_DB_PATH`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_DATABASE`
+- Database settings include `DB_PROVIDER`, `SQLITE_PATH`, `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, and `MYSQL_DATABASE`
 - Auth method, OAuth, SMS, payment channel, and membership behavior is largely configured through `SystemConfig`, `AdminSetting`, `Plan`, and admin UI records; inspect existing config tables before adding new environment-only switches
 - Verify `/api/health` after deployment and inspect logs when troubleshooting
