@@ -25,6 +25,7 @@ TIER_LABELS: Dict[str, str] = {"free": "免费版", "creator": "创作者版", "
 
 # 后台覆写存储键
 MIN_TIER_OVERRIDES_KEY = "feature_gating.min_tier_overrides"
+FLOW_OVERRIDE_MIN_TIERS_KEY = "feature_gating.flow_override_min_tiers"
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,118 @@ def normalize_preset(preset: Optional[str]) -> str:
         logger.warning("未知 preset '%s'，回退 fast", name)
         return "fast"
     return name
+
+
+# ── flow_config 显式覆写开关的档位门控 ──
+#
+# resolve_config 的覆写白名单允许请求显式开启任意流水线开关，若不设档位
+# 校验，free 用户用 preset=fast 过门控后仍可拼出接近 premium 的流水线。
+# 与 CAPABILITIES 同一设计：默认档位在代码（按"该开关默认由哪档 preset
+# 启用"机械推导），实际生效档位可被后台 SystemConfig
+# `feature_gating.flow_override_min_tiers`(JSON {switch: tier}) 整体覆写。
+# 只管"显式开启"（True），关闭与缺省（None）永远放行。
+
+@dataclass(frozen=True)
+class FlowOverrideSwitch:
+    key: str
+    label: str            # 面向用户/后台的开关名
+    default_min_tier: str  # 默认最低档位（standard 特征→creator，premium 特征→flagship）
+
+
+FLOW_OVERRIDE_SWITCHES: List[FlowOverrideSwitch] = [
+    # premium 特征开关（默认 flagship）
+    FlowOverrideSwitch("enable_optimizer", "优化器精修", "flagship"),
+    FlowOverrideSwitch("enable_consistency", "一致性审查", "flagship"),
+    FlowOverrideSwitch("enable_scene_by_scene", "场景分步生成", "flagship"),
+    FlowOverrideSwitch("enable_prose_sculpting", "文笔雕琢", "flagship"),
+    FlowOverrideSwitch("enable_golden_paragraph", "黄金段落", "flagship"),
+    FlowOverrideSwitch("enable_preview", "预演生成", "flagship"),
+    # standard 特征开关（默认 creator）
+    FlowOverrideSwitch("enable_enrichment", "字数扩写", "creator"),
+    FlowOverrideSwitch("enable_polish", "文风润色", "creator"),
+    FlowOverrideSwitch("enable_power_system", "力量体系注入", "creator"),
+    FlowOverrideSwitch("enable_character_relationships", "角色关系注入", "creator"),
+    FlowOverrideSwitch("enable_trajectory_analysis", "轨迹分析", "creator"),
+    FlowOverrideSwitch("enable_reference_prose", "参考文风", "creator"),
+    FlowOverrideSwitch("enable_voice_samples", "角色语癖样本", "creator"),
+    FlowOverrideSwitch("enable_narrative_variety", "叙事多样性", "creator"),
+    FlowOverrideSwitch("enable_mission_brief", "导演任务书", "creator"),
+    FlowOverrideSwitch("enable_density_compression", "密度压缩", "creator"),
+    FlowOverrideSwitch("enable_pacing_control", "节奏控制", "creator"),
+    # 降本/中性开关（enable_fast_path、disable_guardrail_rewrite 等）不登记，即不设限
+]
+
+_FLOW_SWITCH_BY_KEY: Dict[str, FlowOverrideSwitch] = {s.key: s for s in FLOW_OVERRIDE_SWITCHES}
+
+
+async def load_flow_override_min_tiers(session) -> Dict[str, str]:
+    """加载覆写开关→最低档位映射（代码默认 + 后台 SystemConfig 覆写）。"""
+    base = {s.key: s.default_min_tier for s in FLOW_OVERRIDE_SWITCHES}
+    try:
+        from ..repositories.system_config_repository import SystemConfigRepository
+
+        record = await SystemConfigRepository(session).get_by_key(FLOW_OVERRIDE_MIN_TIERS_KEY)
+        if record and record.value:
+            overrides = json.loads(record.value)
+            for k, v in (overrides or {}).items():
+                if k in base and v in TIER_RANK:
+                    base[k] = v
+    except Exception as exc:  # pragma: no cover - 覆写读取失败回退默认
+        logger.debug("加载 flow_override 档位覆写失败，使用代码默认: %s", exc)
+    return base
+
+
+def flow_override_registry_dump(min_tiers: Optional[Dict[str, str]] = None) -> List[Dict[str, str]]:
+    """全部受控覆写开关 + 当前生效最低档位（供后台展示/配置）。"""
+    min_tiers = min_tiers or {}
+    return [
+        {
+            "key": s.key,
+            "label": s.label,
+            "default_min_tier": s.default_min_tier,
+            "min_tier": min_tiers.get(s.key, s.default_min_tier),
+        }
+        for s in FLOW_OVERRIDE_SWITCHES
+    ]
+
+
+async def ensure_flow_overrides_allowed(
+    session,
+    flow_config: Optional[Dict[str, object]],
+    effective_tier: str,
+) -> None:
+    """flow_config 显式开启受控开关时按档位放行，不够档抛 403。
+
+    与 preset 门控并列调用于全部生成入口（同步单章/SSE/批量/Go 异步）。
+    """
+    if not flow_config:
+        return
+    requested = [
+        key
+        for key, value in flow_config.items()
+        if key in _FLOW_SWITCH_BY_KEY and value is True
+    ]
+    if not requested:
+        return
+
+    min_tiers = await load_flow_override_min_tiers(session)
+    denied = [
+        key
+        for key in requested
+        if tier_rank(effective_tier) < tier_rank(min_tiers.get(key, _FLOW_SWITCH_BY_KEY[key].default_min_tier))
+    ]
+    if not denied:
+        return
+
+    parts = [
+        f"{_FLOW_SWITCH_BY_KEY[k].label}（需{TIER_LABELS.get(min_tiers.get(k, _FLOW_SWITCH_BY_KEY[k].default_min_tier), '更高档位')}）"
+        for k in denied
+    ]
+    current_label = TIER_LABELS.get(effective_tier, effective_tier or "free")
+    raise HTTPException(
+        status_code=403,
+        detail=f"以下高级开关需要更高订阅档位：{'、'.join(parts)}（当前：{current_label}）",
+    )
 
 
 async def ensure_generation_preset_allowed(

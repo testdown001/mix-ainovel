@@ -46,9 +46,11 @@ export const plansApi = {
   listPublic: () => requestJson<AdminPlan[]>(`${PLANS_BASE}/public`),
   /** 全部套餐（管理员）。 */
   listAll: () => requestJson<AdminPlan[]>(`${PLANS_BASE}/`),
-  /** 能力注册表 + 当前生效最低档位（管理员）。 */
+  /** 能力注册表 + 受控流水线开关注册表 + 当前生效最低档位（管理员）。 */
   capabilities: () =>
-    requestJson<{ capabilities: PlanCapability[] }>(`${PLANS_BASE}/capabilities`),
+    requestJson<{ capabilities: PlanCapability[]; flow_overrides: PlanCapability[] }>(
+      `${PLANS_BASE}/capabilities`,
+    ),
   create: (data: PlanWritePayload) =>
     requestJson<AdminPlan>(`${PLANS_BASE}/`, {
       method: 'POST',

@@ -10,6 +10,8 @@ from ...models.plan import Plan
 from ...core.dependencies import get_current_admin
 from ...core.feature_gating import (
     capabilities_for_tier,
+    flow_override_registry_dump,
+    load_flow_override_min_tiers,
     load_min_tiers,
     registry_dump,
 )
@@ -147,9 +149,17 @@ async def get_capability_registry(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_admin),
 ):
-    """能力注册表 + 当前生效最低档位（后台展示"各档位解锁什么"用）。"""
+    """能力注册表 + 受控覆写开关注册表 + 当前生效最低档位（后台门控配置面板用）。
+
+    生效档位 = 代码默认 + SystemConfig 覆写
+    （feature_gating.min_tier_overrides / feature_gating.flow_override_min_tiers）。
+    """
     min_tiers = await load_min_tiers(db)
-    return {"capabilities": registry_dump(min_tiers)}
+    flow_min_tiers = await load_flow_override_min_tiers(db)
+    return {
+        "capabilities": registry_dump(min_tiers),
+        "flow_overrides": flow_override_registry_dump(flow_min_tiers),
+    }
 
 
 @router.get("/")

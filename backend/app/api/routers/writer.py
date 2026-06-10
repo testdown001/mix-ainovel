@@ -29,7 +29,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from ...core.config import settings
 from ...core.dependencies import get_current_user
-from ...core.feature_gating import ensure_generation_preset_allowed
+from ...core.feature_gating import ensure_flow_overrides_allowed, ensure_generation_preset_allowed
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
 from ...models.writing_archive import WritingArchive
@@ -301,6 +301,7 @@ async def advanced_generate_chapter(
     preset = request.flow_config.preset or "fast"
 
     await ensure_generation_preset_allowed(session, preset, effective_tier)
+    await ensure_flow_overrides_allowed(session, request.flow_config.model_dump(), effective_tier)
 
     executor = HybridExecutor(session, user_id=current_user.id)
 
@@ -413,6 +414,7 @@ async def advanced_generate_chapter_stream(
     preset = request.flow_config.preset or "fast"
 
     await ensure_generation_preset_allowed(session, preset, effective_tier)
+    await ensure_flow_overrides_allowed(session, request.flow_config.model_dump(), effective_tier)
 
     use_agent = request.flow_config.use_agent or False
 
@@ -593,6 +595,11 @@ async def batch_generate_chapters(
     user_quota = await quota_service.get_or_create_quota(current_user.id)
     batch_preset = (request.flow_config.preset if request.flow_config else None) or "fast"
     await ensure_generation_preset_allowed(session, batch_preset, user_quota.effective_tier)
+    await ensure_flow_overrides_allowed(
+        session,
+        request.flow_config.model_dump() if request.flow_config else None,
+        user_quota.effective_tier,
+    )
 
     # 验证项目归属
     novel_service = NovelService(session)

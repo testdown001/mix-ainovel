@@ -158,6 +158,7 @@ type MenuKey =
   | 'api_management'
   | 'password'
   | 'membership_plans'
+  | 'feature_gating'
   | 'payment_channels'
   | 'payment_records'
 
@@ -172,6 +173,7 @@ const components: Record<MenuKey, ReturnType<typeof defineAsyncComponent>> = {
   api_management: defineAsyncComponent(() => import('../components/admin/ApiManagement.vue')),
   password: defineAsyncComponent(() => import('../components/admin/PasswordManagement.vue')),
   membership_plans: defineAsyncComponent(() => import('../components/admin/MembershipPlans.vue')),
+  feature_gating: defineAsyncComponent(() => import('../components/admin/FeatureGatingConfig.vue')),
   payment_channels: defineAsyncComponent(() => import('../components/admin/PaymentChannels.vue')),
   payment_records: defineAsyncComponent(() => import('../components/admin/PaymentRecords.vue'))
 }
@@ -187,6 +189,7 @@ const iconRenderers: Record<MenuKey, () => any> = {
   api_management: () => h('span', { class: 'menu-icon' }, '🔌'),
   password: () => h('span', { class: 'menu-icon' }, '🔒'),
   membership_plans: () => h('span', { class: 'menu-icon' }, '💳'),
+  feature_gating: () => h('span', { class: 'menu-icon' }, '🎚️'),
   payment_channels: () => h('span', { class: 'menu-icon' }, '🏦'),
   payment_records: () => h('span', { class: 'menu-icon' }, '🧾')
 }
@@ -207,6 +210,7 @@ const menuOptions: MenuOption[] = [
     icon: () => h('span', { class: 'menu-icon' }, '💰'),
     children: [
       { key: 'membership_plans', label: '会员套餐', icon: iconRenderers.membership_plans },
+      { key: 'feature_gating', label: '能力门控', icon: iconRenderers.feature_gating },
       { key: 'payment_channels', label: '支付渠道', icon: iconRenderers.payment_channels },
       { key: 'payment_records', label: '支付记录', icon: iconRenderers.payment_records }
     ]

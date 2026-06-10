@@ -19,7 +19,11 @@ from pydantic import BaseModel, Field
 
 from ...agents.hybrid_executor import HybridExecutor
 from ...core.config import settings
-from ...core.feature_gating import ensure_generation_preset_allowed, get_user_tier
+from ...core.feature_gating import (
+    ensure_flow_overrides_allowed,
+    ensure_generation_preset_allowed,
+    get_user_tier,
+)
 from ...db.session import AsyncSessionLocal
 from ...services.novel_service import NovelService
 
@@ -129,6 +133,8 @@ async def execute_task(req: WorkerTaskRequest):
                 tier = await get_user_tier(gate_session, req.user_id)
                 try:
                     await ensure_generation_preset_allowed(gate_session, req.config.preset, tier)
+                    # config.extra 会原样并入 flow_config，受控开关同样要过档位
+                    await ensure_flow_overrides_allowed(gate_session, req.config.extra, tier)
                 except HTTPException as exc:
                     return WorkerTaskResponse(status="failed", error=str(exc.detail), permanent=True)
 

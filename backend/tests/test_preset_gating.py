@@ -87,3 +87,61 @@ def test_batch_generate_endpoint_enforces_tier_gate(monkeypatch):
             )
         )
     assert exc_info.value.status_code == 403
+
+
+# ── flow_config 受控开关档位门控 ──
+
+from app.core.feature_gating import (  # noqa: E402
+    ensure_flow_overrides_allowed,
+    load_flow_override_min_tiers,
+)
+
+
+def _flow_gate(flow_config, tier):
+    asyncio.run(ensure_flow_overrides_allowed(SimpleNamespace(), flow_config, tier))
+
+
+def test_flow_override_gate_matrix():
+    # flagship 开关：free/creator 被拒，flagship 放行
+    with pytest.raises(HTTPException) as exc_info:
+        _flow_gate({"enable_optimizer": True}, "free")
+    assert exc_info.value.status_code == 403
+    with pytest.raises(HTTPException):
+        _flow_gate({"enable_optimizer": True}, "creator")
+    _flow_gate({"enable_optimizer": True}, "flagship")
+
+    # creator 开关：free 被拒，creator 放行
+    with pytest.raises(HTTPException):
+        _flow_gate({"enable_polish": True}, "free")
+    _flow_gate({"enable_polish": True}, "creator")
+
+
+def test_flow_override_gate_only_blocks_explicit_true():
+    # 关闭 / None / 缺省 / 未登记开关 / 空配置 一律放行
+    _flow_gate({"enable_optimizer": False, "enable_polish": None}, "free")
+    _flow_gate({"enable_fast_path": True, "disable_guardrail_rewrite": True}, "free")
+    _flow_gate({}, "free")
+    _flow_gate(None, "free")
+
+
+def test_flow_override_min_tiers_loads_backend_override(monkeypatch):
+    """后台 SystemConfig 覆写应改变生效档位（档位不是硬编码）。"""
+    import app.repositories.system_config_repository as repo_module
+
+    class _FakeRepo:
+        def __init__(self, session):
+            pass
+
+        async def get_by_key(self, key):
+            assert key == "feature_gating.flow_override_min_tiers"
+            return SimpleNamespace(value='{"enable_optimizer": "creator", "bogus_key": "flagship", "enable_polish": "not_a_tier"}')
+
+    monkeypatch.setattr(repo_module, "SystemConfigRepository", _FakeRepo)
+
+    tiers = asyncio.run(load_flow_override_min_tiers(SimpleNamespace()))
+    assert tiers["enable_optimizer"] == "creator"   # 合法覆写生效
+    assert "bogus_key" not in tiers                  # 未登记键被忽略
+    assert tiers["enable_polish"] == "creator"       # 非法档位值被忽略，保持默认
+
+    # 覆写后 creator 即可显式开优化器
+    _flow_gate({"enable_optimizer": True}, "creator")
