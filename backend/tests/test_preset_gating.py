@@ -23,8 +23,9 @@ def test_normalize_preset_matrix():
     assert normalize_preset("ultimate") == "premium"
     assert normalize_preset("platinum") == "premium"
     assert normalize_preset("literary") == "premium"
-    # 未知名原样返回，交由配置层兜底
-    assert normalize_preset("custom") == "custom"
+    # 未知名回退 fast：原样放行会同时绕过门控并落入未定义开关组合
+    assert normalize_preset("custom") == "fast"
+    assert normalize_preset("xpremium") == "fast"
 
 
 def _gate(preset: str, tier: str) -> None:
@@ -52,5 +53,37 @@ def test_canonical_gate_matrix():
     with pytest.raises(HTTPException):
         _gate("premium", "creator")
     _gate("premium", "flagship")
-    # 未知名放行（不归任何能力管）
+    # 未知名归一化为 fast（免费档），放行且不会落入未定义配置
     _gate("nonexistent-preset", "free")
+
+
+def test_batch_generate_endpoint_enforces_tier_gate(monkeypatch):
+    """/advanced/batch-generate 与单章/异步入口同一套档位门控（曾是漏网入口）。"""
+    import asyncio as _asyncio
+    from types import SimpleNamespace as NS
+
+    import app.services.quota_service as quota_service_module
+    from app.api.routers import writer
+
+    class _FakeQuotaService:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_or_create_quota(self, user_id):
+            return NS(effective_tier="free")
+
+    monkeypatch.setattr(quota_service_module, "QuotaService", _FakeQuotaService)
+
+    request = NS(
+        project_id="p1",
+        chapter_numbers=[1, 2],
+        writing_notes=None,
+        flow_config=NS(preset="premium", model_dump=lambda: {"preset": "premium"}),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        _asyncio.run(
+            writer.batch_generate_chapters(
+                request, session=SimpleNamespace(), current_user=NS(id=1)
+            )
+        )
+    assert exc_info.value.status_code == 403

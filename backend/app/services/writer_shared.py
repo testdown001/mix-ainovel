@@ -266,7 +266,9 @@ async def resolve_version_count(
     if requested_count:
         try:
             count = int(requested_count)
-            return max(1, count)
+            # 请求侧上限 5：versions 直接放大整条生成流水线的 LLM 成本，
+            # 不能由客户端无界指定；管理员通道（SystemConfig/ENV）不受此限
+            return max(1, min(count, 5))
         except (TypeError, ValueError):
             pass
 

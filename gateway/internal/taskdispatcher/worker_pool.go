@@ -145,11 +145,19 @@ type WorkerTaskRequest struct {
 
 // WorkerTaskResponse Python Worker 返回的结果
 type WorkerTaskResponse struct {
-	Status   string          `json:"status"` // completed, failed
-	Result   json.RawMessage `json:"result,omitempty"`
-	Error    string          `json:"error,omitempty"`
-	Duration int64           `json:"duration_ms,omitempty"`
+	Status    string          `json:"status"` // completed, failed
+	Result    json.RawMessage `json:"result,omitempty"`
+	Error     string          `json:"error,omitempty"`
+	Duration  int64           `json:"duration_ms,omitempty"`
+	Permanent bool            `json:"permanent,omitempty"` // true=确定性失败（如档位门控 403），重试无意义
 }
+
+// PermanentTaskError 确定性任务失败：dispatcher 不应对其重试
+type PermanentTaskError struct {
+	msg string
+}
+
+func (e *PermanentTaskError) Error() string { return e.msg }
 
 // executeChapterGenerate 执行章节生成
 func (p *WorkerPool) executeChapterGenerate(ctx context.Context, worker *WorkerInfo, task *Task) (json.RawMessage, error) {
@@ -251,6 +259,9 @@ func (p *WorkerPool) callWorker(ctx context.Context, worker *WorkerInfo, path st
 	}
 
 	if workerResp.Status == "failed" {
+		if workerResp.Permanent {
+			return nil, &PermanentTaskError{msg: fmt.Sprintf("Worker 执行失败(不可重试): %s", workerResp.Error)}
+		}
 		return nil, fmt.Errorf("Worker 执行失败: %s", workerResp.Error)
 	}
 

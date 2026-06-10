@@ -56,6 +56,8 @@ class WorkerTaskResponse(BaseModel):
     result: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
     duration_ms: Optional[int] = None
+    # 确定性失败（如档位门控 403）：Go dispatcher 看到该标记不再重试
+    permanent: bool = False
 
 
 # ============================================================
@@ -128,7 +130,7 @@ async def execute_task(req: WorkerTaskRequest):
                 try:
                     await ensure_generation_preset_allowed(gate_session, req.config.preset, tier)
                 except HTTPException as exc:
-                    return WorkerTaskResponse(status="failed", error=str(exc.detail))
+                    return WorkerTaskResponse(status="failed", error=str(exc.detail), permanent=True)
 
         if req.task_type == "chapter:generate":
             result = await _execute_chapter_generate(req, reporter)

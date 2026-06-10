@@ -581,10 +581,18 @@ async def batch_generate_chapters(
     批量生成多个章节。按章节顺序逐章生成，每章使用独立 session，
     确保前后章节的上下文（previous_summary / previous_tail）连贯。
     """
+    from ...services.quota_service import QuotaService
+
     if not request.chapter_numbers:
         raise HTTPException(status_code=400, detail="章节编号列表不能为空")
     if len(request.chapter_numbers) > 20:
         raise HTTPException(status_code=400, detail="单次批量生成最多 20 章")
+
+    # ===== 会员档位门控（与单章/异步入口同一套判定）=====
+    quota_service = QuotaService(session)
+    user_quota = await quota_service.get_or_create_quota(current_user.id)
+    batch_preset = (request.flow_config.preset if request.flow_config else None) or "fast"
+    await ensure_generation_preset_allowed(session, batch_preset, user_quota.effective_tier)
 
     # 验证项目归属
     novel_service = NovelService(session)

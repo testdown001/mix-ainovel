@@ -20,23 +20,17 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 默认兼容性矩阵
 # ---------------------------------------------------------------------------
+# 仅含现行三档：resolve() 入口用 normalize_preset 归一化，旧名
+# （basic/enhanced/ultimate/platinum/literary）经 PRESET_ALIASES 映射后命中此处；
+# DB 自定义矩阵（system_configs: writing_strategy.compatibility）也应使用现行三档键。
 DEFAULT_COMPATIBILITY: Dict[str, Dict[str, Any]] = {
-    "literary": {
-        "compatible_styles": ["classic_elegant", "minimal_concrete"],
-        "incompatible_styles": ["webnovel_fast"],
-        "on_conflict": "downgrade_style",
-        "conflict_style_weight": 0.3,
-        "reference_boost": 1.2,
-        "style_tier_override": 2,
-    },
     "fast": {
         "compatible_styles": ["webnovel_fast"],
-        "incompatible_styles": ["classic_elegant", "minimal_concrete", "classic_elegant"],
+        "incompatible_styles": ["classic_elegant", "minimal_concrete"],
         "on_conflict": "ignore_style",
         "conflict_style_weight": 0.0,
         "reference_boost": 0.0,
     },
-    # 现行三档中的 standard/premium（fast 在上方）；旧名条目保留用于 DB 自定义矩阵兼容
     "standard": {
         "compatible_styles": ["*"],
         "incompatible_styles": [],
@@ -48,30 +42,6 @@ DEFAULT_COMPATIBILITY: Dict[str, Dict[str, Any]] = {
         "incompatible_styles": [],
         "on_conflict": "warn_only",
         "reference_boost": 1.0,
-    },
-    "platinum": {
-        "compatible_styles": ["*"],
-        "incompatible_styles": [],
-        "on_conflict": "warn_only",
-        "reference_boost": 1.0,
-    },
-    "ultimate": {
-        "compatible_styles": ["*"],
-        "incompatible_styles": [],
-        "on_conflict": "warn_only",
-        "reference_boost": 1.0,
-    },
-    "enhanced": {
-        "compatible_styles": ["*"],
-        "incompatible_styles": [],
-        "on_conflict": "warn_only",
-        "reference_boost": 0.8,
-    },
-    "basic": {
-        "compatible_styles": ["webnovel_fast", "cold_realism"],
-        "incompatible_styles": [],
-        "on_conflict": "warn_only",
-        "reference_boost": 0.0,
     },
 }
 
@@ -87,12 +57,6 @@ PRESET_LABELS: Dict[str, str] = {
     "fast": "快速模式",
     "standard": "标准模式",
     "premium": "精品模式",
-    # 旧名（入口已归一化，此处仅为日志/警告文案兜底）
-    "literary": "文学模式",
-    "platinum": "铂金模式",
-    "ultimate": "终极模式",
-    "enhanced": "增强模式",
-    "basic": "基础模式",
 }
 
 
@@ -145,6 +109,11 @@ class WritingStrategyResolver:
         has_template: bool = False,
         session=None,
     ) -> WritingStrategy:
+        from .feature_gating import normalize_preset
+
+        # 主流水线传入的已是归一化值；此处再归一化一次，保证直接调用方
+        # 传旧名时矩阵查找与分支判断不漂移
+        preset = normalize_preset(preset)
         matrix = await cls._load_matrix(session)
         strategy = WritingStrategy(preset=preset)
 
@@ -164,8 +133,6 @@ class WritingStrategyResolver:
         # 3. 题材权重（fast 模式降低）
         if preset == "fast":
             strategy.genre_weight = 0.5
-        elif preset == "basic":
-            strategy.genre_weight = 0.7
 
         # 4. 模板权重（始终保持高权重，模板是用户显式选择的）
         strategy.template_weight = 1.0 if has_template else 0.0
@@ -178,8 +145,6 @@ class WritingStrategyResolver:
                 strategy.prompt_tier_overrides["用户写作风格"] = tier_override
 
         # 6. Agent 指令预留
-        if preset == "literary" and user_style_preset == "webnovel_fast":
-            strategy.agent_directives["hubu"] = "当前为文学模式，请勿应用网文节奏类 Skill"
         if preset == "fast":
             strategy.agent_directives["hubu"] = "极速模式，仅应用轻量级 Skill"
 

@@ -22,7 +22,8 @@ uvicorn app.main:app --reload  # starts on http://127.0.0.1:8000
 ```bash
 cd backend
 source .venv/bin/activate
-pytest                           # run all tests (~79 test files in tests/)
+pip install -r requirements-dev.txt  # pytest/pytest-cov/pytest-asyncio (kept out of the prod image)
+pytest                           # run all tests (~80 test files in tests/)
 pytest tests/test_prompt_service.py  # run specific test file
 pytest -v                        # verbose output
 pytest -k "test_name"            # run tests matching pattern
@@ -196,11 +197,11 @@ Request → TierGate(preset vs effective_tier) → ConfigResolve → ContextAsse
 ```
 
 - **Branch dispatch is by config booleans, not preset strings**: `enable_scene_by_scene` → literary, `enable_fast_path` → fast, else standard. Preset mapping: `fast`→fast branch; `standard`/`premium`→standard branch (premium enables more switches but forces `version_count=1`, so multi-version + AI selection only actually happens on `standard`).
-- **Tier gate, not quota**: `/advanced/generate`, `/stream`, and the Go task path all call `core/feature_gating.ensure_generation_preset_allowed` (fast=free, standard=creator+, premium=flagship+, 403 on violation; legacy alias names are normalized first via `normalize_preset` so they cannot bypass the gate). There is **no** daily-quota check/consume on the generation path (`check_chapter_quota`/`consume_chapter_quota` have zero callers).
+- **Tier gate, not quota**: `/advanced/generate`, `/stream`, `/advanced/batch-generate`, and the Go task path all call `core/feature_gating.ensure_generation_preset_allowed` (fast=free, standard=creator+, premium=flagship+, 403 on violation; legacy alias names are normalized first via `normalize_preset` so they cannot bypass the gate). There is **no** daily-quota check/consume on the generation path (`check_chapter_quota`/`consume_chapter_quota` have zero callers).
 - **Config resolution order** (`PipelineConfigService.resolve_config`): preset block → global settings overrides (`writer_fast_mode` forces fast; `writer_ultra_fast_mode` trims post-processing) → request `flow_config` allowlisted overrides.
 - **Output sanitization gate**: final text is validated by `is_probable_chapter_plain_text`; invalid direct generation triggers one lower-temp hard-constraint retry, then HTTP 502. Optimizer/polish results are validated the same way and fall back to the pre-step text.
 - **SSE**: `/advanced/generate/stream` wraps the same executor in a producer task + queue (own DB session); emits telemetry events + per-token text deltas (fast branch), `: ping` keepalive every 15s, terminal `completed` event carries the full response.
-- **Async path (production)**: Go Dispatcher → `POST /api/internal/tasks/execute` (`task_worker.py`, `X-Internal-Secret` callbacks) → same `HybridExecutor`. The same tier gate runs here before dispatch (a too-high preset fails the task with the 403 detail).
+- **Async path (production)**: Go Dispatcher → `POST /api/internal/tasks/execute` (`task_worker.py`, `X-Internal-Secret` callbacks) → same `HybridExecutor`. The same tier gate runs here before dispatch; a too-high preset fails the task with the 403 detail and `permanent: true`, which the Go dispatcher honors by skipping retries.
 - **Vector timing**: standard branch vectorizes immediately via async ChapterPostProcessor; fast/literary defer to `/chapters/select` or finalize. `FinalizeService` always skips vector updates (vectors are ChapterPostProcessor's job).
 - `GatekeeperReviewService` is **not** in the generation pipeline — it backs the standalone `/api/review/gatekeeper` endpoint and `MenxiaAgent`.
 
@@ -243,7 +244,7 @@ Gateway: `TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET` (accepts `GATEWAY_` prefix a
 
 ## Known Pitfalls (verified 2026-06-10)
 
-- **Preset names**: only `fast`/`standard`/`premium` are real; legacy names (`basic`/`enhanced`→standard, `ultimate`/`platinum`/`literary`→premium) are normalized at entry by `core/feature_gating.normalize_preset` — the single alias table shared by config resolution and the tier gate. Don't reintroduce a separate mapping. (A 2026-06-07 regression made the alias branch recurse infinitely and let aliases bypass the tier gate; both fixed 2026-06-10, locked by `tests/test_preset_gating.py` + `tests/test_pipeline_config_resolution.py`.)
+- **Preset names**: only `fast`/`standard`/`premium` are real; legacy names (`basic`/`enhanced`→standard, `ultimate`/`platinum`/`literary`→premium) and unknown names (→fast) are normalized at entry by `core/feature_gating.normalize_preset` — the single alias table shared by config resolution and the tier gate. Don't reintroduce a separate mapping; the Go gateway's submit default is also `fast` (`taskdispatcher/handler.go`). (A 2026-06-07 regression made the alias branch recurse infinitely and let aliases/unknown names bypass the tier gate; fixed 2026-06-10, locked by `tests/test_preset_gating.py` + `tests/test_pipeline_config_resolution.py`.) Request-side `versions` is capped at 5 in `writer_shared.resolve_version_count`.
 - **`deploy/scripts/`** are environment-specific (hardcoded server IP / repo URL), not a generic deploy flow; `run_migrations.sh` uses the legacy raw-SQL migration dir, not Alembic.
 - Multiple agent docs coexist (`AGENTS.md`, `GEMINI.md`, `replit.md`); `AGENTS.md` overlaps this file heavily — when updating architecture facts here, check whether `AGENTS.md` repeats the stale claim.
 - Celery was fully removed 2026-06-10 (router `tasks.py`, `app/tasks/`, `app/config/`, requirements, prod-compose worker blocks); if you see Celery references in older docs/reports they are historical.

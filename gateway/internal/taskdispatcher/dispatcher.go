@@ -3,6 +3,7 @@ package taskdispatcher
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -533,8 +534,12 @@ func (d *Dispatcher) handleTaskFailure(ctx context.Context, task *Task, err erro
 	task.Error = err.Error()
 	task.Metadata["duration_ms"] = fmt.Sprintf("%d", duration.Milliseconds())
 
+	// 确定性失败（如档位门控拒绝）：重试窗口内结果不会改变，直接终态
+	var permErr *PermanentTaskError
+	isPermanent := errors.As(err, &permErr)
+
 	// 检查是否可以重试
-	if task.RetryCount < task.MaxRetries {
+	if !isPermanent && task.RetryCount < task.MaxRetries {
 		task.Status = StatusRetrying
 		task.RetryCount++
 		if updateErr := d.updateTask(ctx, task); updateErr != nil {

@@ -481,15 +481,10 @@ interface AgentNode {
   logs: AgentLog[]
 }
 
-const VALID_PRESETS: WritingPreset[] = [
-  'basic',
-  'enhanced',
-  'ultimate',
-  'platinum',
-  'literary',
-  'fast',
-  'custom',
-]
+// 现行三档（与 PresetSelector 选项、后端 fast/standard/premium 对齐）；
+// 旧名（basic/enhanced/...）服务端已归一化弃用，localStorage 中的旧值经
+// isWritingPreset 校验失败后回落 'fast'
+const VALID_PRESETS: WritingPreset[] = ['fast', 'standard', 'premium']
 
 function isWritingPreset(value: string | null): value is WritingPreset {
   return value !== null && VALID_PRESETS.includes(value as WritingPreset)

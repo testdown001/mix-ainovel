@@ -144,13 +144,24 @@ PRESET_FEATURES: Dict[str, Tuple[str, str, str]] = {
 }
 
 
+_CANONICAL_PRESETS = ("fast", "standard", "premium")
+
+
 def normalize_preset(preset: Optional[str]) -> str:
-    """归一化生成预设名：空值回退 fast，旧名映射到现行三档，未知名原样返回。"""
+    """归一化生成预设名：空值回退 fast，旧名映射到现行三档。
+
+    未知名一律回退 fast：若原样放行，配置层 if/elif 链全部不命中会落入
+    未定义开关组合（enable_fast_path=False 却又无任何 preset 块约束），
+    且档位门控查不到对应能力也会直接放行——两边都成漏洞。
+    """
     name = (preset or "fast").strip().lower()
     canonical = PRESET_ALIASES.get(name)
     if canonical:
         logger.warning("已弃用的 preset '%s'，自动映射到 '%s'", name, canonical)
         return canonical
+    if name not in _CANONICAL_PRESETS:
+        logger.warning("未知 preset '%s'，回退 fast", name)
+        return "fast"
     return name
 
 

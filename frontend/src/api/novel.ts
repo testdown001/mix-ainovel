@@ -320,7 +320,7 @@ export interface AdvancedGenerateFlowConfig {
     capability_name?: string
     params?: Record<string, unknown>
   }>
-  preset?: 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'fast' | 'custom'
+  preset?: 'fast' | 'standard' | 'premium' | 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'custom'
   versions?: number
   enable_preview?: boolean
   enable_optimizer?: boolean

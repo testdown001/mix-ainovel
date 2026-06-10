@@ -86,6 +86,20 @@ def test_omitted_preset_defaults_to_fast():
     assert config.enable_fast_path is True
 
 
+def test_unknown_preset_falls_back_to_fast():
+    # 未知名不得落入"无 preset 块约束"的未定义开关组合
+    config = asyncio.run(_resolve({"preset": "xpremium"}))
+    assert config.preset == "fast"
+    assert config.enable_fast_path is True
+    assert config.version_count == 1
+
+
+def test_requested_versions_capped():
+    # versions 直接放大 LLM 成本，请求侧上限 5（standard 不强制单版本，适合验证）
+    config = asyncio.run(_resolve({"preset": "standard", "versions": 50}))
+    assert config.version_count == 5
+
+
 def test_flow_config_override_wins_over_preset():
     # fast preset 默认 enable_polish=False / enable_fast_path=True，
     # flow_config 显式覆写应生效（覆写顺序最后一层）。
