@@ -103,19 +103,61 @@ class LLMService:
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> str:
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
-        return await self._stream_and_collect(
-            messages,
-            temperature=temperature,
-            user_id=user_id,
-            timeout=timeout,
-            response_format=response_format,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            max_retries=max_retries,
-            thinking_budget=thinking_budget,
-            disable_thinking=disable_thinking,
-            on_chunk=on_chunk,
-        )
+
+        # 兜底通道仅在尚未向调用方流出任何增量时才能重试，否则会产生重复输出
+        emitted_any_chunk = False
+        wrapped_on_chunk = on_chunk
+        if on_chunk is not None:
+            def _marking_on_chunk(chunk: str):
+                nonlocal emitted_any_chunk
+                emitted_any_chunk = True
+                return on_chunk(chunk)
+
+            wrapped_on_chunk = _marking_on_chunk
+
+        try:
+            return await self._stream_and_collect(
+                messages,
+                temperature=temperature,
+                user_id=user_id,
+                timeout=timeout,
+                response_format=response_format,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                max_retries=max_retries,
+                thinking_budget=thinking_budget,
+                disable_thinking=disable_thinking,
+                on_chunk=wrapped_on_chunk,
+            )
+        except Exception as exc:
+            # 429 = 用户每日请求上限（配额问题而非通道故障），不兜底
+            if isinstance(exc, HTTPException) and exc.status_code == 429:
+                raise
+            if emitted_any_chunk:
+                raise
+            fallback_config = await self._resolve_fallback_llm_config()
+            if not fallback_config:
+                raise
+            logger.warning(
+                "默认 LLM 通道失败，启用兜底通道重试: error=%s fallback_model=%s",
+                str(exc)[:200],
+                fallback_config.get("model"),
+            )
+            return await self._stream_and_collect(
+                messages,
+                temperature=temperature,
+                user_id=user_id,
+                timeout=timeout,
+                config_override=fallback_config,
+                response_format=response_format,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                max_retries=max_retries,
+                thinking_budget=thinking_budget,
+                disable_thinking=disable_thinking,
+                on_chunk=wrapped_on_chunk,
+                api_type="fallback",
+            )
 
     async def generate(
         self,
@@ -1228,6 +1270,36 @@ class LLMService:
 
                 return {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format, "reasoning_effort": opt_reasoning}
 
+    async def _resolve_fallback_llm_config(self) -> Optional[Dict[str, Optional[str]]]:
+        """解析兜底 LLM 通道（llm_fallback.*）。
+
+        未配置 api_key 时返回 None（视为未启用兜底）；base_url/model 缺省时
+        回退默认 llm.*（典型场景：同模型换备用 key/服务商）。
+        仅 get_llm_response 在默认通道彻底失败时使用，不参与 polish/search/grader。
+        """
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                fb_api_key = await self._get_config_value_for_session(session, "llm_fallback.api_key")
+                if not fb_api_key:
+                    return None
+                fb_base_url = self._normalize_base_url(
+                    await self._get_config_value_for_session(session, "llm_fallback.base_url")
+                    or await self._get_config_value_for_session(session, "llm.base_url")
+                )
+                fb_model = (
+                    await self._get_config_value_for_session(session, "llm_fallback.model")
+                    or await self._get_config_value_for_session(session, "llm.model")
+                )
+                fb_api_format = await self._get_config_value_for_session(session, "llm_fallback.api_format")
+                fb_reasoning = await self._get_config_value_for_session(session, "llm_fallback.reasoning_effort")
+                return {
+                    "api_key": fb_api_key,
+                    "base_url": fb_base_url,
+                    "model": fb_model,
+                    "api_format": fb_api_format,
+                    "reasoning_effort": fb_reasoning,
+                }
+
     async def _resolve_grader_llm_config(self) -> Optional[Dict[str, Optional[str]]]:
         """解析证据评分专用 LLM 配置（轻量级小模型）。未配置时返回 None（静默跳过）。"""
         async with self._db_access_lock:
@@ -1400,6 +1472,12 @@ class LLMService:
                 base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
                 model = model or await self._get_config_value("llm.model")
                 api_format = api_format or await self._get_config_value("llm.api_format")
+
+            # 兜底通道：api_key 必须独立配置（否则视为未启用），
+            # base_url/model 缺省回退 llm.*（与 _resolve_fallback_llm_config 一致）
+            if channel_type == "fallback" and api_key:
+                base_url = base_url or self._normalize_base_url(await self._get_config_value("llm.base_url"))
+                model = model or await self._get_config_value("llm.model")
 
             if not api_key:
                 return {"ok": False, "model": model or "", "latency_ms": 0, "detail": "未配置 API Key"}

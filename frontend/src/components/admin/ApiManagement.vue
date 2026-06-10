@@ -310,7 +310,7 @@ const testing = reactive<Record<ChannelType, boolean>>({
 
 const CONFIG_MAP = {
   default:  { prefix: 'llm',           label: '默认 LLM 配置' },
-  fallback: { prefix: 'llm_fallback',  label: '兜底 API 配置' },
+  fallback: { prefix: 'llm_fallback',  label: '兜底 API 配置（默认通道失败时自动重试一次）' },
   polish:   { prefix: 'llm_optimize',  label: '润色优化模型配置' },
   search:   { prefix: 'llm_search',    label: '参考小说搜索模型配置' },
 } as const
