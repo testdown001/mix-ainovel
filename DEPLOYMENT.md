@@ -22,7 +22,7 @@
 | Python | 3.11+ | 后端运行时 |
 | Node.js | ^20.19.0 或 >=22.12.0 | 前端构建 |
 | MySQL | 8.0+ | 主数据库 |
-| Redis | 7.0+ | 缓存 / 消息队列 / Celery Broker |
+| Redis | 7.0+ | 缓存 / 验证码 / 任务进度推送（Pub/Sub） |
 | Go | 1.22+ | Go Gateway 编译（可选） |
 | Docker | 20.10+ | 容器化部署 |
 | Docker Compose | v2+ | 编排服务 |
@@ -203,7 +203,7 @@ Gateway 默认在 `:3000`。前端会自动检测 Gateway 是否可用，不可�
 
 ### 5. 快捷脚本（tmux）
 
-后端提供了开发环境一键启动脚本，会自动启动 FastAPI + Celery Worker + Flower：
+后端提供了开发环境一键启动脚本，会自动启动本地 Redis 容器 + FastAPI：
 
 ```bash
 cd backend
@@ -217,10 +217,8 @@ bash stop-dev.sh
 
 启动后的 tmux 窗口：
 - 窗口 0：FastAPI（`http://localhost:8000`）
-- 窗口 1：Celery Worker（4 并发）
-- 窗口 2：Flower 监控（`http://localhost:5555`）
 
-管理命令：`tmux attach -t arboris`，`Ctrl+B` + 数字键切换窗口。
+管理命令：`tmux attach -t arboris`。
 
 ---
 
@@ -259,12 +257,8 @@ docker compose -f docker-compose.prod.yml up -d
 | nginx | 1 | 80, 443 | 负载均衡入口 |
 | gateway | 2 | 3000 | Go API Gateway（JWT/限流/WebSocket） |
 | app | 3 | 8000 | FastAPI 业务实例 |
-| celery-worker-chapter | 3 | - | Celery 章节生成 Worker（4 并发/实例） |
-| celery-worker-batch | 2 | - | Celery 批量生成 Worker（2 并发/实例） |
-| celery-beat | 1 | - | 定时任务调度器 |
-| flower | 1 | 5555 | Celery 监控面板 |
 | mysql | 1 | 3306 | MySQL 8.0 数据库 |
-| redis | 1 | 6379 | Redis 7 缓存/消息队列 |
+| redis | 1 | 6379 | Redis 7 缓存/进度推送 |
 | qdrant | 1 | 6333 | 向量数据库（Mem0 长期记忆） |
 
 ### 4. Nginx 路由规则
@@ -275,7 +269,6 @@ docker compose -f docker-compose.prod.yml up -d
 |------|------|------|
 | `/ws` | Go Gateway | WebSocket 连接 |
 | `/tasks/` | Go Gateway | 异步任务 API |
-| `/llm/` | Go Gateway | LLM Gateway |
 | `/metrics` | Go Gateway | Prometheus 指标 |
 | `/api/` | Go Gateway | 业务 API（经 JWT 认证 + 限流） |
 | `/health` | Go Gateway | 健康检查 |
@@ -291,8 +284,8 @@ docker compose -f docker-compose.prod.yml up -d
 # 增加 FastAPI 实例到 5 个
 docker compose -f docker-compose.prod.yml up -d --scale app=5
 
-# 增加 Celery Worker
-docker compose -f docker-compose.prod.yml up -d --scale celery-worker-chapter=5
+# 增加 Go Gateway 实例
+docker compose -f docker-compose.prod.yml up -d --scale gateway=3
 ```
 
 ---
@@ -446,7 +439,6 @@ mysql -u arboris -p arboris < backup_20260313.sql
 | `GET /api/health` | 应用健康检查 |
 | `GET /health` | Gateway 健康检查 |
 | `GET /metrics` | Prometheus 指标（需 Gateway） |
-| `http://localhost:5555` | Flower Celery 监控面板 |
 
 ### 查看日志
 
@@ -454,7 +446,6 @@ mysql -u arboris -p arboris < backup_20260313.sql
 # Docker 部署
 docker compose logs -f app           # 后端日志
 docker compose logs -f gateway        # Gateway 日志
-docker compose logs -f celery-worker-chapter  # Worker 日志
 
 # 本地开发
 tail -f backend/logs/app.log
