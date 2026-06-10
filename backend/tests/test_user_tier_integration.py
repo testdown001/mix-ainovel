@@ -26,16 +26,20 @@ async def test_current_user_includes_tier_info(db_session: AsyncSession):
     await db_session.commit()
     await db_session.refresh(user)
 
-    # 创建 quota（创作者档位）
+    # 创建 quota（创作者档位，订阅有效——effective_tier 仅在 Premium 生效时返回 plan_tier）
+    from datetime import datetime, timedelta
+
     quota = UserQuota(
         user_id=user.id,
         plan_tier="creator",
+        is_premium=True,
+        premium_expires_at=datetime.utcnow() + timedelta(days=30),
     )
     db_session.add(quota)
     await db_session.commit()
 
     # 生成 token
-    token = create_access_token(data={"sub": str(user.id)})
+    token = create_access_token(str(user.id))
 
     # 调用 get_current_user
     result = await get_current_user(token=token, session=db_session)
@@ -64,7 +68,7 @@ async def test_current_user_free_tier_when_no_quota(db_session: AsyncSession):
     await db_session.refresh(user)
 
     # 生成 token
-    token = create_access_token(data={"sub": str(user.id)})
+    token = create_access_token(str(user.id))
 
     # 调用 get_current_user
     result = await get_current_user(token=token, session=db_session)
@@ -100,7 +104,7 @@ async def test_current_user_effective_tier_fallback(db_session: AsyncSession):
     await db_session.commit()
 
     # 生成 token
-    token = create_access_token(data={"sub": str(user.id)})
+    token = create_access_token(str(user.id))
 
     # 调用 get_current_user
     result = await get_current_user(token=token, session=db_session)

@@ -333,6 +333,18 @@ def test_advanced_generate_stream_uses_internal_session_scope(monkeypatch):
     monkeypatch.setattr(writer, "AsyncSessionLocal", lambda: _SessionContext())
     monkeypatch.setattr(hybrid_executor_module, "HybridExecutor", _FakeHybridExecutor)
 
+    # 端点入口的会员档位门控：打桩 QuotaService（端点内局部 import 自该模块）
+    import app.services.quota_service as quota_service_module
+
+    class _FakeQuotaService:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_or_create_quota(self, user_id):
+            return SimpleNamespace(effective_tier="flagship")
+
+    monkeypatch.setattr(quota_service_module, "QuotaService", _FakeQuotaService)
+
     response = asyncio.run(
         writer.advanced_generate_chapter_stream(
             SimpleNamespace(
@@ -341,7 +353,8 @@ def test_advanced_generate_stream_uses_internal_session_scope(monkeypatch):
                 writing_notes="补充说明",
                 flow_config=_FlowConfig(),
             ),
-            SimpleNamespace(id=7),
+            session=SimpleNamespace(),
+            current_user=SimpleNamespace(id=7),
         )
     )
     payload = asyncio.run(_collect_stream(response))
