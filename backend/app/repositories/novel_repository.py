@@ -29,6 +29,13 @@ class NovelRepository(BaseRepository[NovelProject]):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
+    async def get_owner_id(self, project_id: str) -> Optional[int]:
+        """只取 user_id 一列用于归属校验，避免为鉴权而全量 eager-load 整本小说。"""
+        result = await self.session.execute(
+            select(NovelProject.user_id).where(NovelProject.id == project_id)
+        )
+        return result.scalar_one_or_none()
+
     async def list_by_user(self, user_id: int) -> Iterable[NovelProject]:
         result = await self.session.execute(
             select(NovelProject)

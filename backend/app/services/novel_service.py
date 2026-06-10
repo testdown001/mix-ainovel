@@ -222,6 +222,18 @@ class NovelService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该项目")
         return project
 
+    async def assert_project_owner(self, project_id: str, user_id: int) -> None:
+        """轻量归属校验：只查 user_id 一列，不全量加载整本小说。
+
+        用于只需鉴权、不需要项目完整数据的调用点（如世界观子资源增删改）；
+        需要完整 NovelProject 的调用方仍用 ensure_project_owner。
+        """
+        owner_id = await self.repo.get_owner_id(project_id)
+        if owner_id is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
+        if owner_id != user_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该项目")
+
     async def get_project_schema(self, project_id: str, user_id: int) -> NovelProjectSchema:
         project = await self.ensure_project_owner(project_id, user_id)
         return await self._serialize_project(project)

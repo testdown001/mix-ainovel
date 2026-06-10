@@ -10,9 +10,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db.session import AsyncSessionLocal
+from ...core.dependencies import get_current_user
+from ...db.session import get_session
+from ...schemas.user import UserInDB
 from ...services.llm_service import LLMService
+from ...services.novel_service import NovelService
 from ...services.skill_service import SkillService, SkillInfo
 from ...skills.skill_base import SkillContext
 
@@ -140,10 +144,15 @@ async def get_skill(
 async def execute_skill(
     skill_id: str,
     request: SkillExecuteRequest,
-    skill_service: SkillService = Depends(get_skill_service)
+    skill_service: SkillService = Depends(get_skill_service),
+    db: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
 ):
     """执行技能。"""
-    # 构建上下文
+    # 归属校验：禁止匿名/越权触发技能执行（否则任意人可反复调用消耗 LLM 费用）
+    await NovelService(db).assert_project_owner(request.project_id, current_user.id)
+
+    # 构建上下文：user_id 一律以登录身份为准，忽略请求体自带值
     context = SkillContext(
         project_id=request.project_id,
         chapter_number=request.chapter_number,
@@ -154,7 +163,7 @@ async def execute_skill(
         previous_summary=request.previous_summary or "",
         outline=request.outline,
         user_params=request.params,
-        metadata={"user_id": request.user_id}
+        metadata={"user_id": current_user.id}
     )
 
     # 执行技能
