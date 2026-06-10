@@ -242,7 +242,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { paymentApi, type Subscription as SubType } from '@/api/payment'
+import { paymentApi, type Plan, type Subscription as SubType } from '@/api/payment'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -282,10 +282,10 @@ const upgradeOutcomes = [
   { title: '减少返工', desc: '多版本、评审和关键章节精修，让你在定稿前看到风险和替代方案。' },
 ]
 
-const plans = [
+const PLAN_PRESENTATION = [
   {
     id: 'free',
-    dbId: 0,
+    tier: 'free',
     name: '免费版',
     price: 0,
     desc: '体验完整主线',
@@ -304,7 +304,7 @@ const plans = [
   },
   {
     id: 'creator',
-    dbId: 2,
+    tier: 'creator',
     name: '创作者版',
     price: 29,
     desc: '稳定连载的首选',
@@ -323,7 +323,7 @@ const plans = [
   },
   {
     id: 'pro',
-    dbId: 3,
+    tier: 'flagship',
     name: '旗舰版',
     price: 69,
     desc: '精品章节与重度创作',
@@ -342,6 +342,34 @@ const plans = [
   },
 ]
 
+type DisplayPlan = (typeof PLAN_PRESENTATION)[number] & {
+  dbId: number | null
+  available: boolean
+}
+
+const backendPlans = ref<Plan[]>([])
+const plansLoadError = ref(false)
+
+// 用后端真实 plans 覆盖展示模板的 id 与价格，消除硬编码 dbId 下错套餐 / 404 的风险
+const plans = computed<DisplayPlan[]>(() =>
+  PLAN_PRESENTATION.map((pres) => {
+    if (pres.tier === 'free') {
+      return { ...pres, dbId: null, available: true }
+    }
+    const cands = backendPlans.value.filter((p) => p.tier === pres.tier && p.is_active)
+    const matched =
+      cands.find((p) => p.period === 'monthly') ||
+      cands.find((p) => p.period === 'forever') ||
+      cands[0]
+    return {
+      ...pres,
+      dbId: matched ? matched.id : null,
+      price: matched ? matched.price : pres.price,
+      available: !!matched,
+    }
+  })
+)
+
 const comparisonRows: { label: string; vals: (string | boolean)[] }[] = [
   { label: '小说项目数量', vals: ['1 个', '无限', '无限'] },
   { label: '章节生成额度', vals: ['20次/月', '200次/月', '无限次'] },
@@ -352,31 +380,31 @@ const comparisonRows: { label: string; vals: (string | boolean)[] }[] = [
   { label: '自定义 LLM 接入', vals: [false, false, true] },
 ]
 
-const displayPrice = (plan: typeof plans[0]) => {
+const displayPrice = (plan: DisplayPlan) => {
   if (plan.price === 0) return '¥0'
   return annual.value ? `¥${Math.round(plan.price * 0.8)}` : `¥${plan.price}`
 }
 
-const getPlanCardStyle = (plan: typeof plans[0]) => {
+const getPlanCardStyle = (plan: DisplayPlan) => {
   if (plan.id === 'creator') return 'background:linear-gradient(160deg,#1C1A00 0%,#141414 60%);border:1px solid #FFE500;box-shadow:0 0 30px rgba(255,229,0,0.1);'
   if (plan.id === 'pro') return 'background:linear-gradient(160deg,#1A0E2E 0%,#141414 60%);border:1px solid #3D2A5E;'
   return 'background:#141414;border:1px solid #2A2A2A;'
 }
 
 // 本地套餐 id → 后端订阅档位（订阅由配额推导，仅有 plan_tier，无具体 plan_id）
-const planTier = (plan: typeof plans[0]): string =>
+const planTier = (plan: DisplayPlan): string =>
   plan.id === 'pro' ? 'flagship' : plan.id === 'creator' ? 'creator' : 'free'
-const isCurrentPremiumPlan = (plan: typeof plans[0]): boolean =>
+const isCurrentPremiumPlan = (plan: DisplayPlan): boolean =>
   currentPlan.value === 'premium' && subscription.value?.plan_tier === planTier(plan)
 
-const getCtaLabel = (plan: typeof plans[0]) => {
+const getCtaLabel = (plan: DisplayPlan) => {
   if (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) return '当前套餐'
   if (plan.id === 'free') return '降级'
   if (isCurrentPremiumPlan(plan)) return '当前套餐'
   return '立即订阅'
 }
 
-const getCtaStyle = (plan: typeof plans[0]) => {
+const getCtaStyle = (plan: DisplayPlan) => {
   const isCurrent = (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) ||
     (isCurrentPremiumPlan(plan))
   if (isCurrent) return 'background:transparent;border:1px solid #2A2A2A;color:#888888;cursor:default;'
@@ -392,7 +420,7 @@ const closeDialog = () => {
   checkoutUrl.value = ''
 }
 
-const handleUpgrade = async (plan: typeof plans[0]) => {
+const handleUpgrade = async (plan: DisplayPlan) => {
   if (plan.id === 'free') return
   if (isCurrentPremiumPlan(plan)) return
 
@@ -404,7 +432,11 @@ const handleUpgrade = async (plan: typeof plans[0]) => {
   try {
     // 后端支持渠道: stripe / alipay / wechat。此处默认走 Stripe（用户指定）。
     // 如需让用户选择渠道，可在升级弹窗加渠道选择器并把 selectedChannel 传入。
-    const result = await paymentApi.createOrder(plan.dbId, selectedChannel.value)
+    if (plan.dbId == null) {
+      throw new Error('套餐信息加载失败，请刷新页面后重试')
+    }
+    const planId: number = plan.dbId
+    const result = await paymentApi.createOrder(planId, selectedChannel.value)
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
       window.open(result.pay_url, '_blank')
