@@ -129,3 +129,60 @@ def test_progress_reporter_sends_internal_secret(monkeypatch):
         "message": "正在生成章节...",
     }
     assert captured["closed"] is True
+
+
+def test_execute_task_rejects_preset_above_tier(monkeypatch):
+    # 异步入口与 /advanced/generate 同一套档位门控：free 用户提交 premium 任务必须被拒
+    monkeypatch.setattr(task_worker, "AsyncSessionLocal", lambda: _SessionContext(SimpleNamespace()))
+    monkeypatch.setattr(task_worker, "get_user_tier", AsyncMock(return_value="free"))
+
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-gate",
+        task_type="chapter:generate",
+        project_id="project-1",
+        chapter_number=1,
+        user_id=12,
+        config=task_worker.TaskConfig(preset="premium"),
+    )
+    resp = asyncio.run(task_worker.execute_task(req))
+    assert resp.status == "failed"
+    assert "旗舰" in (resp.error or "")
+
+
+def test_execute_task_gate_normalizes_alias(monkeypatch):
+    # 旧名 platinum → premium，同样不能绕过门控
+    monkeypatch.setattr(task_worker, "AsyncSessionLocal", lambda: _SessionContext(SimpleNamespace()))
+    monkeypatch.setattr(task_worker, "get_user_tier", AsyncMock(return_value="creator"))
+
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-gate-alias",
+        task_type="chapter:generate",
+        project_id="project-1",
+        chapter_number=1,
+        user_id=12,
+        config=task_worker.TaskConfig(preset="platinum"),
+    )
+    resp = asyncio.run(task_worker.execute_task(req))
+    assert resp.status == "failed"
+    assert "旗舰" in (resp.error or "")
+
+
+def test_execute_task_gate_allows_free_fast(monkeypatch):
+    monkeypatch.setattr(task_worker, "AsyncSessionLocal", lambda: _SessionContext(SimpleNamespace()))
+    monkeypatch.setattr(task_worker, "get_user_tier", AsyncMock(return_value="free"))
+    monkeypatch.setattr(
+        task_worker,
+        "_execute_chapter_generate",
+        AsyncMock(return_value={"status": "completed"}),
+    )
+
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-gate-ok",
+        task_type="chapter:generate",
+        project_id="project-1",
+        chapter_number=1,
+        user_id=12,
+        config=task_worker.TaskConfig(preset="fast"),
+    )
+    resp = asyncio.run(task_worker.execute_task(req))
+    assert resp.status == "completed"

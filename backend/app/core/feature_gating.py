@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -121,3 +123,56 @@ async def get_user_tier(session, user_id: int) -> str:
 
     quota = await QuotaService(session).get_or_create_quota(user_id)
     return quota.effective_tier
+
+
+# ── 章节生成预设门控（writer.py 同步入口与 task_worker.py 异步入口共用）──
+
+# 旧 preset 名称 → 现行三档（fast/standard/premium）的归一化映射。
+# 配置解析与档位门控必须使用同一张表：归一化发生在两者入口，
+# 否则旧名既可能绕过门控、又会在配置层产生未定义行为。
+PRESET_ALIASES: Dict[str, str] = {
+    "basic": "standard",
+    "enhanced": "standard",
+    "ultimate": "premium",
+    "platinum": "premium",
+    "literary": "premium",
+}
+
+PRESET_FEATURES: Dict[str, Tuple[str, str, str]] = {
+    "standard": ("preset_standard", "标准生成模式", "creator"),
+    "premium": ("preset_premium", "精品生成模式", "flagship"),
+}
+
+
+def normalize_preset(preset: Optional[str]) -> str:
+    """归一化生成预设名：空值回退 fast，旧名映射到现行三档，未知名原样返回。"""
+    name = (preset or "fast").strip().lower()
+    canonical = PRESET_ALIASES.get(name)
+    if canonical:
+        logger.warning("已弃用的 preset '%s'，自动映射到 '%s'", name, canonical)
+        return canonical
+    return name
+
+
+async def ensure_generation_preset_allowed(
+    session,
+    preset: str,
+    effective_tier: str,
+) -> None:
+    """章节生成预设档位门控：不够档抛 403。先归一化别名再判定。"""
+    feature_info = PRESET_FEATURES.get(normalize_preset(preset))
+    if not feature_info:
+        return
+
+    feature_key, preset_label, default_required_tier = feature_info
+    min_tiers = await load_min_tiers(session)
+    required_tier = min_tiers.get(feature_key, default_required_tier)
+    if tier_allows(effective_tier, feature_key, min_tiers):
+        return
+
+    required_label = TIER_LABELS.get(required_tier, required_tier)
+    current_label = TIER_LABELS.get(effective_tier, effective_tier or "free")
+    raise HTTPException(
+        status_code=403,
+        detail=f"{preset_label}需要{required_label}（当前：{current_label}）",
+    )

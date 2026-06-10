@@ -209,7 +209,7 @@ class GenerateChapterRequest(BaseModel):
 
 
 class FlowConfig(BaseModel):
-    preset: str = Field(default="basic", description="basic|enhanced|ultimate|platinum|literary|fast|custom")
+    preset: str = Field(default="fast", description="fast|standard|premium（旧名 basic/enhanced/ultimate/platinum/literary 自动映射到现行三档）")
     versions: Optional[int] = Field(default=None, description="生成版本数量")
     enable_preview: Optional[bool] = Field(default=None, description="是否启用预演生成")
     enable_optimizer: Optional[bool] = Field(default=None, description="是否启用优化器")
@@ -246,7 +246,7 @@ class AsyncGenerateChapterRequest(BaseModel):
     """异步章节生成请求"""
     project_id: str
     chapter_number: int
-    preset: str = "basic"
+    preset: str = "fast"
     use_agent_system: bool = False
     rag_mode: str = "simple"
 

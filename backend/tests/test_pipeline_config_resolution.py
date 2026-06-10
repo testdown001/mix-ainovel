@@ -43,8 +43,10 @@ def test_fast_preset_disables_heavy_postprocessing():
     assert config.rag_mode == "simple"
 
 
-def test_enhanced_preset_enables_worldbuilding_features():
+def test_enhanced_alias_maps_to_standard_with_worldbuilding():
+    # 旧名 enhanced → standard（入口归一化，不再递归）
     config = asyncio.run(_resolve({"preset": "enhanced"}))
+    assert config.preset == "standard"
     assert config.enable_constitution is True
     assert config.enable_persona is True
     assert config.enable_foreshadowing is True
@@ -53,13 +55,35 @@ def test_enhanced_preset_enables_worldbuilding_features():
     assert config.enable_six_dimension is True
 
 
-def test_literary_preset_enables_prose_pipeline():
+def test_literary_alias_maps_to_premium():
+    # 旧名 literary → premium（2026-06 三档收敛后的官方映射）；
+    # 场景化分步分支不再随任何 preset 默认开启，只能 flow_config 显式覆写。
     config = asyncio.run(_resolve({"preset": "literary"}))
+    assert config.preset == "premium"
     assert config.version_count == 1
-    assert config.enable_scene_by_scene is True
-    assert config.enable_prose_sculpting is True
-    assert config.use_slim_prompt is True
     assert config.enable_memory is True
+    assert config.enable_self_critique is True
+    assert config.enable_reader_sim is True
+    assert config.enable_scene_by_scene is False
+
+
+def test_legacy_alias_matrix_resolves_without_recursion():
+    expected = {
+        "basic": "standard",
+        "enhanced": "standard",
+        "ultimate": "premium",
+        "platinum": "premium",
+        "literary": "premium",
+    }
+    for alias, canonical in expected.items():
+        config = asyncio.run(_resolve({"preset": alias}))
+        assert config.preset == canonical, f"alias={alias}"
+
+
+def test_omitted_preset_defaults_to_fast():
+    config = asyncio.run(_resolve({}))
+    assert config.preset == "fast"
+    assert config.enable_fast_path is True
 
 
 def test_flow_config_override_wins_over_preset():

@@ -29,7 +29,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from ...core.config import settings
 from ...core.dependencies import get_current_user
-from ...core.feature_gating import TIER_LABELS, load_min_tiers, tier_allows
+from ...core.feature_gating import ensure_generation_preset_allowed
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
 from ...models.writing_archive import WritingArchive
@@ -270,37 +270,8 @@ async def _set_chapter_failed_status(
         await session.commit()
 
 
-_PRESET_FEATURES = {
-    "standard": ("preset_standard", "标准生成模式", "creator"),
-    "premium": ("preset_premium", "精品生成模式", "flagship"),
-}
-
-
-async def _ensure_generation_preset_allowed(
-    session: AsyncSession,
-    preset: str,
-    effective_tier: str,
-) -> None:
-    feature_info = _PRESET_FEATURES.get(preset)
-    if not feature_info:
-        return
-
-    feature_key, preset_label, default_required_tier = feature_info
-    min_tiers = await load_min_tiers(session)
-    required_tier = min_tiers.get(feature_key, default_required_tier)
-    if tier_allows(effective_tier, feature_key, min_tiers):
-        return
-
-    required_label = TIER_LABELS.get(required_tier, required_tier)
-    current_label = TIER_LABELS.get(effective_tier, effective_tier or "free")
-    raise HTTPException(
-        status_code=403,
-        detail=f"{preset_label}需要{required_label}（当前：{current_label}）",
-    )
-
-
-# 已移除腐坏的 Celery 异步端点 /async/generate（chapter_tasks.generate_chapter_task
-# 与 PipelineOrchestrator.generate_chapter 签名双重不匹配，命中即入队崩溃）。
+# 档位门控（含 preset 别名归一化）统一在 core/feature_gating.ensure_generation_preset_allowed，
+# 与 task_worker.py 异步入口共用，避免两处漂移。
 # 生产异步生成由 Go Gateway → /api/internal/tasks/execute (task_worker.py) 承担。
 
 
@@ -329,7 +300,7 @@ async def advanced_generate_chapter(
 
     preset = request.flow_config.preset or "fast"
 
-    await _ensure_generation_preset_allowed(session, preset, effective_tier)
+    await ensure_generation_preset_allowed(session, preset, effective_tier)
 
     executor = HybridExecutor(session, user_id=current_user.id)
 
@@ -441,7 +412,7 @@ async def advanced_generate_chapter_stream(
 
     preset = request.flow_config.preset or "fast"
 
-    await _ensure_generation_preset_allowed(session, preset, effective_tier)
+    await ensure_generation_preset_allowed(session, preset, effective_tier)
 
     use_agent = request.flow_config.use_agent or False
 

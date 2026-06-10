@@ -14,11 +14,12 @@ import traceback
 from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ...agents.hybrid_executor import HybridExecutor
 from ...core.config import settings
+from ...core.feature_gating import ensure_generation_preset_allowed, get_user_tier
 from ...db.session import AsyncSessionLocal
 from ...services.novel_service import NovelService
 
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/api/internal/tasks", tags=["internal"])
 # ============================================================
 
 class TaskConfig(BaseModel):
-    preset: str = "basic"
+    preset: str = "fast"
     use_agent_system: bool = False
     rag_mode: str = "simple"
     writing_notes: str = ""
@@ -118,6 +119,16 @@ async def execute_task(req: WorkerTaskRequest):
             f"收到任务: task_id={req.task_id}, type={req.task_type}, "
             f"project={req.project_id}, chapter={req.chapter_number}"
         )
+
+        # 会员档位门控：异步入口与 /advanced/generate 同一套判定，
+        # 否则经 Go 网关提交任务即可绕过预设档位限制
+        if req.task_type in ("chapter:generate", "chapter:batch_generate"):
+            async with AsyncSessionLocal() as gate_session:
+                tier = await get_user_tier(gate_session, req.user_id)
+                try:
+                    await ensure_generation_preset_allowed(gate_session, req.config.preset, tier)
+                except HTTPException as exc:
+                    return WorkerTaskResponse(status="failed", error=str(exc.detail))
 
         if req.task_type == "chapter:generate":
             result = await _execute_chapter_generate(req, reporter)

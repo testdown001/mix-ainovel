@@ -48,7 +48,7 @@ TOOL_MANIFEST = [
                 "project_id": {"type": "string", "description": "Novel project ID."},
                 "chapter_number": {"type": "integer", "description": "Chapter number to generate."},
                 "writing_notes": {"type": "string", "description": "Optional writing instructions."},
-                "preset": {"type": "string", "enum": ["basic", "enhanced", "ultimate", "fast"], "description": "Generation preset."},
+                "preset": {"type": "string", "enum": ["fast", "standard", "premium"], "description": "Generation preset."},
             },
             "required": ["project_id", "chapter_number"],
         },

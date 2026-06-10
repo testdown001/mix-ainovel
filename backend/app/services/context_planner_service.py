@@ -318,7 +318,7 @@ class ContextPlannerService:
         metadata = {
             "plan_version": "v0.1",
             "source": "context_planner_service",
-            "preset": str(flow_config.get("preset") or "basic"),
+            "preset": str(flow_config.get("preset") or "fast"),
             "user_id": user_id,
             "phase_reason": phase_reason,
             "total_outlines": total_outlines,

@@ -36,6 +36,19 @@ DEFAULT_COMPATIBILITY: Dict[str, Dict[str, Any]] = {
         "conflict_style_weight": 0.0,
         "reference_boost": 0.0,
     },
+    # 现行三档中的 standard/premium（fast 在上方）；旧名条目保留用于 DB 自定义矩阵兼容
+    "standard": {
+        "compatible_styles": ["*"],
+        "incompatible_styles": [],
+        "on_conflict": "warn_only",
+        "reference_boost": 0.8,
+    },
+    "premium": {
+        "compatible_styles": ["*"],
+        "incompatible_styles": [],
+        "on_conflict": "warn_only",
+        "reference_boost": 1.0,
+    },
     "platinum": {
         "compatible_styles": ["*"],
         "incompatible_styles": [],
@@ -71,8 +84,11 @@ STYLE_LABELS: Dict[str, str] = {
 }
 
 PRESET_LABELS: Dict[str, str] = {
+    "fast": "快速模式",
+    "standard": "标准模式",
+    "premium": "精品模式",
+    # 旧名（入口已归一化，此处仅为日志/警告文案兜底）
     "literary": "文学模式",
-    "fast": "极速模式",
     "platinum": "铂金模式",
     "ultimate": "终极模式",
     "enhanced": "增强模式",

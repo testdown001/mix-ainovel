@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from ..core.config import settings
+from ..core.feature_gating import normalize_preset
 from ..services.writer_shared import resolve_version_count as _shared_resolve_version_count
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,9 @@ class PipelineConfigService:
           - premium (flagship+): 完整流程+自我批判+读者模拟，5-10分钟
         """
         flow_config = flow_config or {}
-        preset = flow_config.get("preset", "fast")
+        # 旧名（basic/enhanced/ultimate/platinum/literary）在入口归一化到现行三档，
+        # 与档位门控共用同一张映射表（core/feature_gating.PRESET_ALIASES）
+        preset = normalize_preset(flow_config.get("preset"))
 
         # 全局快速模式强制覆盖
         if getattr(settings, "writer_fast_mode", False):
@@ -176,18 +179,6 @@ class PipelineConfigService:
             config.rag_mode = settings.rag_default_mode
             if getattr(settings, "enable_entity_registry", True):
                 config.enable_anti_hallucination = True
-
-        # === 兼容旧 preset 名称（优雅回退）===
-        elif preset in ("basic", "enhanced", "ultimate", "platinum", "literary"):
-            logger.warning(f"已弃用的 preset '{preset}'，自动映射到新模式")
-            # basic/enhanced → standard
-            if preset in ("basic", "enhanced"):
-                config.preset = "standard"
-                return await self.resolve_config({"preset": "standard", **flow_config})
-            # ultimate/platinum/literary → premium
-            else:
-                config.preset = "premium"
-                return await self.resolve_config({"preset": "premium", **flow_config})
 
         # === Ultra Fast Mode（settings 级别覆盖）===
         if getattr(settings, "writer_ultra_fast_mode", False):

@@ -110,12 +110,23 @@ def test_fast_mode_service_first_contract():
     assert report["task_count"] >= 1
 
 
-def test_literary_mode_service_first_contract():
+def test_scene_by_scene_override_service_first_contract():
+    # 场景化分步分支已不随任何 preset 默认开启（literary 旧名映射到 premium），
+    # 本用例改用 flow_config 显式覆写进入该分支，继续锁定 planner/compiler 契约。
     config_service = PipelineConfigService(_DummySession())
     planner = ContextPlannerService()
     compiler = PromptCompilerService()
 
-    config = asyncio.run(config_service.resolve_config({"preset": "literary"}))
+    config = asyncio.run(
+        config_service.resolve_config(
+            {
+                "preset": "premium",
+                "enable_scene_by_scene": True,
+                # 旧 literary 块默认开任务书；premium 不开，这里显式覆写以维持原契约断言
+                "enable_mission_brief": True,
+            }
+        )
+    )
     plan = asyncio.run(
         planner.build_plan(
             project_id="proj-lit",
