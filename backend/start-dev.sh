@@ -5,7 +5,7 @@ set -e
 
 echo "🚀 启动 Arboris-Novel 开发环境..."
 
-# 检查 Redis 是否运行
+# 检查 Redis 是否运行（验证码、进度推送等使用；本地开发可选）
 if ! docker ps | grep -q redis; then
     echo "📦 启动 Redis..."
     docker run -d --name arboris-redis -p 6379:6379 redis:7-alpine
@@ -25,18 +25,10 @@ source .venv/bin/activate
 
 echo "✅ 虚拟环境已激活"
 
-# 检查依赖
-if ! python -c "import celery" 2>/dev/null; then
-    echo "📦 安装 Celery 依赖..."
-    pip install celery[redis]==5.4.0 flower==2.0.1
-fi
-
-echo "✅ 依赖检查完成"
-
 # 创建日志目录
 mkdir -p logs
 
-# 启动服务（使用 tmux 或 screen）
+# 启动服务（使用 tmux）
 if command -v tmux &> /dev/null; then
     echo "🎬 使用 tmux 启动服务..."
 
@@ -47,25 +39,15 @@ if command -v tmux &> /dev/null; then
     tmux rename-window -t arboris:0 'FastAPI'
     tmux send-keys -t arboris:0 'source .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000' C-m
 
-    # 窗口 1: Celery Worker
-    tmux new-window -t arboris:1 -n 'Celery-Worker'
-    tmux send-keys -t arboris:1 'source .venv/bin/activate && celery -A app.tasks.celery_app worker --loglevel=info -c 4' C-m
-
-    # 窗口 2: Flower 监控
-    tmux new-window -t arboris:2 -n 'Flower'
-    tmux send-keys -t arboris:2 'source .venv/bin/activate && celery -A app.tasks.celery_app flower --port=5555' C-m
-
     echo ""
     echo "✅ 服务已启动！"
     echo ""
     echo "📊 访问地址:"
     echo "  - FastAPI:  http://localhost:8000"
     echo "  - API 文档: http://localhost:8000/docs"
-    echo "  - Flower:   http://localhost:5555"
     echo ""
     echo "🔧 管理命令:"
-    echo "  - 查看所有窗口: tmux attach -t arboris"
-    echo "  - 切换窗口: Ctrl+B 然后按数字键 (0/1/2)"
+    echo "  - 查看窗口: tmux attach -t arboris"
     echo "  - 停止所有服务: tmux kill-session -t arboris"
     echo ""
 
@@ -75,15 +57,7 @@ if command -v tmux &> /dev/null; then
 else
     echo "⚠️  未安装 tmux，手动启动服务..."
     echo ""
-    echo "请在 3 个终端中分别运行:"
-    echo ""
-    echo "终端 1 (FastAPI):"
+    echo "请运行:"
     echo "  source .venv/bin/activate && uvicorn app.main:app --reload"
-    echo ""
-    echo "终端 2 (Celery Worker):"
-    echo "  source .venv/bin/activate && celery -A app.tasks.celery_app worker --loglevel=info -c 4"
-    echo ""
-    echo "终端 3 (Flower):"
-    echo "  source .venv/bin/activate && celery -A app.tasks.celery_app flower --port=5555"
     echo ""
 fi

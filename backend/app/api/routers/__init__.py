@@ -24,7 +24,6 @@ from .writing_template import router as writing_template_router
 from .writer_progress import router as writer_progress_router
 from .skill import router as skill_router
 from .task_worker import router as task_worker_router
-from .tasks import router as tasks_router
 from .quota import router as quota_router
 from .plans import router as plans_router
 from .api_usage import router as api_usage_router
@@ -35,9 +34,6 @@ api_router = APIRouter()
 
 # 认证 - auth.py 已经定义了 prefix="/api/auth"
 api_router.include_router(auth_router, tags=["Auth"])
-
-# 任务管理 - tasks.py 已经定义了 prefix="/api/tasks"
-api_router.include_router(tasks_router, tags=["Tasks"])
 
 # 配额管理 - quota.py 已经定义了 prefix="/api/quota"
 api_router.include_router(quota_router, tags=["Quota"])

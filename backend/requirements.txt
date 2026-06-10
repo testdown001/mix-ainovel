@@ -24,5 +24,3 @@ langchain-text-splitters==0.3.11
 greenlet==3.2.4
 json-repair>=0.30.0
 cachetools>=5.3.0
-celery[redis]==5.4.0
-flower==2.0.1
