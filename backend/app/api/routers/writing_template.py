@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.dependencies import get_current_user
+from ...core.dependencies import get_current_admin, get_current_user
 from ...db.session import get_session
 from ...schemas.user import UserInDB
 from ...services.writing_template_service import WritingTemplateService
@@ -115,9 +115,10 @@ async def get_template(
 @router.post("")
 async def create_template(
     template: TemplateCreate,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _admin: UserInDB = Depends(get_current_admin),
 ) -> TemplateResponse:
-    """创建新的写作模板"""
+    """创建新的写作模板（模板为全站共享资源，仅管理员可写）"""
     service = WritingTemplateService(session)
     new_template = await service.create_template(
         name=template.name,
@@ -134,9 +135,10 @@ async def create_template(
 async def update_template(
     template_id: int,
     template: TemplateUpdate,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _admin: UserInDB = Depends(get_current_admin),
 ) -> TemplateResponse:
-    """更新写作模板"""
+    """更新写作模板（仅管理员；防止越权篡改进入他人生成流程的 prompt_template）"""
     service = WritingTemplateService(session)
     update_data = template.model_dump(exclude_unset=True)
     updated = await service.update_template(template_id, **update_data)
@@ -146,9 +148,10 @@ async def update_template(
 @router.delete("/{template_id}")
 async def delete_template(
     template_id: int,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _admin: UserInDB = Depends(get_current_admin),
 ) -> dict:
-    """删除写作模板"""
+    """删除写作模板（仅管理员）"""
     service = WritingTemplateService(session)
     await service.delete_template(template_id)
     return {"message": "模板已删除"}
@@ -158,9 +161,10 @@ async def delete_template(
 async def apply_template(
     template_id: int,
     request: TemplateApplyRequest,
-    session: AsyncSession = Depends(get_session)
+    session: AsyncSession = Depends(get_session),
+    _user: UserInDB = Depends(get_current_user),
 ) -> dict:
-    """应用模板，生成最终 prompt"""
+    """应用模板，生成最终 prompt（需登录）"""
     service = WritingTemplateService(session)
     prompt = await service.apply_template(template_id, request.params)
     return {"prompt": prompt}

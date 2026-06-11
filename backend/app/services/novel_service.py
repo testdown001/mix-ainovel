@@ -1316,10 +1316,10 @@ class NovelService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="项目不存在")
         return self._build_chapter_schema(project, chapter_number)
 
-    async def _serialize_project(self, project: NovelProject) -> NovelProjectSchema:
+    async def _serialize_project(self, project: NovelProject, use_cache: bool = True) -> NovelProjectSchema:
         # 尝试从缓存获取
         cache_service = CacheService()
-        cached = await cache_service.get_project_schema(project.id)
+        cached = await cache_service.get_project_schema(project.id) if use_cache else None
         if cached:
             try:
                 return NovelProjectSchema(**cached)
@@ -1404,7 +1404,8 @@ class NovelService:
 
         # 缓存结果（TTL 30 分钟）
         try:
-            await cache_service.set_project_schema(project.id, result.model_dump())
+            if use_cache:
+                await cache_service.set_project_schema(project.id, result.model_dump())
         except Exception as e:
             logger.warning(f"缓存设置失败: {e}")
 

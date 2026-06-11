@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,22 +126,35 @@ func ValidateToken(tokenString string) (*models.JWTClaims, error) {
 		return nil, ErrInvalidClaims
 	}
 
-	// 验证 issuer 和 audience
-	if iss, ok := claims["iss"].(string); !ok || iss != cfg.JWT.Issuer {
-		return nil, ErrInvalidClaims
+	// 验证 issuer / audience：仅当网关配置了非空值时才强制校验，
+	// 避免与签发方约定漂移导致全部 token 失效。
+	if cfg.JWT.Issuer != "" {
+		if iss, ok := claims["iss"].(string); !ok || iss != cfg.JWT.Issuer {
+			return nil, ErrInvalidClaims
+		}
 	}
-	if aud, ok := claims["aud"].(string); !ok || aud != cfg.JWT.Audience {
-		return nil, ErrInvalidClaims
+	if cfg.JWT.Audience != "" {
+		if aud, ok := claims["aud"].(string); !ok || aud != cfg.JWT.Audience {
+			return nil, ErrInvalidClaims
+		}
 	}
 
 	// 构建 JWTClaims
-	jwtClaims := &models.JWTClaims{
-		Issuer:   claims["iss"].(string),
-		Audience: claims["aud"].(string),
+	jwtClaims := &models.JWTClaims{}
+	if iss, ok := claims["iss"].(string); ok {
+		jwtClaims.Issuer = iss
+	}
+	if aud, ok := claims["aud"].(string); ok {
+		jwtClaims.Audience = aud
 	}
 
 	if userID, ok := claims["user_id"].(float64); ok {
 		jwtClaims.UserID = int(userID)
+	} else if sub, ok := claims["sub"].(string); ok {
+		// 兼容仅含 sub 的 token：sub 即 user_id
+		if id, err := strconv.Atoi(sub); err == nil {
+			jwtClaims.UserID = id
+		}
 	}
 	if username, ok := claims["username"].(string); ok {
 		jwtClaims.Username = username

@@ -41,7 +41,18 @@ def create_access_token(
     now = datetime.utcnow()
     expire = now + expires_delta
 
-    to_encode: Dict[str, Any] = {"sub": str(subject), "iat": now, "exp": expire}
+    # iss/aud/user_id 供 Go 网关校验签发者并按用户限流；FastAPI 自身只依赖 sub
+    to_encode: Dict[str, Any] = {
+        "sub": str(subject),
+        "iat": now,
+        "exp": expire,
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+    }
+    try:
+        to_encode["user_id"] = int(subject)
+    except (TypeError, ValueError):
+        pass
     if extra_claims:
         to_encode.update(extra_claims)
 
@@ -56,7 +67,14 @@ def decode_access_token(token: str) -> Dict[str, Any]:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        # 关闭 aud 校验：aud 仅供 Go 网关校验，FastAPI 侧不依赖它，
+        # 这样可同时兼容带 aud 的新 token 与历史无 aud 的 token。
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_aud": False},
+        )
     except JWTError as exc:
         raise credentials_exception from exc
 

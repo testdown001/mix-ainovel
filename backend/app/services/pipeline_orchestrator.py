@@ -324,7 +324,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _mark_stage("collect_history_context", stage_started)
 
         stage_started = time.perf_counter()
-        project_schema = await self.novel_service._serialize_project(project)
+        project_schema = await self.novel_service._serialize_project(project, use_cache=False)
         blueprint_dict = normalize_blueprint_relationships(project_schema.blueprint.model_dump())
         pre_blueprint = pcc.blueprint
         if isinstance(pre_blueprint, dict) and pre_blueprint:

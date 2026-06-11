@@ -71,8 +71,15 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 		return c.Status(400).JSON(fiber.Map{"error": "请求格式错误: " + err.Error()})
 	}
 
-	if req.Type == "" || req.ProjectID == "" || req.UserID == 0 {
-		return c.Status(400).JSON(fiber.Map{"error": "缺少必填字段: type, project_id, user_id"})
+	// user_id 一律以网关校验后的身份为准，忽略请求体自带值（防止冒用他人身份提交任务）
+	userID := auth.GetUserID(c)
+	if userID == 0 {
+		return c.Status(401).JSON(fiber.Map{"error": "未授权"})
+	}
+	req.UserID = userID
+
+	if req.Type == "" || req.ProjectID == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "缺少必填字段: type, project_id"})
 	}
 
 	// 构造任务载荷
@@ -166,6 +173,11 @@ func (h *Handler) GetTaskStatus(c *fiber.Ctx) error {
 		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
 	}
 
+	// 归属校验：仅任务所有者或管理员可见
+	if task.UserID != auth.GetUserID(c) && !auth.IsAdmin(c) {
+		return c.Status(403).JSON(fiber.Map{"error": "无权访问该任务"})
+	}
+
 	return c.JSON(TaskStatusResponse{
 		TaskID:      task.ID,
 		Type:        string(task.Type),
@@ -185,6 +197,15 @@ func (h *Handler) GetTaskStatus(c *fiber.Ctx) error {
 // CancelTask 取消任务
 func (h *Handler) CancelTask(c *fiber.Ctx) error {
 	taskID := c.Params("id")
+
+	// 归属校验：仅任务所有者或管理员可取消
+	task, err := h.dispatcher.GetTask(c.Context(), taskID)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+	}
+	if task.UserID != auth.GetUserID(c) && !auth.IsAdmin(c) {
+		return c.Status(403).JSON(fiber.Map{"error": "无权取消该任务"})
+	}
 
 	if err := h.dispatcher.CancelTask(c.Context(), taskID); err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": err.Error()})

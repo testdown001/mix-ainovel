@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     # -------------------- 安全相关配置 --------------------
     secret_key: str = Field(..., env="SECRET_KEY", description="JWT 加密密钥")
     jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM", description="JWT 加密算法")
+    jwt_issuer: str = Field(default="arboris-gateway", env="JWT_ISSUER", description="JWT 签发者，须与 Go 网关 jwt.issuer 一致")
+    jwt_audience: str = Field(default="arboris-api", env="JWT_AUDIENCE", description="JWT 受众，须与 Go 网关 jwt.audience 一致")
     access_token_expire_minutes: int = Field(
         default=60 * 24,
         env="ACCESS_TOKEN_EXPIRE_MINUTES",

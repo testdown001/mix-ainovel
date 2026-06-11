@@ -228,16 +228,19 @@ func (c *Connection) SendJSON(msg models.WebSocketMessage) error {
 	if err != nil {
 		return err
 	}
+	c.sendRaw(data)
+	return nil
+}
 
+// sendRaw 向连接发送原始字节（非阻塞）：连接已关闭或缓冲满则丢弃。
+// close() 不再关闭 Send channel，仅靠 closeChan 退出 writePump，
+// 因此这里向 Send 写入永不会 panic。
+func (c *Connection) sendRaw(data []byte) {
 	select {
 	case c.Send <- data:
-		return nil
 	case <-c.closeChan:
-		return nil
 	default:
-		// 缓冲区满，丢弃消息
 		logger.Warn("Send buffer full, dropping message", zap.String("conn_id", c.ID))
-		return nil
 	}
 }
 
@@ -302,10 +305,11 @@ func (c *Connection) close() {
 
 	// 从 Hub 移除
 	c.Hub.connections.Delete(c.ID)
-	c.Hub.connCount--
+	atomic.AddInt64(&c.Hub.connCount, -1)
 
+	// 仅关闭 closeChan 作为唯一停止信号（writePump 据此退出）；
+	// 不关闭 Send —— 否则 listenRedis/BroadcastToRoom 并发写入会向已关闭 channel 发送而 panic。
 	close(c.closeChan)
-	close(c.Send)
 	c.Conn.Close()
 
 	logger.Info("WebSocket disconnected",
@@ -339,13 +343,18 @@ func (h *Hub) listenRedis() {
 	for {
 		select {
 		case msg := <-ch:
+			// 任务调度器按用户推送的进度事件：原样转发给该用户的所有连接
+			if msg.Pattern == "arboris:events:user:*" {
+				h.dispatchUserEvent(msg.Payload)
+				continue
+			}
+
+			// ws:broadcast：全局广播
 			var wsMsg models.WebSocketMessage
 			if err := json.Unmarshal([]byte(msg.Payload), &wsMsg); err != nil {
 				logger.Error("Invalid Redis message", zap.Error(err))
 				continue
 			}
-
-			// 广播到所有连接
 			h.connections.Range(func(key, value interface{}) bool {
 				conn := value.(*Connection)
 				conn.SendJSON(wsMsg)
@@ -356,6 +365,28 @@ func (h *Hub) listenRedis() {
 			return
 		}
 	}
+}
+
+// dispatchUserEvent 把任务进度事件原样转发给目标用户的所有连接。
+// payload 即 dispatcher.publishEvent 发布的事件 JSON（含 task_id/event_type/user_id 等），
+// 前端 useWebSocket 直接按顶层字段解析，故此处不二次包装。
+func (h *Hub) dispatchUserEvent(payload string) {
+	var meta struct {
+		UserID int `json:"user_id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &meta); err != nil {
+		logger.Error("Invalid task event", zap.Error(err))
+		return
+	}
+
+	data := []byte(payload)
+	h.connections.Range(func(key, value interface{}) bool {
+		conn := value.(*Connection)
+		if conn.UserID == meta.UserID {
+			conn.sendRaw(data)
+		}
+		return true
+	})
 }
 
 // Close 关闭 Hub

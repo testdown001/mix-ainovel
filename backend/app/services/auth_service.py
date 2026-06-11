@@ -77,7 +77,14 @@ class AuthService:
         *,
         must_change_password: Optional[bool] = None,
     ) -> Token:
-        payload = {"is_admin": user.is_admin}
+        # username/is_premium 供 Go 网关识别用户并选择正确的限流档位
+        from .quota_service import QuotaService
+        quota = await QuotaService(self.session).get_quota(user.id)
+        payload = {
+            "is_admin": user.is_admin,
+            "username": user.username,
+            "is_premium": bool(quota and quota.is_premium_active),
+        }
         token = create_access_token(user.id, extra_claims=payload)
         should_change = self.requires_password_reset(user) if must_change_password is None else must_change_password
         return Token(access_token=token, must_change_password=should_change)
@@ -625,6 +632,8 @@ class AuthService:
             )
             self.session.add(user)
             await self.session.commit()
+        elif not user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号已被禁用，请联系管理员")
 
         return await self.create_access_token(user)
 

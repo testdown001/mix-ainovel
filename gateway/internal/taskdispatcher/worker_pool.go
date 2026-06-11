@@ -23,6 +23,10 @@ import (
 // - 支持进度回调
 // ============================================================
 
+// workerRecoveryCooldown 一个 Worker 因传输错误被标记不健康后的冷却期；
+// 冷却期过后 selectWorker 会乐观地再次尝试它，避免一次网络抖动让 Worker 永久下线。
+const workerRecoveryCooldown = 30 * time.Second
+
 // WorkerPool Worker 连接池
 type WorkerPool struct {
 	config     *Config
@@ -33,12 +37,13 @@ type WorkerPool struct {
 
 // WorkerInfo Worker 信息
 type WorkerInfo struct {
-	ID         string    `json:"id"`
-	BaseURL    string    `json:"base_url"`
-	Healthy    bool      `json:"healthy"`
-	ActiveJobs int       `json:"active_jobs"`
-	MaxJobs    int       `json:"max_jobs"`
-	LastPing   time.Time `json:"last_ping"`
+	ID          string    `json:"id"`
+	BaseURL     string    `json:"base_url"`
+	Healthy     bool      `json:"healthy"`
+	ActiveJobs  int       `json:"active_jobs"`
+	MaxJobs     int       `json:"max_jobs"`
+	LastPing    time.Time `json:"last_ping"`
+	LastFailure time.Time `json:"last_failure,omitempty"`
 }
 
 // NewWorkerPool 创建 Worker Pool
@@ -83,8 +88,14 @@ func (p *WorkerPool) Execute(ctx context.Context, task *Task) (json.RawMessage, 
 		return nil, fmt.Errorf("没有可用的 Worker")
 	}
 
+	p.mu.Lock()
 	worker.ActiveJobs++
-	defer func() { worker.ActiveJobs-- }()
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		worker.ActiveJobs--
+		p.mu.Unlock()
+	}()
 
 	switch task.Type {
 	case TaskGenerateChapter:
@@ -121,7 +132,11 @@ func (p *WorkerPool) selectWorker() *WorkerInfo {
 
 	var best *WorkerInfo
 	for _, w := range p.workers {
-		if !w.Healthy || w.ActiveJobs >= w.MaxJobs {
+		// 不健康且仍在冷却期内才跳过；冷却期过后乐观重试（自愈）
+		if !w.Healthy && time.Since(w.LastFailure) < workerRecoveryCooldown {
+			continue
+		}
+		if w.ActiveJobs >= w.MaxJobs {
 			continue
 		}
 		if best == nil || w.ActiveJobs < best.ActiveJobs {
@@ -129,6 +144,22 @@ func (p *WorkerPool) selectWorker() *WorkerInfo {
 		}
 	}
 	return best
+}
+
+// markWorkerUnhealthy 标记 Worker 不健康并记录失败时刻（进入冷却期）
+func (p *WorkerPool) markWorkerUnhealthy(w *WorkerInfo) {
+	p.mu.Lock()
+	w.Healthy = false
+	w.LastFailure = time.Now()
+	p.mu.Unlock()
+}
+
+// markWorkerHealthy 传输成功即视为 Worker 可达，恢复健康
+func (p *WorkerPool) markWorkerHealthy(w *WorkerInfo) {
+	p.mu.Lock()
+	w.Healthy = true
+	w.LastPing = time.Now()
+	p.mu.Unlock()
 }
 
 // WorkerTaskRequest 发送给 Python Worker 的任务请求
@@ -230,6 +261,10 @@ func (p *WorkerPool) callWorker(ctx context.Context, worker *WorkerInfo, path st
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Task-ID", req.TaskID)
+	// 内部调用鉴权：FastAPI /api/internal/tasks/execute 入站强制校验该密钥
+	if p.config != nil && p.config.InternalCallbackSecret != "" {
+		httpReq.Header.Set("X-Internal-Secret", p.config.InternalCallbackSecret)
+	}
 
 	logger.Debug("Calling Python Worker",
 		zap.String("url", url),
@@ -238,10 +273,12 @@ func (p *WorkerPool) callWorker(ctx context.Context, worker *WorkerInfo, path st
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
-		// 标记 Worker 不健康
-		worker.Healthy = false
+		// 传输错误：进入冷却期，避免一次抖动让 Worker 永久下线
+		p.markWorkerUnhealthy(worker)
 		return nil, fmt.Errorf("调用 Worker 失败: %w", err)
 	}
+	// 传输成功，Worker 可达
+	p.markWorkerHealthy(worker)
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
