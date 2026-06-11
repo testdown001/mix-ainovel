@@ -290,7 +290,7 @@ class Settings(BaseSettings):
         description="BM25 在 RRF 融合中的权重",
     )
     rag_reranker_enabled: bool = Field(
-        default=False,
+        default=True,
         env="RAG_RERANKER_ENABLED",
         description="是否启用 Reranker 重排序",
     )

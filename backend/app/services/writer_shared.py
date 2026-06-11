@@ -177,10 +177,114 @@ async def generate_chapter_mission(
             repaired = repair_json(normalized)
             mission = json.loads(repaired)
         logger.info("成功生成章节导演脚本: macro_beat=%s", mission.get("macro_beat"))
+        mission = await _review_and_maybe_fix_mission(
+            llm_service, mission,
+            plan_prompt=plan_prompt, plan_input=plan_input,
+            outline_summary=outline_summary, previous_summary=previous_summary,
+            temperature=temperature, user_id=user_id,
+        )
         return mission
     except Exception as exc:
         logger.warning("生成章节导演脚本失败，将使用默认模式: %s", exc)
         return None
+
+
+async def _review_and_maybe_fix_mission(
+    llm_service,
+    mission: dict,
+    *,
+    plan_prompt: str,
+    plan_input: str,
+    outline_summary: str,
+    previous_summary: str,
+    temperature: float,
+    user_id: int,
+) -> dict:
+    """对导演脚本做一次轻量前置评审（评分通道，未配置则跳过，绝不阻断主流程）。
+
+    评 3 项：宏观节拍是否推进主线 / 是否与前文冲突 / 章尾钩子是否有效。
+    不达标则带反馈重生成一次；任何异常都原样返回原脚本。
+    依据 CritiCS：评审施加于规划阶段比正文阶段收益更高。
+    """
+    try:
+        grader_config = await llm_service._resolve_grader_llm_config()
+    except Exception:
+        grader_config = None
+    if grader_config is None:
+        return mission
+
+    def _parse_verdict(raw: str) -> dict:
+        cleaned = remove_think_tags(raw) or raw
+        normalized = unwrap_markdown_json(cleaned)
+        if not normalized:
+            return {}
+        try:
+            return json.loads(normalized)
+        except Exception:
+            try:
+                return json.loads(repair_json(normalized))
+            except Exception:
+                return {}
+
+    review_system = "你是严格的网文章节规划审稿人。只输出 JSON，不要解释。"
+    review_user = (
+        "审查以下章节导演脚本，针对三项各给 true/false：\n"
+        "1. advances_mainline：宏观节拍是否推进主线（而非原地打转/纯过渡）\n"
+        "2. conflicts_prev：是否与[前文摘要]存在设定或情节冲突\n"
+        "3. hook_effective：章尾钩子是否具体有效（而非空泛升华）\n\n"
+        f"[前文摘要]\n{(previous_summary or '无')[:800]}\n\n"
+        f"[本章大纲摘要]\n{(outline_summary or '无')[:500]}\n\n"
+        f"[导演脚本]\n{json.dumps(mission, ensure_ascii=False)[:2500]}\n\n"
+        "输出格式：{\"advances_mainline\":true,\"conflicts_prev\":false,\"hook_effective\":true,\"issues\":\"一句话\"}"
+    )
+    try:
+        raw = await llm_service.get_grader_llm_response(
+            system_prompt=review_system,
+            conversation_history=[{"role": "user", "content": review_user}],
+            temperature=0.1,
+            timeout=30.0,
+            max_tokens=500,
+        )
+    except Exception as exc:
+        logger.debug("mission 评审调用失败，跳过: %s", exc)
+        return mission
+
+    verdict = _parse_verdict(raw) if raw else {}
+    if not isinstance(verdict, dict):
+        return mission
+    advances = verdict.get("advances_mainline", True)
+    conflicts = verdict.get("conflicts_prev", False)
+    hook_ok = verdict.get("hook_effective", True)
+    if advances and (not conflicts) and hook_ok:
+        return mission
+
+    issues = str(verdict.get("issues", ""))[:300]
+    logger.info("mission 前置评审未达标，带反馈重生成一次: %s", issues)
+    fix_input = plan_input + (
+        f"\n[上一版导演脚本被审稿驳回]\n{issues}\n"
+        "请修正后重新输出完整 JSON 导演脚本（推进主线、消除与前文冲突、给出具体章尾钩子）。\n"
+    )
+    try:
+        response = await llm_service.get_llm_response(
+            system_prompt=plan_prompt,
+            conversation_history=[{"role": "user", "content": fix_input}],
+            temperature=temperature,
+            user_id=user_id,
+            timeout=90.0,
+        )
+        cleaned = remove_think_tags(response) or response
+        normalized = unwrap_markdown_json(cleaned)
+        if normalized:
+            try:
+                fixed = json.loads(normalized)
+            except Exception:
+                fixed = json.loads(repair_json(normalized))
+            if isinstance(fixed, dict) and fixed.get("macro_beat"):
+                return fixed
+    except Exception as exc:
+        logger.debug("mission 重生成失败，沿用原脚本: %s", exc)
+    return mission
+
 
 
 async def rewrite_with_guardrails(

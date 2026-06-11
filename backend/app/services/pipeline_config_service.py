@@ -31,7 +31,7 @@ class PipelineConfig:
     enable_foreshadowing: bool = False
     enable_faction: bool = False
     enable_anti_hallucination: bool = False
-    rag_retrieval_mode: str = "vector"
+    rag_retrieval_mode: str = "hybrid"
     enable_pacing_control: bool = False
     pacing_model: str = "default"
     enable_humanization: bool = False

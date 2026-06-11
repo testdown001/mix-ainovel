@@ -30,7 +30,8 @@ class ChapterRAGContext:
     def chunk_texts(self) -> List[str]:
         """将检索到的 chunk 转换成带序号的 Markdown 段落。"""
         lines = []
-        for idx, chunk in enumerate(self.chunks, start=1):
+        _ordered_chunks = sorted(self.chunks, key=lambda c: (c.chapter_number, (c.metadata or {}).get("chunk_index", 0) if isinstance(c.metadata, dict) else 0))
+        for idx, chunk in enumerate(_ordered_chunks, start=1):
             title = chunk.chapter_title or f"第{chunk.chapter_number}章"
             lines.append(
                 f"### Chunk {idx}(来源：{title})\n{chunk.content.strip()}"
@@ -40,7 +41,7 @@ class ChapterRAGContext:
     def summary_lines(self) -> List[str]:
         """整理章节摘要，方便直接插入 Prompt。"""
         lines = []
-        for summary in self.summaries:
+        for summary in sorted(self.summaries, key=lambda s: s.chapter_number):
             lines.append(
                 f"- 第{summary.chapter_number}章 - {summary.title}:{summary.summary.strip()}"
             )

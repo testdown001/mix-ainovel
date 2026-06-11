@@ -133,7 +133,7 @@ async def rerank_documents(
         )
         return None
 
-    truncated = [d[:800] for d in documents]
+    truncated = [d[:1024] for d in documents]
 
     try:
         from .llm_tool import _get_ssl_verify
@@ -188,5 +188,5 @@ async def rerank_documents(
         return scored
 
     except Exception as exc:
-        logger.warning("Rerank API 调用失败，保持原排序: %s", exc)
+        logger.warning("Rerank API 调用失败，保持原排序 (url=%s, docs=%d): %s", api_url, len(documents), exc)
         return None
