@@ -1,8 +1,14 @@
 import asyncio
+import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from app.api.routers import task_worker
+
+
+@pytest.fixture(autouse=True)
+def _stub_internal_secret(monkeypatch):
+    monkeypatch.setattr(task_worker.settings, "task_dispatcher_internal_callback_secret", "s3cret")
 
 
 class _SessionContext:
@@ -144,7 +150,7 @@ def test_execute_task_rejects_preset_above_tier(monkeypatch):
         user_id=12,
         config=task_worker.TaskConfig(preset="premium"),
     )
-    resp = asyncio.run(task_worker.execute_task(req))
+    resp = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
     assert resp.status == "failed"
     assert "旗舰" in (resp.error or "")
 
@@ -162,7 +168,7 @@ def test_execute_task_gate_normalizes_alias(monkeypatch):
         user_id=12,
         config=task_worker.TaskConfig(preset="platinum"),
     )
-    resp = asyncio.run(task_worker.execute_task(req))
+    resp = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
     assert resp.status == "failed"
     assert "旗舰" in (resp.error or "")
 
@@ -184,5 +190,5 @@ def test_execute_task_gate_allows_free_fast(monkeypatch):
         user_id=12,
         config=task_worker.TaskConfig(preset="fast"),
     )
-    resp = asyncio.run(task_worker.execute_task(req))
+    resp = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
     assert resp.status == "completed"

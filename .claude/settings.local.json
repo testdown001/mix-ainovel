@@ -137,7 +137,13 @@
       "Bash(awk -F: '{print $1}')",
       "Bash(sed \"s/['\\\\\"\\\\`]//g\")",
       "Bash(awk -F\"ProjectAPI.\" '{print $2}')",
-      "Bash(git commit -m 'fix\\(security+perf\\): 网关鉴权/Hub修复 + JWT对齐 + 限流加固 + 生成性能优化' -m '后端: writing_template 写操作限管理员; config/security/auth_service JWT 补签 iss/aud/user_id 并对齐网关、linux.do 补 is_active; novel_service/pipeline_orchestrator 生成路径跳过全书 schema 缓存白写 *)"
+      "Bash(git commit -m 'fix\\(security+perf\\): 网关鉴权/Hub修复 + JWT对齐 + 限流加固 + 生成性能优化' -m '后端: writing_template 写操作限管理员; config/security/auth_service JWT 补签 iss/aud/user_id 并对齐网关、linux.do 补 is_active; novel_service/pipeline_orchestrator 生成路径跳过全书 schema 缓存白写 *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(echo \"GO_BUILD=$?\")",
+      "Bash(echo \"VET_EXIT=$?\")",
+      "Bash(echo \"BUILD_EXIT=$?\")",
+      "Bash(go test *)"
     ]
   }
 }

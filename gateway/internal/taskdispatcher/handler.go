@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/arboris-novel/gateway/internal/auth"
 )
 
 // ============================================================
@@ -32,13 +33,13 @@ func NewHandler(dispatcher *Dispatcher, internalSecret string) *Handler {
 }
 
 // RegisterRoutes 注册路由
-func (h *Handler) RegisterRoutes(app *fiber.App) {
-	tasks := app.Group("/tasks")
+func (h *Handler) RegisterRoutes(app *fiber.App, authMiddleware fiber.Handler) {
+	tasks := app.Group("/tasks", authMiddleware)
 	tasks.Post("/submit", h.SubmitTask)
 	tasks.Get("/:id/status", h.GetTaskStatus)
 	tasks.Post("/:id/cancel", h.CancelTask)
 	tasks.Get("/user/:user_id", h.GetUserTasks)
-	tasks.Get("/stats", h.GetStats)
+	tasks.Get("/stats", auth.RequireAdmin(), h.GetStats)
 
 	// 内部接口（Worker 回调）
 	internal := app.Group("/internal/tasks")

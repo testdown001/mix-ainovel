@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _SKIP_PATHS = frozenset(["/health", "/api/health", "/docs", "/openapi.json"])
 
 # 敏感端点（登录/注册）使用更严格的 IP 限流
-_AUTH_PATHS = frozenset(["/api/auth/token", "/api/auth/users", "/api/auth/send-code"])
+_AUTH_PATHS = frozenset(["/api/auth/token", "/api/auth/users", "/api/auth/send-code", "/api/auth/reset-password", "/api/auth/phone/send-code", "/api/auth/phone/login"])
 _GENERAL_RPM_CONFIG_KEY = "rate_limit.requests_per_minute"
 
 
@@ -97,7 +97,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """获取客户端真实 IP（支持 X-Forwarded-For）。"""
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[-1].strip()  # 取末段：客户端伪造的 XFF 只在左侧，末段是最接近本服务的可信跳
         return request.client.host if request.client else "unknown"
 
     def _check_rate(

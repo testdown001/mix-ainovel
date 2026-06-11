@@ -49,6 +49,15 @@ except ImportError:  # pragma: no cover - Ollama 为可选依赖
     OllamaAsyncClient = None
 
 
+_CONFIG_VALUE_CACHE: Dict[str, tuple] = {}
+_CONFIG_VALUE_TTL = 60.0
+
+
+def invalidate_llm_config_cache() -> None:
+    """清空 LLM 配置值缓存，使配置变更即时生效（可选；默认依赖 TTL 自动过期）。"""
+    _CONFIG_VALUE_CACHE.clear()
+
+
 class LLMService:
     """封装与大模型交互的所有逻辑，包括配额控制与配置选择。"""
 

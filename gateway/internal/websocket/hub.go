@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/arboris-novel/gateway/internal/auth"
@@ -68,6 +69,9 @@ func NewHub(redisClient *redis.Client, cfg *config.WebSocketConfig) *Hub {
 
 	// 订阅 Redis 频道
 	hub.pubsub = redisClient.Subscribe(ctx, "ws:broadcast")
+	if err := hub.pubsub.PSubscribe(ctx, "arboris:events:user:*"); err != nil {
+		logger.Error("订阅任务事件频道失败", zap.Error(err))
+	}
 
 	// 启动 Redis 消息监听
 	go hub.listenRedis()
@@ -128,7 +132,7 @@ func (h *Hub) newConnection(c *websocket.Conn, claims *models.JWTClaims) *Connec
 	}
 
 	h.connections.Store(conn.ID, conn)
-	h.connCount++
+	atomic.AddInt64(&h.connCount, 1)
 
 	logger.Info("WebSocket connected",
 		zap.String("conn_id", conn.ID),

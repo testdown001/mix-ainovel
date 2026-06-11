@@ -452,6 +452,11 @@ const handleUpgrade = async (plan: DisplayPlan) => {
 
 onMounted(async () => {
   try {
+    backendPlans.value = await paymentApi.listPlans()
+  } catch {
+    plansLoadError.value = true
+  }
+  try {
     subscription.value = await paymentApi.getSubscription()
   } catch {
     // not critical — user may not be authenticated

@@ -8,13 +8,14 @@ Go Task Dispatcher Worker 适配器
   POST /api/internal/tasks/execute  - 执行任务（由 Go Dispatcher 调用）
 """
 import asyncio
+import hmac
 import logging
 import time
 import traceback
 from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from ...agents.hybrid_executor import HybridExecutor
@@ -110,13 +111,23 @@ class ProgressReporter:
 # API 端点
 # ============================================================
 
+def _verify_internal_secret(provided):
+    expected = settings.task_dispatcher_internal_callback_secret
+    if not expected:
+        raise HTTPException(status_code=503, detail="内部任务端点未启用：缺少 task_dispatcher_internal_callback_secret 配置")
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="未授权的内部任务调用")
+
+
 @router.post("/execute", response_model=WorkerTaskResponse)
-async def execute_task(req: WorkerTaskRequest):
+async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] = Header(default=None, alias="X-Internal-Secret")):
     """
     执行来自 Go Task Dispatcher 的任务
 
     此接口由 Go Task Dispatcher 调用，不对外暴露。
     """
+    _verify_internal_secret(x_internal_secret)
+
     start_time = time.time()
     reporter = ProgressReporter(req.callback_url, req.task_id)
 
