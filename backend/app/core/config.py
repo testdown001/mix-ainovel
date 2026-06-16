@@ -15,6 +15,11 @@ class Settings(BaseSettings):
     app_name: str = Field(default="AI Novel Generator API", description="FastAPI 文档标题")
     environment: str = Field(default="development", description="当前环境标识")
     debug: bool = Field(default=True, description="是否开启调试模式")
+    force_https_redirect: bool = Field(
+        default=True,
+        env="FORCE_HTTPS_REDIRECT",
+        description="生产环境(debug=false)是否强制 HTTP→HTTPS 跳转；当 TLS 在 nginx/LB 层终止或内网 HTTP 试用时设为 false，避免重定向死循环",
+    )
     allow_registration: bool = Field(
         default=True,
         env="ALLOW_USER_REGISTRATION",
@@ -87,6 +92,13 @@ class Settings(BaseSettings):
             "GATEWAY_TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET",
         ),
         description="Go Gateway 任务进度回调共享密钥，需与 gateway task_dispatcher.internal_callback_secret 一致",
+    )
+
+    # -------------------- 前端静态资源 --------------------
+    frontend_dist_dir: str = Field(
+        default="/usr/share/nginx/html",
+        env="FRONTEND_DIST_DIR",
+        description="前端构建产物(dist)目录；目录存在时由 FastAPI 直接服务前端页面与 SPA 路由回退，缺失则跳过挂载（开发模式正常）",
     )
 
     # -------------------- Qdrant 向量数据库配置 (统一向量存储：RAG + Mem0 长期记忆) --------------------

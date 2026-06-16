@@ -62,7 +62,9 @@ RUN rm -rf /app/storage && mkdir -p /app/storage
 COPY --from=frontend-builder /frontend/dist /usr/share/nginx/html
 
 # 复制部署配置
-COPY deploy/nginx.conf /etc/nginx/sites-available/default
+# 单容器：用自包含的 standalone 配置覆盖 nginx 主配置（uvicorn 监听 127.0.0.1:8000）。
+# 生产栈不使用镜像内 nginx（改由独立 nginx 容器挂载 deploy/nginx.conf 做负载均衡）。
+COPY deploy/nginx.standalone.conf /etc/nginx/nginx.conf
 COPY deploy/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 

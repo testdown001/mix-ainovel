@@ -157,8 +157,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# HTTPS 强制重定向（仅生产环境）
-if not settings.debug:
+# HTTPS 强制重定向（仅生产环境，且未显式关闭）
+# TLS 通常在 nginx/LB 层终止，后端经 X-Forwarded-Proto 感知协议；
+# 内网 HTTP 部署或反代未透传协议时，设 FORCE_HTTPS_REDIRECT=false 关闭以免重定向死循环。
+if not settings.debug and settings.force_https_redirect:
     app.add_middleware(HTTPSRedirectMiddleware)
 
 # CORS 配置，通过 CORS_ORIGINS 环境变量控制允许的来源
@@ -223,3 +225,30 @@ async def health_check():
     if not all_ok:
         return JSONResponse(content=payload, status_code=503)
     return payload
+
+
+# ----- 前端静态资源服务（SPA） -----
+# 当存在前端构建产物（dist）时，由 FastAPI 直接服务前端页面与静态资源，
+# 未命中的非 API 路径回退到 index.html 以支持 Vue Router 的 history 模式。
+# 该挂载必须在所有 API 路由与 /health 注册之后，确保接口优先匹配；
+# dist 缺失（开发模式）时静默跳过，不影响接口与测试。
+_frontend_dist = Path(settings.frontend_dist_dir)
+if _frontend_dist.is_dir() and (_frontend_dist / "index.html").is_file():
+    from fastapi.staticfiles import StaticFiles
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    class _SPAStaticFiles(StaticFiles):
+        """history 模式 SPA：静态文件未命中时回退到 index.html；保留 /api 路径的 404 语义。"""
+
+        async def get_response(self, path, scope):
+            try:
+                return await super().get_response(path, scope)
+            except StarletteHTTPException as exc:
+                if exc.status_code == 404 and not path.startswith("api"):
+                    return await super().get_response("index.html", scope)
+                raise
+
+    app.mount("/", _SPAStaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
+    logger.info("前端静态资源已挂载：%s", _frontend_dist)
+else:
+    logger.info("未发现前端构建产物(%s)，跳过静态挂载（开发模式下属正常）", _frontend_dist)

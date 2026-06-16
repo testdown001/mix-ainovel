@@ -162,7 +162,6 @@ The Go gateway exposes its own logs and Prometheus metrics and can publish task 
 - writing preferences and writing templates
 - review and skill APIs
 - writer progress
-- Celery task status APIs
 - Go gateway worker adapter
 
 ### Frontend Boot
@@ -199,7 +198,6 @@ But the chapter generation path is now split across many service-specialized mod
 - `backend/app/api/routers/plans.py`: membership plan CRUD, `Plan.tier`, capability registry exposure, tier capability display
 - `backend/app/api/routers/payment.py`: Alipay/WeChat/Stripe orders, payment callbacks/webhooks, payment records, subscription status derived from quota
 - `backend/app/api/routers/api_usage.py`: API/LLM usage records and admin usage reporting
-- `backend/app/api/routers/tasks.py`: Celery task status/cancel/result
 - `backend/app/api/routers/task_worker.py`: internal worker endpoint consumed by the Go dispatcher
 - `backend/app/api/routers/writer_progress.py`: chapter progress WebSocket plus REST pause/resume/status
 
@@ -306,9 +304,6 @@ Several async delivery mechanisms coexist. Do not confuse them:
 - backend-local chapter progress WebSocket:
   - `backend/app/api/routers/writer_progress.py`
   - powered by `writer_progress_service.py`
-- Celery tasks:
-  - `backend/app/tasks/foreshadowing_tasks.py`
-  - queried through `/api/tasks/*`; current indexed Celery router exposes status/cancel/result for Celery task IDs
 - Go dispatcher tasks:
   - frontend `frontend/src/api/task.ts` targets `/tasks`
   - frontend `frontend/src/composables/useWebSocket.ts` connects to gateway `/ws`
