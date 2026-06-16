@@ -88,7 +88,6 @@ Layered architecture: **Routers → Services → Repositories → Models**
   - `single_version_generation_service.py`, `version_generation_service.py`, `standard_post_processing_service.py`, `generation_finalize_service.py`, `generation_background_task_service.py` — generation, post-processing, and follow-up writes
   - `llm_service.py` — unified LLM layer (see "LLM Layer" below)
   - `novel_service.py` — novel CRUD and business logic
-  - `blueprint_service.py` — chapter outline/blueprint management
   - `chapter_context_service.py` — **active** RAG retrieval entry point (multi-query retrieval + optional reranker)
   - `vector_store_service.py` — Qdrant vector DB operations (chunk/summary storage and retrieval)
   - `writer_shared.py` — shared utilities (mission generation, guardrail rewriting)

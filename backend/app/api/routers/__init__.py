@@ -17,7 +17,6 @@ from .power_system import router as power_system_router
 from .admin import router as admin_router
 from .updates import router as updates_router
 from .analytics import router as analytics_router
-from .analytics_enhanced import router as analytics_enhanced_router
 from .writing_preferences import router as writing_preferences_router
 from .review import router as review_router
 from .writing_template import router as writing_template_router
@@ -61,9 +60,8 @@ api_router.include_router(admin_router, tags=["Admin"])
 # 更新日志 - updates.py 已经定义了 prefix
 api_router.include_router(updates_router, tags=["Updates"])
 
-# 数据分析 - analytics.py 和 analytics_enhanced.py 已经定义了 prefix
+# 数据分析 - analytics.py 已经定义了 prefix
 api_router.include_router(analytics_router, tags=["Analytics"])
-api_router.include_router(analytics_enhanced_router, tags=["AnalyticsEnhanced"])
 
 # 写作偏好 - writing_preferences.py 已经定义了 prefix
 api_router.include_router(writing_preferences_router, tags=["WritingPreferences"])
