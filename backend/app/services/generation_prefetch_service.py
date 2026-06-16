@@ -126,6 +126,7 @@ class GenerationPrefetchService:
                 self.evidence_router.prefetch_symbolic_foreshadowing(
                     project_id=project_id,
                     chapter_number=chapter_number,
+                    query_text=outline_summary or outline_title,
                 ),
                 timeout_sec=15,
                 task_name="foreshadowing",

@@ -1,8 +1,9 @@
-# AIMETA P=白金写作上下文_节奏伏笔钩子|R=生成章节前控制信息|NR=不含LLM调用|E=platinum_context|X=internal|A=写作控制|D=sqlalchemy|S=db|RD=./README.ai
+# AIMETA P=白金写作上下文_节奏伏笔钩子|R=生成章节前控制信息|NR=仅伏笔embedding不含正文LLM|E=platinum_context|X=internal|A=写作控制|D=sqlalchemy|S=db|RD=./README.ai
 """Shared context builders for high-quality webnovel chapter generation."""
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -103,23 +104,83 @@ def build_hook_continuity_brief(
     return "\n".join(lines)
 
 
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    """纯 Python 余弦相似度；维度不匹配或零向量返回 0。"""
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(y * y for y in b))
+    if na == 0.0 or nb == 0.0:
+        return 0.0
+    return dot / (na * nb)
+
+
+async def _semantic_foreshadowing_scores(
+    llm_service: Any,
+    query_text: str,
+    items: Sequence[Foreshadowing],
+) -> Dict[int, float]:
+    """计算各未回收伏笔与当前章节语境的语义相似度 {伏笔id: 0-1}。
+
+    embedding 通道不可用 / 无 query / 调用失败 / 维度异常时一律返回 {}，
+    调用方据此退回纯启发式排序（降级不报错，零破坏现有行为）。
+    """
+    query_text = (query_text or "").strip()
+    if llm_service is None or not query_text or not items:
+        return {}
+    texts: List[str] = [query_text]
+    id_order: List[int] = []
+    for it in items:
+        body = ((it.content or "") or (it.name or "")).strip()
+        if not body:
+            continue
+        texts.append(body[:512])
+        id_order.append(it.id)
+    if not id_order:
+        return {}
+    try:
+        embeddings = await llm_service.get_embeddings_batch(texts)
+    except Exception:
+        return {}
+    if not embeddings or len(embeddings) != len(texts):
+        return {}
+    query_vec = embeddings[0]
+    return {fid: _cosine(query_vec, vec) for fid, vec in zip(id_order, embeddings[1:])}
+
+
 async def build_foreshadowing_urgency_brief(
     *,
     session: AsyncSession,
     project_id: str,
     chapter_number: int,
     top_k: int = 6,
+    query_text: Optional[str] = None,
+    llm_service: Any = None,
 ) -> str:
-    """Rank unresolved foreshadowings and format actionable writing hints."""
+    """Rank unresolved foreshadowings and format actionable writing hints.
+
+    当提供 query_text(当前章节大纲)与 llm_service 时，叠加「伏笔内容 vs 本章语境」的
+    语义相关性加权排序；embedding 不可用则自动降级为纯启发式（紧迫度/逾期/埋设时长）。
+    """
     service = ForeshadowingService(session)
     unresolved = await service.get_unresolved_foreshadowings(project_id, chapter_number)
     if not unresolved:
         return "当前没有未回收伏笔。本章可新增 1-2 个短线伏笔，并确保可在 3-8 章内兑现。"
 
+    semantic_scores = await _semantic_foreshadowing_scores(llm_service, query_text or "", unresolved)
+
     ranked: List[Tuple[int, List[str], Foreshadowing]] = []
     for item in unresolved:
         score, reasons = _score_foreshadowing(item, chapter_number)
-        ranked.append((score, reasons, item))
+        sim = semantic_scores.get(item.id)
+        if sim and sim > 0:
+            sem_points = round(sim * 10)  # 语义相关性加成(0-10)，与紧迫度同量级但不喧宾夺主
+            if sem_points > 0:
+                score += sem_points
+                if sim >= 0.5:
+                    reasons = [f"与本章大纲高度相关(语义{sim:.2f})，优先在本章呼应", *reasons]
+        ranked.append((score, reasons[:3], item))
     ranked.sort(key=lambda row: row[0], reverse=True)
 
     chosen = ranked[: max(1, top_k)]

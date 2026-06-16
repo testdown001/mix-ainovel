@@ -146,16 +146,19 @@ class EvidenceRouterService:
         *,
         project_id: str,
         chapter_number: int,
+        query_text: Optional[str] = None,
     ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         async with AsyncSessionLocal() as bg_session:
+            bg_llm = LLMService(bg_session)
             brief = await build_foreshadowing_urgency_brief(
                 session=bg_session,
                 project_id=project_id,
                 chapter_number=chapter_number,
+                query_text=query_text,
+                llm_service=bg_llm,
             )
             structured = None
             try:
-                bg_llm = LLMService(bg_session)
                 bg_prompt = PromptService(bg_session)
                 tracker = ForeshadowingTrackerService(bg_session, bg_llm, bg_prompt)
                 fs_data = await tracker.get_foreshadowings_for_chapter(project_id, chapter_number)
