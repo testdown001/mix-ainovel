@@ -136,3 +136,42 @@ class GenerationWriteTaskService:
                 project_id,
                 chapter_number,
             )
+
+    async def run_outline_revision(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        user_id: int,
+    ) -> None:
+        """A1 滚动细纲修订：据本章实际内容评审后续大纲漂移并写入修订建议。全程降级。"""
+        try:
+            async with AsyncSessionLocal() as session:
+                try:
+                    from .outline_revision_service import OutlineRevisionService
+
+                    llm_service = LLMService(session)
+                    prompt_service = PromptService(session)
+                    stats = await OutlineRevisionService().review_downstream(
+                        project_id=project_id,
+                        finalized_chapter_number=chapter_number,
+                        chapter_content=chapter_content,
+                        session=session,
+                        llm_service=llm_service,
+                        prompt_service=prompt_service,
+                        user_id=user_id,
+                    )
+                    logger.info(
+                        "异步细纲修订完成 project=%s chapter=%s stats=%s",
+                        project_id, chapter_number, stats,
+                    )
+                except Exception:
+                    await session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步细纲修订失败 project=%s chapter=%s",
+                project_id,
+                chapter_number,
+            )

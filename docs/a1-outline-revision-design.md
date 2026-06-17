@@ -1,7 +1,12 @@
 # A1 滚动细纲修订回路 · 设计方案
 
-> 状态：**设计已定稿（2026-06-17），待实现**。决策已拍板，可直接进入编码。
-> 架构权威见 `CLAUDE.md`；本文件是 A1 单项的实现蓝图。
+> 状态：**已实现（2026-06-17）**。`OutlineRevisionService` + 写/读侧接线 + 8 测试落地，后端全量 329 passed。
+> 架构权威见 `CLAUDE.md`；本文件是 A1 的设计 + 实现说明。
+
+## 0. 实现相对原设计的两处偏差（实证后调整）
+
+1. **不注册 CAPABILITIES**：原 §6 计划注册 `outline_revision` capability。实证发现其真正同胞 `enable_memory`/`enable_trajectory_analysis` 根本不在 `feature_gating` 注册表——它们是纯 preset 块开关，经 preset=premium 的入口门控（`ensure_generation_preset_allowed`，premium=flagship+）**transitively** 实现 flagship 独占。A1 跟随这一既有范式，不另注册半用的 capability（更一致、更 Occam）。代价：pricing 页不会自动展示该能力（与 enable_memory 一致）。
+2. **灰度开关走 env settings 而非 SystemConfig**：跟随 `writer_fast_mode`/`writer_ultra_fast_mode` 等生成开关的既有范式，新增 `core/config.py` 的 `outline_revision_enabled`（env `OUTLINE_REVISION_ENABLED`，默认 False）。premium 块由它 gate。
 
 ## 1. 目标与意义
 
@@ -17,7 +22,7 @@
 | MVP 范围 | **纯后端注入提示**，本期不动前端（无采纳/忽略 UI） |
 | 作用方式 | **仅注入提示，绝不自动改写 `summary`**（作者意图保护，防 AI 把故意反转当漂移纠掉） |
 | review 范围 K | 后续 **3** 章（可经 SystemConfig 调） |
-| 灰度开关 | SystemConfig `quality.outline_revision_enabled`，**默认关**，灰度放量 |
+| 灰度开关 | env `OUTLINE_REVISION_ENABLED`，**默认关**，灰度放量（见 §0 偏差 2） |
 
 它**不是 A5 的翻版**（A5 是 read-only 比对），而是**伏笔流的同构体**：`提取 → 存 → 后续注入`，落点从「伏笔表」换成「大纲」。
 
@@ -72,13 +77,12 @@ generation_prompt_stage_service.py:114 旁   →  注入新段 [大纲修订提�
 
 > 注：读侧只读不写、不改 summary；建议的「消费」纯粹是 prompt 注入。
 
-## 6. 档位门控（feature_gating 单一真相源，严禁硬编码档位）
+## 6. 档位门控（实际实现 —— 见 §0 偏差 1）
 
-1. `core/feature_gating.py` `CAPABILITIES` 新增：
-   `Capability("outline_revision", "滚动细纲修订", "章节定稿后据实际内容修订后续大纲建议，对抗长篇叙事漂移。", "flagship")`
-   —— 自动驱动门控 + 定价页展示，永不漂移。
-2. 写侧触发条件 `config.enable_outline_revision`：在 `pipeline_config_service.py` 新增字段（默认 False），在 premium 块（`:171` 附近，与 `enable_memory = True` 同处）置 True；再叠加 SystemConfig `quality.outline_revision_enabled` 总开关（默认关）。
-3. `generation_policy_service.py:142` stage_flags 加 `"outline_revision": config.enable_outline_revision`（telemetry/调试可见）。
+flagship 独占**不**经 CAPABILITIES，而是跟随 `enable_memory` 的既有范式 transitively 实现：
+1. `pipeline_config_service.py` `PipelineConfig` 新增 `enable_outline_revision: bool = False`；仅 premium 块（与 `enable_memory = True` 同处）在 env 开关开启时置 True，ultra-fast 块置 False。
+2. preset=premium 本身已被入口门控 `ensure_generation_preset_allowed`（premium=flagship+）拦在 flagship，故 `enable_outline_revision` 天然 flagship 独占，无需也未注册 capability。
+3. `generation_policy_service.build_stage_flags` 加 `"outline_revision": config.enable_outline_revision`（telemetry/调试可见）。
 
 ## 7. 灰度 / 降级（核心安全约束）
 

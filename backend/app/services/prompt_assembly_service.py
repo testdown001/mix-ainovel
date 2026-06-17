@@ -254,6 +254,7 @@ class PromptAssemblyService:
         power_system_context: Optional[str] = None,
         relationship_context: Optional[str] = None,
         trajectory_context: Optional[str] = None,
+        outline_revision_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -325,6 +326,9 @@ class PromptAssemblyService:
 
         if trajectory_context:
             sections.append(("[故事轨迹分析](基于历史章节的节奏建议)", trajectory_context))
+
+        if outline_revision_context:
+            sections.append(("[大纲修订提示](前文实际走向与本章原大纲的偏差，参考调整)", outline_revision_context))
         if genre_prompt_injection and genre_weight > 0:
             sections.append(("[题材写作约束]", genre_prompt_injection))
         if fingerprint_context and ref_weight > 0:

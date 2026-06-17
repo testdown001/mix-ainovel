@@ -1,18 +1,17 @@
 # Arboris-Novel 待办（下次继续）
 
-> 更新于 2026-06-17（A5 落地后）。记录质量/RAG 路线图剩余项 + 小尾巴，供下次开工**直接上手、无需重新实证**。
+> 更新于 2026-06-17（A1 落地后）。**质量/RAG 路线图二阶段已全部完成**；仅余两个低优先小尾巴。供下次开工**直接上手、无需重新实证**。
 > 架构权威见 `CLAUDE.md`；已完成项见 `git log`。
 
 ---
 
-## 🔴 质量/RAG 路线图二阶段（剩余 1 项）
+## ✅ 质量/RAG 路线图二阶段 —— 全部完成
 
-### A1 滚动细纲修订回路  ·  最高价值 · **大工程**
-- **✅ 设计已定稿（2026-06-17）→ `docs/a1-outline-revision-design.md`**，可直接进入编码。决策：flagship 独占 / 纯后端注入提示 / 仅注入不改 summary / review 后续 K=3 章 / SystemConfig 总开关默认关。结构 = 伏笔流同构体（提取→存 outline.metadata→后续注入），零新增表。
-- **现状（已实证）**：大纲只有手动 `NovelService.update_or_create_outline`（`app/services/novel_service.py:959`），仅被 `app/api/routers/writer.py:1055/1303/1364` 手动调用；**生成完成流程不自动回写/修订后续大纲**（`pipeline_orchestrator`/`generation_finalize_service`/`generation_background_task_service`/`chapter_post_processor` 均无大纲修订）。
-- **切入点**：章节定稿后，根据本章「实际写出的内容」评估后续章节大纲是否需调整，自动（或建议式）修订。
-- **风险**：牵动核心生成流程；自动改大纲可能偏离作者意图 —— 倾向「生成修订建议」而非「静默覆盖」。务必充分设计 + 灰度。
-- **可借力 A5 的同款架构**：A5 已铺好「定稿后异步分析 → 注入后续 prompt」的降级范式（见 `EmotionDeviationService` + `TrajectoryAnalysisService.prefetch_trajectory_context`），A1 的「建议式修订」可照此模式做（自包含 + 缺数据降级 + prompt 注入/提示作者）。
+### A1 滚动细纲修订回路 · **已实现（2026-06-17）**
+- 设计+实现说明见 `docs/a1-outline-revision-design.md`（§0 记录两处偏差：不注册 CAPABILITIES 跟随 enable_memory 范式 / 灰度走 env `OUTLINE_REVISION_ENABLED` 而非 SystemConfig）。
+- 落地：新增 `OutlineRevisionService`（写侧 `review_downstream`：generate_structured 评审后续 K=3 章漂移 + merge 写 `outline.metadata.revision_hint` 防覆盖导演脚本；读侧 `build_revision_brief`：注入 `[大纲修订提示]` 段）+ `prompts/outline_revision.md` + 写侧三层挂载（write_task→门面→schedule_followups→orchestrator 三处）+ 读侧四环（prefetch→evidence_stage→prompt_stage→prompt_assembly）+ config（PipelineConfig.enable_outline_revision，premium 块由 env 开关 gate，ultra-fast 关）。
+- flagship 独占（preset=premium 入口门控 transitively 实现）/ 纯后端注入提示 / 仅注入不改 summary / 全程降级。+8 测试，后端全量 **329 passed**。
+- **灰度上线**：默认关，需在部署 env 设 `OUTLINE_REVISION_ENABLED=true` 才对 flagship 生效。
 
 ---
 
@@ -43,4 +42,6 @@
 | `9e8de95` | 质量：B4 伏笔语义化 |
 | `da5df97` | **质量：A5 情感曲线偏差校正**（规划曲线 vs CharacterState 实际情绪，偏差注入 prompt；18 测试，全量 316 passed） |
 | `60b21a7` | 清理：删零引用 emotion_analyzer_enhanced + README.ai 索引 |
-| _本次_ | 质量：故事形状分析改读 CharacterState 实际强度（修 `satisfaction_design.intensity` 恒未写入 → FLAT 退化；复用 A5 数据；321 passed） |
+| `65785de` | 质量：故事形状分析改读 CharacterState 实际强度（修 `satisfaction_design.intensity` 恒未写入 → FLAT 退化；复用 A5 数据；321 passed） |
+| `36d8201` | 文档：A1 滚动细纲修订设计定稿 |
+| _本次_ | **质量：A1 滚动细纲修订回路实现**（`OutlineRevisionService` 写/读侧 + 写侧三层挂载 + 读侧四环注入；flagship 独占 env 开关；8 测试，全量 329 passed） |

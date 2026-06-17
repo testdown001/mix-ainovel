@@ -85,6 +85,7 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
             power_system_context=None,
             relationship_context=None,
             trajectory_context=None,
+            outline_revision_context=None,
             project=SimpleNamespace(chapters=[], fusion_dna={"style_fingerprint": "冷硬"}),
             chapter_number=9,
             project_reference_novels=[SimpleNamespace()],

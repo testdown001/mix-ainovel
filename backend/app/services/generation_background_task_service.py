@@ -116,3 +116,18 @@ class GenerationBackgroundTaskService:
             chapter_content=chapter_content,
             user_id=user_id,
         )
+
+    async def run_outline_revision(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        user_id: int,
+    ) -> None:
+        await self.write_tasks.run_outline_revision(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            chapter_content=chapter_content,
+            user_id=user_id,
+        )

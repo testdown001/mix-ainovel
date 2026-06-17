@@ -689,6 +689,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _user_style_preset = evidence_stage.user_style_preset
         fingerprint_context = evidence_stage.fingerprint_context
         trajectory_context = evidence_stage.trajectory_context
+        outline_revision_context = evidence_stage.outline_revision_context
         chapter_state_context = evidence_stage.chapter_state_context
         power_system_context = evidence_stage.power_system_context
         relationship_context = evidence_stage.relationship_context
@@ -734,6 +735,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             power_system_context=power_system_context,
             relationship_context=relationship_context,
             trajectory_context=trajectory_context,
+            outline_revision_context=outline_revision_context,
             project=project,
             chapter_number=chapter_number,
             project_reference_novels=project_reference_novels,
@@ -814,6 +816,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 introduced_characters=introduced_characters,
                 user_id=user_id,
                 enable_memory=config.enable_memory,
+                enable_outline_revision=config.enable_outline_revision,
                 six_dimension_payload=six_dimension_payload,
             )
 
@@ -917,6 +920,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 introduced_characters=introduced_characters,
                 user_id=user_id,
                 enable_memory=config.enable_memory,
+                enable_outline_revision=config.enable_outline_revision,
                 stage_b_params=_stage_b_params,
             )
 
@@ -1018,6 +1022,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             introduced_characters=introduced_characters,
             user_id=user_id,
             enable_memory=config.enable_memory,
+            enable_outline_revision=config.enable_outline_revision,
             stage_b_params=_stage_b_params,
             run_post_processor=True,
         )

@@ -16,6 +16,7 @@ class GenerationPrefetchTasks:
     user_style_task: asyncio.Task
     fingerprint_task: Optional[asyncio.Task]
     writer_prompt_task: asyncio.Task
+    outline_revision_task: Optional[asyncio.Task] = None
 
 
 class GenerationPrefetchService:
@@ -147,6 +148,21 @@ class GenerationPrefetchService:
                 )
             )
 
+        outline_revision_task: Optional[asyncio.Task] = None
+        if getattr(config, "enable_outline_revision", False):
+            from .outline_revision_service import OutlineRevisionService
+
+            outline_revision_task = asyncio.create_task(
+                self.async_task_service.run_with_timeout(
+                    OutlineRevisionService().build_revision_brief(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                    ),
+                    timeout_sec=5,
+                    task_name="outline_revision",
+                )
+            )
+
         user_style_task = asyncio.create_task(
             self.async_task_service.run_with_timeout(
                 self.user_style_service.prefetch_user_style(user_id),
@@ -189,4 +205,5 @@ class GenerationPrefetchService:
             user_style_task=user_style_task,
             fingerprint_task=fingerprint_task,
             writer_prompt_task=writer_prompt_task,
+            outline_revision_task=outline_revision_task,
         )

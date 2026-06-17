@@ -140,6 +140,7 @@ class GenerationPolicyService:
             "reader_sim": config.enable_reader_sim,
             "self_critique": config.enable_self_critique,
             "memory": config.enable_memory,
+            "outline_revision": config.enable_outline_revision,
             "rag": config.enable_rag,
             "rag_mode": config.rag_mode == "two_stage",
             "scene_by_scene": config.enable_scene_by_scene,

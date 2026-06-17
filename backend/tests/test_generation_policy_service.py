@@ -50,6 +50,7 @@ def test_generation_policy_service_build_stage_flags():
         enable_reader_sim=False,
         enable_self_critique=True,
         enable_memory=True,
+        enable_outline_revision=True,
         enable_rag=True,
         rag_mode="two_stage",
         enable_scene_by_scene=False,
@@ -74,3 +75,4 @@ def test_generation_policy_service_build_stage_flags():
     assert flags["mission_brief"] is True
     assert flags["rag_mode"] is True
     assert flags["power_system"] is True
+    assert flags["outline_revision"] is True

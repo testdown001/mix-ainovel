@@ -158,6 +158,11 @@ class Settings(BaseSettings):
         env="WRITER_ULTRA_FAST_MODE",
         description="极速模式：仅保留核心生成+护栏，跳过所有后处理步骤，节省 30-60 秒",
     )
+    outline_revision_enabled: bool = Field(
+        default=False,
+        env="OUTLINE_REVISION_ENABLED",
+        description="滚动细纲修订(A1)灰度开关：开启后 flagship 档章节定稿会异步评审后续大纲漂移并产出修订建议，默认关",
+    )
     writer_literary_adaptive_postprocess: bool = Field(
         default=True,
         env="WRITER_LITERARY_ADAPTIVE_POSTPROCESS",

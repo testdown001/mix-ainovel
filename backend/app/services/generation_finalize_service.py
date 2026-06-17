@@ -53,6 +53,7 @@ class GenerationFinalizeService:
         introduced_characters: List[str],
         user_id: int,
         enable_memory: bool,
+        enable_outline_revision: bool = False,
         stage_b_params: Optional[Dict[str, Any]] = None,
         six_dimension_payload: Optional[Dict[str, Any]] = None,
         run_post_processor: bool = False,
@@ -99,6 +100,17 @@ class GenerationFinalizeService:
             )
         )
         self._track_task(task_registry, task)
+
+        if enable_outline_revision:
+            task = asyncio.create_task(
+                self.generation_background_task_service.run_outline_revision(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    chapter_content=best_content,
+                    user_id=user_id,
+                )
+            )
+            self._track_task(task_registry, task)
 
         if run_post_processor:
             task = asyncio.create_task(

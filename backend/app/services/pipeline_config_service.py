@@ -57,6 +57,7 @@ class PipelineConfig:
     enable_character_relationships: bool = False
     enable_trajectory_analysis: bool = False
     enable_temporal_state: bool = False
+    enable_outline_revision: bool = False
 
 
 class PipelineConfigService:
@@ -179,6 +180,9 @@ class PipelineConfigService:
             config.rag_mode = settings.rag_default_mode
             if getattr(settings, "enable_entity_registry", True):
                 config.enable_anti_hallucination = True
+            # A1 滚动细纲修订：flagship 独占 + env 灰度开关（默认关），仅 premium 档启用
+            if getattr(settings, "outline_revision_enabled", False):
+                config.enable_outline_revision = True
 
         # === Ultra Fast Mode（settings 级别覆盖）===
         if getattr(settings, "writer_ultra_fast_mode", False):
@@ -208,6 +212,7 @@ class PipelineConfigService:
             config.enable_foreshadowing = False
             config.enable_faction = False
             config.enable_memory = False
+            config.enable_outline_revision = False
             config.disable_guardrail_rewrite = True
             config.skip_history_summary_backfill = True
             config.use_local_anti_hallucination = True
