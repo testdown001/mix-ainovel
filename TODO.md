@@ -7,7 +7,8 @@
 
 ## 🔴 质量/RAG 路线图二阶段（剩余 1 项）
 
-### A1 滚动细纲修订回路  ·  最高价值 · **大工程** · 需充分设计（建议专门会话）
+### A1 滚动细纲修订回路  ·  最高价值 · **大工程**
+- **✅ 设计已定稿（2026-06-17）→ `docs/a1-outline-revision-design.md`**，可直接进入编码。决策：flagship 独占 / 纯后端注入提示 / 仅注入不改 summary / review 后续 K=3 章 / SystemConfig 总开关默认关。结构 = 伏笔流同构体（提取→存 outline.metadata→后续注入），零新增表。
 - **现状（已实证）**：大纲只有手动 `NovelService.update_or_create_outline`（`app/services/novel_service.py:959`），仅被 `app/api/routers/writer.py:1055/1303/1364` 手动调用；**生成完成流程不自动回写/修订后续大纲**（`pipeline_orchestrator`/`generation_finalize_service`/`generation_background_task_service`/`chapter_post_processor` 均无大纲修订）。
 - **切入点**：章节定稿后，根据本章「实际写出的内容」评估后续章节大纲是否需调整，自动（或建议式）修订。
 - **风险**：牵动核心生成流程；自动改大纲可能偏离作者意图 —— 倾向「生成修订建议」而非「静默覆盖」。务必充分设计 + 灰度。
