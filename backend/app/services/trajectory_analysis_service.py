@@ -22,6 +22,50 @@ class TrajectoryAnalysisService:
         project: Any,
         chapter_number: int,
     ) -> Optional[str]:
+        """轨迹指导文本 + 情感曲线偏差校正(A5) 合并注入 [故事轨迹分析] 段。
+
+        两部分各自独立 try/except 降级：偏差比对仅在精品档(有 CharacterState 快照)产出，
+        其余档位静默返回 None，不改变既有行为。
+        """
+        guidance_text = await self._build_guidance_text(
+            project_id=project_id, project=project, chapter_number=chapter_number
+        )
+        deviation_brief = await self._build_deviation_brief(
+            project_id=project_id, project=project, chapter_number=chapter_number
+        )
+        parts = [part for part in (guidance_text, deviation_brief) if part]
+        if not parts:
+            return None
+        return "\n\n".join(parts)
+
+    async def _build_deviation_brief(
+        self,
+        *,
+        project_id: str,
+        project: Any,
+        chapter_number: int,
+    ) -> Optional[str]:
+        """情感曲线偏差校正提示（规划曲线 vs 实际 CharacterState 情绪强度）。"""
+        try:
+            from .emotion_deviation_service import EmotionDeviationService
+
+            total_chapters = len(getattr(project, "outlines", None) or []) or 30
+            return await EmotionDeviationService().build_brief(
+                project_id=project_id,
+                total_chapters=total_chapters,
+                next_chapter=chapter_number,
+            )
+        except Exception as exc:
+            logger.warning("情感曲线偏差比对失败（不影响生成）: %s", exc)
+            return None
+
+    async def _build_guidance_text(
+        self,
+        *,
+        project_id: str,
+        project: Any,
+        chapter_number: int,
+    ) -> Optional[str]:
         try:
             cache_service = get_cache_service()
             cached_guidance = await cache_service.get(f"creative_guidance:{project_id}")
