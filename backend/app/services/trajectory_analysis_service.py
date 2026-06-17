@@ -75,7 +75,14 @@ class TrajectoryAnalysisService:
                     logger.info("项目 %s 复用创意指导缓存", project_id)
                 return text
 
-            emotion_points = self._build_emotion_points(project=project, chapter_number=chapter_number)
+            actual_intensity = await self._actual_intensity_map(
+                project_id=project_id, before_chapter=chapter_number
+            )
+            emotion_points = self._build_emotion_points(
+                project=project,
+                chapter_number=chapter_number,
+                actual_intensity=actual_intensity,
+            )
             if len(emotion_points) < 3:
                 logger.info(
                     "项目 %s 轨迹分析跳过：有效历史章节不足 (history_points=%s)",
@@ -120,11 +127,45 @@ class TrajectoryAnalysisService:
         return "\n".join(items) if items else None
 
     @staticmethod
-    def _build_emotion_points(*, project: Any, chapter_number: int) -> List[Dict[str, Any]]:
+    async def _actual_intensity_map(*, project_id: str, before_chapter: int) -> Dict[int, float]:
+        """读取已完成章节的 CharacterState 实际情绪峰值，按章号映射（复用 A5 数据）。
+
+        无数据/异常/非精品档（无 CharacterState）→ {}，调用方据此退回既有默认强度，不改变既有行为。
+        """
+        try:
+            from .emotion_deviation_service import EmotionDeviationService
+
+            curve = await EmotionDeviationService().build_actual_intensity_curve(
+                project_id, before_chapter
+            )
+        except Exception as exc:  # build_actual_intensity_curve 已自带降级，这里双保险
+            logger.warning("实际情绪曲线读取失败（轨迹分析降级为默认强度）: %s", exc)
+            return {}
+        result: Dict[int, float] = {}
+        for point in curve:
+            ch = point.get("chapter_number")
+            intensity = point.get("intensity")
+            if ch is None or intensity is None:
+                continue
+            try:
+                result[int(ch)] = float(intensity)
+            except (TypeError, ValueError):
+                continue
+        return result
+
+    @staticmethod
+    def _build_emotion_points(
+        *,
+        project: Any,
+        chapter_number: int,
+        actual_intensity: Optional[Dict[int, float]] = None,
+    ) -> List[Dict[str, Any]]:
+        actual_intensity = actual_intensity or {}
         points: List[Dict[str, Any]] = []
         chapters = sorted(getattr(project, "chapters", []) or [], key=lambda item: item.chapter_number)
         for chapter in chapters:
-            if getattr(chapter, "chapter_number", 0) >= chapter_number:
+            chapter_no = getattr(chapter, "chapter_number", 0)
+            if chapter_no >= chapter_number:
                 continue
             selected_version = getattr(chapter, "selected_version", None)
             if not selected_version:
@@ -132,8 +173,11 @@ class TrajectoryAnalysisService:
             metadata = getattr(selected_version, "metadata_", None) or {}
             mission = metadata.get("chapter_mission", {}) if isinstance(metadata, dict) else {}
             satisfaction = mission.get("satisfaction_design", {}) if isinstance(mission, dict) else {}
+            # 优先用 CharacterState 实际情绪峰值；缺则退回 mission 规划强度（当前全仓从无写入）；再退默认 5.0
             intensity = 5.0
-            if satisfaction.get("intensity"):
+            if chapter_no in actual_intensity:
+                intensity = actual_intensity[chapter_no]
+            elif satisfaction.get("intensity"):
                 intensity = float(satisfaction["intensity"])
             points.append(
                 {

@@ -16,7 +16,7 @@
 ---
 
 ## 🟡 小尾巴（低优先，可顺手）
-- **`satisfaction_design.intensity` 恒未写入（A5 衍生发现，建议跟进）**：`TrajectoryAnalysisService._build_emotion_points`（`app/services/trajectory_analysis_service.py`）读取 `selected_version.metadata_.chapter_mission.satisfaction_design.intensity`，**但全仓从无任何代码写入该字段**（`mission_builder_service` 只写 `satisfaction_design.type`）→ 实际强度恒为 5.0 → 既有「故事形状/波动性」分析长期退化为 FLAT。A5（`da5df97`）已用 CharacterState 真实情绪在其**之上**叠加偏差校正提示，但**底层形状分析仍是平的**。修法：把 `_build_emotion_points` 也改读 `EmotionDeviationService.build_actual_intensity_curve`（CharacterState 峰值）作为实际强度，一处改动同时修复形状分析 + 复用 A5 数据。注意：仅精品档(`enable_memory`)有 CharacterState，其余档位仍需降级。
+- ~~**`satisfaction_design.intensity` 恒未写入**~~ **✅ 已修复（见 git log）**：`_build_emotion_points` 新增优先读 `EmotionDeviationService.build_actual_intensity_curve`（CharacterState 实际情绪峰值）作为实际强度，缺则退回 mission 规划强度（仍从无写入）、再退默认 5.0。一处改动同时修复故事形状分析（不再恒 FLAT）+ 复用 A5 数据。无 CharacterState 的非精品档自然降级为既有 5.0 行为（无回归）。
 - **`backend/app/api/routers/README.ai`**：二进制文件（`file` 判 data，Read 工具拒读），仍含已删的 `analytics_enhanced` 过时条目，无法安全编辑。评估转为纯文本或重建。（注：`backend/app/services/README.ai` 是 UTF-8 文本，可用 sed 行删——A5 已用此法清掉 emotion_analyzer_enhanced 条目。）
 - **remote 迁移**：GitHub 提示仓库已迁移 `leanb525/mix-ainovel` → `testdown001/mix-ainovel`。确认后执行 `git remote set-url origin git@github.com:testdown001/mix-ainovel.git`。
 
@@ -42,3 +42,4 @@
 | `9e8de95` | 质量：B4 伏笔语义化 |
 | `da5df97` | **质量：A5 情感曲线偏差校正**（规划曲线 vs CharacterState 实际情绪，偏差注入 prompt；18 测试，全量 316 passed） |
 | `60b21a7` | 清理：删零引用 emotion_analyzer_enhanced + README.ai 索引 |
+| _本次_ | 质量：故事形状分析改读 CharacterState 实际强度（修 `satisfaction_design.intensity` 恒未写入 → FLAT 退化；复用 A5 数据；321 passed） |
