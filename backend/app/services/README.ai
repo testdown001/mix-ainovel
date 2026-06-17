@@ -8,7 +8,6 @@ AILIST NAME=chapter_ingest_service.py|K=file|P=章节导入服务_批量章节�
 AILIST NAME=character_knowledge_manager.py|K=file|P=角色知识管理_主角认知建模|E=CharacterKnowledgeManager|A=知识库_角色出场_认知约束
 AILIST NAME=config_service.py|K=file|P=配置服务_系统配置业务逻辑|E=ConfigService|A=配置读写
 AILIST NAME=creative_guidance_system.py|K=file|P=创意指导系统_写作建议生成|E=CreativeGuidanceSystem|A=优劣势分析_指导建议
-AILIST NAME=emotion_analyzer_enhanced.py|K=file|P=增强情感分析_多维情感识别|E=EmotionAnalyzerEnhanced|A=8种情感_叙事阶段_转折点
 AILIST NAME=foreshadowing_service.py|K=file|P=伏笔服务_伏笔管理业务逻辑|E=ForeshadowingService|A=伏笔CRUD_回收追踪
 AILIST NAME=import_service.py|K=file|P=导入服务_小说导入业务逻辑|E=ImportService|A=小说导入_格式转换
 AILIST NAME=llm_config_service.py|K=file|P=LLM配置服务_模型配置业务逻辑|E=LLMConfigService|A=配置管理_模型选择
