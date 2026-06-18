@@ -80,7 +80,7 @@ prompt() {  # prompt VAR "提示语" [默认值]
 
 info "请填写部署参数（已通过环境变量预设的项会自动跳过）"
 prompt DOMAIN              "对外域名（已解析到本机公网 IP）"
-prompt LE_EMAIL            "Let's Encrypt 通知邮箱（证书到期提醒/找回）"
+prompt LE_EMAIL            "Let's Encrypt 通知邮箱（到期提醒；某些域名的邮箱会被 LE 拒绝，可填 none 不绑邮箱）"
 prompt OPENAI_API_KEY      "LLM API Key（不填则填占位，部署后可在后台改，但无法生成章节）" "sk-PLACEHOLDER-replace-me"
 prompt OPENAI_API_BASE_URL "LLM API Base URL" "https://api.openai.com/v1"
 prompt OPENAI_MODEL_NAME   "LLM 模型名" "gpt-4o-mini"
@@ -115,6 +115,7 @@ gen() { openssl rand -hex 32; }
 if [ ! -f "$ENV_FILE" ]; then
   info "生成 $ENV_FILE（随机密钥）…"
   ADMIN_PW="Admin-$(openssl rand -hex 6)"
+  ADMIN_EMAIL="$LE_EMAIL"; case "${LE_EMAIL,,}" in ""|none|skip) ADMIN_EMAIL="admin@${DOMAIN}" ;; esac
   cat > "$ENV_FILE" <<ENVEOF
 # 由 oneclick_prod_https.sh 生成 —— 含密钥，请勿提交到 git（deploy/.env 已在 .gitignore）。
 # 应用
@@ -143,7 +144,7 @@ REDIS_URL=redis://redis:6379/0
 # 管理员（首次启动创建；请登录后立即修改）
 ADMIN_DEFAULT_USERNAME=admin
 ADMIN_DEFAULT_PASSWORD=${ADMIN_PW}
-ADMIN_DEFAULT_EMAIL=${LE_EMAIL}
+ADMIN_DEFAULT_EMAIL=${ADMIN_EMAIL}
 
 # LLM / 嵌入
 OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -183,9 +184,11 @@ else
     die "80 端口仍被占用，certbot 无法验证。请释放后重跑（ss -ltnp | grep :80 查占用）。"
   fi
   info "certbot 签发 ${DOMAIN} …（确保域名已解析到本机、80/443 已放行）"
-  certbot certonly --standalone --non-interactive --agree-tos \
-    -m "$LE_EMAIL" -d "$DOMAIN" \
-    || die "证书签发失败。排查：域名解析是否生效（dig +short $DOMAIN）、80 是否放行、是否触发 LE 频率限制。"
+  # 邮箱注册参数：填 none/skip/空则不绑邮箱（某些域名邮箱会被 LE 判定无效而拒绝注册）。
+  CERTBOT_REG=(-m "$LE_EMAIL")
+  case "${LE_EMAIL,,}" in ""|none|skip) CERTBOT_REG=(--register-unsafely-without-email) ;; esac
+  certbot certonly --standalone --non-interactive --agree-tos "${CERTBOT_REG[@]}" -d "$DOMAIN" \
+    || die "证书签发失败。常见原因：①邮箱被 LE 判定无效 → 换邮箱，或重跑时设 LE_EMAIL=none 跳过绑定；②域名未解析到本机（dig +short $DOMAIN）；③80 未放行；④触发 LE 频率限制。详见 /var/log/letsencrypt/letsencrypt.log"
   ok "证书签发成功：${CERT_DIR}"
 fi
 mkdir -p "$WEBROOT_DIR"

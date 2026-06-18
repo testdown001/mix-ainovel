@@ -170,7 +170,8 @@
       "Bash(python -m py_compile app/services/outline_revision_service.py app/services/pipeline_config_service.py app/services/generation_policy_service.py app/services/generation_write_task_service.py app/services/generation_background_task_service.py app/services/generation_finalize_service.py app/services/generation_prefetch_service.py app/services/generation_evidence_stage_service.py app/services/generation_prompt_stage_service.py app/services/prompt_assembly_service.py app/services/pipeline_orchestrator.py app/core/config.py)",
       "Bash(openssl req *)",
       "Bash(docker run *)",
-      "Bash(echo \"\\(nginx 版本：$\\(docker run --rm nginx:alpine nginx -v 2>&1\\)\\)\")"
+      "Bash(echo \"\\(nginx 版本：$\\(docker run --rm nginx:alpine nginx -v 2>&1\\)\\)\")",
+      "Bash(bash -n deploy/scripts/oneclick_prod_https.sh)"
     ]
   }
 }
