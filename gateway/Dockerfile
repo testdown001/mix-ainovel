@@ -3,6 +3,10 @@ FROM golang:1.22-alpine AS builder
 WORKDIR /app
 
 COPY go.mod go.sum ./
+# 默认走七牛 Go 模块代理（,direct 回退保证私有/未代理模块仍可直连），与本项目 pip(清华)/npm(淘宝) 国内源一致。
+# 海外构建可 docker build --build-arg GOPROXY=direct 覆盖。
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
 RUN go mod download
 
 COPY . .
