@@ -71,11 +71,13 @@ prompt() {  # prompt VAR "提示语" [默认值]
   if [ -n "$_cur" ]; then return; fi
   if [ -n "$_def" ]; then
     read -r -p "$_msg [$_def]: " _input || true
-    printf -v "$_var" '%s' "${_input:-$_def}"
+    _input="${_input:-$_def}"
   else
     while [ -z "${_input:-}" ]; do read -r -p "$_msg: " _input || true; done
-    printf -v "$_var" '%s' "$_input"
   fi
+  # 清理控制字符(如终端退格符 \x08)与首尾空白，避免脏值写入 .env / 建脏账户(曾致 /users/me 500)
+  _input="$(printf '%s' "$_input" | tr -d '[:cntrl:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  printf -v "$_var" '%s' "$_input"
 }
 
 info "请填写部署参数（已通过环境变量预设的项会自动跳过）"

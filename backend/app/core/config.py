@@ -424,6 +424,15 @@ class Settings(BaseSettings):
         if candidate not in {"mysql", "sqlite"}:
             raise ValueError("DB_PROVIDER 仅支持 mysql 或 sqlite")
         return candidate
+
+    @validator("admin_default_email", pre=True)
+    def _clean_admin_email(cls, value):
+        """清理管理员邮箱中的控制字符/空白（如终端退格符 \\x08）。脏值会被 init_db 写入
+        users.email，再触发 /users/me 的 EmailStr 校验抛 500。清理后为空则回退 None（字段可空）。"""
+        if isinstance(value, str):
+            return "".join(ch for ch in value if ch.isprintable() and not ch.isspace()) or None
+        return value
+
     @validator("embedding_provider", pre=True)
     def _normalize_embedding_provider(cls, value: Optional[str]) -> str:
         """限制嵌入模型提供方的取值范围。"""
