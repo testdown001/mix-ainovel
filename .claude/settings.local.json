@@ -143,7 +143,31 @@
       "Bash(echo \"GO_BUILD=$?\")",
       "Bash(echo \"VET_EXIT=$?\")",
       "Bash(echo \"BUILD_EXIT=$?\")",
-      "Bash(go test *)"
+      "Bash(go test *)",
+      "mcp__jina__parallel_search_web",
+      "mcp__jina__parallel_search_arxiv",
+      "mcp__jina__read_url",
+      "mcp__jina__search_arxiv",
+      "Bash(grep -n \"root\\\\s\\\\|try_files\\\\|/usr/share/nginx/html\" deploy/nginx.conf)",
+      "Bash(grep -rln \"root \\\\|try_files\\\\|nginx/html\\\\|location /\" deploy/scripts/)",
+      "Bash(grep -c \"gateway\" deploy/docker-compose.yml)",
+      "Bash(git -C /home/aikev/code/arboris-novel add backend/app/main.py backend/app/core/config.py deploy/nginx.standalone.conf deploy/Dockerfile deploy/nginx.conf deploy/.env.example README.md AGENTS.md docs/RELEASE-2026-06-11.md docs/celery-deployment-guide.md)",
+      "Bash(git -C /home/aikev/code/arboris-novel commit -m 'fix\\(deploy\\): 打通前端静态服务 + 修正两栈装配缺陷 + 文档同步' -m '实证发现 deploy/ 配置从未端到端验证，修复 5 类「部署后打不开」硬缺陷： *)",
+      "Bash(git -C /home/aikev/code/arboris-novel log -1 --stat)",
+      "Bash(git -C /home/aikev/code/arboris-novel status --short)",
+      "Bash(git -C /home/aikev/code/arboris-novel add backend/tests/test_payment_alipay_wechat.py)",
+      "Bash(git -C /home/aikev/code/arboris-novel commit -m 'test\\(payment\\): 补支付宝/微信回调验签测试，闭合支付盲区' -m '新增 tests/test_payment_alipay_wechat.py（8 用例，照 test_payment_stripe.py 模式）： *)",
+      "Bash(git -C /home/aikev/code/arboris-novel log -1 --oneline --stat)",
+      "Bash(go version *)",
+      "Bash(ls node_modules/.bin/vitest)",
+      "Bash(grep -iE \"environment|jsdom|globals\" vitest.config.ts)",
+      "Bash(git -C /home/aikev/code/arboris-novel add frontend/src/api/payment.spec.ts)",
+      "Bash(git -C /home/aikev/code/arboris-novel commit -m 'test\\(frontend\\): 补 paymentApi.getSubscription 订阅推导单测' -m '覆盖订阅状态由 /api/quota/me 推导的 4 分支：非会员→null、会员→active+档位+到期时间、缺到期时间→current_period_end=null、请求异常容错→null。mock ./http 出口；前端 9 passed + vue-tsc 通过。' -m 'Co-Authored-By: Claude Opus 4.8 \\(1M context\\) <noreply@anthropic.com>')",
+      "Bash(git -C /home/aikev/code/arboris-novel log --oneline -4)",
+      "Bash(git *)",
+      "Bash(grep -rn \"intensity\" app/services/mission_builder_service.py)",
+      "Bash(grep -rn \"build_actual_intensity_curve\\\\|def build\" app/services/emotion_deviation_service.py)",
+      "Bash(python -m py_compile app/services/outline_revision_service.py app/services/pipeline_config_service.py app/services/generation_policy_service.py app/services/generation_write_task_service.py app/services/generation_background_task_service.py app/services/generation_finalize_service.py app/services/generation_prefetch_service.py app/services/generation_evidence_stage_service.py app/services/generation_prompt_stage_service.py app/services/prompt_assembly_service.py app/services/pipeline_orchestrator.py app/core/config.py)"
     ]
   }
 }
