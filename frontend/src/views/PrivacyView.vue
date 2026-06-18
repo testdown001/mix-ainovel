@@ -11,7 +11,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
           </svg>
         </div>
-        <span class="text-lg font-bold text-white" style="font-family:'Space Grotesk',sans-serif;">章鱼AI写作</span>
+        <span class="text-lg font-bold text-white" style="font-family:'Space Grotesk',sans-serif;">Octopus AI Novel</span>
       </div>
       <button @click="router.go(-1)" class="flex items-center gap-1.5 text-sm transition-colors" style="color:#666;"
         @mouseenter="($event.currentTarget as HTMLElement).style.color='#fff'"
@@ -34,7 +34,7 @@
 
         <section>
           <h2 class="text-base font-semibold text-white mb-3">1. 概述</h2>
-          <p>章鱼AI写作 非常重视您的隐私。本隐私政策说明我们如何收集、使用、存储和保护您的个人信息。使用本平台即表示您同意本政策的内容。</p>
+          <p>Octopus AI Novel 非常重视您的隐私。本隐私政策说明我们如何收集、使用、存储和保护您的个人信息。使用本平台即表示您同意本政策的内容。</p>
         </section>
 
         <section>
@@ -115,7 +115,7 @@
 
         <section>
           <h2 class="text-base font-semibold text-white mb-3">10. 联系我们</h2>
-          <p>如对本隐私政策有任何疑问或行使您的数据权利，请联系：<br><span style="color:#FFE500;">privacy@arborisnovel.com</span></p>
+          <p>如对本隐私政策有任何疑问或行使您的数据权利，请联系：<br><span style="color:#FFE500;">privacy@octopusainovel.com</span></p>
         </section>
 
       </div>

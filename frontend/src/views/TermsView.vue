@@ -11,7 +11,7 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
           </svg>
         </div>
-        <span class="text-lg font-bold text-white" style="font-family:'Space Grotesk',sans-serif;">章鱼AI写作</span>
+        <span class="text-lg font-bold text-white" style="font-family:'Space Grotesk',sans-serif;">Octopus AI Novel</span>
       </div>
       <button @click="router.go(-1)" class="flex items-center gap-1.5 text-sm transition-colors" style="color:#666;"
         @mouseenter="($event.currentTarget as HTMLElement).style.color='#fff'"
@@ -34,12 +34,12 @@
 
         <section>
           <h2 class="text-base font-semibold text-white mb-3">1. 接受条款</h2>
-          <p>欢迎使用 章鱼AI写作（以下简称"本平台"）。访问或使用本平台，即表示您同意受本服务条款约束。如您不同意任何条款，请停止使用本平台。</p>
+          <p>欢迎使用 Octopus AI Novel（以下简称"本平台"）。访问或使用本平台，即表示您同意受本服务条款约束。如您不同意任何条款，请停止使用本平台。</p>
         </section>
 
         <section>
           <h2 class="text-base font-semibold text-white mb-3">2. 服务说明</h2>
-          <p class="mb-3">章鱼AI写作 是一个 AI 驱动的中文网络小说创作平台，提供以下核心服务：</p>
+          <p class="mb-3">Octopus AI Novel 是一个 AI 驱动的中文网络小说创作平台，提供以下核心服务：</p>
           <ul class="space-y-2 pl-4">
             <li class="flex items-start gap-2"><span style="color:#FFE500; margin-top:5px;">•</span><span>基于自创先进多 Agent 架构的 AI 辅助创作</span></li>
             <li class="flex items-start gap-2"><span style="color:#FFE500; margin-top:5px;">•</span><span>灵感生成、大纲规划、章节写作等创作工具</span></li>
@@ -90,7 +90,7 @@
 
         <section>
           <h2 class="text-base font-semibold text-white mb-3">9. 联系我们</h2>
-          <p>如对本服务条款有任何疑问，请通过以下方式联系我们：<br><span style="color:#FFE500;">support@arborisnovel.com</span></p>
+          <p>如对本服务条款有任何疑问，请通过以下方式联系我们：<br><span style="color:#FFE500;">support@octopusainovel.com</span></p>
         </section>
 
       </div>

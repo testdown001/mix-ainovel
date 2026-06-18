@@ -550,9 +550,9 @@ const showPredictionRequestModal = ref(false)
 const showSkillSelector = ref(false)
 const showSkillApplyModal = ref(false)
 const showSkillPreviewModal = ref(false)
-const storedPreset = localStorage.getItem('arboris_preset')
+const storedPreset = localStorage.getItem('octopus_preset')
 const selectedPreset = ref<WritingPreset>(isWritingPreset(storedPreset) ? storedPreset : 'fast')
-const storedWorkbenchMode = localStorage.getItem('arboris_workbench_mode')
+const storedWorkbenchMode = localStorage.getItem('octopus_workbench_mode')
 const professionalMode = ref(storedWorkbenchMode === 'professional')
 const predictionTargetChapter = ref<number | null>(null)
 const predictionExclusions = ref('')
@@ -564,7 +564,7 @@ const skillApplyPreview = ref<{
   transformedContent: string
 } | null>(null)
 function confirmPreset() {
-  localStorage.setItem('arboris_preset', selectedPreset.value)
+  localStorage.setItem('octopus_preset', selectedPreset.value)
   showPresetSelector.value = false
 }
 
@@ -575,7 +575,7 @@ async function openPresetSelector() {
 
 const setProfessionalMode = (enabled: boolean) => {
   professionalMode.value = enabled
-  localStorage.setItem('arboris_workbench_mode', enabled ? 'professional' : 'guided')
+  localStorage.setItem('octopus_workbench_mode', enabled ? 'professional' : 'guided')
 }
 
 type DiagnosticAction =
