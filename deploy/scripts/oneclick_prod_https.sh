@@ -123,7 +123,7 @@ SECRET_KEY=$(gen)
 ENVIRONMENT=production
 DEBUG=false
 LOGGING_LEVEL=INFO
-FORCE_HTTPS_REDIRECT=true
+FORCE_HTTPS_REDIRECT=false
 CORS_ORIGINS=https://${DOMAIN}
 
 # 生产栈内部任务回调密钥（网关↔后端，两侧自动一致）
@@ -295,10 +295,14 @@ cat > "$HTTPS_COMPOSE" <<OVREOF
 # 自动生成（oneclick_prod_https.sh）—— 叠加在 docker-compose.prod.yml 之上，启用 HTTPS 并修正接线。
 services:
   app:
+    deploy:
+      replicas: 1            # 单副本：避免多副本并发跑 init_db 建表撞 DDL（错误 1684）
     environment:
-      FORCE_HTTPS_REDIRECT: "true"
+      FORCE_HTTPS_REDIRECT: "false"   # nginx 已做 80→443 跳转，app 层不再重定向（否则容器内 HTTP 健康探针被 307）
       CORS_ORIGINS: "https://${DOMAIN}"
   gateway:
+    deploy:
+      replicas: 1            # nginx 上游 server gateway:3000 静态解析只连一个，多副本无意义
     environment:
       # 关键修正：网关反代目标改为 app 容器内 nginx(80)，而非绑回环的 uvicorn(8000)。
       GATEWAY_BACKEND_FASTAPI_URL: "http://app:80"

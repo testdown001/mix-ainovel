@@ -60,7 +60,7 @@ class ChapterReview(Base):
 
     # 关联章节版本
     chapter_version_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
+        BIGINT_PK_TYPE, ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
