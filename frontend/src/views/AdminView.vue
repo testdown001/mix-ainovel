@@ -14,7 +14,7 @@
       >
         <div class="sider-header">
           <span class="logo" v-if="!collapsed">
-            <span class="logo-accent">✦</span> Arboris 管理台
+            <span class="logo-accent">✦</span> 章鱼AI写作 管理台
           </span>
           <span class="logo-small" v-else>管理</span>
         </div>

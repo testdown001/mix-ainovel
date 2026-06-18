@@ -8,7 +8,7 @@
       <div class="sidebar-brand">
         <div class="brand-logo">
           <span class="brand-accent">✦</span>
-          <span class="brand-name">Arboris Novel</span>
+          <span class="brand-name">章鱼AI写作</span>
         </div>
         <div class="brand-badge">💡 灵感模式</div>
       </div>

@@ -153,7 +153,7 @@ const stats = [
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
             </svg>
           </div>
-          <span class="text-xl font-bold tracking-tight" style="font-family:'Space Grotesk',sans-serif;">Arboris Novel</span>
+          <span class="text-xl font-bold tracking-tight" style="font-family:'Space Grotesk',sans-serif;">章鱼AI写作</span>
         </div>
 
         <!-- Desktop Nav -->
@@ -241,7 +241,7 @@ const stats = [
 
         <!-- Subheadline -->
         <p class="text-lg mb-10 max-w-2xl mx-auto" style="color:#888888; line-height:1.7;">
-          Arboris Novel 用我们自创的先进多 Agent 架构，帮你突破创作瓶颈——
+          章鱼AI写作 用我们自创的先进多 Agent 架构，帮你突破创作瓶颈——
           从灵感到定稿，全流程 AI 加持，让日更 5000 字成为常态。
         </p>
 
@@ -540,7 +540,7 @@ const stats = [
           你的第一部百万字<br>长篇，从今天开始
         </h2>
         <p class="text-base mb-10 max-w-md mx-auto" style="color:#666;">
-          加入已有 10,000+ 创作者的 Arboris Novel，用 AI 的力量释放你的故事。
+          加入已有 10,000+ 创作者的 章鱼AI写作，用 AI 的力量释放你的故事。
         </p>
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button @click="goStart"
@@ -568,7 +568,7 @@ const stats = [
               <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:#FFE500;">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#000;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
               </div>
-              <span class="font-bold" style="font-family:'Space Grotesk',sans-serif;">Arboris Novel</span>
+              <span class="font-bold" style="font-family:'Space Grotesk',sans-serif;">章鱼AI写作</span>
             </div>
             <p class="text-xs leading-relaxed" style="color:#444;">AI驱动的中国网络小说创作平台，用自创先进多 Agent 架构助力每一位创作者。</p>
           </div>
@@ -599,7 +599,7 @@ const stats = [
           </div>
         </div>
         <div class="flex flex-col md:flex-row items-center justify-between gap-3 pt-6" style="border-top:1px solid #141414;">
-          <p class="text-xs" style="color:#333;">© 2025 Arboris Novel. 保留所有权利。</p>
+          <p class="text-xs" style="color:#333;">© 2025 章鱼AI写作. 保留所有权利。</p>
           <p class="text-xs" style="color:#333;">Powered by AI · 自创先进多 Agent 协作架构</p>
         </div>
       </div>
