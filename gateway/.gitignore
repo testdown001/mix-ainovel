@@ -17,8 +17,8 @@ vendor/
 # Go workspace file
 go.work
 
-# Binary output
-gateway
+# Binary output（锚定到本目录根级，避免误伤 cmd/gateway/ 源码目录）
+/gateway
 arboris-gateway
 
 # Config files with secrets

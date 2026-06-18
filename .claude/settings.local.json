@@ -171,7 +171,8 @@
       "Bash(openssl req *)",
       "Bash(docker run *)",
       "Bash(echo \"\\(nginx 版本：$\\(docker run --rm nginx:alpine nginx -v 2>&1\\)\\)\")",
-      "Bash(bash -n deploy/scripts/oneclick_prod_https.sh)"
+      "Bash(bash -n deploy/scripts/oneclick_prod_https.sh)",
+      "Bash(base64 -w0 gateway/cmd/gateway/main.go)"
     ]
   }
 }
