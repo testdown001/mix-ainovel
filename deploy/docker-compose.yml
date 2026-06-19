@@ -12,6 +12,9 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DEBUG: ${DEBUG:-false}
       LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
+      # TLS 在前置 nginx/LB 层终止；以 HTTP 对外时必须为 false，否则 FastAPI(生产模式)
+      # 会把请求 307 跳到不存在的 https 导致全站打不开（与 docker-compose.prod.yml 一致）。
+      FORCE_HTTPS_REDIRECT: ${FORCE_HTTPS_REDIRECT:-false}
 
       DB_PROVIDER: ${DB_PROVIDER:-mysql}
 
