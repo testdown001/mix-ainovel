@@ -1,8 +1,33 @@
-<!-- AIMETA P=登录方式配置_后台|R=微信/谷歌/手机短信登录配置|NR=不含登录逻辑|E=component:LoginAuthConfig|X=ui|A=配置面板|D=vue,naive-ui|S=net|RD=./README.ai -->
+<!-- AIMETA P=登录方式配置_后台|R=邮件SMTP/微信/谷歌/手机短信登录配置|NR=不含登录逻辑|E=component:LoginAuthConfig|X=ui|A=配置面板|D=vue,naive-ui|S=net|RD=./README.ai -->
 <template>
   <div class="login-auth-config">
     <n-spin :show="loading">
       <n-space vertical :size="20">
+        <!-- 邮件服务（SMTP）—— 注册 / 找回密码验证码 -->
+        <n-card title="邮件服务（SMTP）" size="small">
+          <n-alert type="info" :show-icon="false" style="margin-bottom:12px">
+            注册与找回密码的邮箱验证码依赖此配置，5 项需全部填写后才会生效（缺任一项注册会提示「未配置邮件服务」）。
+          </n-alert>
+          <n-form label-placement="left" label-width="120">
+            <n-form-item label="SMTP 服务器">
+              <n-input v-model:value="form['smtp.server']" placeholder="如 smtp.qq.com / smtp.gmail.com / smtp.feishu.cn" />
+            </n-form-item>
+            <n-form-item label="端口">
+              <n-input v-model:value="form['smtp.port']" placeholder="465（SSL）或 587（STARTTLS）" />
+            </n-form-item>
+            <n-form-item label="发信账号">
+              <n-input v-model:value="form['smtp.username']" placeholder="发信邮箱完整账号" />
+            </n-form-item>
+            <n-form-item label="授权码 / 密码">
+              <n-input v-model:value="form['smtp.password']" type="password" show-password-on="click" placeholder="邮箱 SMTP 授权码（多数邮箱非登录密码）" />
+            </n-form-item>
+            <n-form-item label="发件人">
+              <n-input v-model:value="form['smtp.from']" placeholder="发件人地址，一般与发信账号相同" />
+            </n-form-item>
+            <n-button type="primary" :loading="saving === 'smtp'" @click="saveGroup('smtp', smtpKeys)">保存邮件配置</n-button>
+          </n-form>
+        </n-card>
+
         <!-- 微信登录 -->
         <n-card title="微信登录（网站应用扫码）" size="small">
           <template #header-extra>
@@ -96,11 +121,13 @@ const boolKeys = ['auth.wechat_enabled', 'auth.google_enabled', 'auth.phone_enab
 const wechatKeys = ['auth.wechat_enabled', 'wechat.app_id', 'wechat.app_secret', 'wechat.redirect_uri']
 const googleKeys = ['auth.google_enabled', 'google.client_id', 'google.client_secret', 'google.redirect_uri']
 const phoneKeys = ['auth.phone_enabled', 'sms.provider', 'sms.access_key_id', 'sms.access_key_secret', 'sms.sign_name', 'sms.template_code', 'sms.region']
-const allKeys = [...new Set([...wechatKeys, ...googleKeys, ...phoneKeys])]
+const smtpKeys = ['smtp.server', 'smtp.port', 'smtp.username', 'smtp.password', 'smtp.from']
+const allKeys = [...new Set([...wechatKeys, ...googleKeys, ...phoneKeys, ...smtpKeys])]
 
 const form = reactive<Record<string, any>>({})
 for (const k of allKeys) form[k] = boolKeys.includes(k) ? false : ''
 form['sms.provider'] = 'mock'
+form['smtp.port'] = '465'
 
 const parseBool = (v: string) => ['1', 'true', 'yes', 'on'].includes((v || '').toLowerCase())
 
