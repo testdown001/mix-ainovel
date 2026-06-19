@@ -62,6 +62,7 @@ class StandardGenerationFlowService:
         genre_profile: Optional[Dict[str, Any]],
         history_context: Dict[str, Any],
         mark_stage: Optional[Callable[[str, float], None]] = None,
+        deadline: Optional[float] = None,
     ) -> StandardGenerationFlowResult:
         version_count = config.version_count
 
@@ -126,6 +127,7 @@ class StandardGenerationFlowService:
                 outline_title=outline_title,
                 forbidden_characters=forbidden_characters,
                 allowed_new_characters=allowed_new_characters,
+                deadline=deadline,
             )
             best_content = post_result["best_content"]
             review_summaries = post_result["review_summaries"]

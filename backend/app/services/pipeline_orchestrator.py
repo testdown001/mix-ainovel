@@ -971,6 +971,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         # ========== 标准模式：多版本并行生成 ==========
         await _emit_stage("generate_versions", "多版本生成中")
+        # 关键路径软预算：从生成总起点(total_started, perf_counter)起算，超过即让后处理链
+        # 跳过剩余可选步骤、带当前最佳稿返回，避免后处理把整章拖到 600s 硬超时而全盘失败。
+        _budget_sec = getattr(settings, "generation_time_budget_sec", 0) or 0
+        postproc_deadline = (total_started + _budget_sec) if _budget_sec > 0 else None
         standard_result = await self.standard_generation_flow_service.run(
             prompt_input=prompt_input,
             writer_prompt=writer_prompt,
@@ -992,6 +996,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             genre_profile=genre_profile,
             history_context=history_context,
             mark_stage=_mark_stage,
+            deadline=postproc_deadline,
         )
         version_count = config.version_count
         versions = standard_result.versions

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
+import time
 from typing import Any, Dict, Optional
 
 from .writer_shared import rewrite_with_guardrails as _shared_rewrite_with_guardrails
@@ -37,30 +38,46 @@ class StandardPostProcessingService:
         outline_title: str,
         forbidden_characters: list[str],
         allowed_new_characters: list[str],
+        deadline: Optional[float] = None,
     ) -> Dict[str, Any]:
         orchestrator = self.orchestrator
         stage_timings_ms: Dict[str, int] = {}
 
+        # 关键路径软预算：deadline 为 perf_counter 时间戳（None=不限）。每个可选后处理步骤
+        # 前检查，越过预算即跳过该步及后续可选步骤，带"当前最佳稿"继续，避免拖到硬超时全盘失败。
+        skipped_for_budget: list[str] = []
+
+        def _over_budget() -> bool:
+            return deadline is not None and time.perf_counter() >= deadline
+
         has_review_feedback = bool(ai_review_result and (ai_review_result.get("flaws") or ai_review_result.get("suggestions")))
         if has_review_feedback or config.enable_self_critique:
-            best_content, combined_report = await orchestrator._run_combined_revision(
-                best_content,
-                critical_flaws=(ai_review_result.get("flaws") or []) if ai_review_result else [],
-                refinement_suggestions=(ai_review_result.get("suggestions") or "") if ai_review_result else "",
-                enable_self_critique=config.enable_self_critique,
-                chapter_mission=chapter_mission,
-                user_id=user_id,
-                context={
-                    "character_profiles": json.dumps(writer_blueprint.get("characters", []), ensure_ascii=False),
-                    "previous_summary": history_context["previous_summary"],
-                },
-                max_word_count=chapter_word_count_max,
-            )
-            review_summaries["combined_revision"] = combined_report
+            if _over_budget():
+                skipped_for_budget.append("combined_revision")
+            else:
+                best_content, combined_report = await orchestrator._run_combined_revision(
+                    best_content,
+                    critical_flaws=(ai_review_result.get("flaws") or []) if ai_review_result else [],
+                    refinement_suggestions=(ai_review_result.get("suggestions") or "") if ai_review_result else "",
+                    enable_self_critique=config.enable_self_critique,
+                    chapter_mission=chapter_mission,
+                    user_id=user_id,
+                    context={
+                        "character_profiles": json.dumps(writer_blueprint.get("characters", []), ensure_ascii=False),
+                        "previous_summary": history_context["previous_summary"],
+                    },
+                    max_word_count=chapter_word_count_max,
+                )
+                review_summaries["combined_revision"] = combined_report
 
         consistency_enabled = config.enable_consistency
         humanization_enabled = config.enable_humanization
-        if consistency_enabled and humanization_enabled:
+        if (consistency_enabled or humanization_enabled) and _over_budget():
+            if consistency_enabled:
+                skipped_for_budget.append("consistency")
+            if humanization_enabled:
+                skipped_for_budget.append("humanization")
+        elif consistency_enabled and humanization_enabled:
             async def _do_consistency():
                 return await orchestrator._run_consistency_check(
                     project_id=project_id,
@@ -147,6 +164,17 @@ class StandardPostProcessingService:
         optimizer_enabled = config.enable_optimizer
         enrichment_enabled = config.enable_enrichment and not optimizer_enabled
         polish_only = config.enable_polish and not optimizer_enabled
+        density_enabled = config.enable_density_compression
+        if _over_budget():
+            if optimizer_enabled:
+                skipped_for_budget.append("optimizer")
+            if polish_only:
+                skipped_for_budget.append("polish")
+            if enrichment_enabled:
+                skipped_for_budget.append("enrichment")
+            if density_enabled:
+                skipped_for_budget.append("density_compression")
+            optimizer_enabled = enrichment_enabled = polish_only = density_enabled = False
         if optimizer_enabled:
             merge_polish = config.enable_polish
             merge_density = (
@@ -186,7 +214,7 @@ class StandardPostProcessingService:
             if enrichment_report:
                 review_summaries["enrichment"] = enrichment_report
 
-        if config.enable_density_compression and not (
+        if density_enabled and not (
             optimizer_enabled and review_summaries.get("density_compression", {}).get("merged_into_optimizer")
         ):
             current_len = len(best_content)
@@ -200,7 +228,10 @@ class StandardPostProcessingService:
                 )
                 review_summaries["density_compression"] = density_report
 
-        if enhanced_flow and config.enable_six_dimension:
+        if enhanced_flow and config.enable_six_dimension and _over_budget():
+            skipped_for_budget.append("six_dimension")
+            review_summaries["enhanced_review"] = {"status": "skipped_for_budget"}
+        if enhanced_flow and config.enable_six_dimension and not _over_budget():
             from ..services.six_dimension_review_service import SixDimensionReviewService
             from ..services.constitution_service import ConstitutionService
             from ..services.writer_persona_service import WriterPersonaService
@@ -276,7 +307,7 @@ class StandardPostProcessingService:
                     allowed_new_characters=allowed_new_characters,
                     pov=chapter_mission.get("pov") if chapter_mission else None,
                 )
-                if not recheck.passed:
+                if not recheck.passed and not _over_budget():
                     violations_text = orchestrator.guardrails.format_violations_for_rewrite(recheck)
                     best_content = await _shared_rewrite_with_guardrails(
                         orchestrator.llm_service,
@@ -286,10 +317,20 @@ class StandardPostProcessingService:
                         violations_text=violations_text,
                         user_id=user_id,
                     )
+                elif not recheck.passed:
+                    # 越预算：保留已应用的本地补丁，跳过慢的 LLM 重写
+                    skipped_for_budget.append("guardrail_rewrite")
                 best_guardrail_meta["final_guardrail_applied"] = True
             else:
                 best_guardrail_meta["deferred_llm_rewrite"] = False
                 best_guardrail_meta["resolved_by_postprocess"] = True
+
+        if skipped_for_budget:
+            logger.warning(
+                "生成超时间预算，已跳过后处理步骤以保证按时返回(避免 600s 硬超时): %s",
+                skipped_for_budget,
+            )
+            review_summaries["time_budget"] = {"exceeded": True, "skipped": skipped_for_budget}
 
         best_version["content"] = best_content
         best_version.setdefault("metadata", {})["review_summaries"] = review_summaries

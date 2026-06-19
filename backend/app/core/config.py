@@ -158,6 +158,15 @@ class Settings(BaseSettings):
         env="WRITER_ULTRA_FAST_MODE",
         description="极速模式：仅保留核心生成+护栏，跳过所有后处理步骤，节省 30-60 秒",
     )
+    generation_time_budget_sec: int = Field(
+        default=540,
+        env="GENERATION_TIME_BUDGET_SEC",
+        description=(
+            "单章生成关键路径软预算(秒)。后处理链每步前检查，越过预算即跳过剩余可选后处理"
+            "(修订/一致性/人味化/优化/润色/扩写/压缩/六维审查/护栏 LLM 重写)、带当前最佳稿返回，"
+            "避免触发前端/网关 600s 硬超时致全盘失败。默认 540(留 60s 余量)；<=0 关闭预算"
+        ),
+    )
     outline_revision_enabled: bool = Field(
         default=False,
         env="OUTLINE_REVISION_ENABLED",
