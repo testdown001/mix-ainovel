@@ -299,7 +299,9 @@ const handleSave = async () => {
       is_active: form.is_active,
       sort_order: form.sort_order
     }
-    if (isEdit.value) {
+    // 默认套餐（DEFAULT_PLANS 兜底）id 是字符串档位名、非真实数据行，
+    // 编辑它实为首次落库，故按创建处理，避免 PUT /api/plans/{非整数} 422。
+    if (isEdit.value && typeof form.id === 'number') {
       await plansApi.update(form.id, payload)
       message.success('套餐已更新')
     } else {

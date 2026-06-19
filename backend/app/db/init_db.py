@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from ..core.config import settings
 from ..core.security import hash_password
-from ..models import Prompt, SystemConfig, User, WritingTemplate
+from ..models import Plan, Prompt, SystemConfig, User, WritingTemplate
 from .base import Base
 from .system_config_defaults import SYSTEM_CONFIG_DEFAULTS
 from .session import AsyncSessionLocal, engine
@@ -100,6 +100,8 @@ async def init_db() -> None:
             )
 
         await _ensure_default_prompts(session)
+
+        await _ensure_default_plans(session)
 
         await session.commit()
 
@@ -245,6 +247,40 @@ async def _ensure_schema_updates() -> None:
             _ensure_index("chapter_outlines", "ix_chapter_outlines_project_chapter",
                           ["project_id", "chapter_number"])
         await conn.run_sync(_upgrade)
+
+
+async def _ensure_default_plans(session: AsyncSession) -> None:
+    """套餐表为空时落库三档默认套餐（free/creator/flagship）。
+
+    DEFAULT_PLANS 此前仅作接口的展示兜底（其 id 为字符串档位名），不是真实数据行，
+    导致后台「会员套餐」的编辑/上下架/删除（按数字主键 PUT /api/plans/{int} 操作）必然
+    422。首次启动落库一次使其成为可编辑的真实行；已存在任何套餐则不动（幂等）。
+    """
+    import json
+
+    from ..api.routers.plans import DEFAULT_PLANS
+
+    existing = await session.execute(select(Plan).limit(1))
+    if existing.scalars().first():
+        return
+
+    for item in DEFAULT_PLANS:
+        session.add(
+            Plan(
+                name=item["name"],
+                description=item.get("description"),
+                price=item["price"],
+                period=item["period"],
+                daily_chapter_limit=item["daily_chapter_limit"],
+                max_novels=item["max_novels"],
+                tier=item["tier"],
+                features=json.dumps(item.get("features") or [], ensure_ascii=False),
+                is_recommended=item.get("is_recommended", False),
+                is_active=item.get("is_active", True),
+                sort_order=item.get("sort_order", 0),
+            )
+        )
+    logger.info("套餐表为空，已落库 %d 个默认会员套餐", len(DEFAULT_PLANS))
 
 
 async def _ensure_default_prompts(session: AsyncSession) -> None:
