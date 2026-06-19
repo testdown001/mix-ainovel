@@ -241,7 +241,14 @@
           >
             {{ isDiverging ? '✨ 缪斯发散中…' : '✨ 给我 5 个狂点子' }}
           </button>
+          <!-- 缪斯发散中：隐藏并禁用选项/输入/发送，改显发散进度状态 -->
+          <InlineProgress
+            v-if="isDiverging"
+            label="缪斯正在发散 5 个迥异方向并打分…"
+            hint="发散需两次模型调用（先生成、再评分），稍慢属正常，请勿离开页面。"
+          />
           <ConversationInput
+            v-else
             :ui-control="currentUIControl"
             :loading="novelStore.isLoading"
             @submit="handleUserInput"
@@ -260,6 +267,7 @@ import { useNovelStore } from '@/stores/novel'
 import { NovelAPI, type ReferenceNovelSummary, type UIControl, type Blueprint, type MusePersona, type DivergeSeed } from '@/api/novel'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConversationInput from '@/components/ConversationInput.vue'
+import InlineProgress from '@/components/InlineProgress.vue'
 import BlueprintConfirmation from '@/components/BlueprintConfirmation.vue'
 import BlueprintDisplay from '@/components/BlueprintDisplay.vue'
 import InspirationLoading from '@/components/InspirationLoading.vue'
