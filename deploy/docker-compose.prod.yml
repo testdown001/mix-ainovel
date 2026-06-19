@@ -40,8 +40,10 @@ services:
         reservations:
           cpus: '0.5'
           memory: 256M
-    ports:
-      - "3000:3000"
+    # 不发布宿主端口：replicas>1 时多副本会抢同一宿主端口导致只起一个、up 中断、nginx 连带起不来。
+    # 前置 nginx 经内网 DNS（upstream go_gateway → gateway:3000）轮询访问各副本，无需对外暴露 3000。
+    expose:
+      - "3000"
     environment:
       GATEWAY_SERVER_HOST: "0.0.0.0"
       GATEWAY_SERVER_PORT: "3000"
