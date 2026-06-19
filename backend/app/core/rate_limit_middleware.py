@@ -27,6 +27,18 @@ logger = logging.getLogger(__name__)
 # 免限流路径
 _SKIP_PATHS = frozenset(["/health", "/api/health", "/docs", "/openapi.json"])
 
+# 前端静态资源前缀/后缀：当 FastAPI 直接服务前端 dist 时（main.py 的 SPA 挂载），
+# 浏览器加载 SPA 会并发拉取大量 /assets/*.js|css 分片，且这些请求不携带 JWT，
+# 会全部落到 IP 级限流（ip_rps）从而被误判为 429。静态资源无需限流，直接放行。
+# 这与 Go 网关只对 /api 分组挂限流（gateway/cmd/gateway/main.go）的策略保持一致。
+_STATIC_PREFIXES = ("/assets/",)
+_STATIC_SUFFIXES = (
+    ".js", ".mjs", ".css", ".map",
+    ".ico", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".avif",
+    ".woff", ".woff2", ".ttf", ".eot",
+    ".txt", ".webmanifest",
+)
+
 # 敏感端点（登录/注册）使用更严格的 IP 限流
 _AUTH_PATHS = frozenset(["/api/auth/token", "/api/auth/users", "/api/auth/send-code", "/api/auth/reset-password", "/api/auth/phone/send-code", "/api/auth/phone/login"])
 _GENERAL_RPM_CONFIG_KEY = "rate_limit.requests_per_minute"
@@ -55,6 +67,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.user_rps = 10
         self.ip_rps = 5
         self.auth_rpm = 5  # 敏感端点每分钟最多 5 次
+
+    @staticmethod
+    def _is_static_asset(path: str) -> bool:
+        """前端静态资源请求（/assets/* 或带静态文件后缀）一律放行，不参与限流。"""
+        return path.startswith(_STATIC_PREFIXES) or path.endswith(_STATIC_SUFFIXES)
 
     @staticmethod
     def _parse_positive_int(value: Optional[str]) -> Optional[int]:
@@ -144,7 +161,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path in _SKIP_PATHS:
+        if path in _SKIP_PATHS or self._is_static_asset(path):
             return await call_next(request)
 
         general_rpm = await self._load_general_rpm_limit()

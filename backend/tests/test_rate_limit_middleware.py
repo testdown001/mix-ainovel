@@ -41,6 +41,26 @@ def test_system_config_defaults_include_rate_limit_requests_per_minute():
     assert settings.api_rate_limit_requests_per_minute == 200
 
 
+def test_static_assets_bypass_rate_limit(monkeypatch):
+    """前端静态资源（/assets/*.js 等）必须放行，避免 SPA 并发加载分片时被误判 429。"""
+    middleware = RateLimitMiddleware(_noop_app)
+
+    async def _tiny_limit() -> int:
+        return 1  # 极严格：每分钟仅 1 次，若静态资源参与限流则第 2 次即 429
+
+    monkeypatch.setattr(middleware, "_load_general_rpm_limit", _tiny_limit)
+
+    for path in (
+        "/assets/index-C0aFyBBz.js",
+        "/assets/index-BbC0nFC0.css",
+        "/favicon.ico",
+        "/assets/AdminView-3zd2BuVH.css",
+    ):
+        for _ in range(3):  # 连续多次仍不应被限流
+            resp = asyncio.run(middleware.dispatch(_build_request(path), _call_next))
+            assert resp.status_code == 200, f"静态资源被误限流: {path}"
+
+
 def test_rate_limit_middleware_reloads_requests_per_minute_each_request(monkeypatch):
     middleware = RateLimitMiddleware(_noop_app)
     limits = iter([1, 2, 2])
