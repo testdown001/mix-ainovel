@@ -1,5 +1,4 @@
 # AIMETA P=认证API_登录注册和令牌管理|R=用户认证_令牌生成|NR=不含用户管理|E=route:POST_/api/auth/*|X=http|A=登录_注册_令牌|D=fastapi,jose|S=db|RD=./README.ai
-import html
 import logging
 from typing import Optional
 
@@ -42,7 +41,9 @@ def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthServic
 
 def _oauth_callback_html(token: Token) -> str:
     """OAuth 回调统一页面：写入 token 到 localStorage 并跳首页。"""
-    token_json = html.escape(token.model_dump_json())
+    # JSON 本身是合法的 JS 对象字面量，直接内联即可；仅转义 < 以防 </script> 截断。
+    # 切勿 html.escape：<script> 内 HTML 实体不会被解码，会让 JS 拿到 &quot; 致 JSON.parse 报错。
+    token_literal = token.model_dump_json().replace("<", "\\u003c")
     return f"""<!DOCTYPE html>
 <html lang=\"zh-CN\">
 <head><meta charset=\"UTF-8\"><title>正在跳转</title></head>
@@ -50,7 +51,7 @@ def _oauth_callback_html(token: Token) -> str:
     <p>正在跳转，请稍候...</p>
     <script>
         (function() {{
-            const token = JSON.parse('{token_json}');
+            const token = {token_literal};
             try {{ window.localStorage.setItem('token', token.access_token); }}
             catch (err) {{ console.error('无法写入本地存储', err); }}
             window.location.replace('/');
@@ -135,26 +136,7 @@ async def login_with_linuxdo(service: AuthService = Depends(get_auth_service)):
 async def register_with_linuxdo(code: str, service: AuthService = Depends(get_auth_service)):
     token = await service.handle_linuxdo_callback(code)
     logger.info("Linux.do 授权回调成功")
-    token_json = html.escape(token.model_dump_json())
-    html_content = f"""<!DOCTYPE html>
-<html lang=\"zh-CN\">
-<head><meta charset=\"UTF-8\"><title>正在跳转</title></head>
-<body>
-    <p>正在跳转，请稍候...</p>
-    <script>
-        (function() {{
-            const token = JSON.parse('{token_json}');
-            try {{
-                window.localStorage.setItem('token', token.access_token);
-            }} catch (err) {{
-                console.error('无法写入本地存储', err);
-            }}
-            window.location.replace('/');
-        }})();
-    </script>
-</body>
-</html>"""
-    return HTMLResponse(content=html_content)
+    return HTMLResponse(content=_oauth_callback_html(token))
 
 
 # ==================== 微信登录（网站应用扫码）====================
