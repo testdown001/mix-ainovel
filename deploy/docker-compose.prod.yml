@@ -48,8 +48,9 @@ services:
       GATEWAY_REDIS_ADDR: "redis:6379"
       GATEWAY_REDIS_PASSWORD: ""
       GATEWAY_JWT_SECRET: ${SECRET_KEY}
-      GATEWAY_BACKEND_FASTAPI_URL: "http://app:8000"
-      GATEWAY_TASK_DISPATCHER_WORKER_CALLBACK_URL: "http://app:8000/api/internal/tasks"
+      # app 容器内 uvicorn 仅监听 127.0.0.1:8000（loopback），跨容器只能连 :80（容器内 nginx）
+      GATEWAY_BACKEND_FASTAPI_URL: "http://app:80"
+      GATEWAY_TASK_DISPATCHER_WORKER_CALLBACK_URL: "http://app:80/api/internal/tasks"
       GATEWAY_TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET: ${TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET:?请设置任务回调共享密钥}
     volumes:
       - ./gateway-config.yaml:/root/config.yaml:ro
@@ -85,6 +86,9 @@ services:
       ENVIRONMENT: production
       DEBUG: false
       LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
+      # TLS 在前置 nginx/LB 层终止；以 HTTP 对外时必须为 false，否则 FastAPI(生产模式)
+      # 会把请求 308 跳到不存在的 https 导致全站打不开。启用 HTTPS 后再设为 true。
+      FORCE_HTTPS_REDIRECT: ${FORCE_HTTPS_REDIRECT:-false}
 
       # 数据库配置
       DB_PROVIDER: ${DB_PROVIDER:-mysql}

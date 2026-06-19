@@ -9,7 +9,8 @@ server:
   prefork: false
 
 backend:
-  fastapi_url: "http://app:8000"
+  # app 容器内 uvicorn 仅监听 127.0.0.1:8000（loopback），跨容器只能连 :80（容器内 nginx）
+  fastapi_url: "http://app:80"
   timeout: 120s
 
 jwt:
@@ -67,6 +68,6 @@ task_dispatcher:
   max_retries: 3
   retry_delay: 5s
   poll_interval: 100ms
-  worker_callback_url: "http://app:8000/api/internal/tasks"
+  worker_callback_url: "http://app:80/api/internal/tasks"
   worker_grpc_addr: ""
   internal_callback_secret: "change-me-in-production"
