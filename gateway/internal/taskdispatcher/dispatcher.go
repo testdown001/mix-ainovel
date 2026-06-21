@@ -508,6 +508,17 @@ func (d *Dispatcher) executeTask(ctx context.Context, task *Task) {
 	d.handleTaskSuccess(ctx, task, result, duration)
 }
 
+// ensureMetadata 重建 nil 的 Metadata map。
+// Task.Metadata 带 json:"metadata,omitempty"：提交时初始化的空 map 经 Redis(JSON) 往返后，
+// omitempty 使该字段被省略、反序列化回 nil。任何"写 Metadata"前必须调用本方法，否则向
+// nil map 赋值会 panic("assignment to entry in nil map")→收尾 goroutine 崩溃→任务结果
+// 永不回报→前端干等到 10 分钟超时。
+func (t *Task) ensureMetadata() {
+	if t.Metadata == nil {
+		t.Metadata = make(map[string]string)
+	}
+}
+
 // handleTaskSuccess 处理任务成功
 func (d *Dispatcher) handleTaskSuccess(ctx context.Context, task *Task, result json.RawMessage, duration time.Duration) {
 	now := time.Now()
@@ -515,6 +526,7 @@ func (d *Dispatcher) handleTaskSuccess(ctx context.Context, task *Task, result j
 	task.CompletedAt = &now
 	task.Progress = 100
 	task.Result = result
+	task.ensureMetadata()
 	task.Metadata["duration_ms"] = fmt.Sprintf("%d", duration.Milliseconds())
 
 	if err := d.updateTask(ctx, task); err != nil {
@@ -532,6 +544,7 @@ func (d *Dispatcher) handleTaskSuccess(ctx context.Context, task *Task, result j
 // handleTaskFailure 处理任务失败
 func (d *Dispatcher) handleTaskFailure(ctx context.Context, task *Task, err error, duration time.Duration) {
 	task.Error = err.Error()
+	task.ensureMetadata()
 	task.Metadata["duration_ms"] = fmt.Sprintf("%d", duration.Milliseconds())
 
 	// 确定性失败（如档位门控拒绝）：重试窗口内结果不会改变，直接终态
