@@ -107,6 +107,46 @@ class ProgressReporter:
             await self._client.aclose()
 
 
+# 生成阶段关键词 → 进度百分比（取最大匹配，单调不回退，封顶 79，留给后处理/收尾 80~100）
+_STAGE_PROGRESS_KEYWORDS = [
+    ("写入", 85), ("持久", 85), ("保存", 85),
+    ("审核", 70), ("评审", 70), ("质量", 70),
+    ("版本", 58), ("多版本", 55), ("场景", 55), ("正文", 50), ("写作", 48),
+    ("组装", 44), ("上下文", 40),
+    ("检索", 32), ("证据", 32), ("RAG", 32),
+    ("设定", 28), ("世界观", 28),
+    ("规划", 26), ("计划", 26), ("策略", 26),
+    ("解析", 24), ("需求", 24),
+    ("开始", 22), ("准备", 22),
+]
+
+
+def _build_stage_progress_forwarder(reporter: "ProgressReporter"):
+    """返回一个 stream_handler：把生成管线的 "stage" 事件实时转发为任务进度。
+
+    异步路径(Go 网关调度)默认只在生成前后报 4 个粗进度点，长生成期间静默，前端因此卡在
+    "正在生成章节..."像"转后台"。本转发器把管线逐阶段 telemetry(starting/上下文组装/
+    多版本生成/写入版本等)实时上报，使前端 WS 看到细粒度阶段。text_delta/中间产物等
+    非阶段事件忽略(异步路径不展示逐字草稿)。进度按关键词映射、单调不回退、封顶 79。
+    """
+    state = {"pct": 20}
+
+    async def _handler(data: Dict[str, Any]) -> None:
+        if not isinstance(data, dict) or data.get("event") != "stage":
+            return
+        stage = str(data.get("stage") or "")
+        message = str(data.get("message") or stage) or "生成中..."
+        text = f"{stage}{message}"
+        best = state["pct"]
+        for kw, pct in _STAGE_PROGRESS_KEYWORDS:
+            if kw in text and pct > best:
+                best = pct
+        state["pct"] = min(79, best)
+        await reporter.report(state["pct"], stage or "generating", message)
+
+    return _handler
+
+
 # ============================================================
 # API 端点
 # ============================================================
@@ -211,6 +251,10 @@ async def _execute_chapter_generate(
             "use_agent": config.use_agent_system,
         })
 
+        # 把生成管线的分阶段 telemetry 实时转发为任务进度，避免前端卡在"正在生成章节..."
+        # 静默数分钟(异步路径无逐字草稿，但阶段进度必须实时)。
+        _stage_stream_handler = _build_stage_progress_forwarder(reporter)
+
         executor = HybridExecutor(session, user_id=req.user_id)
         if config.use_agent_system:
             executor.enable_agent_system()
@@ -221,6 +265,7 @@ async def _execute_chapter_generate(
             chapter_number=req.chapter_number,
             writing_notes=config.writing_notes or None,
             flow_config=flow_config,
+            stream_handler=_stage_stream_handler,
         )
 
         await reporter.report(80, "post_processing", "正在后处理...")

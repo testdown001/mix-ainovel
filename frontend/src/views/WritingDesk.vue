@@ -1371,7 +1371,9 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
         },
         (state) => {
           if (activeGenerationToken.value !== generationToken) return
-          streamingStage.value = state.stage || state.message || '处理中...'
+          // 优先用中文 message(如"多版本生成中")：阶段日志可读、且进度条按中文关键词映射；
+          // state.stage 是机器名(generate_versions)，留给 agent 可视化用。
+          streamingStage.value = state.message || state.stage || '处理中...'
           if (state.stage) {
             updateAgentByStage(state.stage, state.message)
           }

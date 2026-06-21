@@ -82,6 +82,9 @@ def test_task_worker_uses_hybrid_executor_contract(monkeypatch):
     assert captured["session"] is fake_session
     assert captured["user_id"] == 12
     assert captured["agent_enabled"] is True
+    # 分阶段进度转发器(闭包)：断言传入且可调用，再校验其余 kwargs 契约不变
+    _stream_handler = captured["kwargs"].pop("stream_handler", None)
+    assert callable(_stream_handler)
     assert captured["kwargs"] == {
         "use_agent": True,
         "project_id": "project-1",
