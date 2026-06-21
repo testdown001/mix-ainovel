@@ -195,3 +195,30 @@ def test_execute_task_gate_allows_free_fast(monkeypatch):
     )
     resp = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
     assert resp.status == "completed"
+
+
+def test_task_config_tolerates_null_fields_from_gateway():
+    """Go 网关把 nil map/空值序列化为 JSON null(如 config.extra:null)；TaskConfig 非 Optional
+    字段遇显式 null 本会 422。校验器应丢弃 null 项、回落默认值，避免 worker 拒收任务。"""
+    from app.api.routers.task_worker import TaskConfig, WorkerTaskRequest
+
+    cfg = TaskConfig.model_validate(
+        {"preset": "standard", "extra": None, "writing_notes": None, "use_agent_system": None}
+    )
+    assert cfg.extra == {}
+    assert cfg.writing_notes == ""
+    assert cfg.use_agent_system is False
+    assert cfg.preset == "standard"
+
+    req = WorkerTaskRequest.model_validate(
+        {
+            "task_id": "t1",
+            "task_type": "chapter_generate",
+            "project_id": "p1",
+            "chapter_number": 1,
+            "user_id": 1,
+            "config": {"preset": "fast", "extra": None},
+        }
+    )
+    assert req.config.extra == {}
+    assert req.config.preset == "fast"

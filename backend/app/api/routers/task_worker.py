@@ -16,7 +16,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ...agents.hybrid_executor import HybridExecutor
 from ...core.config import settings
@@ -43,6 +43,15 @@ class TaskConfig(BaseModel):
     rag_mode: str = "simple"
     writing_notes: str = ""
     extra: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_nulls(cls, data):
+        # Go 网关的 nil map/空值序列化为 JSON null（如 extra:null），而这些字段非 Optional、
+        # 显式 null 会被 Pydantic 拒绝(422)。丢弃 null 项使其回落到各自默认值，容忍网关的序列化。
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v is not None}
+        return data
 
 
 class WorkerTaskRequest(BaseModel):
