@@ -165,6 +165,47 @@
             </n-spin>
           </n-card>
 
+          <!-- 向量嵌入模型 (Embedding) -->
+          <n-card :bordered="false">
+            <template #header>
+              <div class="card-header">
+                <span class="card-title">🧬 向量嵌入模型 (Embedding)</span>
+                <n-tag :type="embeddingForm.api_key ? 'success' : 'warning'" size="small">
+                  {{ embeddingForm.api_key ? '已配置' : '未配置' }}
+                </n-tag>
+              </div>
+            </template>
+            <n-spin :show="loading">
+              <n-alert type="info" :bordered="false" style="margin-bottom:16px">
+                用于章节 RAG 检索的文本向量化，独立于对话模型。多数对话中转站不支持 embedding 接口，
+                通常需单独填一个可用的 embedding 服务（如 OpenAI 官方 text-embedding-3-large）。未配置会导致生成时 RAG 检索失败。
+              </n-alert>
+              <n-form label-placement="top">
+                <n-grid :cols="2" :x-gap="16">
+                  <n-gi><n-form-item label="提供方">
+                    <n-select v-model:value="embeddingForm.provider" :options="embeddingProviderOptions" />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="模型名称">
+                    <n-input v-model:value="embeddingForm.model" placeholder="例：text-embedding-3-large" />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="API Key">
+                    <n-input v-model:value="embeddingForm.api_key" type="password" show-password-on="click" placeholder="embedding 服务的 API Key" />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="向量维度（可选）">
+                    <n-input v-model:value="embeddingForm.model_vector_size" placeholder="留空自动，如 3072" />
+                  </n-form-item></n-gi>
+                  <n-gi :span="2"><n-form-item label="Base URL">
+                    <n-input v-model:value="embeddingForm.base_url" placeholder="例：https://api.openai.com/v1" />
+                  </n-form-item></n-gi>
+                </n-grid>
+                <n-space justify="end">
+                  <n-button :loading="testing.embedding" @click="testChannel('embedding')">测试连接</n-button>
+                  <n-button type="primary" :loading="embeddingSaving" @click="saveEmbedding">保存</n-button>
+                </n-space>
+              </n-form>
+            </n-spin>
+          </n-card>
+
         </n-space>
       </n-tab-pane>
 
@@ -298,11 +339,18 @@ const defaultForm = reactive({ api_key: '', base_url: '', model: '', api_format:
 const fallbackForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
 const polishForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
 const searchForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
+// 向量嵌入：键与 LLM 通道不同（provider/model_vector_size、无 api_format/reasoning_effort），单列
+const embeddingForm = reactive({ provider: 'openai', api_key: '', base_url: '', model: '', model_vector_size: '' })
+const embeddingProviderOptions = [
+  { label: 'OpenAI 兼容', value: 'openai' },
+  { label: 'Ollama 本地', value: 'ollama' },
+]
 
 const defaultSaving = ref(false)
 const fallbackSaving = ref(false)
 const polishSaving = ref(false)
 const searchSaving = ref(false)
+const embeddingSaving = ref(false)
 
 const testing = reactive<Record<ChannelType, boolean>>({
   default: false, fallback: false, polish: false, search: false, embedding: false,
@@ -336,10 +384,36 @@ const fetchAllConfigs = async () => {
       form.api_format = map.get(`${prefix}.api_format`) || null
       form.reasoning_effort = map.get(`${prefix}.reasoning_effort`) || null
     }
+    embeddingForm.provider = map.get('embedding.provider') || 'openai'
+    embeddingForm.api_key = map.get('embedding.api_key') || ''
+    embeddingForm.base_url = map.get('embedding.base_url') || ''
+    embeddingForm.model = map.get('embedding.model') || ''
+    embeddingForm.model_vector_size = map.get('embedding.model_vector_size') || ''
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '加载配置失败', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const saveEmbedding = async () => {
+  embeddingSaving.value = true
+  try {
+    const entries = [
+      { key: 'embedding.provider', value: embeddingForm.provider || 'openai', description: '向量嵌入 提供方(openai/ollama)' },
+      { key: 'embedding.api_key', value: embeddingForm.api_key, description: '向量嵌入 API Key' },
+      { key: 'embedding.base_url', value: embeddingForm.base_url, description: '向量嵌入 Base URL' },
+      { key: 'embedding.model', value: embeddingForm.model, description: '向量嵌入 模型名称' },
+      { key: 'embedding.model_vector_size', value: embeddingForm.model_vector_size, description: '向量嵌入 维度(可选,留空自动)' },
+    ]
+    for (const entry of entries) {
+      await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
+    }
+    showAlert('向量嵌入配置已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    embeddingSaving.value = false
   }
 }
 
