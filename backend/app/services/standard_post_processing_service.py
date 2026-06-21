@@ -44,11 +44,14 @@ class StandardPostProcessingService:
         stage_timings_ms: Dict[str, int] = {}
 
         # 关键路径软预算：deadline 为 perf_counter 时间戳（None=不限）。每个可选后处理步骤
-        # 前检查，越过预算即跳过该步及后续可选步骤，带"当前最佳稿"继续，避免拖到硬超时全盘失败。
+        # 前检查，预算不足即跳过该步及后续可选步骤，带"当前最佳稿"继续，避免拖到硬超时全盘失败。
+        # 关键：单个后处理 LLM 步最坏约 180s，必须"剩余预算够再跑一整步"才启动，否则末步在
+        # deadline 前一刻启动却跑满 180s，会冲破 600s 前端/网关硬超时致全盘失败(上版缺陷)。
         skipped_for_budget: list[str] = []
+        _PER_STEP_RESERVE_SEC = 180.0
 
         def _over_budget() -> bool:
-            return deadline is not None and time.perf_counter() >= deadline
+            return deadline is not None and (deadline - time.perf_counter()) < _PER_STEP_RESERVE_SEC
 
         has_review_feedback = bool(ai_review_result and (ai_review_result.get("flaws") or ai_review_result.get("suggestions")))
         if has_review_feedback or config.enable_self_critique:

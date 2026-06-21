@@ -87,6 +87,17 @@ async def test_over_budget_skips_remaining_steps():
 
 
 @pytest.mark.asyncio
+async def test_insufficient_budget_for_one_step_skips():
+    # 仅剩 60s（< 单步预留 180s）：不足以再跑一整步，应跳过以防末步跑满 180s 冲破硬超时
+    orch = _FakeOrchestrator()
+    result = await _run(orch, deadline=time.perf_counter() + 60)
+    assert orch.calls == []
+    skipped = result["review_summaries"]["time_budget"]["skipped"]
+    assert "combined_revision" in skipped
+    assert "optimizer" in skipped
+
+
+@pytest.mark.asyncio
 async def test_within_budget_runs_all_steps():
     orch = _FakeOrchestrator()
     result = await _run(orch, deadline=time.perf_counter() + 10_000)  # 远未越界
