@@ -107,6 +107,12 @@ class QuotaService:
         """积分滚动重置：首次初始化锚点；满 30 天则按是否累积重置/累加，与每月 token 重置同款。"""
         now = datetime.utcnow()
         if quota.credit_reset_at is None:
+            # 既有用户首次接触积分体系（列回填默认 grant=0/balance=0）：按当前档位初始化发放额度，
+            # 否则激活计费后老用户会因 0 余额被 402 卡死生成。
+            if not quota.monthly_credit_grant:
+                quota.monthly_credit_grant = self._credit_grant_for_tier(quota.effective_tier)
+            if (quota.credit_balance or 0) <= 0:
+                quota.credit_balance = quota.monthly_credit_grant
             quota.credit_reset_at = now
             await self.session.commit()
             return quota

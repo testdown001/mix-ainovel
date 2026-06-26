@@ -77,6 +77,27 @@ async def test_upgrade_grants_tier_credits(db_session):
 
 
 @pytest.mark.asyncio
+async def test_existing_user_credit_init(db_session):
+    """既有用户(列回填 grant=0/balance=0/reset_at=None)首次接触积分体系 → 按档位初始化，
+    避免激活计费后老用户被 402 卡死。"""
+    from app.models.user_quota import UserQuota
+    svc = QuotaService(db_session)
+    q = UserQuota(user_id=99, credit_balance=0, monthly_credit_grant=0, credit_reset_at=None)
+    db_session.add(q)
+    await db_session.commit()
+    q = await svc.check_and_reset_credit(q)
+    assert q.monthly_credit_grant == QuotaService.DEFAULT_FREE_MONTHLY_CREDITS
+    assert q.credit_balance == QuotaService.DEFAULT_FREE_MONTHLY_CREDITS
+
+    q2 = UserQuota(user_id=98, is_premium=True, plan_tier="flagship",
+                   credit_balance=0, monthly_credit_grant=0, credit_reset_at=None)
+    db_session.add(q2)
+    await db_session.commit()
+    q2 = await svc.check_and_reset_credit(q2)
+    assert q2.credit_balance == QuotaService.DEFAULT_FLAGSHIP_MONTHLY_CREDITS
+
+
+@pytest.mark.asyncio
 async def test_quota_info_has_credit_block(db_session):
     svc = QuotaService(db_session)
     info = await svc.get_quota_info(8)

@@ -91,6 +91,10 @@
           />
 
           <div class="flex-1 min-w-0">
+            <WDModelPicker
+              v-model:model-code="selectedModelCode"
+              v-model:enable-polish="enablePolish"
+            />
             <WDWorkspace
               :project="project"
               :selected-chapter-number="selectedChapterNumber"
@@ -447,6 +451,7 @@ import { useAsyncGeneration } from '@/composables/useAsyncGeneration'
 import WDHeader from '@/components/writing-desk/WDHeader.vue'
 import WDSidebar from '@/components/writing-desk/WDSidebar.vue'
 import WDWorkspace from '@/components/writing-desk/WDWorkspace.vue'
+import WDModelPicker from '@/components/writing-desk/WDModelPicker.vue'
 import WDVersionDetailModal from '@/components/writing-desk/WDVersionDetailModal.vue'
 import WDEvaluationDetailModal from '@/components/writing-desk/WDEvaluationDetailModal.vue'
 import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue'
@@ -597,6 +602,11 @@ const fetchAgentSetting = async () => {
     useAgent.value = false
   }
 }
+// 模型选择 + 润色（WDModelPicker v-model 回传；并入 flow_config 后随各 submit 透传到
+// 生成入口做按档门控与积分计费）
+const selectedModelCode = ref<string | null>(null)
+const enablePolish = ref(false)
+
 const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | undefined>(() => {
   const overrides: Partial<AdvancedGenerateFlowConfig> = {}
   if (useAgent.value) {
@@ -605,6 +615,12 @@ const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | 
   }
   if (selectedGenerationSkills.value.length > 0) {
     overrides.selected_skills = selectedGenerationSkills.value
+  }
+  if (selectedModelCode.value) {
+    overrides.model_code = selectedModelCode.value
+  }
+  if (enablePolish.value) {
+    overrides.enable_polish = true
   }
   return Object.keys(overrides).length > 0 ? overrides : undefined
 })

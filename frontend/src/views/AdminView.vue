@@ -157,6 +157,7 @@ type MenuKey =
   | 'login_auth'
   | 'api_management'
   | 'llm_health'
+  | 'model_catalog'
   | 'password'
   | 'membership_plans'
   | 'feature_gating'
@@ -173,6 +174,7 @@ const components: Record<MenuKey, ReturnType<typeof defineAsyncComponent>> = {
   login_auth: defineAsyncComponent(() => import('../components/admin/LoginAuthConfig.vue')),
   api_management: defineAsyncComponent(() => import('../components/admin/ApiManagement.vue')),
   llm_health: defineAsyncComponent(() => import('../components/admin/LLMDiagnostics.vue')),
+  model_catalog: defineAsyncComponent(() => import('../components/admin/ModelCatalogConfig.vue')),
   password: defineAsyncComponent(() => import('../components/admin/PasswordManagement.vue')),
   membership_plans: defineAsyncComponent(() => import('../components/admin/MembershipPlans.vue')),
   feature_gating: defineAsyncComponent(() => import('../components/admin/FeatureGatingConfig.vue')),
@@ -190,6 +192,7 @@ const iconRenderers: Record<MenuKey, () => any> = {
   login_auth: () => h('span', { class: 'menu-icon' }, '🔑'),
   api_management: () => h('span', { class: 'menu-icon' }, '🔌'),
   llm_health: () => h('span', { class: 'menu-icon' }, '🩺'),
+  model_catalog: () => h('span', { class: 'menu-icon' }, '🐙'),
   password: () => h('span', { class: 'menu-icon' }, '🔒'),
   membership_plans: () => h('span', { class: 'menu-icon' }, '💳'),
   feature_gating: () => h('span', { class: 'menu-icon' }, '🎚️'),
@@ -207,6 +210,7 @@ const menuOptions: MenuOption[] = [
   { key: 'login_auth', label: '登录方式', icon: iconRenderers.login_auth },
   { key: 'api_management', label: 'API 管理', icon: iconRenderers.api_management },
   { key: 'llm_health', label: '通道诊断', icon: iconRenderers.llm_health },
+  { key: 'model_catalog', label: '模型目录', icon: iconRenderers.model_catalog },
   { key: 'password', label: '安全中心', icon: iconRenderers.password },
   {
     key: 'payment-group',

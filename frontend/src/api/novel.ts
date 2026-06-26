@@ -321,6 +321,8 @@ export interface AdvancedGenerateFlowConfig {
     params?: Record<string, unknown>
   }>
   preset?: 'fast' | 'standard' | 'premium' | 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'custom'
+  model_code?: string
+  enable_polish?: boolean
   versions?: number
   enable_preview?: boolean
   enable_optimizer?: boolean
