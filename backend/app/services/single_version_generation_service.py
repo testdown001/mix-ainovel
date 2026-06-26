@@ -99,6 +99,12 @@ class SingleVersionGenerationService:
             )
             metadata["preview"] = preview_meta
 
+        # 按所选模型(章鱼1.0/2.0/3.0)解析真实通道；未指定/未配置/下架 → None → 用默认 llm.*
+        model_override = None
+        _model_code = getattr(config, "model_code", None)
+        if _model_code:
+            model_override = await self.llm_service._resolve_config_by_model_code(_model_code)
+
         if not content:
             if style_text:
                 final_prompt_input = f"[版本风格策略]\n{style_text}\n\n{final_prompt_input}"
@@ -112,6 +118,7 @@ class SingleVersionGenerationService:
                 max_tokens=dynamic_max_tokens,
                 disable_thinking=not settings.writer_enable_thinking,
                 on_chunk=stream_callback,
+                config_override=model_override,
             )
             cleaned = remove_think_tags(response)
             content = unwrap_markdown_json(cleaned or response)
@@ -187,6 +194,7 @@ class SingleVersionGenerationService:
                 timeout=180.0,
                 response_format=None,
                 max_tokens=dynamic_max_tokens,
+                config_override=model_override,
                 disable_thinking=not settings.writer_enable_thinking,
                 on_chunk=stream_callback,
             )

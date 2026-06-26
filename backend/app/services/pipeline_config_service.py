@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PipelineConfig:
     preset: str = "fast"  # 默认快速模式（免费档位）
+    model_code: Optional[str] = None  # 所选模型目录 code(章鱼1.0/2.0/3.0)，决定正文实际调用的真实大模型
     version_count: int = 2
     enable_preview: bool = False
     enable_optimizer: bool = False
@@ -256,6 +257,8 @@ class PipelineConfigService:
             config.rag_retrieval_mode = str(flow_config["rag_retrieval_mode"])
         if flow_config.get("pacing_model"):
             config.pacing_model = str(flow_config["pacing_model"])
+        if flow_config.get("model_code"):
+            config.model_code = str(flow_config["model_code"])
 
         return config
 

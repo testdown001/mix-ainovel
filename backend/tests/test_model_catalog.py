@@ -81,6 +81,19 @@ async def test_crud_create_and_get(db_session):
 
 
 @pytest.mark.asyncio
+async def test_pipeline_config_threads_model_code(db_session):
+    """Phase 3b：flow_config.model_code/enable_polish 须线程进 PipelineConfig（再传到正文 config_override）。"""
+    from app.services.pipeline_config_service import PipelineConfigService
+    svc = PipelineConfigService(db_session)
+    cfg = await svc.resolve_config({"preset": "standard", "model_code": "octopus_v2", "enable_polish": True})
+    assert cfg.model_code == "octopus_v2"
+    assert cfg.enable_polish is True
+    # 不传 model_code → None（用默认通道）
+    cfg2 = await svc.resolve_config({"preset": "fast"})
+    assert cfg2.model_code is None
+
+
+@pytest.mark.asyncio
 async def test_resolve_config_by_model_code(db_session, monkeypatch):
     from app.services import llm_service as llm_mod
     db_session.add(ModelCatalog(code="m_real", display_name="X", real_model="custom-xyz", min_tier="free", credit_price=6, is_active=True))

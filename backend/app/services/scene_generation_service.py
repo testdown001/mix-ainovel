@@ -32,7 +32,12 @@ class SceneGenerationService:
         genre_profile: Optional[Dict[str, Any]] = None,
         voice_samples_text: str = "",
         max_word_count: int = 0,
+        model_code: Optional[str] = None,
     ) -> Dict[str, Any]:
+        # 按所选模型(章鱼1.0/2.0/3.0)解析真实通道；缺省 None → 默认 llm.*
+        model_override = None
+        if model_code:
+            model_override = await self.llm_service._resolve_config_by_model_code(model_code)
         metadata: Dict[str, Any] = {
             "chapter_mission": chapter_mission,
             "pipeline": {"preset": "literary", "mode": "scene_by_scene"},
@@ -119,6 +124,7 @@ class SceneGenerationService:
                 response_format=None,
                 max_tokens=min(4096, int(max(700, scene_words) * 1.8)),
                 disable_thinking=not settings.writer_enable_thinking,
+                config_override=model_override,
             )
             cleaned = remove_think_tags(response)
             scene_text = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))

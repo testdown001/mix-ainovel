@@ -89,6 +89,7 @@ class LiteraryGenerationFlowService:
             genre_profile=genre_profile,
             voice_samples_text=voice_samples_text,
             max_word_count=chapter_word_count_max,
+            model_code=getattr(config, "model_code", None),
         )
         if mark_stage:
             mark_stage("generate_scene_by_scene", stage_started)
