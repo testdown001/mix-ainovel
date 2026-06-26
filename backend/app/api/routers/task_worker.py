@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import update
 
 from ...agents.hybrid_executor import HybridExecutor
 from ...core.config import settings
@@ -26,6 +27,7 @@ from ...core.feature_gating import (
     get_user_tier,
 )
 from ...db.session import AsyncSessionLocal
+from ...models.novel import Chapter
 from ...services.novel_service import NovelService
 
 logger = logging.getLogger(__name__)
@@ -169,6 +171,37 @@ def _verify_internal_secret(provided):
 
 
 @router.post("/execute", response_model=WorkerTaskResponse)
+async def _reset_generating_chapters_to_failed(req: "WorkerTaskRequest") -> None:
+    """任务失败时，把本任务相关、仍停在 generating 的章节回写 failed（独立 session、
+    best-effort）。异步路径下 worker 抛错只会向网关返回 failed，**不写章节表**——若不回写，
+    章节会永久卡在 generating，前端一直显示"等待生成"。只更新仍 generating 的行，
+    不覆盖已成功/待选状态，也不创建新行。"""
+    if req.task_type not in ("chapter:generate", "chapter:batch_generate"):
+        return
+    numbers = set()
+    if req.chapter_number is not None:
+        numbers.add(req.chapter_number)
+    for n in (req.chapter_numbers or []):
+        numbers.add(n)
+    if not numbers:
+        return
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(
+                update(Chapter)
+                .where(
+                    Chapter.project_id == req.project_id,
+                    Chapter.chapter_number.in_(numbers),
+                    Chapter.status == "generating",
+                )
+                .values(status="failed")
+            )
+            await session.commit()
+        logger.info("任务 %s 失败，已将仍在 generating 的章节 %s 回写 failed", req.task_id, sorted(numbers))
+    except Exception as exc:  # pragma: no cover - 回写失败不影响主流程
+        logger.warning("回写章节 failed 状态失败(已忽略): %s", exc)
+
+
 async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] = Header(default=None, alias="X-Internal-Secret")):
     """
     执行来自 Go Task Dispatcher 的任务
@@ -219,6 +252,9 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
         logger.error(f"任务执行失败: {e}\n{traceback.format_exc()}")
+
+        # 关键：把仍卡在 generating 的章节回写 failed，否则前端永远停在"等待生成"
+        await _reset_generating_chapters_to_failed(req)
 
         return WorkerTaskResponse(
             status="failed",
