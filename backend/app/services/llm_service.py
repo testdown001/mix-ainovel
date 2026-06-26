@@ -110,7 +110,10 @@ class LLMService:
         thinking_budget: Optional[int] = None,
         disable_thinking: bool = False,
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
+        # reasoning_effort：按调用覆盖通道默认推理档（minimal/low/medium/high）。
+        # 仅对 o系列/gpt-5 的 openai 格式生效，其它模型/格式自动忽略；不传则沿用通道配置。
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
 
         # 兜底通道仅在尚未向调用方流出任何增量时才能重试，否则会产生重复输出
@@ -137,6 +140,7 @@ class LLMService:
                 thinking_budget=thinking_budget,
                 disable_thinking=disable_thinking,
                 on_chunk=wrapped_on_chunk,
+                reasoning_effort_override=reasoning_effort,
             )
         except Exception as exc:
             # 429 = 用户每日请求上限（配额问题而非通道故障），不兜底
@@ -165,6 +169,7 @@ class LLMService:
                 thinking_budget=thinking_budget,
                 disable_thinking=disable_thinking,
                 on_chunk=wrapped_on_chunk,
+                reasoning_effort_override=reasoning_effort,
                 api_type="fallback",
             )
 
@@ -670,6 +675,7 @@ class LLMService:
         thinking_budget: Optional[int] = None,
         disable_thinking: bool = False,
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
+        reasoning_effort_override: Optional[str] = None,
         api_type: str = "default",
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
@@ -753,7 +759,7 @@ class LLMService:
             api_format,
         )
 
-        reasoning_effort = config.get("reasoning_effort")
+        reasoning_effort = reasoning_effort_override or config.get("reasoning_effort")
         last_exc = None
         response_format_fallback_applied = False
         responses_endpoint_fallback_applied = False

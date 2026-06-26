@@ -812,6 +812,9 @@ async def generate_blueprint(
     logger.info("项目 %s 蓝图生成：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
                 project_id, len(system_prompt), len(formatted_history))
 
+    # 蓝图为一次成型的结构化生成：显式降一档 reasoning_effort 提速（仅对 o系列/gpt-5 的
+    # openai 格式生效，其它模型/格式无副作用），且不影响章节生成（章节不传该覆盖、仍用通道默认档）。
+    # 如需更激进可改 "minimal"，质量优先则改 "medium"。
     blueprint_raw = await llm_service.get_llm_response(
         system_prompt=system_prompt,
         conversation_history=formatted_history,
@@ -820,6 +823,7 @@ async def generate_blueprint(
         timeout=600.0,
         max_retries=1,
         max_tokens=8192,
+        reasoning_effort="low",
     )
 
     logger.info("项目 %s 蓝图生成：LLM 调用完成，raw_len=%d", project_id, len(blueprint_raw))
