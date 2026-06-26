@@ -210,6 +210,8 @@ class GenerateChapterRequest(BaseModel):
 
 class FlowConfig(BaseModel):
     preset: str = Field(default="fast", description="fast|standard|premium（旧名 basic/enhanced/ultimate/platinum/literary 自动映射到现行三档）")
+    model_code: Optional[str] = Field(default=None, description="所选模型目录 code(章鱼1.0/2.0/3.0)；决定真实大模型与积分计费，空则用默认通道")
+    enable_polish: Optional[bool] = Field(default=None, description="是否启用润色(默认关)；启用额外扣积分")
     versions: Optional[int] = Field(default=None, description="生成版本数量")
     enable_preview: Optional[bool] = Field(default=None, description="是否启用预演生成")
     enable_optimizer: Optional[bool] = Field(default=None, description="是否启用优化器")

@@ -24,10 +24,12 @@ from ...core.config import settings
 from ...core.feature_gating import (
     ensure_flow_overrides_allowed,
     ensure_generation_preset_allowed,
+    ensure_model_allowed,
     get_user_tier,
 )
 from ...db.session import AsyncSessionLocal
 from ...models.novel import Chapter
+from ...services.generation_billing_service import charge_generation, refund_generation
 from ...services.novel_service import NovelService
 
 logger = logging.getLogger(__name__)
@@ -222,13 +224,24 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         # 会员档位门控：异步入口与 /advanced/generate 同一套判定，
         # 否则经 Go 网关提交任务即可绕过预设档位限制
         if req.task_type in ("chapter:generate", "chapter:batch_generate"):
+            extra = req.config.extra or {}
+            model_code = extra.get("model_code")
+            enable_polish = bool(extra.get("enable_polish"))
+            chapters = len(req.chapter_numbers) if req.chapter_numbers else 1
             async with AsyncSessionLocal() as gate_session:
                 tier = await get_user_tier(gate_session, req.user_id)
                 try:
                     await ensure_generation_preset_allowed(gate_session, req.config.preset, tier)
                     # config.extra 会原样并入 flow_config，受控开关同样要过档位
                     await ensure_flow_overrides_allowed(gate_session, req.config.extra, tier)
+                    # 模型按档门控 + 先扣后跑积分（model_code 缺省时均 no-op，向后兼容）
+                    await ensure_model_allowed(gate_session, model_code, tier)
+                    await charge_generation(
+                        gate_session, req.user_id, model_code, enable_polish,
+                        ref_key=req.task_id, chapters=chapters,
+                    )
                 except HTTPException as exc:
+                    # 403 档位/模型不够、402 积分不足：均不应重试
                     return WorkerTaskResponse(status="failed", error=str(exc.detail), permanent=True)
 
         if req.task_type == "chapter:generate":
@@ -263,6 +276,13 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         try:
             await asyncio.shield(_reset_generating_chapters_to_failed(req))
         except BaseException:  # noqa: BLE001 - 复位失败/取消都不应阻断优雅返回
+            pass
+
+        # 失败/取消退还已扣积分（按 task_id 幂等；未扣过则 no-op）
+        try:
+            async with AsyncSessionLocal() as _refund_session:
+                await asyncio.shield(refund_generation(_refund_session, req.user_id, ref_key=req.task_id))
+        except BaseException:  # noqa: BLE001
             pass
 
         # 向网关优雅返回 failed（HTTP 200）而非裸奔 500：网关据此判失败、不再无谓重试
