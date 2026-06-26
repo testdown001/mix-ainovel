@@ -193,4 +193,25 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         value_getter=lambda _: None,
         description="参考小说搜索专用 API 格式，留空表示关闭网络搜索。",
     ),
+    # ---- 积分制（数值后台可改；模型单价存于 ModelCatalog 行，不在此处） ----
+    SystemConfigDefault(
+        key="credits.price.polish",
+        value_getter=lambda _: "5",
+        description="润色(humanize/polish)附加积分单价，默认不勾选；勾选时每章额外扣此积分。",
+    ),
+    SystemConfigDefault(
+        key="credits.monthly.free",
+        value_getter=lambda _: "60",
+        description="free 档每月发放积分(无套餐用户兜底)，≈10 篇章鱼1.0。",
+    ),
+    SystemConfigDefault(
+        key="credits.monthly.creator",
+        value_getter=lambda _: "3000",
+        description="创作者档每月发放积分，=300 篇章鱼2.0(10/天×30)；Plan.monthly_credits>0 时以套餐为准。",
+    ),
+    SystemConfigDefault(
+        key="credits.monthly.flagship",
+        value_getter=lambda _: "18000",
+        description="旗舰档每月发放积分，=1800 篇章鱼2.0(60/天×30)；Plan.monthly_credits>0 时以套餐为准。",
+    ),
 ]

@@ -34,7 +34,13 @@ class UserQuota(Base):
     # LLM API 配额
     monthly_token_limit = Column(Integer, default=1000000, nullable=False, comment="每月 token 限制（默认 100 万）")
     monthly_token_used = Column(Integer, default=0, nullable=False, comment="本月已使用 token")
-    
+
+    # 积分制额度（按模型 + 润色计费消耗；月度池、30 天滚动重置）
+    credit_balance = Column(Integer, default=0, nullable=False, server_default="0", comment="当前可用积分")
+    monthly_credit_grant = Column(Integer, default=0, nullable=False, server_default="0", comment="每月发放积分额度")
+    credit_carryover = Column(Boolean, default=False, nullable=False, comment="月度积分是否累积(默认到期清零)")
+    credit_reset_at = Column(DateTime, nullable=True, comment="积分滚动重置锚点(首次用时初始化)")
+
     # Premium 状态
     is_premium = Column(Boolean, default=False, nullable=False, comment="是否为 Premium 用户")
     premium_expires_at = Column(DateTime, nullable=True, comment="Premium 到期时间")

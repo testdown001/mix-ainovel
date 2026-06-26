@@ -12,10 +12,12 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
 
 from ..models.user_quota import UserQuota
+from ..models.credit_log import CreditLog
 
 if TYPE_CHECKING:
     from ..models.plan import Plan
@@ -36,6 +38,13 @@ class QuotaService:
     PREMIUM_STORAGE_LIMIT = 10737418240  # 10GB
     PREMIUM_MONTHLY_TOKEN_LIMIT = 10000000  # 1000 万 tokens
 
+    # 积分制月度发放额度（档位默认值；Plan.monthly_credits>0 时以套餐为准。
+    # 后续可由 SystemConfig credits.monthly.* 覆写，Phase 3 接入）
+    DEFAULT_FREE_MONTHLY_CREDITS = 60        # ≈10 篇章鱼1.0，体验额度
+    DEFAULT_CREATOR_MONTHLY_CREDITS = 3000   # =300 篇章鱼2.0（10/天×30）
+    DEFAULT_FLAGSHIP_MONTHLY_CREDITS = 18000  # =1800 篇章鱼2.0（60/天×30）
+    CREDIT_RESET_DAYS = 30
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -55,6 +64,9 @@ class QuotaService:
                 daily_chapter_limit=self.DEFAULT_DAILY_CHAPTER_LIMIT,
                 storage_limit=self.DEFAULT_STORAGE_LIMIT,
                 monthly_token_limit=self.DEFAULT_MONTHLY_TOKEN_LIMIT,
+                credit_balance=self.DEFAULT_FREE_MONTHLY_CREDITS,
+                monthly_credit_grant=self.DEFAULT_FREE_MONTHLY_CREDITS,
+                credit_reset_at=datetime.utcnow(),
             )
             self.session.add(quota)
             await self.session.commit()
@@ -81,6 +93,113 @@ class QuotaService:
             quota.monthly_reset_at = now
             await self.session.commit()
             logger.info(f"重置每月配额: user_id={quota.user_id}")
+        return quota
+
+    # ---------------- 积分制额度（月度池，30 天滚动重置） ----------------
+
+    def _credit_grant_for_tier(self, tier: str) -> int:
+        return {
+            "creator": self.DEFAULT_CREATOR_MONTHLY_CREDITS,
+            "flagship": self.DEFAULT_FLAGSHIP_MONTHLY_CREDITS,
+        }.get(tier, self.DEFAULT_FREE_MONTHLY_CREDITS)
+
+    async def check_and_reset_credit(self, quota: UserQuota) -> UserQuota:
+        """积分滚动重置：首次初始化锚点；满 30 天则按是否累积重置/累加，与每月 token 重置同款。"""
+        now = datetime.utcnow()
+        if quota.credit_reset_at is None:
+            quota.credit_reset_at = now
+            await self.session.commit()
+            return quota
+        if now - quota.credit_reset_at >= timedelta(days=self.CREDIT_RESET_DAYS):
+            if quota.credit_carryover:
+                quota.credit_balance += quota.monthly_credit_grant
+            else:
+                quota.credit_balance = quota.monthly_credit_grant
+            quota.credit_reset_at = now
+            await self.session.commit()
+            logger.info("重置积分: user_id=%s -> balance=%s", quota.user_id, quota.credit_balance)
+        return quota
+
+    async def _credit_log_exists(self, reason: str, ref_key: Optional[str]) -> bool:
+        if not ref_key:
+            return False
+        stmt = select(CreditLog.id).where(
+            CreditLog.reason == reason, CreditLog.ref_key == ref_key
+        ).limit(1)
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def has_credits(self, user_id: int, amount: int) -> bool:
+        """是否有足够积分（不扣减）。"""
+        quota = await self.get_or_create_quota(user_id)
+        quota = await self.check_and_reset_credit(quota)
+        return quota.credit_balance >= amount
+
+    async def consume_credits(
+        self,
+        user_id: int,
+        amount: int,
+        *,
+        reason: str = "generate",
+        ref_key: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> UserQuota:
+        """扣减积分。余额不足抛 402；带 ref_key 时按 (reason, ref_key) 幂等(不重复扣)。"""
+        quota = await self.get_or_create_quota(user_id)
+        quota = await self.check_and_reset_credit(quota)
+        if amount <= 0:
+            return quota
+        if ref_key and await self._credit_log_exists(reason, ref_key):
+            return quota  # 幂等：已扣过
+        if quota.credit_balance < amount:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"积分不足：本次需 {amount} 积分，剩余 {quota.credit_balance}。"
+                       f"可升级套餐或等待月度重置。",
+            )
+        quota.credit_balance -= amount
+        self.session.add(CreditLog(
+            user_id=user_id, delta=-amount, reason=reason, ref_key=ref_key,
+            balance_after=quota.credit_balance, note=note,
+        ))
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # 并发下同 ref 已入账 → 回滚，视为幂等已处理
+            await self.session.rollback()
+            return await self.get_or_create_quota(user_id)
+        await self.session.refresh(quota)
+        logger.info("扣减积分: user_id=%s amount=%s reason=%s ref=%s balance=%s",
+                    user_id, amount, reason, ref_key, quota.credit_balance)
+        return quota
+
+    async def refund_credits(
+        self,
+        user_id: int,
+        amount: int,
+        *,
+        ref_key: str,
+        reason: str = "refund",
+        note: Optional[str] = None,
+    ) -> UserQuota:
+        """退还积分（生成失败/取消）。按 (reason, ref_key) 幂等，避免重复退。"""
+        quota = await self.get_or_create_quota(user_id)
+        if amount <= 0 or not ref_key:
+            return quota
+        if await self._credit_log_exists(reason, ref_key):
+            return quota  # 幂等：已退过
+        quota.credit_balance += amount
+        self.session.add(CreditLog(
+            user_id=user_id, delta=amount, reason=reason, ref_key=ref_key,
+            balance_after=quota.credit_balance, note=note,
+        ))
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            return await self.get_or_create_quota(user_id)
+        await self.session.refresh(quota)
+        logger.info("退还积分: user_id=%s amount=%s ref=%s balance=%s",
+                    user_id, amount, ref_key, quota.credit_balance)
         return quota
 
     async def check_chapter_quota(self, user_id: int) -> bool:
@@ -215,12 +334,20 @@ class QuotaService:
 
         plan_daily = getattr(plan, "daily_chapter_limit", 0) or 0
 
+        tier = self._derive_tier(plan)
+        plan_credits = getattr(plan, "monthly_credits", 0) or 0
+        grant = plan_credits if plan_credits > 0 else self._credit_grant_for_tier(tier)
+
         quota.is_premium = True
         quota.premium_expires_at = expires_at
-        quota.plan_tier = self._derive_tier(plan)
+        quota.plan_tier = tier
         quota.daily_chapter_limit = plan_daily if plan_daily > 0 else self.PREMIUM_DAILY_CHAPTER_LIMIT
         quota.storage_limit = self.PREMIUM_STORAGE_LIMIT
         quota.monthly_token_limit = self.PREMIUM_MONTHLY_TOKEN_LIMIT
+        # 积分：激活即发放当期额度，并重置滚动锚点
+        quota.monthly_credit_grant = grant
+        quota.credit_balance = grant
+        quota.credit_reset_at = datetime.utcnow()
 
         await self.session.commit()
         await self.session.refresh(quota)
@@ -241,6 +368,8 @@ class QuotaService:
         quota.daily_chapter_limit = self.DEFAULT_DAILY_CHAPTER_LIMIT
         quota.storage_limit = self.DEFAULT_STORAGE_LIMIT
         quota.monthly_token_limit = self.DEFAULT_MONTHLY_TOKEN_LIMIT
+        # 积分：发放额度回落 free；当前余额不强制清零，到期滚动重置时自然回落
+        quota.monthly_credit_grant = self.DEFAULT_FREE_MONTHLY_CREDITS
 
         await self.session.commit()
         await self.session.refresh(quota)
@@ -253,11 +382,18 @@ class QuotaService:
         quota = await self.get_or_create_quota(user_id)
         quota = await self.check_and_reset_daily_quota(quota)
         quota = await self.check_and_reset_monthly_quota(quota)
+        quota = await self.check_and_reset_credit(quota)
 
         return {
             "user_id": user_id,
             "is_premium": quota.is_premium_active,
             "plan_tier": quota.effective_tier,
+            "credit": {
+                "balance": quota.credit_balance,
+                "monthly_grant": quota.monthly_credit_grant,
+                "carryover": bool(quota.credit_carryover),
+                "reset_at": quota.credit_reset_at.isoformat() if quota.credit_reset_at else None,
+            },
             "premium_expires_at": quota.premium_expires_at.isoformat() if quota.premium_expires_at else None,
             "daily_chapter": {
                 "used": quota.daily_chapter_used,
