@@ -170,7 +170,6 @@ def _verify_internal_secret(provided):
         raise HTTPException(status_code=401, detail="未授权的内部任务调用")
 
 
-@router.post("/execute", response_model=WorkerTaskResponse)
 async def _reset_generating_chapters_to_failed(req: "WorkerTaskRequest") -> None:
     """任务失败时，把本任务相关、仍停在 generating 的章节回写 failed（独立 session、
     best-effort）。异步路径下 worker 抛错只会向网关返回 failed，**不写章节表**——若不回写，
@@ -202,6 +201,7 @@ async def _reset_generating_chapters_to_failed(req: "WorkerTaskRequest") -> None
         logger.warning("回写章节 failed 状态失败(已忽略): %s", exc)
 
 
+@router.post("/execute", response_model=WorkerTaskResponse)
 async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] = Header(default=None, alias="X-Internal-Secret")):
     """
     执行来自 Go Task Dispatcher 的任务

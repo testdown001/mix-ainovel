@@ -11,7 +11,22 @@ from sqlalchemy import select
 
 import app.models  # noqa: F401  触发全部 mapper 注册
 from app.models.novel import Chapter
+from app.api.routers import task_worker
 from app.api.routers.task_worker import _reset_generating_chapters_to_failed
+
+
+def test_execute_route_bound_to_execute_task():
+    """回归：/api/internal/tasks/execute 必须绑定到 execute_task 本身。
+    曾因把 _reset_generating_chapters_to_failed 插到 @router.post 与 execute_task 之间，
+    装饰器错绑到辅助函数→真正生成逻辑不被路由→worker 返回 None 撞 response_model→500。"""
+    routes = task_worker.router.routes
+    execute_routes = [r for r in routes if getattr(r, "endpoint", None) is task_worker.execute_task]
+    assert execute_routes, "execute_task 未注册为路由（@router.post 可能被错绑到其它函数）"
+    assert any(getattr(r, "path", "").endswith("/execute") for r in execute_routes)
+    # 辅助函数绝不能成为任何路由的 endpoint
+    assert all(
+        getattr(r, "endpoint", None) is not _reset_generating_chapters_to_failed for r in routes
+    )
 
 
 @pytest.mark.asyncio
