@@ -207,7 +207,10 @@
 
         <!-- N 路发散结果卡片（旗舰档）-->
         <div v-if="divergeSeeds.length" class="diverge-results">
-          <div class="diverge-results-head">缪斯给了你 {{ divergeSeeds.length }} 个迥异方向，挑一个继续（其余会保留，可继续对比 / 再挑）：</div>
+          <div class="diverge-results-head">
+            <span class="diverge-head-text">缪斯给了你 {{ divergeSeeds.length }} 个迥异方向，挑一个继续（其余会保留，可继续对比 / 再挑）：</span>
+            <button class="diverge-dismiss" @click="dismissDivergeSeeds" title="都不满意？清除这批方向，回到普通对话">都不满意 ✕</button>
+          </div>
           <div class="diverge-cards">
             <button
               v-for="seed in divergeSeeds"
@@ -705,6 +708,12 @@ function pickDivergeSeed(seed: DivergeSeed) {
   }
   // 把选中的种子作为用户输入投喂给「文思」继续落地
   handleUserInput({ id: 'diverge_pick', value: seedToText(seed) })
+}
+
+// 都不满意：清除这批发散方向，回到普通对话（不投喂任何方向）
+function dismissDivergeSeeds() {
+  divergeSeeds.value = []
+  pickedSeedIds.value = []
 }
 
 onMounted(() => {
@@ -1248,7 +1257,23 @@ onMounted(() => {
 .muse-toggle.disabled { opacity: 0.55; cursor: not-allowed; }
 
 .diverge-results { padding: 10px 16px; }
-.diverge-results-head { font-size: 13px; opacity: 0.85; margin-bottom: 8px; }
+.diverge-results-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 8px;
+}
+.diverge-head-text { font-size: 13px; opacity: 0.85; }
+.diverge-dismiss {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.diverge-dismiss:hover { color: #fff; border-color: rgba(255, 255, 255, 0.4); }
 .diverge-cards { display: flex; flex-direction: column; gap: 8px; }
 .diverge-card {
   text-align: left;
