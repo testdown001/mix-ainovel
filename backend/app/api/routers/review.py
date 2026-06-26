@@ -138,7 +138,7 @@ async def review_gatekeeper(
 ) -> Dict[str, Any]:
     """执行章节质量审核"""
     novel_service = NovelService(session)
-    project = await novel_service.get_project(request.project_id)
+    project = await novel_service.ensure_project_owner(request.project_id, current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     if project.user_id != current_user.id:
@@ -152,7 +152,7 @@ async def review_gatekeeper(
         chapter_version = result.scalar_one_or_none()
     else:
         # 获取最新版本
-        chapter = await novel_service.get_chapter(request.project_id, request.chapter_number)
+        chapter = await novel_service.get_or_create_chapter(request.project_id, request.chapter_number)
         if not chapter:
             raise HTTPException(status_code=404, detail="章节不存在")
         if not chapter.versions:
@@ -162,7 +162,7 @@ async def review_gatekeeper(
     # 获取大纲
     outline = None
     try:
-        outline = await novel_service.get_chapter_outline(request.project_id, request.chapter_number)
+        outline = await novel_service.get_outline(request.project_id, request.chapter_number)
     except Exception:
         pass
 
@@ -199,7 +199,7 @@ async def get_project_analysis(
 ) -> Dict[str, Any]:
     """获取项目的聚合质量分析数据"""
     novel_service = NovelService(session)
-    project = await novel_service.get_project(project_id)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     if project.user_id != current_user.id:
@@ -253,7 +253,7 @@ async def get_gatekeeper_review(
 ) -> Dict[str, Any]:
     """获取章节质量审核结果"""
     novel_service = NovelService(session)
-    project = await novel_service.get_project(project_id)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     if project.user_id != current_user.id:
