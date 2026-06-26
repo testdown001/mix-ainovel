@@ -257,8 +257,13 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         err_label = f"{type(e).__name__}: {e}".strip() or type(e).__name__
         logger.error(f"任务执行失败: {err_label}\n{traceback.format_exc()}")
 
-        # 关键：把仍卡在 generating 的章节回写 failed，否则前端永远停在"等待生成"
-        await _reset_generating_chapters_to_failed(req)
+        # 把仍卡在 generating 的章节回写 failed。用 shield 确保即便本任务正被取消
+        # (CancelledError)，复位也能跑完；并吞掉取消导致的二次抛出——否则在已取消的
+        # 任务里再 await 会立刻重抛 CancelledError，逃逸成 HTTP 500。
+        try:
+            await asyncio.shield(_reset_generating_chapters_to_failed(req))
+        except BaseException:  # noqa: BLE001 - 复位失败/取消都不应阻断优雅返回
+            pass
 
         # 向网关优雅返回 failed（HTTP 200）而非裸奔 500：网关据此判失败、不再无谓重试
         return WorkerTaskResponse(
@@ -268,7 +273,11 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         )
 
     finally:
-        await reporter.close()
+        # finally 内 await 抛出会覆盖返回值 → 500，故吞掉关闭异常
+        try:
+            await reporter.close()
+        except BaseException:  # noqa: BLE001
+            pass
 
 
 # ============================================================
