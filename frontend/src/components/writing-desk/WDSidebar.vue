@@ -20,6 +20,19 @@
       style="border-radius: var(--md-radius-xl);"
     >
       <div class="h-full flex flex-col">
+        <!-- 故事概览（可折叠）：蓝图 / 参考小说 / 创作主线。order-2 使其排在章节列表下方 -->
+        <div class="overview-collapsible flex-shrink-0 order-2">
+          <button class="overview-toggle" type="button" @click="toggleOverview" :aria-expanded="!overviewCollapsed">
+            <span class="overview-toggle-main">
+              <svg class="overview-chevron" :class="{ 'rotate-90': !overviewCollapsed }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+              </svg>
+              <span>故事概览</span>
+              <span class="overview-toggle-meta">{{ characterCount }}角色 · {{ relationshipCount }}关系 · {{ completedChapters }}/{{ totalChapters }}章</span>
+            </span>
+            <span class="overview-toggle-state">{{ overviewCollapsed ? '展开' : '收起' }}</span>
+          </button>
+          <div v-show="!overviewCollapsed" class="overview-content max-h-[55vh] overflow-y-auto">
         <!-- 蓝图预览卡片 -->
         <div class="md-card-header flex-shrink-0">
           <div class="flex items-center gap-3 mb-4">
@@ -146,9 +159,11 @@
             </button>
           </div>
         </div>
+          </div>
+        </div>
 
-        <!-- 章节列表 -->
-        <div ref="listContainer" class="flex-1 overflow-y-auto">
+        <!-- 章节列表（order-1 提到最上面；故事概览折叠区在其下方） -->
+        <div ref="listContainer" class="flex-1 overflow-y-auto min-h-0 order-1">
           <div class="p-6 pb-4">
             <div class="flex items-center justify-between mb-4">
               <h3 class="md-title-medium font-semibold">章节大纲</h3>
@@ -580,6 +595,14 @@ const chapterRefs = ref<Record<number, HTMLElement | null>>({})
 const referenceLibraryVisible = ref(false)
 const showProfessionalTools = ref(!!props.professionalMode)
 
+// 故事概览折叠态：默认折叠（让章节列表占据主区域），并持久化到 localStorage
+const OVERVIEW_COLLAPSE_KEY = 'wd_sidebar_overview_collapsed'
+const overviewCollapsed = ref(localStorage.getItem(OVERVIEW_COLLAPSE_KEY) !== 'false')
+function toggleOverview() {
+  overviewCollapsed.value = !overviewCollapsed.value
+  localStorage.setItem(OVERVIEW_COLLAPSE_KEY, String(overviewCollapsed.value))
+}
+
 const characterCount = computed(() => {
   return props.project?.blueprint?.characters?.length || 0
 })
@@ -968,6 +991,60 @@ const canGenerateChapter = (chapterNumber: number) => {
 </script>
 
 <style scoped>
+.overview-collapsible {
+  border-top: 1px solid #2A2A2A;
+}
+
+.overview-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 1rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.overview-toggle:hover {
+  background: #161616;
+}
+
+.overview-toggle-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.overview-toggle-meta {
+  color: #777777;
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-chevron {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: #FFE500;
+  transition: transform 0.2s;
+}
+
+.overview-toggle-state {
+  flex-shrink: 0;
+  color: #FFE500;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .reference-panel {
   margin: 0 1rem 1rem;
   padding: 0.75rem;
