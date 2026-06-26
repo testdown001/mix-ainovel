@@ -1,8 +1,9 @@
 # AIMETA P=管理员API_用户管理和系统配置|R=管理员CRUD_系统配置_统计|NR=不含普通用户功能|E=route:POST_GET_/api/admin/*|X=http|A=用户CRUD_配置_统计|D=fastapi,sqlalchemy|S=db|RD=./README.ai
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -12,9 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.dependencies import get_current_admin
 from ...db.session import get_session
 from ...models import NovelProject, UsageMetric, User
+from ...models.llm_call_log import LLMCallLog
 from ...models.payment_order import PaymentOrder
 from ...models.plan import Plan
 from ...models.user_quota import UserQuota
+from ...db.session import AsyncSessionLocal
 from ...schemas.admin import (
     AdminNovelSummary,
     DailyRequestLimit,
@@ -660,7 +663,9 @@ async def change_password(
 # LLM / embedding 通道可用性测试（「测试」按钮）
 # ------------------------------------------------------------------
 
-_TESTABLE_CHANNELS = {"default", "fallback", "polish", "search", "embedding"}
+_TESTABLE_CHANNELS = {"default", "fallback", "polish", "search", "grader", "embedding"}
+# 健康检测覆盖的全部通道（顺序即页面展示顺序）
+_HEALTH_CHANNELS = ["default", "fallback", "polish", "search", "grader", "embedding"]
 
 
 class TestChannelRequest(BaseModel):
@@ -682,3 +687,144 @@ async def test_llm_channel(
     result = await llm.test_channel(payload.channel_type)
     logger.info("管理员测试 LLM 通道 %s → ok=%s", payload.channel_type, result.get("ok"))
     return result
+
+
+# ------------------------------------------------------------------
+# LLM 通道诊断（后台「通道诊断」页）
+#   GET /llm-health           主动并发检测全部通道实时可用性
+#   GET /llm-calls/summary    近期真实调用按通道聚合（错误率/延迟/最近错误）
+#   GET /llm-calls            近期真实调用流水（可按通道/状态过滤）
+# ------------------------------------------------------------------
+
+_CALL_LOG_WINDOWS = {"1h": 1, "6h": 6, "24h": 24, "7d": 24 * 7}
+# summary 聚合的取数上限：超过则只基于「最近 N 条」统计，并在响应里标 truncated=true，
+# 避免静默偏移（遥测仅保留 7 天，正常体量远低于此）。
+_SUMMARY_ROW_CAP = 20000
+
+
+@router.get("/llm-health")
+async def llm_health(_: UserSchema = Depends(get_current_admin)) -> Dict[str, Any]:
+    """并发对所有通道发起一次真实最小调用，返回实时可用性。每个通道用独立 session，
+    避免共享请求 session 并发；test_channel 内部已吞掉所有异常，gather 不会失败。"""
+    from ...services.llm_service import LLMService
+
+    async def _check(channel: str) -> Dict[str, Any]:
+        async with AsyncSessionLocal() as s:
+            llm = LLMService(s)
+            result = await llm.test_channel(channel)
+        return {"channel": channel, **result}
+
+    channels = await asyncio.gather(*[_check(c) for c in _HEALTH_CHANNELS])
+    return {"channels": list(channels)}
+
+
+def _percentile(values: List[int], pct: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    idx = min(len(ordered) - 1, int(round((pct / 100.0) * (len(ordered) - 1))))
+    return int(ordered[idx])
+
+
+@router.get("/llm-calls/summary")
+async def llm_calls_summary(
+    window: str = "24h",
+    session: AsyncSession = Depends(get_session),
+    _: UserSchema = Depends(get_current_admin),
+) -> Dict[str, Any]:
+    """近期真实 LLM 调用按通道聚合：调用数/成功/错误/超时/错误率/平均·p95·最大延迟/最近错误。"""
+    hours = _CALL_LOG_WINDOWS.get(window, 24)
+    since = datetime.utcnow() - timedelta(hours=hours)
+    rows = (
+        await session.execute(
+            select(
+                LLMCallLog.api_type,
+                LLMCallLog.status,
+                LLMCallLog.latency_ms,
+                LLMCallLog.error_message,
+                LLMCallLog.http_status,
+                LLMCallLog.created_at,
+            )
+            .where(LLMCallLog.created_at >= since)
+            .order_by(desc(LLMCallLog.created_at))
+            .limit(_SUMMARY_ROW_CAP)
+        )
+    ).all()
+    truncated = len(rows) >= _SUMMARY_ROW_CAP
+
+    by_channel: Dict[str, Dict[str, Any]] = {}
+    for api_type, status_, latency_ms, error_message, http_status, created_at in rows:
+        agg = by_channel.setdefault(
+            api_type,
+            {
+                "channel": api_type,
+                "total": 0,
+                "success": 0,
+                "error": 0,
+                "timeout": 0,
+                "_latencies": [],
+                "last_error": None,
+                "last_error_at": None,
+                "last_error_http": None,
+            },
+        )
+        agg["total"] += 1
+        if status_ in ("success", "error", "timeout"):
+            agg[status_] += 1
+        agg["_latencies"].append(int(latency_ms or 0))
+        # rows 已按时间倒序，首个错误即最近一次错误
+        if status_ in ("error", "timeout") and agg["last_error"] is None:
+            agg["last_error"] = error_message or status_
+            agg["last_error_at"] = created_at.isoformat() if created_at else None
+            agg["last_error_http"] = http_status
+
+    channels: List[Dict[str, Any]] = []
+    for agg in by_channel.values():
+        latencies = agg.pop("_latencies")
+        total = agg["total"] or 1
+        bad = agg["error"] + agg["timeout"]
+        agg["error_rate"] = round(bad / total, 4)
+        agg["avg_latency_ms"] = int(sum(latencies) / len(latencies)) if latencies else 0
+        agg["p95_latency_ms"] = _percentile(latencies, 95)
+        agg["max_latency_ms"] = max(latencies) if latencies else 0
+        channels.append(agg)
+
+    channels.sort(key=lambda c: (-c["error_rate"], -c["p95_latency_ms"]))
+    return {"window": window, "channels": channels, "truncated": truncated}
+
+
+@router.get("/llm-calls")
+async def llm_calls(
+    limit: int = 100,
+    channel: Optional[str] = None,
+    status: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+    _: UserSchema = Depends(get_current_admin),
+) -> Dict[str, Any]:
+    """近期真实 LLM 调用流水（默认最近 100 条，可按通道/状态过滤）——排查生成慢时直接看这里。"""
+    query = select(LLMCallLog).order_by(desc(LLMCallLog.created_at)).limit(min(max(limit, 1), 500))
+    if channel:
+        query = query.where(LLMCallLog.api_type == channel)
+    if status:
+        query = query.where(LLMCallLog.status == status)
+    records = (await session.execute(query)).scalars().all()
+    return {
+        "calls": [
+            {
+                "id": r.id,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "channel": r.api_type,
+                "model": r.model,
+                "host": r.host,
+                "status": r.status,
+                "latency_ms": r.latency_ms,
+                "http_status": r.http_status,
+                "error_type": r.error_type,
+                "error_message": r.error_message,
+                "prompt_tokens": r.prompt_tokens,
+                "completion_tokens": r.completion_tokens,
+                "user_id": r.user_id,
+            }
+            for r in records
+        ]
+    }

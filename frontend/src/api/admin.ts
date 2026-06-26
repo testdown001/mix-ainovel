@@ -10,13 +10,53 @@ const adminRequest = <T = any>(path: string, options: RequestInit = {}) =>
   requestJson<T>(`${API_BASE_URL}${ADMIN_API_PREFIX}${path}`, options)
 
 // 类型定义
-export type ChannelType = 'default' | 'fallback' | 'polish' | 'search' | 'embedding'
+export type ChannelType = 'default' | 'fallback' | 'polish' | 'search' | 'grader' | 'embedding'
 
 export interface TestChannelResult {
   ok: boolean
   model: string
   latency_ms: number
   detail: string
+}
+
+// —— LLM 通道诊断 ——
+export interface LLMHealthChannel {
+  channel: ChannelType
+  ok: boolean
+  model: string
+  latency_ms: number
+  detail: string
+}
+
+export interface LLMCallSummaryChannel {
+  channel: string
+  total: number
+  success: number
+  error: number
+  timeout: number
+  error_rate: number
+  avg_latency_ms: number
+  p95_latency_ms: number
+  max_latency_ms: number
+  last_error: string | null
+  last_error_at: string | null
+  last_error_http: number | null
+}
+
+export interface LLMCallRow {
+  id: number
+  created_at: string | null
+  channel: string
+  model: string
+  host: string
+  status: 'success' | 'error' | 'timeout'
+  latency_ms: number
+  http_status: number | null
+  error_type: string | null
+  error_message: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  user_id: number | null
 }
 
 export interface ApiUsageRow {
@@ -405,5 +445,24 @@ export class AdminAPI {
       q.set('end_date', params.endDate)
     }
     return requestJson<ApiUsageStats>(`/api/api-usage/stats?${q.toString()}`)
+  }
+
+  /** 主动并发检测全部 LLM/embedding 通道的实时可用性。 */
+  static getLlmHealth(): Promise<{ channels: LLMHealthChannel[] }> {
+    return this.request('/llm-health')
+  }
+
+  /** 近期真实调用按通道聚合（错误率/延迟/最近错误）。window: 1h|6h|24h|7d */
+  static getLlmCallsSummary(window = '24h'): Promise<{ window: string; channels: LLMCallSummaryChannel[]; truncated?: boolean }> {
+    return this.request(`/llm-calls/summary?window=${encodeURIComponent(window)}`)
+  }
+
+  /** 近期真实调用流水（可按通道/状态过滤）。 */
+  static getLlmCalls(params: { limit?: number; channel?: string; status?: string } = {}): Promise<{ calls: LLMCallRow[] }> {
+    const q = new URLSearchParams()
+    q.set('limit', String(params.limit ?? 100))
+    if (params.channel) q.set('channel', params.channel)
+    if (params.status) q.set('status', params.status)
+    return this.request(`/llm-calls?${q.toString()}`)
   }
 }

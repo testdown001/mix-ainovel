@@ -23,7 +23,7 @@ from ..repositories.user_repository import UserRepository
 from ..services.admin_setting_service import AdminSettingService
 from ..services.prompt_service import PromptService
 from ..services.usage_service import UsageService
-from ..services.api_usage_recorder import record_usage, estimate_tokens
+from ..services.api_usage_recorder import record_usage, estimate_tokens, record_call_log
 from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient, _build_http_client
 
 logger = logging.getLogger(__name__)
@@ -677,6 +677,82 @@ class LLMService:
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
         reasoning_effort_override: Optional[str] = None,
         api_type: str = "default",
+        _record_telemetry: bool = True,
+    ) -> str:
+        """薄包装：为每次真实 LLM 调用记录遥测（通道/模型/延迟/状态/错误），供后台
+        「通道诊断」排查生成慢/报错/超时。记录 best-effort，绝不影响生成主流程。
+        _record_telemetry=False 用于排除「测试通道」等合成调用，免污染真实流量统计。"""
+        import time as _time
+
+        _start = _time.monotonic()
+        _meta: Dict[str, Any] = {}
+        _status = "error"
+        _err_type: Optional[str] = None
+        _err_msg: Optional[str] = None
+        _http_status: Optional[int] = None
+        try:
+            result = await self._stream_and_collect_impl(
+                messages,
+                temperature=temperature,
+                user_id=user_id,
+                timeout=timeout,
+                config_override=config_override,
+                response_format=response_format,
+                max_tokens=max_tokens,
+                top_p=top_p,
+                max_retries=max_retries,
+                thinking_budget=thinking_budget,
+                disable_thinking=disable_thinking,
+                on_chunk=on_chunk,
+                reasoning_effort_override=reasoning_effort_override,
+                api_type=api_type,
+                _call_meta=_meta,
+            )
+            _status = "success"
+            return result
+        except Exception as exc:
+            _status, _http_status = self._classify_call_error(exc)
+            _err_type = type(exc).__name__
+            _err_msg = (str(exc) or "")[:500]
+            raise
+        finally:
+            if _record_telemetry:
+                try:
+                    _latency = int((_time.monotonic() - _start) * 1000)
+                    await self._record_call_log(
+                        api_type=api_type,
+                        model=_meta.get("model"),
+                        host=_meta.get("host"),
+                        status=_status,
+                        latency_ms=_latency,
+                        http_status=_http_status,
+                        error_type=_err_type,
+                        error_message=_err_msg,
+                        prompt_tokens=_meta.get("prompt_tokens", 0),
+                        completion_tokens=_meta.get("completion_tokens", 0),
+                        user_id=user_id,
+                    )
+                except Exception:
+                    pass
+
+    async def _stream_and_collect_impl(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        temperature: float,
+        user_id: Optional[int],
+        timeout: float,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
+        response_format: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        top_p: Optional[float] = None,
+        max_retries: int = 2,
+        thinking_budget: Optional[int] = None,
+        disable_thinking: bool = False,
+        on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
+        reasoning_effort_override: Optional[str] = None,
+        api_type: str = "default",
+        _call_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
         config["base_url"] = self._normalize_base_url(config.get("base_url"))
@@ -758,6 +834,10 @@ class LLMService:
             len(messages),
             api_format,
         )
+
+        if _call_meta is not None:
+            _call_meta["model"] = model_name
+            _call_meta["host"] = config.get("base_url") or ""
 
         reasoning_effort = reasoning_effort_override or config.get("reasoning_effort")
         last_exc = None
@@ -1166,6 +1246,9 @@ class LLMService:
             prompt_text = "".join(m.get("content") or "" for m in messages)
             rec_prompt = estimate_tokens(prompt_text)
             rec_completion = estimate_tokens(full_response)
+        if _call_meta is not None:
+            _call_meta["prompt_tokens"] = rec_prompt
+            _call_meta["completion_tokens"] = rec_completion
         await self._record_token_usage(
             model=model_name,
             api_type=api_type,
@@ -1208,6 +1291,61 @@ class LLMService:
                     )
         except Exception as exc:  # pragma: no cover - 记录失败不应中断生成
             logger.warning("记录 API 用量失败(已忽略): %s", exc)
+
+    def _classify_call_error(self, exc: Exception) -> tuple:
+        """把 LLM 调用异常归类为 (status, http_status)。status ∈ {timeout, error}。"""
+        # _stream_and_collect_impl 终态失败抛 503 HTTPException，detail 含「超时」可区分
+        if isinstance(exc, HTTPException):
+            detail = str(getattr(exc, "detail", "") or "")
+            if "超时" in detail or "timeout" in detail.lower():
+                return "timeout", exc.status_code
+            return "error", exc.status_code
+        if isinstance(exc, (APITimeoutError, httpx.TimeoutException, asyncio.TimeoutError)):
+            return "timeout", None
+        if isinstance(exc, httpx.HTTPStatusError):
+            return "error", (exc.response.status_code if exc.response is not None else None)
+        # openai 库的 APIStatusError 系列带 status_code 属性
+        status_code = getattr(exc, "status_code", None)
+        http_status = status_code if isinstance(status_code, int) else None
+        if "timeout" in type(exc).__name__.lower():
+            return "timeout", http_status
+        return "error", http_status
+
+    async def _record_call_log(
+        self,
+        *,
+        api_type: str,
+        model: Optional[str],
+        host: Optional[str],
+        status: str,
+        latency_ms: int,
+        http_status: Optional[int],
+        error_type: Optional[str],
+        error_message: Optional[str],
+        prompt_tokens: int,
+        completion_tokens: int,
+        user_id: Optional[int],
+    ) -> None:
+        """记录一次 LLM 调用遥测（后台「通道诊断」）。失败仅 debug 日志，不影响生成。"""
+        try:
+            async with self._db_access_lock:
+                async with AsyncSessionLocal() as session:
+                    await record_call_log(
+                        session,
+                        api_type=api_type,
+                        model=model,
+                        host=host,
+                        status=status,
+                        latency_ms=latency_ms,
+                        http_status=http_status,
+                        error_type=error_type,
+                        error_message=error_message,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        user_id=user_id,
+                    )
+        except Exception as exc:  # pragma: no cover - 遥测失败不应中断生成
+            logger.debug("记录 LLM 调用遥测失败(已忽略): %s", exc)
 
     async def _get_config_value_for_session(self, session, key: str) -> Optional[str]:
         record = await SystemConfigRepository(session).get_by_key(key)
@@ -1445,7 +1583,7 @@ class LLMService:
     async def test_channel(self, channel_type: str) -> Dict[str, Any]:
         """真实检测某个已配置的 LLM / embedding 通道是否可用（管理后台「测试」按钮）。
 
-        channel_type: default | fallback | polish | search | embedding
+        channel_type: default | fallback | polish | search | grader | embedding
         返回: {ok: bool, model: str, latency_ms: int, detail: str}
         - 真正发起一次最小调用（LLM 回 "ok" / embedding 取一条向量），验证密钥/地址/模型可达。
         - 任何异常都被捕获为 ok=False + detail，绝不抛出。
@@ -1457,6 +1595,7 @@ class LLMService:
             "fallback": "llm_fallback",
             "polish": "llm_optimize",
             "search": "llm_search",
+            "grader": "llm_grader",
         }
         start = _time.monotonic()
         try:
@@ -1481,8 +1620,8 @@ class LLMService:
             model = await self._get_config_value(f"{prefix}.model")
             api_format = await self._get_config_value(f"{prefix}.api_format")
 
-            # 润色/搜索通道未单独配置时回退到默认 llm.*（与实际调用回退逻辑一致）
-            if channel_type in ("polish", "search") and not api_key:
+            # 润色/搜索/评分通道未单独配置时回退到默认 llm.*（与实际调用回退逻辑一致）
+            if channel_type in ("polish", "search", "grader") and not api_key:
                 api_key = await self._get_config_value("llm.api_key")
                 base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
                 model = model or await self._get_config_value("llm.model")
@@ -1508,6 +1647,7 @@ class LLMService:
                 max_tokens=16,
                 max_retries=0,
                 api_type=channel_type,
+                _record_telemetry=False,
             )
             latency = int((_time.monotonic() - start) * 1000)
             if resp and resp.strip():

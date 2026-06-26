@@ -352,7 +352,8 @@ const polishSaving = ref(false)
 const searchSaving = ref(false)
 const embeddingSaving = ref(false)
 
-const testing = reactive<Record<ChannelType, boolean>>({
+// 仅覆盖本页配置卡管理的通道（grader 在「通道诊断」页测试，这里不配置）
+const testing = reactive<Partial<Record<ChannelType, boolean>>>({
   default: false, fallback: false, polish: false, search: false, embedding: false,
 })
 

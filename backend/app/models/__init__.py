@@ -69,6 +69,7 @@ from .writing_archive import WritingArchive, EdictStatus
 from .plan import Plan
 from .payment_order import PaymentOrder
 from .api_usage_log import ApiUsageLog
+from .llm_call_log import LLMCallLog
 
 # 补全集中注册（此前依赖导入副作用建表，易漏建）
 from .constitution import NovelConstitution
@@ -139,6 +140,7 @@ __all__ = [
     "Plan",
     "PaymentOrder",
     "ApiUsageLog",
+    "LLMCallLog",
     # 补全集中注册
     "NovelConstitution",
     "Faction",

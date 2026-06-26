@@ -11,16 +11,22 @@
 from __future__ import annotations
 
 import logging
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
 from typing import Optional
 
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.api_usage_log import ApiUsageLog
+from ..models.llm_call_log import LLMCallLog
 
 logger = logging.getLogger(__name__)
+
+# LLM 调用遥测保留窗口 + 定期清理触发间隔（每 N 次写入清理一次过期行）
+_LLM_CALL_LOG_RETENTION_DAYS = 7
+_LLM_CALL_LOG_PRUNE_EVERY = 300
+_llm_call_log_counter = 0
 
 
 def estimate_tokens(text: Optional[str]) -> int:
@@ -81,3 +87,49 @@ async def record_usage(
         await session.rollback()
         await session.execute(upd)
         await session.commit()
+
+
+async def record_call_log(
+    session: AsyncSession,
+    *,
+    api_type: str = "default",
+    model: Optional[str] = None,
+    host: Optional[str] = None,
+    status: str = "success",
+    latency_ms: int = 0,
+    http_status: Optional[int] = None,
+    error_type: Optional[str] = None,
+    error_message: Optional[str] = None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    user_id: Optional[int] = None,
+) -> None:
+    """记录一次 LLM 调用遥测（通道/模型/延迟/状态/错误），供后台「通道诊断」排查
+    生成慢/报错/超时。每 N 次写入顺带清理超过保留窗口的旧行。"""
+    global _llm_call_log_counter
+    session.add(
+        LLMCallLog(
+            api_type=(api_type or "default")[:32],
+            model=(model or "")[:128],
+            host=(host or "")[:256],
+            status=(status or "success")[:16],
+            latency_ms=int(latency_ms or 0),
+            http_status=http_status if isinstance(http_status, int) else None,
+            error_type=(error_type[:64] if error_type else None),
+            error_message=(error_message[:512] if error_message else None),
+            prompt_tokens=int(prompt_tokens or 0),
+            completion_tokens=int(completion_tokens or 0),
+            user_id=user_id,
+        )
+    )
+    await session.commit()
+
+    _llm_call_log_counter += 1
+    if _llm_call_log_counter % _LLM_CALL_LOG_PRUNE_EVERY == 0:
+        cutoff = _datetime.utcnow() - _timedelta(days=_LLM_CALL_LOG_RETENTION_DAYS)
+        try:
+            await session.execute(delete(LLMCallLog).where(LLMCallLog.created_at < cutoff))
+            await session.commit()
+        except Exception as exc:  # pragma: no cover - 清理失败不影响记录
+            await session.rollback()
+            logger.warning("清理过期 LLM 调用遥测失败(已忽略): %s", exc)
