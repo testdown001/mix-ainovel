@@ -207,16 +207,20 @@
 
         <!-- N 路发散结果卡片（旗舰档）-->
         <div v-if="divergeSeeds.length" class="diverge-results">
-          <div class="diverge-results-head">缪斯给了你 {{ divergeSeeds.length }} 个迥异方向，挑一个继续：</div>
+          <div class="diverge-results-head">缪斯给了你 {{ divergeSeeds.length }} 个迥异方向，挑一个继续（其余会保留，可继续对比 / 再挑）：</div>
           <div class="diverge-cards">
             <button
               v-for="seed in divergeSeeds"
               :key="seed.id"
               class="diverge-card"
+              :class="{ 'is-picked': pickedSeedIds.includes(seed.id) }"
               @click="pickDivergeSeed(seed)"
             >
               <div class="diverge-card-title">
-                {{ seed.title || '未命名方向' }}
+                <span class="diverge-card-name">
+                  {{ seed.title || '未命名方向' }}
+                  <span v-if="pickedSeedIds.includes(seed.id)" class="diverge-picked-badge">已投喂</span>
+                </span>
                 <span v-if="typeof seed.score === 'number'" class="diverge-score">{{ seed.score }}/30</span>
               </div>
               <div class="diverge-card-logline">{{ seed.logline }}</div>
@@ -316,6 +320,7 @@ const featureAccess = ref({ muse_persona: false, muse_search: false, muse_diverg
 const disableMuseSearch = ref(false) // 「一键找素材」开关（默认开启=找）
 const disableSpark = ref(false)      // 「灵感扰动」开关（默认开启）
 const divergeSeeds = ref<DivergeSeed[]>([])
+const pickedSeedIds = ref<number[]>([])  // 已投喂给文思的方向 id（用于标记「已投喂」，其余方向仍保留可选）
 const isDiverging = ref(false)
 
 const canUsePersona = computed(() => featureAccess.value.muse_persona)
@@ -675,6 +680,7 @@ async function handleDiverge() {
   }
   isDiverging.value = true
   divergeSeeds.value = []
+  pickedSeedIds.value = []
   try {
     const resp = await NovelAPI.divergeConcepts(novelStore.currentProject.id, seed, {
       exclusions: exclusions.value.trim() || undefined,
@@ -693,7 +699,10 @@ async function handleDiverge() {
 }
 
 function pickDivergeSeed(seed: DivergeSeed) {
-  divergeSeeds.value = []
+  // 不清空其余方向：标记本方向「已投喂」后保留整组卡片，方便继续对比/再挑
+  if (!pickedSeedIds.value.includes(seed.id)) {
+    pickedSeedIds.value.push(seed.id)
+  }
   // 把选中的种子作为用户输入投喂给「文思」继续落地
   handleUserInput({ id: 'diverge_pick', value: seedToText(seed) })
 }
@@ -1251,9 +1260,16 @@ onMounted(() => {
   transition: border-color 0.15s, background 0.15s;
 }
 .diverge-card:hover { border-color: #f5c451; background: rgba(245, 196, 81, 0.08); }
+.diverge-card.is-picked { border-color: rgba(245, 196, 81, 0.5); background: rgba(245, 196, 81, 0.06); }
 .diverge-card-title {
   display: flex; align-items: center; justify-content: space-between;
   font-weight: 600; font-size: 14px; margin-bottom: 4px;
+}
+.diverge-card-name { display: inline-flex; align-items: center; gap: 6px; }
+.diverge-picked-badge {
+  font-size: 11px; font-weight: 600;
+  color: #0A0A0A; background: #f5c451;
+  border-radius: 6px; padding: 1px 6px;
 }
 .diverge-score { font-size: 12px; color: #f5c451; }
 .diverge-card-logline { font-size: 13px; opacity: 0.9; }
