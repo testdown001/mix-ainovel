@@ -63,8 +63,11 @@ task_dispatcher:
   enabled: true
   max_concurrency: 20
   max_per_user: 3
-  default_timeout: 10m
-  batch_timeout: 60m
+  # 宽松上限：仅作兜底。思考/推理模型整章生成可能需 20~30 分钟，10m 会被中途取消→
+  # 网关报 500。Python 侧每个 LLM 调用自带 ~180s 超时会快速掐掉真卡死的调用，故宽松上限
+  # 不会让"快模型/失败"傻等，只给慢的思考模型留足时间。需要更久可继续调大。
+  default_timeout: 30m
+  batch_timeout: 120m
   max_retries: 3
   retry_delay: 5s
   poll_interval: 100ms

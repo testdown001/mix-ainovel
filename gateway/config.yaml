@@ -92,8 +92,8 @@ task_dispatcher:
   enabled: true
   max_concurrency: 20       # 全局最大并发任务数
   max_per_user: 3            # 每用户最大并发任务数
-  default_timeout: 10m       # 单章节生成超时
-  batch_timeout: 60m         # 批量生成超时
+  default_timeout: 30m       # 单章节生成超时（宽松兜底；思考模型可能 20~30min，Python 每调用 ~180s 超时会快速掐掉真卡死的）
+  batch_timeout: 120m        # 批量生成超时
   max_retries: 3             # 最大重试次数
   retry_delay: 5s            # 初始重试延迟（指数退避）
   poll_interval: 100ms       # 队列轮询间隔
