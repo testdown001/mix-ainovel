@@ -103,6 +103,8 @@ async def init_db() -> None:
 
         await _ensure_default_plans(session)
 
+        await _ensure_default_models(session)
+
         await session.commit()
 
 
@@ -286,6 +288,30 @@ async def _ensure_default_plans(session: AsyncSession) -> None:
             )
         )
     logger.info("套餐表为空，已落库 %d 个默认会员套餐", len(DEFAULT_PLANS))
+
+
+async def _ensure_default_models(session: AsyncSession) -> None:
+    """模型目录为空时落库占位模型（章鱼1.0/2.0/3.0）。通道五键留空 → 生成时回退 llm.* 默认模型，
+    上线后在后台「模型目录」配真实大模型。已存在任何模型则不动（幂等）。"""
+    from ..api.routers.model_catalog import DEFAULT_MODELS
+    from ..models.model_catalog import ModelCatalog
+
+    existing = await session.execute(select(ModelCatalog).limit(1))
+    if existing.scalars().first():
+        return
+    for item in DEFAULT_MODELS:
+        session.add(
+            ModelCatalog(
+                code=item["code"],
+                display_name=item["display_name"],
+                description=item.get("description"),
+                credit_price=item["credit_price"],
+                min_tier=item["min_tier"],
+                is_active=item.get("is_active", True),
+                sort_order=item.get("sort_order", 0),
+            )
+        )
+    logger.info("模型目录为空，已落库 %d 个占位模型（通道留空回退 llm.*）", len(DEFAULT_MODELS))
 
 
 async def _ensure_default_prompts(session: AsyncSession) -> None:

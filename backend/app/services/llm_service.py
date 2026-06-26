@@ -111,9 +111,12 @@ class LLMService:
         disable_thinking: bool = False,
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
         reasoning_effort: Optional[str] = None,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
     ) -> str:
         # reasoning_effort：按调用覆盖通道默认推理档（minimal/low/medium/high）。
         # 仅对 o系列/gpt-5 的 openai 格式生效，其它模型/格式自动忽略；不传则沿用通道配置。
+        # config_override：按调用指定整套通道(模型目录解析出的真实大模型)，覆盖默认 llm.*；
+        # 仅作用于主调用，兜底通道仍用 llm_fallback.*。不传则用默认通道。
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
 
         # 兜底通道仅在尚未向调用方流出任何增量时才能重试，否则会产生重复输出
@@ -141,6 +144,7 @@ class LLMService:
                 disable_thinking=disable_thinking,
                 on_chunk=wrapped_on_chunk,
                 reasoning_effort_override=reasoning_effort,
+                config_override=config_override,
             )
         except Exception as exc:
             # 429 = 用户每日请求上限（配额问题而非通道故障），不兜底
@@ -1353,6 +1357,36 @@ class LLMService:
             return record.value
         env_key = key.upper().replace(".", "_")
         return os.getenv(env_key)
+
+    async def _resolve_config_by_model_code(self, code: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
+        """按「模型目录」code 解析整套通道配置（通道五键留空则回退 llm.*）。
+        未指定/未入库/已下架 → 返回 None（调用方据此用默认通道）。供生成链路把用户所选模型
+        转成 get_llm_response(config_override=...) 实际生效。"""
+        if not code:
+            return None
+        from sqlalchemy import select
+        from ..models.model_catalog import ModelCatalog
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                row = (
+                    await session.execute(select(ModelCatalog).where(ModelCatalog.code == code))
+                ).scalar_one_or_none()
+                if row is None or not row.is_active:
+                    return None
+                api_key = await self._get_config_value_for_session(session, row.api_key_ref or "llm.api_key")
+                base_url = self._normalize_base_url(
+                    row.base_url or await self._get_config_value_for_session(session, "llm.base_url")
+                )
+                model = row.real_model or await self._get_config_value_for_session(session, "llm.model")
+                api_format = row.api_format or await self._get_config_value_for_session(session, "llm.api_format")
+                reasoning_effort = row.reasoning_effort or await self._get_config_value_for_session(session, "llm.reasoning_effort")
+                return {
+                    "api_key": api_key,
+                    "base_url": base_url,
+                    "model": model,
+                    "api_format": api_format,
+                    "reasoning_effort": reasoning_effort,
+                }
 
     async def _resolve_llm_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
         async with self._db_access_lock:

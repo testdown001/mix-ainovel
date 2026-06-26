@@ -16,6 +16,8 @@ import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from sqlalchemy import select
+
 from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
@@ -300,3 +302,26 @@ async def ensure_generation_preset_allowed(
         status_code=403,
         detail=f"{preset_label}需要{required_label}（当前：{current_label}）",
     )
+
+
+async def ensure_model_allowed(session, model_code: Optional[str], effective_tier: str) -> None:
+    """模型目录按档门控：所选模型档位高于用户档位则抛 403。
+    model_code 为空/未配置(未入库)时不阻断——回退默认 llm.* 通道。"""
+    if not model_code:
+        return
+    from ..models.model_catalog import ModelCatalog  # 延迟导入避免循环依赖
+
+    row = (
+        await session.execute(select(ModelCatalog).where(ModelCatalog.code == model_code))
+    ).scalar_one_or_none()
+    if row is None:
+        return  # 未知/未配置 code → 回退默认通道，不阻断
+    if not row.is_active:
+        raise HTTPException(status_code=403, detail=f"模型「{row.display_name}」已下架，请改选其它模型。")
+    if tier_rank(effective_tier) < tier_rank(row.min_tier or "free"):
+        required_label = TIER_LABELS.get(row.min_tier, row.min_tier)
+        current_label = TIER_LABELS.get(effective_tier, effective_tier or "free")
+        raise HTTPException(
+            status_code=403,
+            detail=f"模型「{row.display_name}」需要{required_label}（当前：{current_label}），请升级或改选其它模型。",
+        )
