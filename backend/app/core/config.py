@@ -416,6 +416,13 @@ class Settings(BaseSettings):
     smtp_username: Optional[str] = Field(default=None, env="SMTP_USERNAME", description="SMTP 登录用户名")
     smtp_password: Optional[str] = Field(default=None, env="SMTP_PASSWORD", description="SMTP 登录密码")
     email_from: Optional[str] = Field(default=None, env="EMAIL_FROM", description="邮件发送方显示名或邮箱")
+    email_provider: str = Field(default="smtp", env="EMAIL_PROVIDER", description="邮件发送通道：smtp 或 resend")
+    resend_api_key: Optional[str] = Field(default=None, env="RESEND_API_KEY", description="Resend API Key")
+    resend_from: Optional[str] = Field(
+        default=None,
+        env="RESEND_FROM",
+        description="Resend 发件人地址，须为已验证域名下的邮箱，如 验证码 <noreply@example.com>",
+    )
 
     model_config = SettingsConfigDict(
         env_file=("new-backend/.env", ".env", "backend/.env"),

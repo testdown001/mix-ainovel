@@ -170,11 +170,15 @@ class AuthService:
             self._last_send_time[cache_key] = now
             self._logger.warning("使用内存缓存存储验证码: %s", cache_key)
 
-        smtp_config = await self._load_smtp_config()
-        if not smtp_config:
+        provider = await self._resolve_email_provider()
+        if provider == "resend":
+            email_config = await self._load_resend_config()
+        else:
+            email_config = await self._load_smtp_config()
+        if not email_config:
             raise HTTPException(status_code=500, detail="未配置邮件服务，请联系管理员")
 
-        await self._send_email(email, code, smtp_config, purpose)
+        await self._send_email(email, code, provider, email_config, purpose)
 
     async def verify_code(self, email: str | None, code: str, purpose: str = "register") -> bool:
         """验证验证码。
@@ -406,6 +410,12 @@ class AuthService:
             raise HTTPException(status_code=403, detail="账号已被禁用")
         return await self.create_access_token(user)
 
+    async def _resolve_email_provider(self) -> str:
+        """解析当前生效的邮件发送通道（smtp / resend），默认 smtp。"""
+        config = await self.system_config_repo.get_by_key("email.provider")
+        provider = (config.value if config and config.value else "smtp").strip().lower()
+        return provider if provider in {"smtp", "resend"} else "smtp"
+
     async def _load_smtp_config(self) -> Optional[Dict[str, str]]:
         keys = [
             "smtp.server",
@@ -426,50 +436,46 @@ class AuthService:
 
         return configs
 
-    async def _send_email(self, to_email: str, code: str, smtp_config: Dict[str, str], purpose: str = "register") -> None:
-        """发送验证码邮件。
+    async def _load_resend_config(self) -> Optional[Dict[str, str]]:
+        keys = ["resend.api_key", "resend.from"]
+        configs: Dict[str, str] = {}
+        for key in keys:
+            config = await self.system_config_repo.get_by_key(key)
+            if config and config.value:
+                configs[key] = config.value
+
+        if not {"resend.api_key", "resend.from"}.issubset(configs.keys()):
+            return None
+
+        return configs
+
+    async def _send_email(
+        self,
+        to_email: str,
+        code: str,
+        provider: str,
+        config: Dict[str, str],
+        purpose: str = "register",
+    ) -> None:
+        """构造验证码邮件并按通道分发发送。
 
         Args:
             to_email: 收件人邮箱
             code: 验证码
-            smtp_config: SMTP 配置
+            provider: 发送通道，'smtp' 或 'resend'
+            config: 对应通道的配置字典
             purpose: 邮件用途，'register' 或 'reset'
         """
-        logger = logging.getLogger(__name__)
-        server = smtp_config["smtp.server"]
-        port = int(smtp_config.get("smtp.port", "465"))
-        username = smtp_config["smtp.username"]
-        password = smtp_config["smtp.password"]
-        from_value = smtp_config.get("smtp.from") or username
-        display_name, from_addr = parseaddr(from_value)
-        if not display_name and "@" not in from_value and "<" not in from_value and from_value.strip():
-            display_name = from_value.strip()
-        if not from_addr or "@" not in from_addr:
-            if from_addr and "@" not in from_addr:
-                logger.warning(
-                    "发件邮箱缺少 @，已回退为登录账号",
-                    extra={"original": from_addr},
-                )
-            from_addr = username
-        try:
-            from_addr.encode("ascii")
-        except UnicodeEncodeError:
-            logger.warning(
-                "发件邮箱包含非 ASCII 字符，已回退为登录账号",
-                extra={"original": from_addr},
-            )
-            from_addr = username
-        if display_name:
-            formatted_from = formataddr((Header(display_name, "utf-8").encode(), from_addr))
+        subject = "注册验证码"
+        html_content = self._build_verification_email_html(code)
+        if provider == "resend":
+            await self._send_via_resend(to_email, subject, html_content, config)
         else:
-            formatted_from = from_addr
+            await self._send_via_smtp(to_email, subject, html_content, config)
 
-        try:
-            to_email.encode("ascii")
-        except UnicodeEncodeError as exc:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail="邮箱地址包含不支持的字符") from exc
-
-        html_content = f"""
+    def _build_verification_email_html(self, code: str) -> str:
+        """构造验证码邮件的 HTML 正文（与发送通道无关）。"""
+        return f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -540,8 +546,50 @@ class AuthService:
 </html>
 """
 
+    async def _send_via_smtp(
+        self,
+        to_email: str,
+        subject: str,
+        html_content: str,
+        smtp_config: Dict[str, str],
+    ) -> None:
+        """通过自建 SMTP 发送邮件。"""
+        logger = logging.getLogger(__name__)
+        server = smtp_config["smtp.server"]
+        port = int(smtp_config.get("smtp.port", "465"))
+        username = smtp_config["smtp.username"]
+        password = smtp_config["smtp.password"]
+        from_value = smtp_config.get("smtp.from") or username
+        display_name, from_addr = parseaddr(from_value)
+        if not display_name and "@" not in from_value and "<" not in from_value and from_value.strip():
+            display_name = from_value.strip()
+        if not from_addr or "@" not in from_addr:
+            if from_addr and "@" not in from_addr:
+                logger.warning(
+                    "发件邮箱缺少 @，已回退为登录账号",
+                    extra={"original": from_addr},
+                )
+            from_addr = username
+        try:
+            from_addr.encode("ascii")
+        except UnicodeEncodeError:
+            logger.warning(
+                "发件邮箱包含非 ASCII 字符，已回退为登录账号",
+                extra={"original": from_addr},
+            )
+            from_addr = username
+        if display_name:
+            formatted_from = formataddr((Header(display_name, "utf-8").encode(), from_addr))
+        else:
+            formatted_from = from_addr
+
+        try:
+            to_email.encode("ascii")
+        except UnicodeEncodeError as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="邮箱地址包含不支持的字符") from exc
+
         message = MIMEText(html_content, "html", "utf-8")
-        message["Subject"] = Header("注册验证码", "utf-8").encode()
+        message["Subject"] = Header(subject, "utf-8").encode()
         message["From"] = formatted_from
         message["To"] = to_email
 
@@ -573,6 +621,54 @@ class AuthService:
             await asyncio.to_thread(_send)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail="验证码发送失败，请检查邮件配置") from exc
+
+    async def _send_via_resend(
+        self,
+        to_email: str,
+        subject: str,
+        html_content: str,
+        resend_config: Dict[str, str],
+    ) -> None:
+        """通过 Resend API 发送邮件（裸 httpx，沿用 Stripe 渠道的轻量实现风格）。"""
+        logger = logging.getLogger(__name__)
+        api_key = resend_config["resend.api_key"]
+        from_value = resend_config["resend.from"]
+        payload = {
+            "from": from_value,
+            "to": [to_email],
+            "subject": subject,
+            "html": html_content,
+        }
+
+        logger.info("准备通过 Resend 发送验证码邮件", extra={"to": to_email})
+
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.resend.com/emails",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Resend 邮件请求失败")
+            raise HTTPException(status_code=500, detail="验证码发送失败，请检查邮件配置") from exc
+
+        if resp.status_code >= 400:
+            logger.error(
+                "Resend 邮件发送失败: status=%s body=%s",
+                resp.status_code,
+                resp.text[:500],
+            )
+            raise HTTPException(status_code=500, detail="验证码发送失败，请检查邮件配置")
+
+        try:
+            email_id = resp.json().get("id")
+        except Exception:  # noqa: BLE001
+            email_id = None
+        logger.info("Resend 验证码邮件发送成功", extra={"to": to_email, "email_id": email_id})
 
     # ------------------------------------------------------------------
     # OAuth 对接示例（以 Linux.do 为例）

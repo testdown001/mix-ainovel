@@ -3,28 +3,47 @@
   <div class="login-auth-config">
     <n-spin :show="loading">
       <n-space vertical :size="20">
-        <!-- 邮件服务（SMTP）—— 注册 / 找回密码验证码 -->
-        <n-card title="邮件服务（SMTP）" size="small">
+        <!-- 邮件服务 —— 注册 / 找回密码验证码 -->
+        <n-card title="邮件服务" size="small">
           <n-alert type="info" :show-icon="false" style="margin-bottom:12px">
-            注册与找回密码的邮箱验证码依赖此配置，5 项需全部填写后才会生效（缺任一项注册会提示「未配置邮件服务」）。
+            注册与找回密码的邮箱验证码依赖此配置。可选「自建 SMTP」或「Resend API」，所选通道的字段需全部填写后才会生效（缺项注册会提示「未配置邮件服务」）。
           </n-alert>
           <n-form label-placement="left" label-width="120">
-            <n-form-item label="SMTP 服务器">
-              <n-input v-model:value="form['smtp.server']" placeholder="如 smtp.qq.com / smtp.gmail.com / smtp.feishu.cn" />
+            <n-form-item label="发送通道">
+              <n-select v-model:value="form['email.provider']" :options="emailProviderOptions" style="max-width:280px" />
             </n-form-item>
-            <n-form-item label="端口">
-              <n-input v-model:value="form['smtp.port']" placeholder="465（SSL）或 587（STARTTLS）" />
-            </n-form-item>
-            <n-form-item label="发信账号">
-              <n-input v-model:value="form['smtp.username']" placeholder="发信邮箱完整账号" />
-            </n-form-item>
-            <n-form-item label="授权码 / 密码">
-              <n-input v-model:value="form['smtp.password']" type="password" show-password-on="click" placeholder="邮箱 SMTP 授权码（多数邮箱非登录密码）" />
-            </n-form-item>
-            <n-form-item label="发件人">
-              <n-input v-model:value="form['smtp.from']" placeholder="发件人地址，一般与发信账号相同" />
-            </n-form-item>
-            <n-button type="primary" :loading="saving === 'smtp'" @click="saveGroup('smtp', smtpKeys)">保存邮件配置</n-button>
+
+            <template v-if="form['email.provider'] === 'resend'">
+              <n-alert type="warning" :show-icon="false" style="margin-bottom:12px">
+                发件人地址的域名必须已在 Resend 后台完成验证（配置 SPF/DKIM），否则会发送失败。沙箱地址 onboarding@resend.dev 只能发给你自己的 Resend 账户邮箱。
+              </n-alert>
+              <n-form-item label="Resend API Key">
+                <n-input v-model:value="form['resend.api_key']" type="password" show-password-on="click" placeholder="re_ 开头的 API Key" />
+              </n-form-item>
+              <n-form-item label="发件人">
+                <n-input v-model:value="form['resend.from']" placeholder="须为已验证域名下地址，如 验证码 <noreply@yourdomain.com>" />
+              </n-form-item>
+            </template>
+
+            <template v-else>
+              <n-form-item label="SMTP 服务器">
+                <n-input v-model:value="form['smtp.server']" placeholder="如 smtp.qq.com / smtp.gmail.com / smtp.feishu.cn" />
+              </n-form-item>
+              <n-form-item label="端口">
+                <n-input v-model:value="form['smtp.port']" placeholder="465（SSL）或 587（STARTTLS）" />
+              </n-form-item>
+              <n-form-item label="发信账号">
+                <n-input v-model:value="form['smtp.username']" placeholder="发信邮箱完整账号" />
+              </n-form-item>
+              <n-form-item label="授权码 / 密码">
+                <n-input v-model:value="form['smtp.password']" type="password" show-password-on="click" placeholder="邮箱 SMTP 授权码（多数邮箱非登录密码）" />
+              </n-form-item>
+              <n-form-item label="发件人">
+                <n-input v-model:value="form['smtp.from']" placeholder="发件人地址，一般与发信账号相同" />
+              </n-form-item>
+            </template>
+
+            <n-button type="primary" :loading="saving === 'email'" @click="saveGroup('email', emailKeys)">保存邮件配置</n-button>
           </n-form>
         </n-card>
 
@@ -117,16 +136,23 @@ const smsProviderOptions = [
   { label: 'mock（仅日志，不真发）', value: 'mock' },
 ]
 
+const emailProviderOptions = [
+  { label: '自建 SMTP', value: 'smtp' },
+  { label: 'Resend API', value: 'resend' },
+]
+
 const boolKeys = ['auth.wechat_enabled', 'auth.google_enabled', 'auth.phone_enabled']
 const wechatKeys = ['auth.wechat_enabled', 'wechat.app_id', 'wechat.app_secret', 'wechat.redirect_uri']
 const googleKeys = ['auth.google_enabled', 'google.client_id', 'google.client_secret', 'google.redirect_uri']
 const phoneKeys = ['auth.phone_enabled', 'sms.provider', 'sms.access_key_id', 'sms.access_key_secret', 'sms.sign_name', 'sms.template_code', 'sms.region']
 const smtpKeys = ['smtp.server', 'smtp.port', 'smtp.username', 'smtp.password', 'smtp.from']
-const allKeys = [...new Set([...wechatKeys, ...googleKeys, ...phoneKeys, ...smtpKeys])]
+const emailKeys = ['email.provider', ...smtpKeys, 'resend.api_key', 'resend.from']
+const allKeys = [...new Set([...wechatKeys, ...googleKeys, ...phoneKeys, ...emailKeys])]
 
 const form = reactive<Record<string, any>>({})
 for (const k of allKeys) form[k] = boolKeys.includes(k) ? false : ''
 form['sms.provider'] = 'mock'
+form['email.provider'] = 'smtp'
 form['smtp.port'] = '465'
 
 const parseBool = (v: string) => ['1', 'true', 'yes', 'on'].includes((v || '').toLowerCase())

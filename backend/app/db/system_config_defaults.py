@@ -69,6 +69,21 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="邮件显示的发件人名称或邮箱。",
     ),
     SystemConfigDefault(
+        key="email.provider",
+        value_getter=lambda config: config.email_provider,
+        description="邮件发送通道：smtp（自建 SMTP）或 resend（Resend API）。",
+    ),
+    SystemConfigDefault(
+        key="resend.api_key",
+        value_getter=lambda config: config.resend_api_key,
+        description="Resend API Key（email.provider=resend 时生效）。",
+    ),
+    SystemConfigDefault(
+        key="resend.from",
+        value_getter=lambda config: config.resend_from,
+        description="Resend 发件人地址，须为已验证域名下的邮箱，如 验证码 <noreply@example.com>。",
+    ),
+    SystemConfigDefault(
         key="auth.allow_registration",
         value_getter=lambda config: _bool_to_text(config.allow_registration),
         description="是否允许用户自助注册。",
