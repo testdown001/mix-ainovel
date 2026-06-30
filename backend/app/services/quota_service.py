@@ -11,7 +11,7 @@
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
@@ -125,6 +125,38 @@ class QuotaService:
             await self.session.commit()
             logger.info("重置积分: user_id=%s -> balance=%s", quota.user_id, quota.credit_balance)
         return quota
+
+    async def list_credit_logs(self, user_id: int, *, limit: int = 20, offset: int = 0) -> dict:
+        """分页查询用户积分流水（按时间倒序），返回 {items,total,limit,offset}。"""
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+        total = (
+            await self.session.execute(
+                select(func.count(CreditLog.id)).where(CreditLog.user_id == user_id)
+            )
+        ).scalar() or 0
+        rows = (
+            await self.session.execute(
+                select(CreditLog)
+                .where(CreditLog.user_id == user_id)
+                .order_by(CreditLog.created_at.desc(), CreditLog.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+        ).scalars().all()
+        items = [
+            {
+                "id": r.id,
+                "delta": r.delta,
+                "reason": r.reason,
+                "ref_key": r.ref_key,
+                "balance_after": r.balance_after,
+                "note": r.note,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+        return {"items": items, "total": total, "limit": limit, "offset": offset}
 
     async def _credit_log_exists(self, reason: str, ref_key: Optional[str]) -> bool:
         if not ref_key:

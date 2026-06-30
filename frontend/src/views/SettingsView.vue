@@ -54,6 +54,7 @@
       <main class="flex-1 min-w-0">
         <WritingPreferences v-if="activeTab === 'writing'" />
         <SubscriptionPanel v-else-if="activeTab === 'subscription'" />
+        <CreditLedger v-else-if="activeTab === 'credits'" />
         <div v-else-if="activeTab === 'admin'" class="flex flex-col items-center justify-center py-16 gap-4">
           <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background: rgba(255,229,0,0.1);">
             <svg class="w-7 h-7" style="color:#FFE500;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -74,6 +75,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import WritingPreferences from '@/components/WritingPreferences.vue'
 import SubscriptionPanel from '@/components/SubscriptionPanel.vue'
+import CreditLedger from '@/components/CreditLedger.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -82,7 +84,7 @@ const userInitial = computed(() => {
   return name.charAt(0).toUpperCase() || 'U'
 })
 
-type TabId = 'writing' | 'subscription' | 'admin'
+type TabId = 'writing' | 'subscription' | 'credits' | 'admin'
 
 const activeTab = ref<TabId>('writing')
 
@@ -104,6 +106,11 @@ const baseTabs: Array<{ id: TabId; label: string; icon: string }> = [
     id: 'subscription',
     label: '会员套餐',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/></svg>',
+  },
+  {
+    id: 'credits',
+    label: '积分明细',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M14.5 9.5a2.5 2.5 0 00-2.5-1.5c-1.4 0-2.5.9-2.5 2s1.1 2 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2a2.5 2.5 0 01-2.5-1.5M12 6.5v11"/></svg>',
   },
 ]
 

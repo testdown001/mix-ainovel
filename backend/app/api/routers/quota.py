@@ -38,6 +38,23 @@ async def get_my_quota(
     return await quota_service.get_quota_info(current_user.id)
 
 
+@router.get("/me/credit-logs", response_model=Dict)
+async def get_my_credit_logs(
+    limit: int = 20,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict:
+    """获取当前用户的积分流水（分页，时间倒序）。
+
+    Args:
+        limit: 每页条数（1-100，默认 20）
+        offset: 偏移量（默认 0）
+    """
+    quota_service = QuotaService(session)
+    return await quota_service.list_credit_logs(current_user.id, limit=limit, offset=offset)
+
+
 @router.get("/{user_id}", response_model=Dict)
 async def get_user_quota(
     user_id: int,

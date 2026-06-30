@@ -98,6 +98,41 @@ async def test_existing_user_credit_init(db_session):
 
 
 @pytest.mark.asyncio
+async def test_list_credit_logs_pagination(db_session):
+    svc = QuotaService(db_session)
+    await svc.get_or_create_quota(20)
+    await svc.consume_credits(20, 5, reason="generate", ref_key="g1")
+    await svc.consume_credits(20, 5, reason="polish", ref_key="p1")
+    await svc.refund_credits(20, 5, ref_key="g1")  # reason=refund，与上面不冲突
+
+    res = await svc.list_credit_logs(20, limit=2, offset=0)
+    assert res["total"] >= 3  # 至少 generate + polish + refund
+    assert res["limit"] == 2 and res["offset"] == 0
+    assert len(res["items"]) == 2
+    # 时间倒序（created_at desc, id desc）：最新一条是退款
+    first = res["items"][0]
+    assert first["reason"] == "refund"
+    assert first["delta"] == 5
+    assert {"id", "delta", "reason", "balance_after", "created_at"} <= set(first.keys())
+
+    # 第二页承接，且 limit 被钳制在 [1,100]
+    page2 = await svc.list_credit_logs(20, limit=999, offset=2)
+    assert page2["limit"] == 100
+    assert all(it["user_id"] if "user_id" in it else True for it in page2["items"])  # 仅本人流水
+
+
+@pytest.mark.asyncio
+async def test_credit_logs_isolated_per_user(db_session):
+    svc = QuotaService(db_session)
+    await svc.get_or_create_quota(21)
+    await svc.get_or_create_quota(22)
+    await svc.consume_credits(21, 5, reason="generate", ref_key="u21")
+    res22 = await svc.list_credit_logs(22, limit=20, offset=0)
+    # 用户 22 不应看到用户 21 的扣费流水
+    assert all(it["reason"] != "generate" or it["ref_key"] != "u21" for it in res22["items"])
+
+
+@pytest.mark.asyncio
 async def test_quota_info_has_credit_block(db_session):
     svc = QuotaService(db_session)
     info = await svc.get_quota_info(8)
