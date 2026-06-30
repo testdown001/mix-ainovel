@@ -34,6 +34,7 @@ class PlanCreate(BaseModel):
     period: str = "monthly"
     daily_chapter_limit: int = 0
     max_novels: int = 0
+    monthly_credits: int = 0  # 每月发放积分；>0 时覆盖档位默认(SystemConfig credits.monthly.*)
     tier: str = "free"  # 订阅档位：free / creator / flagship
     features: Optional[list[str]] = None
     is_recommended: bool = False
@@ -60,6 +61,7 @@ def plan_to_dict(plan: Plan) -> dict:
         "period": plan.period,
         "daily_chapter_limit": plan.daily_chapter_limit,
         "max_novels": plan.max_novels,
+        "monthly_credits": getattr(plan, "monthly_credits", 0) or 0,
         "tier": getattr(plan, "tier", "free") or "free",
         "features": features,
         "is_recommended": plan.is_recommended,
@@ -79,6 +81,7 @@ DEFAULT_PLANS = [
         "period": "forever",
         "daily_chapter_limit": 3,
         "max_novels": 2,
+        "monthly_credits": 60,
         "tier": "free",
         "features": ["每日3章AI辅助", "最多2个项目", "基础灵感系统", "社区支持"],
         "is_recommended": False,
@@ -93,6 +96,7 @@ DEFAULT_PLANS = [
         "period": "monthly",
         "daily_chapter_limit": 30,
         "max_novels": 20,
+        "monthly_credits": 3000,
         "tier": "creator",
         "features": [
             "每日30章AI辅助",
@@ -115,6 +119,7 @@ DEFAULT_PLANS = [
         "period": "monthly",
         "daily_chapter_limit": 0,
         "max_novels": 0,
+        "monthly_credits": 18000,
         "tier": "flagship",
         "features": [
             "无限AI章节生成",
@@ -187,6 +192,7 @@ async def create_plan(
         period=data.period,
         daily_chapter_limit=data.daily_chapter_limit,
         max_novels=data.max_novels,
+        monthly_credits=max(0, data.monthly_credits or 0),
         tier=data.tier if data.tier in ("free", "creator", "flagship") else "free",
         features=json.dumps(data.features or [], ensure_ascii=False),
         is_recommended=data.is_recommended,
@@ -216,6 +222,7 @@ async def update_plan(
     plan.period = data.period
     plan.daily_chapter_limit = data.daily_chapter_limit
     plan.max_novels = data.max_novels
+    plan.monthly_credits = max(0, data.monthly_credits or 0)
     if data.tier in ("free", "creator", "flagship"):
         plan.tier = data.tier
     plan.features = json.dumps(data.features or [], ensure_ascii=False)

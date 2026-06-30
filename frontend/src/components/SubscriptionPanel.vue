@@ -123,6 +123,11 @@
             <div v-if="plan.price > 0 && annual" class="text-[11px] mt-1" style="color:#888888;">
               即 <span :style="`color:${plan.color};`">¥{{ Math.round(plan.price * 0.8 * 12) }}</span> / 年
             </div>
+            <div class="text-xs mt-2 flex items-center gap-1" style="color:#aaa;">
+              🪙 每月赠
+              <span class="font-bold" :style="`color:${plan.color};`">{{ plan.monthlyCredits.toLocaleString() }}</span>
+              积分
+            </div>
           </div>
 
           <!-- Features -->
@@ -345,16 +350,25 @@ const PLAN_PRESENTATION = [
 type DisplayPlan = (typeof PLAN_PRESENTATION)[number] & {
   dbId: number | null
   available: boolean
+  monthlyCredits: number
 }
 
 const backendPlans = ref<Plan[]>([])
 const plansLoadError = ref(false)
 
+// 与后端 SystemConfig credits.monthly.* 默认值一致，仅作展示兜底
+const creditFallbackMap: Record<string, number> = { free: 60, creator: 3000, flagship: 18000 }
+const resolveCredits = (tier: string, matched?: Plan): number => {
+  const c = matched?.monthly_credits ?? 0
+  return c > 0 ? c : (creditFallbackMap[tier] ?? 60)
+}
+
 // 用后端真实 plans 覆盖展示模板的 id 与价格，消除硬编码 dbId 下错套餐 / 404 的风险
 const plans = computed<DisplayPlan[]>(() =>
   PLAN_PRESENTATION.map((pres) => {
     if (pres.tier === 'free') {
-      return { ...pres, dbId: null, available: true }
+      const freePlan = backendPlans.value.find((p) => p.tier === 'free')
+      return { ...pres, dbId: null, available: true, monthlyCredits: resolveCredits('free', freePlan) }
     }
     const cands = backendPlans.value.filter((p) => p.tier === pres.tier && p.is_active)
     const matched =
@@ -366,6 +380,7 @@ const plans = computed<DisplayPlan[]>(() =>
       dbId: matched ? matched.id : null,
       price: matched ? matched.price : pres.price,
       available: !!matched,
+      monthlyCredits: resolveCredits(pres.tier, matched),
     }
   })
 )

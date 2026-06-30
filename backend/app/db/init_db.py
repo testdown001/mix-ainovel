@@ -280,6 +280,7 @@ async def _ensure_default_plans(session: AsyncSession) -> None:
                 period=item["period"],
                 daily_chapter_limit=item["daily_chapter_limit"],
                 max_novels=item["max_novels"],
+                monthly_credits=item.get("monthly_credits", 0),
                 tier=item["tier"],
                 features=json.dumps(item.get("features") or [], ensure_ascii=False),
                 is_recommended=item.get("is_recommended", False),

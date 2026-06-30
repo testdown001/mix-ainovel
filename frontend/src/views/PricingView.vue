@@ -120,6 +120,11 @@
                 即 <span :style="`color:${plan.color};`">¥{{ Math.round(plan.price * 0.8 * 12) }}</span> / 年
                 <span class="ml-1 line-through opacity-50">¥{{ plan.price * 12 }}</span>
               </div>
+              <div class="text-sm mt-2 flex items-center gap-1.5" style="color:#aaa;">
+                🪙 每月赠
+                <span class="font-bold" :style="`color:${plan.color};`">{{ planCredits(plan.id).toLocaleString() }}</span>
+                积分
+              </div>
             </div>
 
             <!-- Features -->
@@ -279,18 +284,30 @@ const showUpgradeDialog = ref(false)
 
 // 各档位解锁的高级能力（来自后端 /plans/public，与门控/后台配置同源）
 const capsByTier = ref<Record<string, PlanCapability[]>>({})
+// 各档位每月积分（来自后端 /plans/public）；拉取前用与后端一致的默认兜底
+const creditsByTier = ref<Record<string, number>>({ free: 60, creator: 3000, flagship: 18000 })
+// 营销页 plan.id（free/creator/pro）→ 订阅档位
+const planIdToTier: Record<string, string> = { free: 'free', creator: 'creator', pro: 'flagship' }
+const planCredits = (planId: string): number => {
+  const tier = planIdToTier[planId] || 'free'
+  return creditsByTier.value[tier] ?? 60
+}
 
 onMounted(async () => {
   try {
     const publicPlans = await plansApi.listPublic()
     const map: Record<string, PlanCapability[]> = {}
+    const credits: Record<string, number> = {}
     for (const p of publicPlans || []) {
       const tier = (p as any).tier || 'free'
       if (Array.isArray((p as any).capabilities)) map[tier] = (p as any).capabilities
+      const c = Number((p as any).monthly_credits) || 0
+      if (c > 0) credits[tier] = c
     }
     capsByTier.value = map
+    if (Object.keys(credits).length) creditsByTier.value = { ...creditsByTier.value, ...credits }
   } catch {
-    // 拉取失败则不展示能力区，不影响定价页其余内容
+    // 拉取失败则不展示能力区/用默认积分，不影响定价页其余内容
   }
 })
 

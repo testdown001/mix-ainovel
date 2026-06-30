@@ -25,6 +25,12 @@ async def test_seed_default_plans_when_empty(db_session):
     assert all(isinstance(r.id, int) for r in rows)
     # features 落库为可解析的 JSON 数组
     assert all(isinstance(json.loads(r.features), list) for r in rows)
+    # 每月积分随种子落库（free/creator/flagship = 60/3000/18000）
+    assert {r.tier: r.monthly_credits for r in rows} == {
+        "free": 60,
+        "creator": 3000,
+        "flagship": 18000,
+    }
 
 
 @pytest.mark.asyncio

@@ -20,6 +20,7 @@ export interface Plan {
   period: string
   daily_chapter_limit: number
   max_novels: number
+  monthly_credits?: number
   tier?: string
   // 后端返回的是字符串数组（营销文案）；capabilities 为该档位解锁的能力（与门控同源）
   features?: string[]

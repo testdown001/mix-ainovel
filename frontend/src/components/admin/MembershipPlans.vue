@@ -45,6 +45,11 @@
                 <span class="price-period">/{{ plan.period_label }}</span>
               </div>
               <div class="plan-desc">{{ plan.description }}</div>
+              <div class="plan-credits">
+                🪙 每月
+                <span class="credits-num">{{ plan.monthly_credits > 0 ? plan.monthly_credits : creditFallback(plan.tier) }}</span>
+                积分<span v-if="!(plan.monthly_credits > 0)" class="credits-fallback">（档位默认）</span>
+              </div>
             </div>
             <div class="plan-features">
               <div v-for="(feat, i) in plan.features" :key="i" class="feature-item">
@@ -124,6 +129,16 @@
             </n-form-item>
           </n-gi>
         </n-grid>
+        <n-form-item label="每月积分" path="monthly_credits">
+          <n-space vertical style="width:100%">
+            <n-input-number v-model:value="form.monthly_credits" :min="0" placeholder="0=用档位默认" style="width:100%" />
+            <span style="font-size:12px;color:#999;">
+              订阅生效时发放的月度积分池；填 0 则回退到该档位的系统默认
+              （创作者 3000 / 旗舰 18000，可在「系统配置」credits.monthly.* 调整）。
+              锚点：1 篇标准章（章鱼2.0）= 10 积分。
+            </span>
+          </n-space>
+        </n-form-item>
         <n-form-item label="订阅档位" path="tier">
           <n-space vertical style="width:100%">
             <n-select v-model:value="form.tier" :options="tierOptions" />
@@ -186,6 +201,7 @@ interface Plan {
   period_label: string
   daily_chapter_limit: number
   max_novels: number
+  monthly_credits: number
   tier: string
   features: string[]
   capabilities?: PlanCapability[]
@@ -200,6 +216,9 @@ const tierOptions = [
   { label: '旗舰档 (flagship)', value: 'flagship' }
 ]
 const tierLabelMap: Record<string, string> = { free: '免费档', creator: '创作者档', flagship: '旗舰档' }
+// 与后端 SystemConfig credits.monthly.* 默认值一致；仅作展示兜底（monthly_credits=0 时）
+const creditFallbackMap: Record<string, number> = { free: 60, creator: 3000, flagship: 18000 }
+const creditFallback = (tier: string): number => creditFallbackMap[tier] ?? 60
 
 const message = useMessage()
 const loading = ref(false)
@@ -231,6 +250,7 @@ const defaultForm = () => ({
   period: 'monthly',
   daily_chapter_limit: 10,
   max_novels: 5,
+  monthly_credits: 0,
   tier: 'free',
   features: [''],
   is_recommended: false,
@@ -293,6 +313,7 @@ const handleSave = async () => {
       period: form.period,
       daily_chapter_limit: form.daily_chapter_limit,
       max_novels: form.max_novels,
+      monthly_credits: form.monthly_credits,
       tier: form.tier,
       features: form.features.filter(f => f.trim()),
       is_recommended: form.is_recommended,
@@ -414,6 +435,18 @@ onMounted(fetchPlans)
 .plan-desc {
   font-size: 0.85rem;
   color: #888;
+}
+.plan-credits {
+  font-size: 0.85rem;
+  color: #ccc;
+}
+.credits-num {
+  color: #FFE500;
+  font-weight: 700;
+}
+.credits-fallback {
+  color: #666;
+  font-size: 0.78rem;
 }
 .plan-features {
   display: flex;

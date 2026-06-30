@@ -19,6 +19,7 @@ export interface AdminPlan {
   period: string
   daily_chapter_limit: number
   max_novels: number
+  monthly_credits: number
   tier: 'free' | 'creator' | 'flagship'
   features: string[]
   capabilities?: PlanCapability[]
@@ -34,6 +35,7 @@ export interface PlanWritePayload {
   period: string
   daily_chapter_limit: number
   max_novels: number
+  monthly_credits: number
   tier: string
   features: string[]
   is_recommended: boolean
