@@ -26,7 +26,14 @@ async def _authenticate_websocket(websocket: WebSocket, project_id: str) -> Opti
     if not token:
         return None
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
+        # 关闭 aud 校验：与 security.decode_access_token 一致，否则带 aud 的新 token
+        # 会触发 JWTClaimsError 致鉴权恒失败。
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_aud": False},
+        )
         user_id = int(payload.get("sub", 0))
         if not user_id:
             return None

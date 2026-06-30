@@ -99,6 +99,21 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="普通 API 请求每分钟限流阈值，修改后下一次请求立即生效。",
     ),
     SystemConfigDefault(
+        key="rate_limit.user_rps",
+        value_getter=lambda config: _to_optional_str(config.api_rate_limit_user_rps),
+        description="已认证用户每秒请求数上限，修改后下一次请求立即生效。",
+    ),
+    SystemConfigDefault(
+        key="rate_limit.ip_rps",
+        value_getter=lambda config: _to_optional_str(config.api_rate_limit_ip_rps),
+        description="未认证 IP 每秒请求数上限（放宽以容纳 SPA 首屏并发），修改后下一次请求立即生效。",
+    ),
+    SystemConfigDefault(
+        key="rate_limit.auth_rpm",
+        value_getter=lambda config: _to_optional_str(config.api_rate_limit_auth_rpm),
+        description="登录/注册/验证码等敏感端点每 IP 每分钟上限（暴力破解防护），修改后下一次请求立即生效。",
+    ),
+    SystemConfigDefault(
         key="linuxdo.client_id",
         value_getter=lambda config: config.linuxdo_client_id,
         description="Linux.do OAuth Client ID。",

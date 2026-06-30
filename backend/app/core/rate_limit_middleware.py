@@ -42,16 +42,26 @@ _STATIC_SUFFIXES = (
 # 敏感端点（登录/注册）使用更严格的 IP 限流
 _AUTH_PATHS = frozenset(["/api/auth/token", "/api/auth/users", "/api/auth/send-code", "/api/auth/reset-password", "/api/auth/phone/send-code", "/api/auth/phone/login"])
 _GENERAL_RPM_CONFIG_KEY = "rate_limit.requests_per_minute"
+_USER_RPS_CONFIG_KEY = "rate_limit.user_rps"
+_IP_RPS_CONFIG_KEY = "rate_limit.ip_rps"
+_AUTH_RPM_CONFIG_KEY = "rate_limit.auth_rpm"
+_RATE_LIMIT_CONFIG_KEYS = (
+    _GENERAL_RPM_CONFIG_KEY,
+    _USER_RPS_CONFIG_KEY,
+    _IP_RPS_CONFIG_KEY,
+    _AUTH_RPM_CONFIG_KEY,
+)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     API 请求限流中间件
 
-    限流策略：
-    - 已认证用户（username 维度）: 60 req/min, 10 req/sec
-    - 未认证 IP（IP 维度）: 30 req/min, 5 req/sec
-    - 敏感端点（IP 维度）: 5 req/min（暴力破解防护）
+    限流策略（阈值均来自 SystemConfig rate_limit.*，缺失时回退 settings 默认）：
+    - 管理员: 一律放行（读 JWT is_admin，与 Go 网关 isAdmin→Next 对齐）
+    - 已认证用户（sub 维度）: general_rpm req/min（默认 200）, user_rps req/sec（默认 10）
+    - 未认证 IP（IP 维度）: general_rpm req/min（默认 200）, ip_rps req/sec（默认 20）
+    - 敏感端点（IP 维度）: auth_rpm req/min（默认 30，暴力破解防护）
     """
 
     def __init__(self, app):
@@ -62,11 +72,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.ip_requests: TTLCache = TTLCache(maxsize=50000, ttl=120)
         self.auth_requests: TTLCache = TTLCache(maxsize=10000, ttl=120)
 
-        # 限流配置
+        # 限流配置默认值（均可被 SystemConfig rate_limit.* 覆盖，下一次请求即生效）
         self.general_rpm_default = settings.api_rate_limit_requests_per_minute
-        self.user_rps = 10
-        self.ip_rps = 5
-        self.auth_rpm = 5  # 敏感端点每分钟最多 5 次
+        self.user_rps_default = settings.api_rate_limit_user_rps
+        self.ip_rps_default = settings.api_rate_limit_ip_rps
+        self.auth_rpm_default = settings.api_rate_limit_auth_rpm
 
     @staticmethod
     def _is_static_asset(path: str) -> bool:
@@ -83,32 +93,48 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return None
         return parsed if parsed > 0 else None
 
-    async def _load_general_rpm_limit(self) -> int:
+    async def _load_rate_limits(self) -> Tuple[int, int, int, int]:
+        """一次性读取四项限流阈值（单个 DB 查询）。缺失/非法的项回退到对应默认值。
+
+        返回 (general_rpm, user_rps, ip_rps, auth_rpm)。
+        """
+        values: Dict[str, str] = {}
         try:
             async with AsyncSessionLocal() as session:
-                config = await SystemConfigRepository(session).get_by_key(_GENERAL_RPM_CONFIG_KEY)
-            parsed = self._parse_positive_int(config.value if config else None)
-            return parsed or self.general_rpm_default
+                values = await SystemConfigRepository(session).get_many(_RATE_LIMIT_CONFIG_KEYS)
         except Exception:
-            logger.exception(
-                "读取系统配置 %s 失败，回退到默认限流值 %s req/min",
-                _GENERAL_RPM_CONFIG_KEY,
-                self.general_rpm_default,
-            )
-            return self.general_rpm_default
+            logger.exception("读取限流系统配置失败，全部回退到默认阈值")
 
-    def _extract_user_identifier(self, request: Request) -> Optional[str]:
-        """从 Authorization header 解析 JWT，提取用户标识符（username 或 user_id）。失败返回 None。"""
+        general_rpm = self._parse_positive_int(values.get(_GENERAL_RPM_CONFIG_KEY)) or self.general_rpm_default
+        user_rps = self._parse_positive_int(values.get(_USER_RPS_CONFIG_KEY)) or self.user_rps_default
+        ip_rps = self._parse_positive_int(values.get(_IP_RPS_CONFIG_KEY)) or self.ip_rps_default
+        auth_rpm = self._parse_positive_int(values.get(_AUTH_RPM_CONFIG_KEY)) or self.auth_rpm_default
+        return general_rpm, user_rps, ip_rps, auth_rpm
+
+    def _extract_user_claims(self, request: Request) -> Tuple[Optional[str], bool]:
+        """从 Authorization header 解析 JWT，返回 (用户标识, 是否管理员)。失败返回 (None, False)。
+
+        关闭 aud 校验：与 security.decode_access_token 一致——aud 仅供 Go 网关校验，
+        FastAPI 侧不依赖它。不关闭则带 aud 的新 token 会触发 JWTClaimsError，
+        导致已认证用户被误判为未认证而落入 IP 桶。
+        """
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
-            return None
+            return None, False
         token = auth_header[7:]
         try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-            sub = payload.get("sub")
-            return str(sub) if sub else None
+            payload = jwt.decode(
+                token,
+                settings.secret_key,
+                algorithms=[settings.jwt_algorithm],
+                options={"verify_aud": False},
+            )
         except JWTError:
-            return None
+            return None, False
+        sub = payload.get("sub")
+        identifier = str(sub) if sub else None
+        is_admin = bool(payload.get("is_admin", False))
+        return identifier, is_admin
 
     def _get_client_ip(self, request: Request) -> str:
         """获取客户端真实 IP（支持 X-Forwarded-For）。"""
@@ -164,29 +190,31 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path in _SKIP_PATHS or self._is_static_asset(path):
             return await call_next(request)
 
-        general_rpm = await self._load_general_rpm_limit()
+        # 先解析身份：管理员一律放行，与 Go 网关 isAdmin→Next 保持一致
+        user_identifier, is_admin = self._extract_user_claims(request)
+        if is_admin:
+            return await call_next(request)
+
+        general_rpm, user_rps, ip_rps, auth_rpm = await self._load_rate_limits()
         client_ip = self._get_client_ip(request)
 
-        # 敏感端点：IP 级严格限流
+        # 敏感端点：IP 级严格限流（暴力破解防护，发生在拿到 JWT 之前，管理员豁免对其无效）
         if path in _AUTH_PATHS:
             rejection = self._check_rate(
-                self.auth_requests, f"auth:{client_ip}", self.auth_rpm, 0
+                self.auth_requests, f"auth:{client_ip}", auth_rpm, 0
             )
             if rejection:
                 return rejection
 
-        # 尝试提取用户标识符
-        user_identifier = self._extract_user_identifier(request)
-
         if user_identifier:
             # 已认证：用户级限流
             rejection = self._check_rate(
-                self.user_requests, f"user:{user_identifier}", general_rpm, self.user_rps
+                self.user_requests, f"user:{user_identifier}", general_rpm, user_rps
             )
         else:
             # 未认证：IP 级限流
             rejection = self._check_rate(
-                self.ip_requests, f"ip:{client_ip}", general_rpm, self.ip_rps
+                self.ip_requests, f"ip:{client_ip}", general_rpm, ip_rps
             )
 
         if rejection:

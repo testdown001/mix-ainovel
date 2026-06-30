@@ -41,6 +41,24 @@ class Settings(BaseSettings):
         env="API_RATE_LIMIT_REQUESTS_PER_MINUTE",
         description="普通 API 请求每分钟限流阈值，也是系统配置 rate_limit.requests_per_minute 的默认值。",
     )
+    api_rate_limit_user_rps: int = Field(
+        default=10,
+        ge=1,
+        env="API_RATE_LIMIT_USER_RPS",
+        description="已认证用户每秒请求数上限，系统配置 rate_limit.user_rps 的默认值。",
+    )
+    api_rate_limit_ip_rps: int = Field(
+        default=20,
+        ge=1,
+        env="API_RATE_LIMIT_IP_RPS",
+        description="未认证 IP 每秒请求数上限（放宽以容纳 SPA 首屏并发拉取），系统配置 rate_limit.ip_rps 的默认值。",
+    )
+    api_rate_limit_auth_rpm: int = Field(
+        default=30,
+        ge=1,
+        env="API_RATE_LIMIT_AUTH_RPM",
+        description="登录/注册/验证码等敏感端点每 IP 每分钟上限（暴力破解防护），系统配置 rate_limit.auth_rpm 的默认值。",
+    )
 
     # -------------------- 安全相关配置 --------------------
     secret_key: str = Field(..., env="SECRET_KEY", description="JWT 加密密钥")
