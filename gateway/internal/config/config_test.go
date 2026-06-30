@@ -69,13 +69,34 @@ task_dispatcher:
 	return configPath
 }
 
-func TestUnauthIPRPMDefaultsTo120(t *testing.T) {
+func TestRateLimitDefaultsWhenYAMLOmitsSection(t *testing.T) {
+	// yaml 完全不含 rate_limit 段：所有项都应回退到非零默认，杜绝 0=拒所有。
 	cfg, err := Load(writeMinimalConfig(t, ""))
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.RateLimit.UnauthIPRPM != 120 {
-		t.Fatalf("expected default unauth_ip_rpm=120, got %d", cfg.RateLimit.UnauthIPRPM)
+	rl := cfg.RateLimit
+	checks := map[string]int{
+		"default_tpm":        rl.DefaultTPM,
+		"default_concurrent": rl.DefaultConcurrent,
+		"default_rpm":        rl.DefaultRPM,
+		"default_rps":        rl.DefaultRPS,
+		"premium_tpm":        rl.PremiumTPM,
+		"premium_concurrent": rl.PremiumConcurrent,
+		"premium_rpm":        rl.PremiumRPM,
+		"premium_rps":        rl.PremiumRPS,
+		"unauth_ip_rpm":      rl.UnauthIPRPM,
+	}
+	for name, val := range checks {
+		if val <= 0 {
+			t.Fatalf("rate_limit.%s 应有非零默认，实得 %d", name, val)
+		}
+	}
+	if rl.UnauthIPRPM != 120 {
+		t.Fatalf("expected default unauth_ip_rpm=120, got %d", rl.UnauthIPRPM)
+	}
+	if rl.DefaultRPM != 60 {
+		t.Fatalf("expected default default_rpm=60, got %d", rl.DefaultRPM)
 	}
 }
 

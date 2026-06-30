@@ -311,8 +311,17 @@ func setDefaults() {
 	// CORS：默认通配，保持既有行为；生产可通过 cors.origins 收紧。
 	viper.SetDefault("cors.origins", []string{"*"})
 
-	// 未认证 IP 限流默认 120/min（登录前无 JWT 时走此桶）；yaml/env 可覆盖。
-	// 其余 rate_limit.* 仍由 yaml 提供，无默认。
+	// 限流默认值（基线取自 gateway/config.yaml）：补全后即便 yaml 漏配某项，
+	// 也回退到合理非零值，而非 viper 零值 0——后者会让该桶 count<=0 恒为 false，
+	// 把对应流量全部 429 锁死。yaml/env 仍可覆盖。
+	viper.SetDefault("rate_limit.default_tpm", 100000)
+	viper.SetDefault("rate_limit.default_concurrent", 3)
+	viper.SetDefault("rate_limit.default_rpm", 60)
+	viper.SetDefault("rate_limit.default_rps", 10)
+	viper.SetDefault("rate_limit.premium_tpm", 300000)
+	viper.SetDefault("rate_limit.premium_concurrent", 8)
+	viper.SetDefault("rate_limit.premium_rpm", 180)
+	viper.SetDefault("rate_limit.premium_rps", 30)
 	viper.SetDefault("rate_limit.unauth_ip_rpm", 120)
 
 	viper.SetDefault("task_dispatcher.enabled", true)
