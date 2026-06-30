@@ -172,8 +172,8 @@ func (l *Limiter) checkIPRateLimit(c *fiber.Ctx) error {
 	ip := c.IP()
 	key := fmt.Sprintf("ratelimit:ip:%s", ip)
 
-	// 未认证用户限制更严格：10 req/min
-	if !l.checkRedisLimit(c.Context(), key, 10, time.Minute) {
+	// 未认证用户限制更严格：120 req/min
+	if !l.checkRedisLimit(c.Context(), key, 120, time.Minute) {
 		return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
 			"error": "请求频率超限，请登录后继续使用",
 		})
