@@ -103,6 +103,9 @@ type RateLimitConfig struct {
 	PremiumConcurrent int `mapstructure:"premium_concurrent"`
 	PremiumRPM        int `mapstructure:"premium_rpm"`
 	PremiumRPS        int `mapstructure:"premium_rps"`
+	// UnauthIPRPM 未认证用户按 IP 的每分钟请求上限（登录前无 JWT 时走此桶）。
+	// 默认 120；为 0/未配置时 limiter 回退到 120，避免锁死所有未登录流量。
+	UnauthIPRPM int `mapstructure:"unauth_ip_rpm"`
 }
 
 type WebSocketConfig struct {
@@ -230,6 +233,7 @@ func bindEnvOverrides() {
 		"rate_limit.premium_concurrent",
 		"rate_limit.premium_rpm",
 		"rate_limit.premium_rps",
+		"rate_limit.unauth_ip_rpm",
 		"websocket.max_connections",
 		"websocket.read_buffer_size",
 		"websocket.write_buffer_size",
@@ -306,6 +310,10 @@ func setDefaults() {
 
 	// CORS：默认通配，保持既有行为；生产可通过 cors.origins 收紧。
 	viper.SetDefault("cors.origins", []string{"*"})
+
+	// 未认证 IP 限流默认 120/min（登录前无 JWT 时走此桶）；yaml/env 可覆盖。
+	// 其余 rate_limit.* 仍由 yaml 提供，无默认。
+	viper.SetDefault("rate_limit.unauth_ip_rpm", 120)
 
 	viper.SetDefault("task_dispatcher.enabled", true)
 	viper.SetDefault("task_dispatcher.max_concurrency", 20)

@@ -53,3 +53,39 @@ task_dispatcher:
 		)
 	}
 }
+
+func writeMinimalConfig(t *testing.T, extra string) string {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	body := `
+jwt:
+  secret: "yaml-secret"
+task_dispatcher:
+  internal_callback_secret: "yaml-callback-secret"
+` + extra
+	if err := os.WriteFile(configPath, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return configPath
+}
+
+func TestUnauthIPRPMDefaultsTo120(t *testing.T) {
+	cfg, err := Load(writeMinimalConfig(t, ""))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.RateLimit.UnauthIPRPM != 120 {
+		t.Fatalf("expected default unauth_ip_rpm=120, got %d", cfg.RateLimit.UnauthIPRPM)
+	}
+}
+
+func TestUnauthIPRPMEnvOverride(t *testing.T) {
+	t.Setenv("GATEWAY_RATE_LIMIT_UNAUTH_IP_RPM", "300")
+	cfg, err := Load(writeMinimalConfig(t, "rate_limit:\n  unauth_ip_rpm: 90\n"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.RateLimit.UnauthIPRPM != 300 {
+		t.Fatalf("expected env override unauth_ip_rpm=300, got %d", cfg.RateLimit.UnauthIPRPM)
+	}
+}

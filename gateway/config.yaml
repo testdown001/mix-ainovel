@@ -65,6 +65,9 @@ rate_limit:
   premium_rpm: 180
   premium_rps: 30
 
+  # 未认证用户按 IP 的每分钟上限（登录前无 JWT 走此桶；过小会导致管理员登录被 429）
+  unauth_ip_rpm: 120
+
 websocket:
   max_connections: 10000
   read_buffer_size: 1024
