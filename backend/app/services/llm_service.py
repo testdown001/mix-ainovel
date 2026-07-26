@@ -43,6 +43,19 @@ class StructuredOutputError(ValueError):
         )
 
 
+class LLMResponseTruncated(Exception):
+    """LLM 输出因 finish_reason=length 被截断（仅 fail_on_truncation=True 时抛出）。
+
+    非通道故障，不触发兜底通道重试；partial_text 保留半截内容供调用方兜底。
+    """
+
+    def __init__(self, partial_text: str):
+        self.partial_text = partial_text
+        super().__init__(
+            f"LLM 输出被截断 (finish_reason=length, 已收 {len(partial_text)} 字符)"
+        )
+
+
 try:  # pragma: no cover - 运行环境未安装时兼容
     from ollama import AsyncClient as OllamaAsyncClient
 except ImportError:  # pragma: no cover - Ollama 为可选依赖
@@ -112,11 +125,14 @@ class LLMService:
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
         reasoning_effort: Optional[str] = None,
         config_override: Optional[Dict[str, Optional[str]]] = None,
+        fail_on_truncation: bool = False,
     ) -> str:
         # reasoning_effort：按调用覆盖通道默认推理档（minimal/low/medium/high）。
         # 仅对 o系列/gpt-5 的 openai 格式生效，其它模型/格式自动忽略；不传则沿用通道配置。
         # config_override：按调用指定整套通道(模型目录解析出的真实大模型)，覆盖默认 llm.*；
         # 仅作用于主调用，兜底通道仍用 llm_fallback.*。不传则用默认通道。
+        # fail_on_truncation：finish_reason=length 时抛 LLMResponseTruncated 而非静默返回半截内容，
+        # 供正文生成等不允许截断落库的调用方显式处理。默认 False 保持旧行为。
         messages = [{"role": "system", "content": system_prompt}, *conversation_history]
 
         # 兜底通道仅在尚未向调用方流出任何增量时才能重试，否则会产生重复输出
@@ -145,10 +161,14 @@ class LLMService:
                 on_chunk=wrapped_on_chunk,
                 reasoning_effort_override=reasoning_effort,
                 config_override=config_override,
+                fail_on_truncation=fail_on_truncation,
             )
         except Exception as exc:
             # 429 = 用户每日请求上限（配额问题而非通道故障），不兜底
             if isinstance(exc, HTTPException) and exc.status_code == 429:
+                raise
+            # 截断 = max_tokens 不足（非通道故障），换兜底通道重试无意义，由调用方处理
+            if isinstance(exc, LLMResponseTruncated):
                 raise
             if emitted_any_chunk:
                 raise
@@ -175,6 +195,7 @@ class LLMService:
                 on_chunk=wrapped_on_chunk,
                 reasoning_effort_override=reasoning_effort,
                 api_type="fallback",
+                fail_on_truncation=fail_on_truncation,
             )
 
     async def generate(
@@ -188,6 +209,7 @@ class LLMService:
         max_tokens: Optional[int] = None,
         response_format: Optional[str] = None,
         top_p: Optional[float] = None,
+        fail_on_truncation: bool = False,
     ) -> str:
         """兼容旧版接口的文本生成入口，统一走 get_llm_response。"""
         return await self.get_llm_response(
@@ -199,6 +221,7 @@ class LLMService:
             response_format=response_format,
             max_tokens=max_tokens,
             top_p=top_p,
+            fail_on_truncation=fail_on_truncation,
         )
 
     async def generate_structured(
@@ -681,6 +704,7 @@ class LLMService:
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
         reasoning_effort_override: Optional[str] = None,
         api_type: str = "default",
+        fail_on_truncation: bool = False,
         _record_telemetry: bool = True,
     ) -> str:
         """薄包装：为每次真实 LLM 调用记录遥测（通道/模型/延迟/状态/错误），供后台
@@ -710,6 +734,7 @@ class LLMService:
                 on_chunk=on_chunk,
                 reasoning_effort_override=reasoning_effort_override,
                 api_type=api_type,
+                fail_on_truncation=fail_on_truncation,
                 _call_meta=_meta,
             )
             _status = "success"
@@ -756,6 +781,7 @@ class LLMService:
         on_chunk: Optional[Callable[[str], Awaitable[None] | None]] = None,
         reasoning_effort_override: Optional[str] = None,
         api_type: str = "default",
+        fail_on_truncation: bool = False,
         _call_meta: Optional[Dict[str, Any]] = None,
     ) -> str:
         config = config_override or await self._resolve_llm_config(user_id)
@@ -1218,15 +1244,6 @@ class LLMService:
             full_response[:500],
         )
 
-        if finish_reason == "length":
-            logger.warning(
-                "LLM response truncated (finish_reason=length), returning partial content: "
-                "model=%s user_id=%s response_length=%d",
-                config.get("model"),
-                user_id,
-                len(full_response),
-            )
-
         if not full_response:
             logger.error(
                 "LLM returned empty response: model=%s user_id=%s finish_reason=%s",
@@ -1259,6 +1276,18 @@ class LLMService:
             prompt_tokens=rec_prompt,
             completion_tokens=rec_completion,
         )
+        # 截断检测放在用量记录之后：被截断的调用恰是吃满 completion token 的最贵调用，必须计入统计
+        if finish_reason == "length":
+            logger.warning(
+                "LLM response truncated (finish_reason=length)%s: "
+                "model=%s user_id=%s response_length=%d",
+                "" if fail_on_truncation else ", returning partial content",
+                config.get("model"),
+                user_id,
+                len(full_response),
+            )
+            if fail_on_truncation:
+                raise LLMResponseTruncated(full_response)
         logger.info(
             "LLM response success: base_url=%s model=%s user_id=%s chars=%d",
             config.get("base_url"),
@@ -1549,6 +1578,7 @@ class LLMService:
         temperature: float = 0.75,
         timeout: float = 600.0,
         max_tokens: Optional[int] = None,
+        fail_on_truncation: bool = False,
     ) -> str:
         """使用润色优化专用模型生成响应，不走用户级配置，不扣用户配额。"""
         config = await self._resolve_optimize_llm_config()
@@ -1562,6 +1592,7 @@ class LLMService:
             response_format=None,
             max_tokens=max_tokens,
             api_type="polish",
+            fail_on_truncation=fail_on_truncation,
         )
 
     async def get_search_llm_response(

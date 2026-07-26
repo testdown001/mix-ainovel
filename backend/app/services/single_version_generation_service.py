@@ -13,6 +13,7 @@ from ..utils.json_utils import (
     sanitize_chapter_plain_text,
     unwrap_markdown_json,
 )
+from .llm_service import LLMResponseTruncated
 
 
 class SingleVersionGenerationService:
@@ -108,18 +109,49 @@ class SingleVersionGenerationService:
         if not content:
             if style_text:
                 final_prompt_input = f"[版本风格策略]\n{style_text}\n\n{final_prompt_input}"
-            response = await self.llm_service.get_llm_response(
+            direct_call_kwargs: Dict[str, Any] = dict(
                 system_prompt=writer_prompt,
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
                 temperature=resolved_temp,
                 user_id=user_id,
                 timeout=180.0,
                 response_format=None,
-                max_tokens=dynamic_max_tokens,
                 disable_thinking=not settings.writer_enable_thinking,
                 on_chunk=stream_callback,
                 config_override=model_override,
+                fail_on_truncation=True,
             )
+            try:
+                response = await self.llm_service.get_llm_response(
+                    max_tokens=dynamic_max_tokens,
+                    **direct_call_kwargs,
+                )
+            except LLMResponseTruncated as first_truncation:
+                # 截断说明 token 预算不足（如中文按某些 tokenizer 更费 token）：提升上限重试一次
+                raised_max_tokens = min(
+                    settings.writer_max_tokens,
+                    int(dynamic_max_tokens * 1.5),
+                )
+                if raised_max_tokens <= dynamic_max_tokens:
+                    # 已顶到 writer_max_tokens：同额重试注定再截断，直接失败省一次全额调用
+                    raise HTTPException(
+                        status_code=502,
+                        detail="章节生成失败：模型输出被截断且 token 上限已达配置顶格，请降低目标字数后重试",
+                    ) from first_truncation
+                dynamic_max_tokens = raised_max_tokens
+                metadata["truncation_retry"] = {"max_tokens": dynamic_max_tokens}
+                # 重试不再推流：首次调用已把半截正文经 on_chunk 推给前端，再推会拼出「半章+整章」
+                retry_call_kwargs = {**direct_call_kwargs, "on_chunk": None}
+                try:
+                    response = await self.llm_service.get_llm_response(
+                        max_tokens=dynamic_max_tokens,
+                        **retry_call_kwargs,
+                    )
+                except LLMResponseTruncated as exc:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="章节生成失败：模型输出被截断，请降低目标字数后重试",
+                    ) from exc
             cleaned = remove_think_tags(response)
             content = unwrap_markdown_json(cleaned or response)
             used_direct_generation = True
@@ -182,22 +214,30 @@ class SingleVersionGenerationService:
                 "你刚才输出了提示词、任务分析或编辑说明，而不是小说正文。\n"
                 "现在必须直接写出本章小说正文：不要分析、不要解释、不要标题、不要 JSON、不要列提纲。"
             )
-            retry_response = await self.llm_service.get_llm_response(
-                system_prompt=(
-                    f"{writer_prompt}\n\n"
-                    "硬性输出要求：只输出小说章节正文。第一个字必须是正文，不允许输出分析任务、原文本分析、"
-                    "角色目标限制、编辑说明、标题、JSON 或 Markdown。"
-                ),
-                conversation_history=[{"role": "user", "content": retry_prompt_input}],
-                temperature=max(0.2, resolved_temp - 0.15),
-                user_id=user_id,
-                timeout=180.0,
-                response_format=None,
-                max_tokens=dynamic_max_tokens,
-                config_override=model_override,
-                disable_thinking=not settings.writer_enable_thinking,
-                on_chunk=stream_callback,
-            )
+            try:
+                retry_response = await self.llm_service.get_llm_response(
+                    system_prompt=(
+                        f"{writer_prompt}\n\n"
+                        "硬性输出要求：只输出小说章节正文。第一个字必须是正文，不允许输出分析任务、原文本分析、"
+                        "角色目标限制、编辑说明、标题、JSON 或 Markdown。"
+                    ),
+                    conversation_history=[{"role": "user", "content": retry_prompt_input}],
+                    temperature=max(0.2, resolved_temp - 0.15),
+                    user_id=user_id,
+                    timeout=180.0,
+                    response_format=None,
+                    max_tokens=dynamic_max_tokens,
+                    config_override=model_override,
+                    disable_thinking=not settings.writer_enable_thinking,
+                    on_chunk=stream_callback,
+                    fail_on_truncation=True,
+                )
+            except LLMResponseTruncated as exc:
+                # 无效正文重试与截断重试不叠加（全程最多 3 次调用），此处再截断直接按失败处理
+                raise HTTPException(
+                    status_code=502,
+                    detail="章节生成失败：模型输出被截断，请降低目标字数后重试",
+                ) from exc
             retry_cleaned = remove_think_tags(retry_response)
             content = unwrap_markdown_json(retry_cleaned or retry_response)
             parsed_json = None

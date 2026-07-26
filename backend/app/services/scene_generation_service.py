@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..core.config import settings
 from ..utils.json_utils import remove_think_tags, sanitize_chapter_plain_text, unwrap_markdown_json
+from .llm_service import LLMResponseTruncated
 
 logger = logging.getLogger(__name__)
 
@@ -115,17 +116,46 @@ class SceneGenerationService:
             if is_last:
                 resolved_temp = min(resolved_temp + 0.05, 0.95)
 
-            response = await self.llm_service.get_llm_response(
+            scene_call_kwargs: Dict[str, Any] = dict(
                 system_prompt=writer_prompt,
                 conversation_history=[{"role": "user", "content": scene_prompt}],
                 temperature=resolved_temp,
                 user_id=user_id,
                 timeout=60.0,
                 response_format=None,
-                max_tokens=min(4096, int(max(700, scene_words) * 1.8)),
                 disable_thinking=not settings.writer_enable_thinking,
                 config_override=model_override,
+                fail_on_truncation=True,
             )
+            scene_max_tokens = min(4096, int(max(700, scene_words) * 1.8))
+            try:
+                response = await self.llm_service.get_llm_response(
+                    max_tokens=scene_max_tokens,
+                    **scene_call_kwargs,
+                )
+            except LLMResponseTruncated as first_truncation:
+                # 场景输出被截断：提升 token 上限重试一次；再截断保留半截文本继续拼章（场景级不整章失败）
+                raised_max_tokens = min(settings.writer_max_tokens, int(scene_max_tokens * 1.5))
+                if raised_max_tokens <= scene_max_tokens:
+                    # writer_max_tokens 配置低于首次上限时「提升」会反降：同额/降额重试无意义，直接保留首次部分文本
+                    logger.warning(
+                        "场景 %d/%d 被截断且 max_tokens 已达配置顶格 (%d)，保留部分内容 (%d 字符)",
+                        index + 1, len(scenes), scene_max_tokens, len(first_truncation.partial_text),
+                    )
+                    response = first_truncation.partial_text
+                else:
+                    scene_max_tokens = raised_max_tokens
+                    try:
+                        response = await self.llm_service.get_llm_response(
+                            max_tokens=scene_max_tokens,
+                            **scene_call_kwargs,
+                        )
+                    except LLMResponseTruncated as exc:
+                        logger.warning(
+                            "场景 %d/%d 提升 max_tokens=%d 重试后仍被截断，保留部分内容 (%d 字符)",
+                            index + 1, len(scenes), scene_max_tokens, len(exc.partial_text),
+                        )
+                        response = exc.partial_text
             cleaned = remove_think_tags(response)
             scene_text = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
             if scene_text:
