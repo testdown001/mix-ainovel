@@ -6,7 +6,6 @@
 因果链、伏笔紧迫度、故事时间、力量等级、角色关系）整合为一个 WorldStateSnapshot，
 再转换为 EvidenceItem 列表供证据路由使用。
 """
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -46,25 +45,46 @@ class TemporalStateService:
         blueprint_dict: Optional[Dict[str, Any]] = None,
         include_foreshadowing: bool = True,
     ) -> WorldStateSnapshot:
-        """并行查询 5 个数据源，聚合为 WorldStateSnapshot。"""
+        """串行查询 5 个数据源，聚合为 WorldStateSnapshot。
+
+        注意：所有 _fetch_* 共享同一个 AsyncSession，SQLAlchemy 异步会话
+        禁止并发使用 —— 必须串行 await，不能 asyncio.gather。
+        """
         snapshot = WorldStateSnapshot()
 
-        tasks = [
+        fetches = [
             self._fetch_characters(project_id, chapter_number, involved_characters, snapshot),
             self._fetch_events(project_id, chapter_number, snapshot),
             self._fetch_causal_chains(project_id, snapshot),
             self._fetch_story_time(project_id, snapshot),
         ]
         if include_foreshadowing:
-            tasks.append(self._fetch_foreshadowing(project_id, chapter_number, snapshot))
+            fetches.append(self._fetch_foreshadowing(project_id, chapter_number, snapshot))
 
-        await asyncio.gather(*tasks, return_exceptions=True)
+        for coro in fetches:
+            try:
+                await coro
+            except Exception:
+                # 与原 gather(return_exceptions=True) 语义一致：单源异常降级不阻塞整体
+                logger.warning("时序状态: 数据源查询异常，已跳过该源", exc_info=True)
+                await self._safe_rollback()
 
         # 关系网从 blueprint_dict 同步构建（无 DB 查询）
         if blueprint_dict:
             self._build_relationship_network(blueprint_dict, snapshot)
 
         return snapshot
+
+    async def _safe_rollback(self) -> None:
+        """异常后复位共享 session（可能已处于待回滚状态）。
+
+        不复位则后续 build_chapter_state_context 等同 session 查询全部静默失效，
+        并在管线后段首个无保护 DB 操作处抛 PendingRollbackError 使整次生成 500。
+        """
+        try:
+            await self.db.rollback()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     #  数据源抓取（每个方法独立 try/except 保证单源异常不阻塞整体）
@@ -107,6 +127,7 @@ class TemporalStateService:
                 snapshot.characters = primary + secondary[:3]
         except Exception:
             logger.warning("时序状态: 角色状态查询异常", exc_info=True)
+            await self._safe_rollback()
 
     async def _fetch_events(
         self,
@@ -131,6 +152,7 @@ class TemporalStateService:
                 })
         except Exception:
             logger.warning("时序状态: 事件查询异常", exc_info=True)
+            await self._safe_rollback()
 
     async def _fetch_causal_chains(
         self,
@@ -151,6 +173,7 @@ class TemporalStateService:
                 })
         except Exception:
             logger.warning("时序状态: 因果链查询异常", exc_info=True)
+            await self._safe_rollback()
 
     async def _fetch_story_time(
         self,
@@ -168,6 +191,8 @@ class TemporalStateService:
             }
         except Exception:
             logger.warning("时序状态: 故事时间查询异常", exc_info=True)
+            # get_or_create_time_tracker 会写库；commit 失败必须复位 session
+            await self._safe_rollback()
 
     async def _fetch_foreshadowing(
         self,
@@ -194,6 +219,7 @@ class TemporalStateService:
                 ]
         except Exception:
             logger.warning("时序状态: 伏笔查询异常", exc_info=True)
+            await self._safe_rollback()
 
     def _build_relationship_network(
         self,

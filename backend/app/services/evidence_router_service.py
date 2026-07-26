@@ -458,24 +458,27 @@ class EvidenceRouterService:
         resolved_context = dict(context_data)
         resolved_relationship = relationship_context
         active_fetches = 0
+        snapshot = None
 
-        # temporal_snapshot 模式：使用 TemporalStateService 聚合全量时序数据
+        # temporal_snapshot 模式：使用 TemporalStateService 聚合全量时序数据。
+        # 注意：时序快照是「补充」而非「替代」—— 快照只额外进入 evidence_pack.state_items
+        # 诊断层；下面 structured 路径的 chapter_state_context / current_realm /
+        # 蓝图关系网兜底照常执行，temporal 开启后既有 prompt 产物一个都不能少。
         state_task = tasks[0] if tasks else None
         if state_task and state_task.mode == "temporal_snapshot" and session:
-            from .temporal_state_service import TemporalStateService
+            try:
+                from .temporal_state_service import TemporalStateService
 
-            temporal = TemporalStateService(session)
-            snapshot = await temporal.get_world_snapshot(
-                project_id=project_id,
-                chapter_number=chapter_number,
-                involved_characters=involved_characters,
-                blueprint_dict=blueprint_dict,
-            )
-            return {
-                "context_data": resolved_context,
-                "relationship_context": resolved_relationship,
-                "snapshot": snapshot,
-            }, {"status": "completed", "mode": "temporal_snapshot"}
+                temporal = TemporalStateService(session)
+                snapshot = await temporal.get_world_snapshot(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    involved_characters=involved_characters,
+                    blueprint_dict=blueprint_dict,
+                )
+            except Exception:
+                logger.warning("时序快照聚合失败，降级为 structured 状态路径", exc_info=True)
+                snapshot = None
 
         if session and llm_service and prompt_service and not resolved_context.get("chapter_state_context"):
             from .memory_layer_service import MemoryLayerService
@@ -518,13 +521,18 @@ class EvidenceRouterService:
                 resolved_relationship = "\n".join(rel_lines)
                 active_fetches += 1
 
-        return {
+        payload: Dict[str, Any] = {
             "context_data": resolved_context,
             "relationship_context": resolved_relationship,
-        }, {
-            "status": "completed" if active_fetches or resolved_context or resolved_relationship else "skipped",
+        }
+        report: Dict[str, Any] = {
+            "status": "completed" if active_fetches or snapshot or resolved_context or resolved_relationship else "skipped",
             "active_fetches": active_fetches,
         }
+        if snapshot is not None:
+            payload["snapshot"] = snapshot
+            report["mode"] = "temporal_snapshot"
+        return payload, report
 
     async def route_symbolic(
         self,
