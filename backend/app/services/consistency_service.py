@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.project_memory import ProjectMemory
 from ..models.novel import NovelBlueprint, Chapter
 from ..models.foreshadowing import Foreshadowing
+from ..utils.json_utils import is_probable_chapter_plain_text, sanitize_chapter_plain_text
 from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,8 @@ class ConsistencyService:
                 prompt=prompt,
                 user_id=user_id,
                 max_tokens=2000,
-                temperature=0.2  # 低温度以获得更稳定的判断
+                temperature=0.2,  # 低温度以获得更稳定的判断
+                timeout=180.0,
             )
             
             # 解析响应
@@ -276,9 +278,20 @@ class ConsistencyService:
                 prompt=prompt,
                 user_id=user_id,
                 max_tokens=min(8000, int(len(chapter_text) * 1.2)),
-                temperature=0.5
+                temperature=0.5,
+                timeout=180.0,
+                fail_on_truncation=True,
             )
-            return response.strip() if response else None
+            if not response or not response.strip():
+                return None
+            fixed = sanitize_chapter_plain_text(response.strip())
+            if not fixed or not is_probable_chapter_plain_text(fixed):
+                logger.warning("自动修复结果不是有效章节正文，放弃应用")
+                return None
+            if len(fixed) < len(chapter_text) * 0.5:
+                logger.warning("自动修复后字数过少 (原%d, 现%d)，放弃应用", len(chapter_text), len(fixed))
+                return None
+            return fixed
         except Exception as e:
             logger.error(f"自动修复失败: {e}")
             return None

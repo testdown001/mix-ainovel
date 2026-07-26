@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..services.llm_service import LLMService
 from ..services.prompt_service import PromptService
+from ..utils.json_utils import is_probable_chapter_plain_text, sanitize_chapter_plain_text
 
 logger = logging.getLogger(__name__)
 
@@ -251,8 +252,12 @@ class HumanizationService:
                 timeout=300.0,
                 response_format=None,
                 max_tokens=int(len(text) * 1.2),
+                fail_on_truncation=True,
             )
-            result = response.strip() if response else text
+            result = sanitize_chapter_plain_text(response.strip()) if response else ""
+            if not result or not is_probable_chapter_plain_text(result):
+                logger.warning("人味化修复结果不是有效章节正文，保留原文")
+                return text
             # 基本校验：修复后文本不应过短
             if len(result) < len(text) * 0.5:
                 logger.warning("人味化修复后文本过短 (%d → %d)，保留原文", len(text), len(result))

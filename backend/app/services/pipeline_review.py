@@ -218,6 +218,7 @@ class PipelineReviewMixin:
                 user_id=user_id,
                 timeout=180.0,
                 max_tokens=_max_tokens,
+                fail_on_truncation=True,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -225,6 +226,12 @@ class PipelineReviewMixin:
                 return chapter_content, {"applied": False, "reason": "empty_response"}
 
             final = sanitize_chapter_plain_text(cleaned.strip())
+            if not final or not is_probable_chapter_plain_text(final):
+                logger.warning("合并修订结果不是有效章节正文，保留原文")
+                return chapter_content, {"applied": False, "reason": "invalid_chapter_response"}
+            if len(final) < len(chapter_content) * 0.5:
+                logger.warning("合并修订后字数过少 (原%d, 现%d)，保留原文", len(chapter_content), len(final))
+                return chapter_content, {"applied": False, "reason": "too_short"}
             logger.info(
                 "合并修订完成: has_review=%s, self_critique=%s, flaws=%d, original_len=%d, revised_len=%d",
                 has_review_feedback, enable_self_critique, len(critical_flaws),
@@ -372,10 +379,10 @@ class PipelineReviewMixin:
 {chapter_content}
 
 请以 JSON 格式输出：
-{{{{
+{{
   "optimized_content": "优化后的完整章节内容",
   "optimization_notes": "列出每个维度的具体优化点"
-}}}}"""
+}}"""
 
         try:
             _optimizer_max_tokens = int(max_word_count * 1.2) if max_word_count else None
@@ -389,6 +396,7 @@ class PipelineReviewMixin:
                 user_id=user_id,
                 timeout=180.0,
                 max_tokens=_optimizer_max_tokens,
+                fail_on_truncation=True,
             )
             cleaned = remove_think_tags(response)
             if not cleaned:
@@ -461,6 +469,7 @@ class PipelineReviewMixin:
                 temperature=0.75,
                 timeout=180.0,
                 max_tokens=_polish_max_tokens,
+                fail_on_truncation=True,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():
@@ -558,6 +567,7 @@ class PipelineReviewMixin:
                 user_id=user_id,
                 timeout=180.0,
                 max_tokens=_density_max_tokens,
+                fail_on_truncation=True,
             )
             cleaned = remove_think_tags(response)
             if not cleaned or not cleaned.strip():

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from ..utils.json_utils import is_probable_chapter_plain_text, sanitize_chapter_plain_text
 from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
@@ -299,9 +300,20 @@ class EnrichmentService:
                 prompt=prompt,
                 user_id=user_id,
                 max_tokens=_enrich_max_tokens,
-                temperature=0.6
+                temperature=0.6,
+                timeout=180.0,
+                fail_on_truncation=True,
             )
-            return response.strip() if response else None
+            if not response or not response.strip():
+                return None
+            enriched = sanitize_chapter_plain_text(response.strip())
+            if not enriched or not is_probable_chapter_plain_text(enriched):
+                logger.warning("扩写结果不是有效章节正文，放弃应用")
+                return None
+            if len(enriched) < len(chapter_text) * 0.5:
+                logger.warning("扩写后字数过少 (原%d, 现%d)，放弃应用", len(chapter_text), len(enriched))
+                return None
+            return enriched
         except Exception as e:
             logger.error(f"章节扩写失败: {e}")
             return None
