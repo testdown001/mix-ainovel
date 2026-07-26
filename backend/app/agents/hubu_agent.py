@@ -118,6 +118,8 @@ class HubuAgent(BaseAgent):
 
     async def _build_skill_context(self, context: AgentContext) -> AgentResult:
         """根据选中的技能构建写作增强上下文。"""
+        from ..skills.skill_base import SkillCategory, SkillContext
+
         selected_skills = context.metadata.get("selected_skills") or []
         if not isinstance(selected_skills, list) or not selected_skills:
             return AgentResult(
@@ -171,12 +173,17 @@ class HubuAgent(BaseAgent):
                     params=params,
                 )
 
+                # 兼容 category 为 str 或 SkillCategory 枚举两种形态（同 skill_base 的防御写法）
+                category = skill.definition.category
+                category_value = (
+                    category.value if isinstance(category, SkillCategory) else str(category)
+                )
                 resolved_skills.append(
                     {
                         "skill_id": skill.definition.id,
                         "name": skill.definition.name,
                         "description": skill.definition.description,
-                        "category": skill.definition.category.value,
+                        "category": category_value,
                         "capability_name": capability_name,
                         "params": {
                             "intensity": intensity,

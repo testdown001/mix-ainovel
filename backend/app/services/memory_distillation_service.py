@@ -55,7 +55,7 @@ class MemoryDistillationService:
             from .memory_layer_service import MemoryLayerService
 
             config = MemoryLayerService._build_mem0_config()
-            self._memory = AsyncMemory.from_config(config)
+            self._memory = await AsyncMemory.from_config(config_dict=config)
             return self._memory
         except Exception:
             logger.warning("记忆蒸馏: mem0 初始化失败", exc_info=True)
@@ -67,7 +67,8 @@ class MemoryDistillationService:
         if memory is None:
             return False
         try:
-            result = await memory.get_all(user_id=f"novel_{project_id}", limit=DISTILL_THRESHOLD + 1)
+            # 命名空间与 MemoryLayerService 写入侧一致（user_id=project_id）
+            result = await memory.get_all(user_id=project_id, limit=DISTILL_THRESHOLD + 1)
             memories = result.get("results", []) if isinstance(result, dict) else result
             return len(memories) >= DISTILL_THRESHOLD
         except Exception:
@@ -92,7 +93,8 @@ class MemoryDistillationService:
         if memory is None:
             return {"status": "skipped", "reason": "mem0_unavailable"}
 
-        user_key = f"novel_{project_id}"
+        # 命名空间与 MemoryLayerService 写入侧一致（user_id=project_id）
+        user_key = project_id
 
         try:
             result = await memory.get_all(user_id=user_key)
