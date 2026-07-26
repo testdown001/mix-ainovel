@@ -13,6 +13,7 @@ from ..models.novel import ChapterVersion
 from ..utils.json_utils import remove_think_tags, repair_json, unwrap_markdown_json
 from .enhanced_review_service import EnhancedReviewService
 from .llm_service import LLMService
+from .pipeline_review import QUALITY_DETECTION_PROMPT_TEMPLATE
 from .prompt_service import PromptService
 
 logger = logging.getLogger(__name__)
@@ -144,41 +145,12 @@ class GenerationAnalysisTaskService:
                                 if sat_type:
                                     expected_beat += f"（爽感类型：{sat_type}）"
 
-                            detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。\r
-\r
-## 分析维度\r
-\r
-### 1. 爽点密度\r
-检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。\r
-- coolpoint_score (0-10)：爽点密度评分\r
-- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）\r
-- coolpoint_issue：如果评分<6，指出具体问题\r
-\r
-### 2. 模式重复\r
-对比本章开头/结尾与近期章节是否存在套路化重复。\r
-- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）\r
-- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）\r
-- within_chapter_repetition：章节内部的句式/词汇重复\r
-\r
-### 3. 阶段性胜利 (Milestone Victory)\r
-判断本章是否包含"改变主角地位、能力层级或势力格局的决定性事件"。\r
-- milestone_victory_detected (true/false)：是否存在阶段性胜利\r
-- milestone_description：如果存在，一句话描述该阶段性胜利的内容\r
-\r
-[本章开头300字]\r
-{opening_300}\r
-\r
-[本章结尾300字]\r
-{ending_300}\r
-\r
-[本章预期]\r
-{expected_beat or "无特定预期"}\r
-\r
-[近期章节开头对比]\r
-{recent_patterns or "无（这是前几章）"}\r
-\r
-输出严格JSON格式：\r
-{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": ""}}"""
+                            detection_prompt = QUALITY_DETECTION_PROMPT_TEMPLATE.format(
+                                opening_300=opening_300,
+                                ending_300=ending_300,
+                                expected_beat=expected_beat or "无特定预期",
+                                recent_patterns=recent_patterns or "无（这是前几章）",
+                            )
 
                             response = await llm_service.get_llm_response(
                                 system_prompt="你是一位擅长量化分析网文质量的编辑。只输出JSON，不要其他内容。",

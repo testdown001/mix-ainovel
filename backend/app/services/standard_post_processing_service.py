@@ -105,18 +105,25 @@ class StandardPostProcessingService:
             review_summaries["consistency"] = consistency_report
 
             if h_service and h_report:
-                humanized = False
-                if h_report.score < config.humanization_threshold:
+                # 先跑免费规则修复再重扫，仍低于阈值才动用 LLM——对齐 fast/literary 的
+                # scan→fix→rescan 模式（此前 standard 扫完直接 LLM，白烧一次调用）。
+                # consistency 可能已改动正文，apply_rule_fixes 不传 report 使其基于最新正文重扫。
+                try:
+                    humanized = False
+                    best_content = h_service.apply_rule_fixes(best_content)
                     h_report = h_service.scan(best_content)
                     if h_report.score < config.humanization_threshold:
                         best_content = await h_service.humanize(best_content, h_report, user_id=user_id)
                         humanized = True
-                review_summaries["humanization"] = {
-                    "score": h_report.score,
-                    "issues_count": len(h_report.issues),
-                    "humanized": humanized,
-                    "details": h_report.to_dict(),
-                }
+                    review_summaries["humanization"] = {
+                        "score": h_report.score,
+                        "issues_count": len(h_report.issues),
+                        "humanized": humanized,
+                        "details": h_report.to_dict(),
+                    }
+                except Exception as exc:
+                    logger.warning("人味化检查失败（不影响生成）: %s", exc)
+                    review_summaries["humanization"] = {"error": str(exc)}
         else:
             if consistency_enabled:
                 best_content, consistency_report = await orchestrator._run_consistency_check(
@@ -130,6 +137,10 @@ class StandardPostProcessingService:
                 try:
                     from .humanization_service import HumanizationService
                     h_service = HumanizationService(orchestrator.session, orchestrator.llm_service)
+                    # 先跑免费规则修复再重扫，仍低于阈值才动用 LLM——对齐 fast/literary 的
+                    # scan→fix→rescan 模式
+                    h_report = h_service.scan(best_content)
+                    best_content = h_service.apply_rule_fixes(best_content, h_report)
                     h_report = h_service.scan(best_content)
                     humanized = False
                     if h_report.score < config.humanization_threshold:
@@ -308,12 +319,45 @@ class StandardPostProcessingService:
                                 max_word_count=chapter_word_count_max,
                             )
                             if revision_meta.get("applied"):
-                                best_content = refined_content
-                                review_summaries["auto_refiner"] = {
+                                refiner_summary: Dict[str, Any] = {
                                     "triggered": True,
                                     "original_score": overall_score,
                                     "flaws_fixed": len(critical_flaws),
                                 }
+                                # refine 后重打分回退：重写可能反而变差，追加一次六维重打分，
+                                # 新分低于原分则回退 refine 前文本（仅 refine 实际触发时 +1 次评审调用）。
+                                if _over_budget():
+                                    # 超预算：跳过重打分直接保留 refine 结果
+                                    best_content = refined_content
+                                    refiner_summary["rescore"] = "skipped_for_budget"
+                                else:
+                                    new_score = None
+                                    try:
+                                        rescore_result = await six_dim_service.review_chapter(
+                                            project_id=project_id,
+                                            chapter_number=chapter_number,
+                                            chapter_title=outline_title,
+                                            chapter_content=refined_content,
+                                            user_id=user_id,
+                                            chapter_plan=json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else None,
+                                            previous_summary=history_context["previous_summary"],
+                                        )
+                                        if rescore_result and not rescore_result.get("degraded"):
+                                            new_score = rescore_result.get("overall_score", 0)
+                                    except Exception as rescore_exc:
+                                        logger.warning("refine 后六维重打分失败，保留 refine 结果: %s", rescore_exc)
+                                    if new_score is None:
+                                        # 重打分降级/失败：分数不可信，保留 refine 结果（降级安全）
+                                        best_content = refined_content
+                                        refiner_summary["rescore"] = "degraded"
+                                    elif new_score < overall_score:
+                                        # 重写反而降分：回退 refine 前文本（best_content 保持不变）
+                                        refiner_summary["reverted"] = True
+                                        refiner_summary["new_score"] = new_score
+                                    else:
+                                        best_content = refined_content
+                                        refiner_summary["new_score"] = new_score
+                                review_summaries["auto_refiner"] = refiner_summary
             except Exception as exc:
                 logger.warning("同步六维打分/重写失败，跳过拦截: %s", exc)
                 review_summaries["enhanced_review"] = {"status": "degraded", "error": str(exc)}

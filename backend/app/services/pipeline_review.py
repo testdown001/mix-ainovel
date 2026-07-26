@@ -9,8 +9,6 @@ from ..core.constants import CHAPTER_RECOMMENDED_WORDS, CHAPTER_MIN_WORDS
 from ..services.ai_review_service import AIReviewService
 from ..services.consistency_service import ConsistencyService, ViolationSeverity
 from ..services.enrichment_service import EnrichmentService
-from ..services.reader_simulator_service import ReaderSimulatorService, ReaderType
-from ..services.self_critique_service import CritiqueDimension, SelfCritiqueService
 from ..utils.json_utils import (
     is_probable_chapter_plain_text,
     remove_think_tags,
@@ -20,6 +18,45 @@ from ..utils.json_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 质量检测 prompt（爽点密度/模式重复/阶段性胜利）。
+# 同步路径 _run_quality_detection 与后台 Stage B（generation_analysis_task_service）共用，
+# 勿再复制内联副本。占位符经 str.format 填充。
+QUALITY_DETECTION_PROMPT_TEMPLATE = """你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。
+
+## 分析维度
+
+### 1. 爽点密度
+检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。
+- coolpoint_score (0-10)：爽点密度评分
+- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）
+- coolpoint_issue：如果评分<6，指出具体问题
+
+### 2. 模式重复
+对比本章开头/结尾与近期章节是否存在套路化重复。
+- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）
+- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）
+- within_chapter_repetition：章节内部的句式/词汇重复
+
+### 3. 阶段性胜利 (Milestone Victory)
+判断本章是否包含"改变主角地位、能力层级或势力格局的决定性事件"。
+- milestone_victory_detected (true/false)：是否存在阶段性胜利
+- milestone_description：如果存在，一句话描述该阶段性胜利的内容
+
+[本章开头300字]
+{opening_300}
+
+[本章结尾300字]
+{ending_300}
+
+[本章预期]
+{expected_beat}
+
+[近期章节开头对比]
+{recent_patterns}
+
+输出严格JSON格式：
+{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": ""}}"""
 
 
 class PipelineReviewMixin:
@@ -66,74 +103,6 @@ class PipelineReviewMixin:
             "flaws": ai_review_result.critical_flaws,
             "suggestions": ai_review_result.refinement_suggestions,
         }
-
-    async def _revise_with_review_feedback(
-        self,
-        chapter_content: str,
-        *,
-        critical_flaws: List[str],
-        refinement_suggestions: str,
-        chapter_mission: Optional[dict],
-        user_id: int,
-        max_word_count: int = 0,
-    ) -> Tuple[str, Dict[str, Any]]:
-        """利用 AI 评审的 critical_flaws 和 refinement_suggestions 做定向修订。"""
-        if not critical_flaws and not refinement_suggestions:
-            return chapter_content, {"applied": False, "reason": "no_feedback"}
-
-        flaws_text = "\n".join(f"- {flaw}" for flaw in critical_flaws) if critical_flaws else "无"
-        mission_hint = ""
-        if chapter_mission:
-            macro_beat = chapter_mission.get("macro_beat_description", "")
-            if macro_beat:
-                mission_hint = f"\n本章核心任务：{macro_beat}"
-
-        revision_prompt = f"""你是一位资深网文编辑。以下章节已经由评审员指出了关键问题和改进建议。
-请根据这些反馈对章节进行定向修订。
-
-**修订原则：**
-1. 只修改评审指出的问题，不改变整体情节走向和结构
-2. 保持原有字数规模，总字数不得超过 {max_word_count} 字
-3. 修改要自然融入，不能有明显修补痕迹
-4. 保持原文的叙事风格和语气{mission_hint}
-
-[关键缺陷]
-{flaws_text}
-
-[改进建议]
-{refinement_suggestions or "无"}
-
-[原章节内容]
-{chapter_content}
-
-直接输出修改后的完整章节，不要输出其他内容。"""
-
-        try:
-            _revision_max_tokens = int(max_word_count * 1.2) if max_word_count else None
-            response = await self.llm_service.get_llm_response(
-                system_prompt="你是一位擅长根据编辑反馈精修文章的网文作者。",
-                conversation_history=[{"role": "user", "content": revision_prompt}],
-                temperature=0.5,
-                user_id=user_id,
-                timeout=180.0,
-                max_tokens=_revision_max_tokens,
-            )
-            cleaned = remove_think_tags(response)
-            if not cleaned or not cleaned.strip():
-                logger.warning("审查反馈修订结果为空，保留原文")
-                return chapter_content, {"applied": False, "reason": "empty_response"}
-
-            final = sanitize_chapter_plain_text(cleaned.strip())
-            logger.info("审查反馈修订完成: flaws=%d, original_len=%d, revised_len=%d",
-                        len(critical_flaws), len(chapter_content), len(final))
-            return final, {
-                "applied": True,
-                "flaws_count": len(critical_flaws),
-                "has_suggestions": bool(refinement_suggestions),
-            }
-        except Exception as exc:
-            logger.warning("审查反馈修订失败，保留原文: %s", exc)
-            return chapter_content, {"applied": False, "reason": str(exc)}
 
     async def _run_combined_revision(
         self,
@@ -247,56 +216,6 @@ class PipelineReviewMixin:
         except Exception as exc:
             logger.warning("合并修订失败，保留原文: %s", exc)
             return chapter_content, {"applied": False, "reason": str(exc)}
-
-    async def _run_self_critique(
-        self,
-        chapter_content: str,
-        *,
-        user_id: int,
-        context: Optional[Dict[str, Any]] = None,
-        max_iterations: int = 1,
-        max_word_count: int = 0,
-    ) -> Tuple[str, Dict[str, Any]]:
-        service = SelfCritiqueService(self.session, self.llm_service, self.prompt_service)
-        _critique_max_tokens = int(max_word_count * 1.2) if max_word_count else None
-        critique = await service.critique_and_revise_loop(
-            chapter_content=chapter_content,
-            max_iterations=max_iterations,
-            target_score=80.0,
-            dimensions=[
-                CritiqueDimension.LOGIC,
-                CritiqueDimension.CHARACTER,
-                CritiqueDimension.WRITING,
-                CritiqueDimension.PACING,
-                CritiqueDimension.DIALOGUE,
-            ],
-            context=context,
-            user_id=user_id,
-            max_tokens=_critique_max_tokens,
-        )
-        return critique.get("final_content", chapter_content), {
-            "iterations": len(critique.get("iterations", [])),
-            "final_score": critique.get("final_score", 0),
-            "improvement": critique.get("improvement", 0),
-            "status": critique.get("status", "unknown"),
-        }
-
-    async def _run_reader_simulation(
-        self,
-        chapter_content: str,
-        *,
-        chapter_number: int,
-        previous_summary: Optional[str],
-        user_id: int,
-    ) -> Dict[str, Any]:
-        service = ReaderSimulatorService(self.session, self.llm_service, self.prompt_service)
-        return await service.simulate_reading_experience(
-            chapter_content=chapter_content,
-            chapter_number=chapter_number,
-            reader_types=[ReaderType.THRILL_SEEKER, ReaderType.CRITIC, ReaderType.CASUAL],
-            previous_summary=previous_summary,
-            user_id=user_id,
-        )
 
     async def _run_consistency_check(
         self,
@@ -438,7 +357,7 @@ class PipelineReviewMixin:
                 return optimized_content, {"steps": [{"dimension": dimension_label, "notes": "优化完成（响应格式非标准JSON）"}]}
         except Exception as exc:
             logger.warning("综合优化失败: %s", exc)
-            return chapter_content, {"steps": []}
+            return chapter_content, {"steps": [], "applied": False, "error": str(exc)}
 
     async def _run_polish(self, chapter_content: str, *, user_id: int, max_word_count: int = 0) -> Tuple[str, Dict[str, Any]]:
         """使用独立配置的润色模型对章节进行文学性润色。"""
@@ -622,41 +541,12 @@ class PipelineReviewMixin:
             if sat_type:
                 expected_beat += f"（爽感类型：{sat_type}）"
 
-        detection_prompt = f"""你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。\r
-\r
-## 分析维度\r
-\r
-### 1. 爽点密度\r
-检查本章是否有足够的张力/冲突/反转/情绪高潮时刻。\r
-- coolpoint_score (0-10)：爽点密度评分\r
-- coolpoint_moments：列出识别到的爽点/张力时刻（最多5个，每个一句话描述）\r
-- coolpoint_issue：如果评分<6，指出具体问题\r
-\r
-### 2. 模式重复\r
-对比本章开头/结尾与近期章节是否存在套路化重复。\r
-- repetition_score (0-10)：独特性评分（10=完全独特，0=严重套路化）\r
-- repetition_issues：发现的重复模式（如"连续3章都以对话开头"、"结尾都用身体反应收束"）\r
-- within_chapter_repetition：章节内部的句式/词汇重复\r
-\r
-### 3. 阶段性胜利 (Milestone Victory)\r
-判断本章是否包含"改变主角地位、能力层级或势力格局的决定性事件"。\r
-- milestone_victory_detected (true/false)：是否存在阶段性胜利\r
-- milestone_description：如果存在，一句话描述该阶段性胜利的内容\r
-\r
-[本章开头300字]\r
-{opening_300}\r
-\r
-[本章结尾300字]\r
-{ending_300}\r
-\r
-[本章预期]\r
-{expected_beat or "无特定预期"}\r
-\r
-[近期章节开头对比]\r
-{recent_patterns or "无（这是前几章）"}\r
-\r
-输出严格JSON格式：\r
-{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": ""}}"""
+        detection_prompt = QUALITY_DETECTION_PROMPT_TEMPLATE.format(
+            opening_300=opening_300,
+            ending_300=ending_300,
+            expected_beat=expected_beat or "无特定预期",
+            recent_patterns=recent_patterns or "无（这是前几章）",
+        )
 
         try:
             response = await self.llm_service.get_llm_response(

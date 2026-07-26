@@ -148,15 +148,45 @@ class TextCompressionService:
         if not text or len(text) <= max_chars:
             return text
 
+        # 章尾钩子是提示词铁律：始终保留最后一段；剩余预算从开头顺序装入前部段落，
+        # 装不下的第一段按句号截取——被牺牲的是"中部"而非开头或结尾。
+        # （旧的"从倒数第二段向前整段删"在首段超限+短末段时会把整章删到只剩几十字末段；
+        #  max_chars 是下游三条 flow 依赖的硬上限契约，任何分支都不允许超限返回。）
         paragraphs = text.split("\n\n")
-        while len("\n\n".join(paragraphs)) > max_chars and len(paragraphs) > 1:
-            paragraphs.pop()
-        result = "\n\n".join(paragraphs)
-        if len(result) <= max_chars:
-            return result
+        tail = paragraphs[-1]
+        if len(tail) > max_chars:
+            # 末段自身超限：段内保末句护钩子，头部按句号回填；末句仍超限则硬切守住上限
+            last_sentence = tail
+            for index in range(len(tail) - 2, -1, -1):
+                if tail[index] in "。！？":
+                    last_sentence = tail[index + 1:]
+                    break
+            if len(last_sentence) > max_chars:
+                return last_sentence[:max_chars]
+            head_budget = max_chars - len(last_sentence)
+            head = tail[:head_budget]
+            for index in range(len(head) - 1, -1, -1):
+                if head[index] in "。！？":
+                    return head[: index + 1] + last_sentence
+            return last_sentence
 
-        truncated = text[:max_chars]
-        for index in range(len(truncated) - 1, max(0, len(truncated) - 200), -1):
-            if truncated[index] in "。！？":
-                return truncated[: index + 1]
-        return truncated
+        budget = max_chars - len(tail) - 2  # 预留 "\n\n" 连接符
+        head_parts: list[str] = []
+        used = 0
+        for para in paragraphs[:-1]:
+            need = len(para) + (2 if head_parts else 0)
+            if used + need <= budget:
+                head_parts.append(para)
+                used += need
+                continue
+            # 装不下的第一段：句号边界截取填满剩余预算后停止（中部丢弃）
+            remaining = budget - used - (2 if head_parts else 0)
+            if remaining > 0:
+                snippet = para[:remaining]
+                for index in range(len(snippet) - 1, -1, -1):
+                    if snippet[index] in "。！？":
+                        head_parts.append(snippet[: index + 1])
+                        break
+            break
+        head = "\n\n".join(head_parts)
+        return (head + "\n\n" + tail) if head else tail
