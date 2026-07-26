@@ -362,6 +362,13 @@ class NovelService:
     # ------------------------------------------------------------------
     # 蓝图管理
     # ------------------------------------------------------------------
+    @staticmethod
+    def _strip_revision_hint(metadata: Optional[dict]) -> Optional[dict]:
+        """大纲被整体重建时剔除 revision_hint（其依据的旧大纲已不存在），保留导演脚本等其他键。"""
+        if isinstance(metadata, dict) and "revision_hint" in metadata:
+            return {k: v for k, v in metadata.items() if k != "revision_hint"}
+        return metadata
+
     async def replace_blueprint(self, project_id: str, blueprint: Blueprint) -> None:
         existing_outline_metadata = await self._get_outline_metadata_map(project_id)
 
@@ -434,7 +441,7 @@ class NovelService:
                         "chapter_number": number_map[outline.chapter_number],
                         "title": outline.title,
                         "summary": outline.summary,
-                        "metadata": (
+                        "metadata": self._strip_revision_hint(
                             outline.metadata
                             if getattr(outline, "metadata", None) is not None
                             else existing_outline_metadata.get(number_map[outline.chapter_number])
@@ -1004,6 +1011,14 @@ class NovelService:
                 outline.summary = summary
                 if metadata is not None:
                     outline.metadata = metadata
+                else:
+                    # 大纲被重写(title/summary 更新)后，旧的 revision_hint 依据已失效：
+                    # 先读后并清除该键，保留 metadata 其他键(如导演脚本)，整体重赋值触发变更检测
+                    existing_meta = outline.metadata
+                    if isinstance(existing_meta, dict) and "revision_hint" in existing_meta:
+                        outline.metadata = {
+                            k: v for k, v in existing_meta.items() if k != "revision_hint"
+                        }
             else:
                 outline = ChapterOutline(
                     project_id=project_id,
