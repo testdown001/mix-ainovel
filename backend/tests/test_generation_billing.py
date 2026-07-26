@@ -20,11 +20,15 @@ async def _seed_model(db, code="m", price=10):
 @pytest.mark.asyncio
 async def test_compute_cost(db_session):
     await _seed_model(db_session, "m", 10)
-    assert await compute_generation_cost(db_session, None, False) == 0       # 未指定模型 → 0
+    assert await compute_generation_cost(db_session, None, False) == 0       # 未指定模型不勾润色 → 0
     assert await compute_generation_cost(db_session, "m", False) == 10
     assert await compute_generation_cost(db_session, "m", True) == 15        # +润色 5
     assert await compute_generation_cost(db_session, "m", False, chapters=3) == 30
     assert await compute_generation_cost(db_session, "nope", False) == 0     # 未知模型 → 0
+    # 无 model_code 但勾选润色：附加费照收（堵直连 API 免费润色的口子）
+    assert await compute_generation_cost(db_session, None, True) == 5
+    assert await compute_generation_cost(db_session, "nope", True) == 5
+    assert await compute_generation_cost(db_session, None, True, chapters=2) == 10
 
 
 @pytest.mark.asyncio

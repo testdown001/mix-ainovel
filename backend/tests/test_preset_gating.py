@@ -112,8 +112,11 @@ def test_flow_override_gate_matrix():
 
     # creator 开关：free 被拒，creator 放行
     with pytest.raises(HTTPException):
-        _flow_gate({"enable_polish": True}, "free")
-    _flow_gate({"enable_polish": True}, "creator")
+        _flow_gate({"enable_enrichment": True}, "free")
+    _flow_gate({"enable_enrichment": True}, "creator")
+
+    # enable_polish 已移出档位门控（纯积分计费项）：任何档勾选均放行
+    _flow_gate({"enable_polish": True}, "free")
 
 
 def test_flow_override_gate_only_blocks_explicit_true():
@@ -134,14 +137,14 @@ def test_flow_override_min_tiers_loads_backend_override(monkeypatch):
 
         async def get_by_key(self, key):
             assert key == "feature_gating.flow_override_min_tiers"
-            return SimpleNamespace(value='{"enable_optimizer": "creator", "bogus_key": "flagship", "enable_polish": "not_a_tier"}')
+            return SimpleNamespace(value='{"enable_optimizer": "creator", "bogus_key": "flagship", "enable_enrichment": "not_a_tier"}')
 
     monkeypatch.setattr(repo_module, "SystemConfigRepository", _FakeRepo)
 
     tiers = asyncio.run(load_flow_override_min_tiers(SimpleNamespace()))
     assert tiers["enable_optimizer"] == "creator"   # 合法覆写生效
     assert "bogus_key" not in tiers                  # 未登记键被忽略
-    assert tiers["enable_polish"] == "creator"       # 非法档位值被忽略，保持默认
+    assert tiers["enable_enrichment"] == "creator"   # 非法档位值被忽略，保持默认
 
     # 覆写后 creator 即可显式开优化器
     _flow_gate({"enable_optimizer": True}, "creator")

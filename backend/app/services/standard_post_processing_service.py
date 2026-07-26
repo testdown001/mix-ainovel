@@ -174,6 +174,9 @@ class StandardPostProcessingService:
             if _over_budget():
                 skipped_for_budget.append("optimizer")
                 optimizer_enabled = False
+                # optimizer 被预算跳过时，已付费勾选的润色降级为独立 polish 步执行（付费必交付）
+                if config.enable_polish:
+                    polish_only = True
             else:
                 merge_polish = config.enable_polish
                 merge_density = (
@@ -195,15 +198,14 @@ class StandardPostProcessingService:
                     review_summaries["density_compression"] = {"applied": True, "merged_into_optimizer": True}
 
         if polish_only:
-            if _over_budget():
-                skipped_for_budget.append("polish")
-            else:
-                best_content, polish_report = await orchestrator._run_polish(
-                    best_content,
-                    user_id=user_id,
-                    max_word_count=chapter_word_count_max,
-                )
-                review_summaries["polish"] = polish_report
+            # 付费必交付：enable_polish 只可能来自用户勾选（preset 不再强开），
+            # 已按 credits.price.polish 先扣费，不允许被时间预算跳过
+            best_content, polish_report = await orchestrator._run_polish(
+                best_content,
+                user_id=user_id,
+                max_word_count=chapter_word_count_max,
+            )
+            review_summaries["polish"] = polish_report
 
         if enrichment_enabled:
             if _over_budget():

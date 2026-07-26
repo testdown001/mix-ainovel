@@ -194,7 +194,8 @@ FLOW_OVERRIDE_SWITCHES: List[FlowOverrideSwitch] = [
     FlowOverrideSwitch("enable_preview", "预演生成", "flagship"),
     # standard 特征开关（默认 creator）
     FlowOverrideSwitch("enable_enrichment", "字数扩写", "creator"),
-    FlowOverrideSwitch("enable_polish", "文风润色", "creator"),
+    # enable_polish 不做档位门控：润色是纯积分计费项（勾选即按 credits.price.polish 扣费），
+    # 任何档位有积分即可购买；档位锁 creator+ 会让 free 用户勾选后整次生成 403
     FlowOverrideSwitch("enable_power_system", "力量体系注入", "creator"),
     FlowOverrideSwitch("enable_character_relationships", "角色关系注入", "creator"),
     FlowOverrideSwitch("enable_trajectory_analysis", "轨迹分析", "creator"),

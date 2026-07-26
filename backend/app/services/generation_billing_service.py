@@ -27,15 +27,15 @@ async def compute_generation_cost(
     enable_polish: bool,
     chapters: int = 1,
 ) -> int:
-    """算本次生成应扣积分。未指定/未入库/下架模型 → 0（用默认通道、不计费）。"""
-    if not model_code:
-        return 0
+    """算本次生成应扣积分。未指定/未入库/下架模型 → 模型费为 0（用默认通道、不计费）；
+    但勾选润色时附加费照收——否则直连 API 不带 model_code 即可免费跑润色。"""
     from ..api.routers.model_catalog import get_model_by_code, _polish_price
 
-    model = await get_model_by_code(session, model_code)
-    if model is None or not model.is_active:
-        return 0
-    per = int(model.credit_price or 0)
+    per = 0
+    if model_code:
+        model = await get_model_by_code(session, model_code)
+        if model is not None and model.is_active:
+            per = int(model.credit_price or 0)
     if enable_polish:
         per += await _polish_price(session)
     return per * max(1, int(chapters or 1))
