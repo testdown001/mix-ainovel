@@ -1120,6 +1120,11 @@ class NovelService:
             return chapter
 
     async def replace_chapter_versions(self, chapter: Chapter, contents: List[str], metadata: Optional[List[Dict]] = None) -> List[ChapterVersion]:
+        # 成功落库时才清理旧状态：先解除选中版本引用再删旧版本行（避免外键指向被删行），
+        # 同时清空 real_summary 让后处理按新内容重算（_ensure_summary 对已有摘要会跳过重算）
+        chapter.selected_version_id = None
+        chapter.real_summary = None
+        await self.session.flush()
         await self.session.execute(delete(ChapterVersion).where(ChapterVersion.chapter_id == chapter.id))
         versions: List[ChapterVersion] = []
         for index, content in enumerate(contents):

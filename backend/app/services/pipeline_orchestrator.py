@@ -297,10 +297,15 @@ class PipelineOrchestrator(PipelineReviewMixin):
             raise HTTPException(status_code=404, detail="蓝图中未找到对应章节纲要")
 
         chapter = await self.novel_service.get_or_create_chapter(project_id, chapter_number)
-        chapter.real_summary = None
-        chapter.selected_version_id = None
+        # 生成前仅置 generating（前端轮询依赖此状态）；real_summary/selected_version_id
+        # 留到成功落库时由 replace_chapter_versions 同事务清理，
+        # 保证生成中途失败（LLM 报错/超时/护栏拒绝）不会毁掉已完稿章节的摘要与选中版本
         chapter.status = "generating"
         await self.session.commit()
+        # onupdate=func.now() 使 updated_at 在 UPDATE 后过期；重生成时该章已在
+        # project.chapters 里，后续 _serialize_project 的同步 getattr 会触发
+        # 异步 IO 报 MissingGreenlet，这里显式回填避免过期访问
+        await self.session.refresh(chapter, attribute_names=["updated_at"])
         _mark_stage("prepare_project_context", stage_started)
 
         outlines_map = {item.chapter_number: item for item in project.outlines}
