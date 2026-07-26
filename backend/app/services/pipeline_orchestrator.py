@@ -345,6 +345,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
             "skill_policies": list(raw_flow_config.get("skill_policies") or []),
             "enable_rag": config.enable_rag,
             "enable_memory": config.enable_memory,
+            "enable_state_tracking": config.enable_state_tracking,
+            "enable_temporal_state": config.enable_temporal_state,
             "enable_fast_path": config.enable_fast_path,
             "enable_consistency": config.enable_consistency,
             "enable_foreshadowing": config.enable_foreshadowing,
@@ -821,6 +823,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 introduced_characters=introduced_characters,
                 user_id=user_id,
                 enable_memory=config.enable_memory,
+                enable_state_tracking=config.enable_state_tracking,
                 enable_outline_revision=config.enable_outline_revision,
                 six_dimension_payload=six_dimension_payload,
             )
@@ -925,6 +928,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 introduced_characters=introduced_characters,
                 user_id=user_id,
                 enable_memory=config.enable_memory,
+                enable_state_tracking=config.enable_state_tracking,
                 enable_outline_revision=config.enable_outline_revision,
                 stage_b_params=_stage_b_params,
             )
@@ -1032,6 +1036,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             introduced_characters=introduced_characters,
             user_id=user_id,
             enable_memory=config.enable_memory,
+            enable_state_tracking=config.enable_state_tracking,
             enable_outline_revision=config.enable_outline_revision,
             stage_b_params=_stage_b_params,
             run_post_processor=True,

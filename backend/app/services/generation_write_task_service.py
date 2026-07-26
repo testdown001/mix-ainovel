@@ -99,6 +99,45 @@ class GenerationWriteTaskService:
                 chapter_number,
             )
 
+    async def run_state_update(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        character_names: List[str],
+        user_id: int,
+    ) -> None:
+        """轻量状态记忆更新（standard 档 enable_state_tracking）：
+        仅 CharacterState/TimelineEvent 抽取落库，不碰 mem0/蒸馏。全程降级。
+        """
+        try:
+            async with AsyncSessionLocal() as session:
+                try:
+                    llm_service = LLMService(session)
+                    prompt_service = PromptService(session)
+                    memory_layer = MemoryLayerService(session, llm_service, prompt_service)
+                    results = await memory_layer.update_state_after_chapter(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_content=chapter_content,
+                        character_names=character_names,
+                        user_id=user_id,
+                    )
+                    logger.info(
+                        "异步状态记忆更新完成 project=%s chapter=%s results=%s",
+                        project_id, chapter_number, results,
+                    )
+                except Exception:
+                    await session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步状态记忆更新失败 project=%s chapter=%s",
+                project_id,
+                chapter_number,
+            )
+
     async def run_foreshadowing_extraction(
         self,
         *,

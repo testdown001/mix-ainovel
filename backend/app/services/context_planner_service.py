@@ -636,10 +636,12 @@ class ContextPlannerService:
             if not is_fast_path:
                 modules.append("rag_global")
         # [项目长期记忆] 数据是无条件预取的：非 fast 路径一律注入（不再依赖 enable_memory）；
-        # enable_memory 继续独占管 [记忆层上下文]/[角色当前状态]（character_state 模块）。
+        # character_state 模块（[角色当前状态]/[记忆层上下文]）由 enable_memory 或
+        # enable_state_tracking 解锁：standard 档只写状态类记忆，[记忆层上下文] 的数据
+        # （memory_context）仍由编排器按 enable_memory 独占产出，standard 下自然缺席。
         if flow_config.get("enable_memory") or not is_fast_path:
             modules.append("project_memory")
-        if flow_config.get("enable_memory"):
+        if flow_config.get("enable_memory") or flow_config.get("enable_state_tracking"):
             modules.append("character_state")
         if not is_fast_path:
             # 卷级前情 + 全书脉络：分层长程记忆转正注入（fast 保持轻量不注入）

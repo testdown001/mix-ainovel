@@ -657,7 +657,7 @@ class MemoryLayerService:
             return result.get("facts", [])
         return []
 
-    async def update_memory_after_chapter(
+    async def update_state_after_chapter(
         self,
         project_id: str,
         chapter_number: int,
@@ -665,21 +665,21 @@ class MemoryLayerService:
         character_names: List[str],
         user_id: int
     ) -> Dict[str, Any]:
-        """章节完成后更新记忆层，包括提取新事实存入 mem0
+        """轻量状态记忆更新：仅抽取并落库状态类记忆（CharacterState/TimelineEvent），不碰 mem0。
 
-        使用 asyncio.gather 并行执行 3 个 LLM 提取步骤，每个步骤独立错误隔离。
+        standard 档（enable_state_tracking）走此入口；premium 完整记忆路径
+        （update_memory_after_chapter）内部复用本方法，避免逻辑复制。
+        各步骤独立错误隔离，全程降级。
         """
         results = {
             "character_states_updated": 0,
             "timeline_events_added": 0,
             "causal_chains_added": 0,
-            "mem0_memories_added": 0
         }
 
-        # ---- 顺序执行 3 个 LLM 提取（共享同一 async session，不可并发） ----
+        # ---- 顺序执行 2 个 LLM 提取（共享同一 async session，不可并发） ----
         character_states: Any = []
         events: Any = []
-        facts: Any = []
 
         try:
             character_states = await self.extract_character_states_from_chapter(
@@ -694,12 +694,6 @@ class MemoryLayerService:
             )
         except Exception as e:
             logger.warning(f"提取时间线事件失败: {e}")
-
-        try:
-            facts = await self._extract_mem0_facts(chapter_content, user_id)
-        except Exception as e:
-            logger.warning(f"提取 mem0 事实失败: {e}")
-            facts = []
 
         # ---- 步骤 1: 写入角色状态（独立错误隔离） ----
         try:
@@ -725,7 +719,44 @@ class MemoryLayerService:
         except Exception as e:
             logger.warning(f"写入时间线事件到数据库失败: {e}")
 
-        # ---- 步骤 3: 存入 mem0 长期记忆（独立错误隔离） ----
+        return results
+
+    async def update_memory_after_chapter(
+        self,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        character_names: List[str],
+        user_id: int
+    ) -> Dict[str, Any]:
+        """章节完成后更新完整记忆层：状态类抽取落库（复用 update_state_after_chapter）
+        + 提取新事实存入 mem0。每个步骤独立错误隔离。
+        """
+        results = {
+            "character_states_updated": 0,
+            "timeline_events_added": 0,
+            "causal_chains_added": 0,
+            "mem0_memories_added": 0
+        }
+
+        # ---- 状态类抽取落库（CharacterState/TimelineEvent，内部已独立错误隔离） ----
+        try:
+            state_results = await self.update_state_after_chapter(
+                project_id, chapter_number, chapter_content, character_names, user_id
+            )
+            results.update(state_results)
+        except Exception as e:
+            logger.warning(f"状态类记忆更新失败: {e}")
+
+        # ---- mem0 事实提取（独立错误隔离） ----
+        facts: Any = []
+        try:
+            facts = await self._extract_mem0_facts(chapter_content, user_id)
+        except Exception as e:
+            logger.warning(f"提取 mem0 事实失败: {e}")
+            facts = []
+
+        # ---- 存入 mem0 长期记忆（独立错误隔离） ----
 
         try:
             if facts:

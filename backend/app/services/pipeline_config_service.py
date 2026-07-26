@@ -28,6 +28,9 @@ class PipelineConfig:
     enable_reader_sim: bool = False
     enable_self_critique: bool = False
     enable_memory: bool = False
+    # 轻量状态记忆（CharacterState/TimelineEvent 抽取落库，不含 mem0）：纯 preset 驱动，
+    # 不加入 FLOW_OVERRIDE_SWITCHES，不开放 flow_config 覆写
+    enable_state_tracking: bool = False
     enable_rag: bool = True
     rag_mode: str = "simple"
     enable_foreshadowing: bool = False
@@ -154,9 +157,11 @@ class PipelineConfigService:
             config.enable_character_relationships = True
             config.enable_trajectory_analysis = True
             config.enable_temporal_state = True
+            config.enable_state_tracking = True
             config.enable_six_dimension = True
             config.enable_enrichment = True
-            config.enable_polish = True
+            # enable_polish 不再随 preset 默认开启：润色是勾选计费项（每章额外扣积分），
+            # 仅当用户勾选经 flow_config 覆写打开（FLOW_OVERRIDE_SWITCHES creator+ 门控）
             config.rag_mode = settings.rag_default_mode
             if getattr(settings, "enable_entity_registry", True):
                 config.enable_anti_hallucination = True
@@ -173,12 +178,14 @@ class PipelineConfigService:
             config.enable_trajectory_analysis = True
             config.enable_temporal_state = True
             config.enable_memory = True
+            config.enable_state_tracking = True
             config.enable_six_dimension = True
             config.enable_self_critique = True
             config.enable_reader_sim = True
             config.enable_consistency = True
             config.enable_enrichment = True
-            config.enable_polish = True
+            # enable_polish 同 standard：勾选计费项，不随 preset 默认开启（optimizer 照跑，
+            # 仅在用户勾选时才「合并润色」语义生效，见 standard_post_processing merge_polish）
             config.enable_optimizer = True
             config.rag_mode = settings.rag_default_mode
             if getattr(settings, "enable_entity_registry", True):
@@ -215,6 +222,7 @@ class PipelineConfigService:
             config.enable_foreshadowing = False
             config.enable_faction = False
             config.enable_memory = False
+            config.enable_state_tracking = False
             config.enable_outline_revision = False
             config.disable_guardrail_rewrite = True
             config.skip_history_summary_backfill = True

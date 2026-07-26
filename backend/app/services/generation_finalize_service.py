@@ -53,6 +53,7 @@ class GenerationFinalizeService:
         introduced_characters: List[str],
         user_id: int,
         enable_memory: bool,
+        enable_state_tracking: bool = False,
         enable_outline_revision: bool = False,
         stage_b_params: Optional[Dict[str, Any]] = None,
         six_dimension_payload: Optional[Dict[str, Any]] = None,
@@ -81,6 +82,18 @@ class GenerationFinalizeService:
         if enable_memory:
             task = asyncio.create_task(
                 self.generation_background_task_service.run_memory_update(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    chapter_content=best_content,
+                    character_names=introduced_characters,
+                    user_id=user_id,
+                )
+            )
+            self._track_task(task_registry, task)
+        elif enable_state_tracking:
+            # standard 档轻量路径：仅状态类抽取落库（CharacterState/TimelineEvent），不碰 mem0
+            task = asyncio.create_task(
+                self.generation_background_task_service.run_state_update(
                     project_id=project_id,
                     chapter_number=chapter_number,
                     chapter_content=best_content,
