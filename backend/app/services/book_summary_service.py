@@ -13,6 +13,11 @@ from ..models.project_memory import ProjectMemory
 
 logger = logging.getLogger(__name__)
 
+# 输入治理：卷摘要过多时（300 章级=30 卷+），不再全量喂给 LLM，
+# 取「前 BOOK_SUMMARY_HEAD_VOLUMES 卷 + 最近若干卷」并在 prompt 标注省略段
+BOOK_SUMMARY_MAX_VOLUMES = 30
+BOOK_SUMMARY_HEAD_VOLUMES = 5
+
 BOOK_SUMMARY_SYSTEM_PROMPT = """你是一名资深小说编辑，负责将多个卷级摘要聚合为一份全书总结。
 
 ## 任务
@@ -140,8 +145,21 @@ class BookSummaryService:
         vol_dicts: list[dict],
         user_id: int,
     ) -> Optional[str]:
+        # 输入治理：超过 BOOK_SUMMARY_MAX_VOLUMES 卷时取「前 5 卷 + 最近 25 卷」，并标注省略了哪些卷
+        tail_count = BOOK_SUMMARY_MAX_VOLUMES - BOOK_SUMMARY_HEAD_VOLUMES
+        omitted: list[dict] = []
+        if len(vol_dicts) > BOOK_SUMMARY_MAX_VOLUMES:
+            omitted = vol_dicts[BOOK_SUMMARY_HEAD_VOLUMES:-tail_count]
+            vol_dicts = vol_dicts[:BOOK_SUMMARY_HEAD_VOLUMES] + vol_dicts[-tail_count:]
+
         parts = ["# 全书卷级摘要汇总\n"]
-        for v in vol_dicts:
+        for index, v in enumerate(vol_dicts):
+            if omitted and index == BOOK_SUMMARY_HEAD_VOLUMES:
+                parts.append(
+                    f"（注：为控制输入长度，此处省略了第{omitted[0]['volume_number']}卷~"
+                    f"第{omitted[-1]['volume_number']}卷共 {len(omitted)} 卷的摘要，"
+                    f"仅保留前 {BOOK_SUMMARY_HEAD_VOLUMES} 卷与最近 {tail_count} 卷）\n"
+                )
             parts.append(
                 f"## {v['title']}（第{v['chapter_range']}章）\n{v['summary']}\n"
             )

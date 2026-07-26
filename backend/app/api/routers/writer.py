@@ -96,6 +96,61 @@ from ...services.vector_store_service import VectorStoreService
 router = APIRouter(prefix="/api/writer", tags=["Writer"])
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# 历史注入治理：近章保留全量、远章仅保留标题，防止长篇项目（300 章级）prompt 无上限膨胀
+# ---------------------------------------------------------------------------
+OUTLINE_CONTEXT_RECENT_CHAPTERS = 20   # 大纲生成/重生成：最近 N 章保留完整摘要，更早仅保留「第N章 - 标题」
+PREDICTION_RECENT_CHAPTERS = 20        # 批量推演：当前章前后 N 章保留完整大纲/最近 N 章保留完整摘要，更远仅保留标题
+EVALUATION_RECENT_CHAPTERS = 10        # AI 评审：仅注入最近 N 章前序摘要，缺失摘要不再串行补齐
+
+
+def _build_recent_full_older_brief(
+    entries: List[tuple],
+    recent_count: int,
+) -> List[str]:
+    """历史上下文治理：entries 为按章节号升序的 (章节号, 全量行, 标题行) 三元组列表。
+
+    最近 recent_count 条保留全量行，更早的仅保留标题行并加一行说明。
+    """
+    if len(entries) <= recent_count:
+        return [full for _, full, _ in entries]
+    older = entries[:-recent_count]
+    recent = entries[-recent_count:]
+    lines = [f"（更早的 {len(older)} 章仅列出标题）"]
+    lines.extend(brief for _, _, brief in older)
+    lines.extend(full for _, full, _ in recent)
+    return lines
+
+
+def _build_evaluation_history(
+    chapters,
+    outlines_map: Dict[int, Any],
+    chapter_number: int,
+) -> List[Dict]:
+    """AI 评审的前序章节上下文：仅取最近 EVALUATION_RECENT_CHAPTERS 章。
+
+    缺失摘要的章节标注「（无摘要）」，不再串行逐章调 LLM 补齐。
+    """
+    prior = [
+        ch
+        for ch in sorted(chapters, key=lambda item: item.chapter_number)
+        if ch.chapter_number < chapter_number
+        and ch.selected_version is not None
+        and ch.selected_version.content
+    ]
+    completed: List[Dict] = []
+    for existing in prior[-EVALUATION_RECENT_CHAPTERS:]:
+        outline = outlines_map.get(existing.chapter_number)
+        completed.append(
+            {
+                "chapter_number": existing.chapter_number,
+                "title": outline.title if outline else f"第{existing.chapter_number}章",
+                "summary": existing.real_summary or "（无摘要）",
+                "tail_excerpt": extract_tail_excerpt(existing.selected_version.content, limit=300),
+            }
+        )
+    return completed
+
 
 async def _load_project_schema(service: NovelService, project_id: str, user_id: int) -> NovelProjectSchema:
     return await service.get_project_schema(project_id, user_id)
@@ -782,33 +837,10 @@ async def evaluate_chapter(
 
     try:
         outlines_map = {outline.chapter_number: outline for outline in project.outlines}
-        completed_chapters: List[Dict] = []
-        for existing in sorted(project.chapters, key=lambda item: item.chapter_number):
-            if existing.chapter_number >= request.chapter_number:
-                continue
-            if existing.selected_version is None or not existing.selected_version.content:
-                continue
-            if not existing.real_summary:
-                summary = await llm_service.get_summary(
-                    existing.selected_version.content,
-                    temperature=0.15,
-                    user_id=current_user.id,
-                    timeout=180.0,
-                )
-                existing.real_summary = remove_think_tags(summary)
-                await session.commit()
-            completed_chapters.append(
-                {
-                    "chapter_number": existing.chapter_number,
-                    "title": (
-                        outlines_map.get(existing.chapter_number).title
-                        if outlines_map.get(existing.chapter_number)
-                        else f"第{existing.chapter_number}章"
-                    ),
-                    "summary": existing.real_summary or "",
-                    "tail_excerpt": extract_tail_excerpt(existing.selected_version.content, limit=300),
-                }
-            )
+        # 历史注入治理：仅取最近 EVALUATION_RECENT_CHAPTERS 章，缺失摘要不再串行逐章补齐
+        completed_chapters: List[Dict] = _build_evaluation_history(
+            project.chapters, outlines_map, request.chapter_number
+        )
 
         project_schema = await novel_service._serialize_project(project)
         blueprint_dict = project_schema.blueprint.model_dump()
@@ -968,11 +1000,16 @@ async def generate_chapters_outline(
     project_schema = await novel_service._serialize_project(project)
     blueprint_text = json.dumps(project_schema.blueprint.model_dump(), ensure_ascii=False, indent=2)
     
-    # 获取已有的章节大纲
-    existing_outlines = [
-        f"第{o.chapter_number}章 - {o.title}: {o.summary}"
+    # 获取已有的章节大纲（历史注入治理：近 OUTLINE_CONTEXT_RECENT_CHAPTERS 章全量，更早仅标题）
+    outline_entries = [
+        (
+            o.chapter_number,
+            f"第{o.chapter_number}章 - {o.title}: {o.summary}",
+            f"第{o.chapter_number}章 - {o.title}",
+        )
         for o in sorted(project.outlines, key=lambda x: x.chapter_number)
     ]
+    existing_outlines = _build_recent_full_older_brief(outline_entries, OUTLINE_CONTEXT_RECENT_CHAPTERS)
     existing_outlines_text = "\n".join(existing_outlines) if existing_outlines else "暂无"
 
     outline_prompt = await prompt_service.get_prompt("outline_generation")
@@ -1112,15 +1149,25 @@ async def regenerate_chapter_outlines(
     # 1. 收集已完成章节信息
     # completed_numbers 只看 status（与前端 generation_status === 'successful' 一致）
     # completed_summaries 额外要求 real_summary 非空（用于给 LLM 提供上下文）
-    completed_summaries: List[str] = []
+    # 历史注入治理：近 OUTLINE_CONTEXT_RECENT_CHAPTERS 章保留全量摘要，更早仅保留「第N章 - 标题」
+    outline_titles = {o.chapter_number: o.title for o in project.outlines}
+    completed_summary_entries: List[tuple] = []
     completed_numbers: set = set()
     for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
         if ch.status == "successful":
             completed_numbers.add(ch.chapter_number)
             if ch.real_summary:
-                completed_summaries.append(
-                    f"第{ch.chapter_number}章 - {ch.real_summary}"
+                title = outline_titles.get(ch.chapter_number)
+                completed_summary_entries.append(
+                    (
+                        ch.chapter_number,
+                        f"第{ch.chapter_number}章 - {ch.real_summary}",
+                        f"第{ch.chapter_number}章 - {title}" if title else f"第{ch.chapter_number}章",
+                    )
                 )
+    completed_summaries: List[str] = _build_recent_full_older_brief(
+        completed_summary_entries, OUTLINE_CONTEXT_RECENT_CHAPTERS
+    )
 
     # 2. 确定要重新生成的章节
     all_outline_numbers = {o.chapter_number for o in project.outlines}
@@ -1595,10 +1642,16 @@ def _build_prediction_shared_context(
         f"一句话概要: {bp.one_sentence_summary}\n完整概要: {bp.full_synopsis}"
     ) if bp else ""
 
-    outlines_text = "\n".join(
-        f"第{o.chapter_number}章 - {o.title}: {o.summary}"
+    # 历史注入治理：保留 (章节号, 全量行, 标题行) 结构化条目，由 _build_prediction_prompt 按章裁剪
+    outline_titles = {o.chapter_number: o.title for o in project.outlines}
+    outline_entries = [
+        (
+            o.chapter_number,
+            f"第{o.chapter_number}章 - {o.title}: {o.summary}",
+            f"第{o.chapter_number}章 - {o.title}",
+        )
         for o in sorted(project.outlines, key=lambda x: x.chapter_number)
-    )
+    ]
 
     foreshadowings_text = ""
     if bp and bp.foreshadowings:
@@ -1613,11 +1666,18 @@ def _build_prediction_shared_context(
     completed_summaries = []
     for ch in sorted(project.chapters, key=lambda c: c.chapter_number):
         if ch.real_summary:
-            completed_summaries.append((ch.chapter_number, f"第{ch.chapter_number}章: {ch.real_summary}"))
+            title = outline_titles.get(ch.chapter_number)
+            completed_summaries.append(
+                (
+                    ch.chapter_number,
+                    f"第{ch.chapter_number}章: {ch.real_summary}",
+                    f"第{ch.chapter_number}章 - {title}" if title else f"第{ch.chapter_number}章",
+                )
+            )
 
     return {
         "blueprint_brief": blueprint_brief,
-        "outlines_text": outlines_text,
+        "outline_entries": outline_entries,
         "foreshadowings_text": foreshadowings_text,
         "completed_summaries": completed_summaries,
     }
@@ -1630,9 +1690,19 @@ def _build_prediction_prompt(
     shared_ctx: dict,
     exclusions: str = "",
 ) -> str:
-    """用预计算的共享上下文拼装单章推演 prompt。"""
-    summaries = [text for num, text in shared_ctx["completed_summaries"] if num < chapter_number]
+    """用预计算的共享上下文拼装单章推演 prompt。
+
+    历史注入治理：已完成章节摘要只保留最近 PREDICTION_RECENT_CHAPTERS 章全量、
+    更早仅标题；章节大纲只保留当前章前后 PREDICTION_RECENT_CHAPTERS 章全量、更远仅标题。
+    """
+    prior_summaries = [e for e in shared_ctx["completed_summaries"] if e[0] < chapter_number]
+    summaries = _build_recent_full_older_brief(prior_summaries, PREDICTION_RECENT_CHAPTERS)
     completed_text = "\n".join(summaries) if summaries else "无"
+    outline_lines = [
+        full if abs(num - chapter_number) <= PREDICTION_RECENT_CHAPTERS else brief
+        for num, full, brief in shared_ctx["outline_entries"]
+    ]
+    outlines_text = "\n".join(outline_lines) if outline_lines else "暂无"
     foreshadowings = shared_ctx["foreshadowings_text"] or "无"
 
     exclusion_block = ""
@@ -1645,7 +1715,7 @@ def _build_prediction_prompt(
 {shared_ctx["blueprint_brief"]}
 
 ## 章节大纲
-{shared_ctx["outlines_text"]}
+{outlines_text}
 
 ## 已完成章节摘要
 {completed_text}

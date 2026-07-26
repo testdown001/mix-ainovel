@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = 5  # 每隔 N 章更新一次
 MIN_CHAPTERS_FOR_INITIAL = 3  # 首次生成所需的最小章节数
+INITIAL_MAX_CHAPTERS = 30  # 首建输入上限：超出时只送最近 N 章摘要（更早剧情由卷级概要覆盖）
 
 NARRATIVE_SUMMARY_SYSTEM_PROMPT = """你是一名资深小说编辑，负责维护一份"叙事记忆摘要"。
 
@@ -254,11 +255,18 @@ class NarrativeSummaryService:
                 parts.append(f"## {vol_title}\n{v['summary']}")
             parts.append("")
 
-        # 章节摘要（增量模式只送最近章节，首次送全量）
+        # 章节摘要（增量模式只送最近章节，首次送全量但设上限）
         if old_summary and len(chapter_summaries) > 10:
             # 增量：只送最近 10 章
             recent = chapter_summaries[-10:]
             parts.append(f"# 最近章节摘要（第{recent[0]['chapter_number']}-{recent[-1]['chapter_number']}章）")
+        elif len(chapter_summaries) > INITIAL_MAX_CHAPTERS:
+            # 首建输入治理：超上限只送最近 N 章，更早剧情由上方卷级概要覆盖
+            recent = chapter_summaries[-INITIAL_MAX_CHAPTERS:]
+            parts.append(
+                f"# 最近章节摘要（第{recent[0]['chapter_number']}-{recent[-1]['chapter_number']}章，"
+                f"更早 {len(chapter_summaries) - INITIAL_MAX_CHAPTERS} 章摘要已省略，早期剧情见卷级概要）"
+            )
         else:
             recent = chapter_summaries
             parts.append("# 全部章节摘要")
