@@ -65,8 +65,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
+import { useNovelStore } from '@/stores/novel'
 
 interface Props {
   show: boolean
@@ -75,9 +76,28 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits(['close', 'generate'])
 
+const novelStore = useNovelStore()
+
 const numChapters = ref(25)
 const estimatedTotal = ref(0)
 const userPrompt = ref('')
+
+// 预计总章数默认不代填（0 = 不下发，后端保持中性不注入进度阶段提示）。
+// 严禁用「现有大纲数 + N」代填：那等于替用户断言全书快写完了——250 章的长篇
+// 会被推进 ≥90% 收束期，后端据此明确引导 LLM 安排结局。仅当蓝图有分卷规划时
+// 用分卷覆盖的总章数代填（这是蓝图真实声明的全书规模，不是猜测）。
+watch(
+  () => props.show,
+  (show) => {
+    if (show && estimatedTotal.value === 0) {
+      const volumes = novelStore.currentProject?.blueprint?.volumes || []
+      const volumeEnd = Math.max(0, ...volumes.map((v: any) => v?.end_chapter || 0))
+      if (volumeEnd > 0) {
+        estimatedTotal.value = volumeEnd
+      }
+    }
+  }
+)
 
 const totalPresets = [
   { label: '100万字 (≈334章)', value: 334 },

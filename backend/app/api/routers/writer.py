@@ -122,6 +122,110 @@ def _build_recent_full_older_brief(
     return lines
 
 
+ROLLING_OUTLINE_CONTEXT_CHAR_BUDGET = 2000  # 批量大纲：前序批次滚动摘要行的字符预算
+
+
+def _build_rolling_outline_context(
+    entries: List[tuple],
+    char_budget: int = ROLLING_OUTLINE_CONTEXT_CHAR_BUDGET,
+) -> List[str]:
+    """批量大纲生成的批间滚动上下文：entries 为按章节号升序的 (章节号, 摘要行, 标题行) 三元组。
+
+    从最近的条目往前累积「第N章：标题——摘要前30字」摘要行，累积超 char_budget 后
+    更早的条目一律退化为纯标题行（纯字符串处理，零 LLM 调用）。
+    """
+    reversed_lines: List[str] = []
+    used = 0
+    degraded = False
+    for _, full, brief in reversed(entries):
+        if not degraded and used + len(full) <= char_budget:
+            reversed_lines.append(full)
+            used += len(full)
+        else:
+            degraded = True
+            reversed_lines.append(brief)
+    reversed_lines.reverse()
+    return reversed_lines
+
+
+def _build_volume_context(
+    volumes: List[Dict[str, Any]],
+    batch_start: int,
+    batch_end: int,
+) -> tuple:
+    """基于蓝图 volumes 分卷规划构建大纲生成的「分卷规划」prompt 段与卷内阶段提示。
+
+    entries 为蓝图 model_dump 出的 volumes 字典列表（name/start_chapter/end_chapter/
+    arc_goal/climax_hint）。返回 (分卷规划段, 卷内阶段提示)；volumes 为空、结构无效
+    或批次起始章不落在任何卷内时返回 ("", "")，调用方保持既有全书百分比行为
+    （全程向后兼容，纯字符串处理，零 LLM 调用）。
+    """
+    if not volumes:
+        return "", ""
+    parsed: List[Dict[str, Any]] = []
+    for vol in volumes:
+        if not isinstance(vol, dict):
+            continue
+        try:
+            start = int(vol.get("start_chapter", 0))
+            end = int(vol.get("end_chapter", 0))
+        except (TypeError, ValueError):
+            continue
+        if start <= 0 or end < start:
+            continue
+        parsed.append(
+            {
+                "name": str(vol.get("name") or f"第{len(parsed) + 1}卷"),
+                "start": start,
+                "end": end,
+                "arc_goal": str(vol.get("arc_goal") or ""),
+                "climax_hint": str(vol.get("climax_hint") or ""),
+            }
+        )
+    if not parsed:
+        return "", ""
+    parsed.sort(key=lambda v: v["start"])
+    current_idx = None
+    for i, vol in enumerate(parsed):
+        if vol["start"] <= batch_start <= vol["end"]:
+            current_idx = i
+            break
+    if current_idx is None:
+        return "", ""
+    cur = parsed[current_idx]
+    has_next = current_idx + 1 < len(parsed)
+    vol_len = cur["end"] - cur["start"] + 1
+    ratio = (batch_end - cur["start"] + 1) / vol_len if vol_len > 0 else 1.0
+    if ratio <= 0.35:
+        stage = "前段"
+        stage_hint = f"本批章节处于本卷「{cur['name']}」的前段——应铺设本卷核心冲突与目标、引入本卷关键人物"
+    elif ratio <= 0.8:
+        stage = "中段"
+        stage_hint = f"本批章节处于本卷「{cur['name']}」的中段——应推进卷目标、升级冲突、多线交织展开"
+    else:
+        stage = "卷尾冲刺"
+        tail = "并在卷末为下一卷留下钩子" if has_next else "完成本卷主线的最终收束"
+        stage_hint = f"本批章节处于本卷「{cur['name']}」的卷尾冲刺——应向本卷高潮收束、兑现卷内铺垫，{tail}"
+    lines = [
+        "[分卷规划]",
+        f"- 当前卷：「{cur['name']}」（第 {cur['start']} ~ {cur['end']} 章）",
+    ]
+    if cur["arc_goal"]:
+        lines.append(f"  - 卷目标：{cur['arc_goal']}")
+    if cur["climax_hint"]:
+        lines.append(f"  - 卷高潮：{cur['climax_hint']}")
+    lines.append(f"  - 本批卷内位置：{stage}")
+    if current_idx > 0:
+        prev = parsed[current_idx - 1]
+        prev_brief = prev["arc_goal"] or prev["climax_hint"] or "（无补充说明）"
+        lines.append(f"- 上一卷：「{prev['name']}」（第 {prev['start']} ~ {prev['end']} 章）：{prev_brief}")
+    if has_next:
+        nxt = parsed[current_idx + 1]
+        next_brief = nxt["arc_goal"] or nxt["climax_hint"] or "（无补充说明）"
+        lines.append(f"- 下一卷：「{nxt['name']}」（第 {nxt['start']} ~ {nxt['end']} 章）：{next_brief}")
+    return "\n".join(lines), stage_hint
+
+
 def _build_evaluation_history(
     chapters,
     outlines_map: Dict[int, Any],
@@ -998,7 +1102,11 @@ async def generate_chapters_outline(
     
     # 获取蓝图信息
     project_schema = await novel_service._serialize_project(project)
-    blueprint_text = json.dumps(project_schema.blueprint.model_dump(), ensure_ascii=False, indent=2)
+    blueprint_dict = project_schema.blueprint.model_dump()
+    # 分卷信息由专门的 [分卷规划] 段承载：从 JSON dump 中移除，避免双重注入；
+    # 同时保证无 volumes 的旧蓝图 prompt 与 schema 加字段前逐字一致
+    blueprint_volumes = blueprint_dict.pop("volumes", None) or []
+    blueprint_text = json.dumps(blueprint_dict, ensure_ascii=False, indent=2)
     
     # 获取已有的章节大纲（历史注入治理：近 OUTLINE_CONTEXT_RECENT_CHAPTERS 章全量，更早仅标题）
     outline_entries = [
@@ -1022,10 +1130,17 @@ async def generate_chapters_outline(
     # 如果前端没传 estimated_total_chapters，根据已有大纲+本次请求估算（不做进度限制）
     end_chapter = request.start_chapter + request.num_chapters - 1
 
+    # 蓝图带非空 volumes 时注入「分卷规划」段，进度阶段改为卷内位置；无 volumes 时行为与现状一致
+    volume_section, volume_phase = _build_volume_context(
+        blueprint_volumes, request.start_chapter, end_chapter
+    )
+
     progress_context = ""
     if estimated_total > 0:
         progress_pct = round(end_chapter / estimated_total * 100, 1)
-        if progress_pct < 20:
+        if volume_phase:
+            phase = volume_phase
+        elif progress_pct < 20:
             phase = "开篇期（前20%）——应着重世界观铺设、角色登场、主线冲突引入"
         elif progress_pct < 70:
             phase = "发展期（20%-70%）——应多线并行、支线展开、不断引入新事件新对手新挑战"
@@ -1046,10 +1161,11 @@ async def generate_chapters_outline(
     if request.user_prompt and request.user_prompt.strip():
         user_prompt_context = f"\n[用户附加剧情提示（必须融入接下来几章的大纲中）]\n{request.user_prompt.strip()}\n"
 
+    volume_block = f"\n{volume_section}\n" if volume_section else ""
     prompt_input = f"""
 [世界蓝图]
 {blueprint_text}
-
+{volume_block}
 [已有章节大纲]
 {existing_outlines_text}
 {progress_context}{user_prompt_context}
@@ -1204,6 +1320,8 @@ async def regenerate_chapter_outlines(
     project_schema = await novel_service._serialize_project(project)
     blueprint_data = project_schema.blueprint.model_dump()
     full_synopsis = blueprint_data.pop("full_synopsis", "") or ""
+    # 蓝图分卷规划（可能为空，空时后续批次不注入分卷段，行为与现状一致）
+    blueprint_volumes = blueprint_data.get("volumes") or []
     # 提取体裁和风格，单独突出展示
     genre = blueprint_data.get("genre", "") or ""
     style = blueprint_data.get("style", "") or ""
@@ -1289,8 +1407,51 @@ async def regenerate_chapter_outlines(
         estimated_total_all = len(all_outline_numbers) + total
 
         all_updated_numbers: List[int] = []
-        # 前序批次生成的标题摘要（精简版，仅供后续批次参考连贯性）
-        generated_titles: List[str] = []
+        # 前序批次滚动上下文：{章节号: (「第N章：标题——摘要前30字」, 「第N章 - 标题」)}
+        rolling_map: Dict[int, tuple] = {}
+
+        def _parse_batch_chapters(raw: str) -> list:
+            """解析批次 LLM 回包为 chapters 列表（复用既有 repair 链，不 brace-slice）。"""
+            text = remove_think_tags(raw) or raw
+            normalized_text = unwrap_markdown_json(text)
+            try:
+                parsed = json.loads(normalized_text)
+            except json.JSONDecodeError:
+                parsed = json.loads(repair_json(normalized_text))
+            return parsed.get("chapters", []) if isinstance(parsed, dict) else []
+
+        async def _apply_batch_items(
+            items: list, lo: int, hi: int, allowed: Optional[set] = None
+        ) -> List[int]:
+            """把一批产出落库并登记滚动上下文条目，返回实际落库的章节号列表。"""
+            applied: List[int] = []
+            for item in items:
+                ch_num = item.get("chapter_number")
+                # 校验 chapter_number 有效性
+                if ch_num is None or not isinstance(ch_num, (int, float)):
+                    logger.warning("大纲生成: 跳过无效 chapter_number=%s", ch_num)
+                    continue
+                ch_num = int(ch_num)
+                if ch_num < lo or ch_num > hi:
+                    logger.warning("大纲生成: chapter_number=%d 超出预期范围 [%d, %d]，跳过",
+                                   ch_num, lo, hi)
+                    continue
+                if allowed is not None and ch_num not in allowed:
+                    continue
+                if ch_num in completed_numbers:
+                    continue
+                title = item.get("title", f"第{ch_num}章")
+                summary = item.get("summary", "")
+                await novel_service.update_or_create_outline(
+                    project_id, ch_num, title, summary,
+                )
+                applied.append(ch_num)
+                snippet = " ".join(str(summary or "").split())[:30]
+                rolling_map[ch_num] = (
+                    f"第{ch_num}章：{title}——{snippet}",
+                    f"第{ch_num}章 - {title}",
+                )
+            return applied
 
         for batch_offset in range(0, total, BATCH_SIZE):
             batch_count = min(BATCH_SIZE, total - batch_offset)
@@ -1299,12 +1460,27 @@ async def regenerate_chapter_outlines(
 
             batch_prompt_parts = list(prompt_parts)  # 复制公共上下文
 
-            if generated_titles:
-                batch_prompt_parts.append(f"[前序批次已生成的章节标题（保持连贯）]\n" + "\n".join(generated_titles))
+            # 蓝图带非空 volumes 时注入本批所属卷的「分卷规划」段（无 volumes 不追加任何段）
+            batch_volume_section, batch_volume_phase = _build_volume_context(
+                blueprint_volumes, batch_start, batch_end
+            )
+            if batch_volume_section:
+                batch_prompt_parts.append(batch_volume_section)
 
-            # 计算当前批次在整个故事中的进度
+            if rolling_map:
+                rolling_lines = _build_rolling_outline_context(
+                    [(num, full, brief) for num, (full, brief) in sorted(rolling_map.items())]
+                )
+                batch_prompt_parts.append(
+                    "[前序批次已生成的章节大纲（保持剧情连贯，禁止重复其中已发生的事件）]\n"
+                    + "\n".join(rolling_lines)
+                )
+
+            # 计算当前批次在整个故事中的进度（有分卷规划时阶段提示改为卷内位置）
             progress_pct = round(batch_end / estimated_total_all * 100, 1) if estimated_total_all > 0 else 50
-            if progress_pct < 20:
+            if batch_volume_phase:
+                phase_hint = batch_volume_phase
+            elif progress_pct < 20:
                 phase_hint = "当前处于开篇期（前20%），应着重世界观铺设、角色登场、主线冲突引入"
             elif progress_pct < 70:
                 phase_hint = "当前处于发展期（20%-70%），应多线并行、支线展开、不断引入新事件新对手新挑战"
@@ -1350,38 +1526,57 @@ async def regenerate_chapter_outlines(
                 user_id=current_user.id,
             )
 
-            cleaned = remove_think_tags(response)
-            if not cleaned:
-                cleaned = response
-            normalized = unwrap_markdown_json(cleaned)
             try:
-                try:
-                    data = json.loads(normalized)
-                except json.JSONDecodeError:
-                    data = json.loads(repair_json(normalized))
-                batch_outlines = data.get("chapters", [])
-                for item in batch_outlines:
-                    ch_num = item.get("chapter_number")
-                    # 校验 chapter_number 有效性
-                    if ch_num is None or not isinstance(ch_num, (int, float)):
-                        logger.warning("大纲生成: 跳过无效 chapter_number=%s", ch_num)
-                        continue
-                    ch_num = int(ch_num)
-                    if ch_num < batch_start or ch_num > batch_end:
-                        logger.warning("大纲生成: chapter_number=%d 超出预期范围 [%d, %d]，跳过",
-                                       ch_num, batch_start, batch_end)
-                        continue
-                    if ch_num in completed_numbers:
-                        continue
-                    title = item.get("title", f"第{ch_num}章")
-                    summary = item.get("summary", "")
-                    await novel_service.update_or_create_outline(
-                        project_id, ch_num, title, summary,
-                    )
-                    all_updated_numbers.append(ch_num)
-                    generated_titles.append(f"第{ch_num}章 - {title}")
+                applied = await _apply_batch_items(
+                    _parse_batch_chapters(response), batch_start, batch_end
+                )
+                all_updated_numbers.extend(applied)
+
+                # 批次数量核验：产出缺章时用缺失章号补问一次（复用该批上下文）；仍缺则记 warning 留洞继续
+                expected = set(range(batch_start, batch_end + 1)) - completed_numbers
+                missing = sorted(expected - set(applied))
+                if missing:
+                    logger.warning("大纲生成批次 %d-%d 缺章 %s，补问一次",
+                                   batch_start, batch_end, missing)
+                    try:
+                        missing_list = "、".join(str(n) for n in missing)
+                        retry_parts = list(batch_prompt_parts)
+                        # 补齐的章节必须能看到本批已落库的相邻章纲，否则会重复/断裂
+                        applied_lines = [
+                            rolling_map[n][0] for n in sorted(applied) if n in rolling_map
+                        ]
+                        if applied_lines:
+                            retry_parts.append(
+                                "[本批已生成的章节大纲（补齐章节须与其自然衔接，禁止重复其中事件）]\n"
+                                + "\n".join(applied_lines)
+                            )
+                        retry_parts.append(
+                            f"[补齐任务（最高优先级，覆盖上文的生成任务）]\n"
+                            f"你上一轮的产出缺失了以下 {len(missing)} 个章节：第 {missing_list} 章。\n"
+                            f"请只补齐这些缺失章节的大纲，返回 JSON 格式：{{\"chapters\": [...]}}，"
+                            f"每个元素包含 chapter_number, title, summary，"
+                            f"chapter_number 必须严格取自上述缺失章号。"
+                        )
+                        retry_response = await llm_service.get_llm_response(
+                            system_prompt=outline_prompt,
+                            conversation_history=[{"role": "user", "content": "\n\n".join(retry_parts)}],
+                            temperature=0.7,
+                            user_id=current_user.id,
+                        )
+                        retry_applied = await _apply_batch_items(
+                            _parse_batch_chapters(retry_response),
+                            batch_start, batch_end, allowed=set(missing),
+                        )
+                        all_updated_numbers.extend(retry_applied)
+                        missing = sorted(set(missing) - set(retry_applied))
+                    except Exception as retry_exc:  # 补问失败不影响主流程（降级为留洞）
+                        logger.warning("大纲生成补问调用失败（忽略，继续）: %s", retry_exc)
+                    if missing:
+                        logger.warning("大纲生成批次 %d-%d 补问后仍缺章 %s，留洞继续",
+                                       batch_start, batch_end, missing)
                 await session.commit()
-                logger.info("大纲生成批次完成: 本批更新 %d 章", len(batch_outlines))
+                logger.info("大纲生成批次完成: 本批更新 %d 章",
+                            len(expected) - len(missing))
             except Exception as exc:
                 logger.exception("大纲生成批次解析失败: %s", exc)
                 # 批次失败不中断，继续下一批

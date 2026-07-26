@@ -95,6 +95,14 @@ export interface NovelProjectSummary {
   is_completed?: boolean
 }
 
+export interface BlueprintVolume {
+  name?: string
+  start_chapter?: number
+  end_chapter?: number
+  arc_goal?: string
+  climax_hint?: string
+}
+
 export interface Blueprint {
   title?: string
   target_audience?: string
@@ -107,6 +115,7 @@ export interface Blueprint {
   characters?: Character[]
   relationships?: any[]
   chapter_outline?: ChapterOutline[]
+  volumes?: BlueprintVolume[]
 }
 
 export interface Character {

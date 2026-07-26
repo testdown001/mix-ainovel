@@ -46,6 +46,18 @@
             />
             章
           </label>
+          <label class="flex items-center gap-1.5" title="帮助AI按整体进度控制故事节奏，避免提前收尾">
+            预计全书共
+            <input
+              v-model.number="inferEstimatedTotal"
+              type="number"
+              min="0"
+              max="10000"
+              class="w-20 px-2 py-1 border border-[#2A2A2A] rounded-lg text-center text-sm focus:border-[#FFE500] outline-none bg-[#0A0A0A] text-white transition-colors"
+              @input="estimatedTotalTouched = true"
+            />
+            章
+          </label>
         </div>
 
         <!-- 排除内容 -->
@@ -155,6 +167,8 @@ const showInferPanel = ref(false);
 const showExclusions = ref(false);
 const exclusions = ref('');
 const inferNumChapters = ref(5);
+const inferEstimatedTotal = ref(0);
+const estimatedTotalTouched = ref(false);
 const isInferring = ref(false);
 const inferStep = ref<'idle' | 'generating' | 'syncing' | 'done'>('idle');
 const inferError = ref('');
@@ -175,6 +189,8 @@ watch(() => props.modelValue, (newVal) => {
   inferStartChapter.value = arr.length > 0
     ? Math.max(...arr.map(o => o.chapter_number)) + 1
     : 1;
+  // 预计总章数不代填（0 = 不下发，后端保持中性）。「现有大纲数 + 50」式代填
+  // 等于替用户断言全书快完结：长篇会被推进 ≥90% 收束期、后端明确引导 LLM 写结局。
   nextTick(() => { syncing = false; });
 }, { immediate: true });
 
@@ -206,7 +222,7 @@ const handleAiInfer = async () => {
       props.projectId,
       inferStartChapter.value,
       inferNumChapters.value,
-      undefined,
+      inferEstimatedTotal.value > 0 ? inferEstimatedTotal.value : undefined,
       userPrompt || undefined
     );
 

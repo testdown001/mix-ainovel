@@ -413,10 +413,16 @@ class ReferenceNovelLibraryService:
 
         return "\n\n".join(parts)
 
+    # 注入 prompt 的每本参考素材截断上限（对齐 generate_fusion_dna 的 800/600/800 风格）：
+    # 概念对话每轮都会重注这些素材，零截断会造成 token 膨胀。
+    _PROMPT_OUTLINE_CHARS = 800
+    _PROMPT_STYLE_SAMPLE_CHARS = 600
+    _PROMPT_MEMORY_CARD_CHARS = 800
+
     def format_for_concept_prompt(self, novels: List[ReferenceNovel]) -> str:
         sections: List[str] = []
         for novel in novels:
-            outline = novel.outline_content or ""
+            outline = (novel.outline_content or "")[: self._PROMPT_OUTLINE_CHARS]
             sections.append(f"参考小说：{novel.title} ({novel.author or '未知'})\n{outline}")
         return "\n\n".join(sections)
 
@@ -425,7 +431,7 @@ class ReferenceNovelLibraryService:
         for novel in novels:
             content = novel.style_samples_content
             if content:
-                samples.append(f"=== {novel.title} ===\n{content}")
+                samples.append(f"=== {novel.title} ===\n{content[: self._PROMPT_STYLE_SAMPLE_CHARS]}")
         return "\n\n".join(samples)
 
     def format_memory_card_for_prompt(self, novels: List[ReferenceNovel]) -> str:
@@ -433,5 +439,5 @@ class ReferenceNovelLibraryService:
         for novel in novels:
             data = novel.memory_card or {}
             json_dump = json.dumps(data, ensure_ascii=False, indent=2)
-            cards.append(f"参考小说：{novel.title}\n{json_dump}")
+            cards.append(f"参考小说：{novel.title}\n{json_dump[: self._PROMPT_MEMORY_CARD_CHARS]}")
         return "\n\n".join(cards)
