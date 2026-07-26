@@ -172,7 +172,20 @@
       "Bash(docker run *)",
       "Bash(echo \"\\(nginx 版本：$\\(docker run --rm nginx:alpine nginx -v 2>&1\\)\\)\")",
       "Bash(bash -n deploy/scripts/oneclick_prod_https.sh)",
-      "Bash(base64 -w0 gateway/cmd/gateway/main.go)"
+      "Bash(base64 -w0 gateway/cmd/gateway/main.go)",
+      "Bash(cat supervisord.conf)",
+      "Bash(cat docker-entrypoint.sh)",
+      "Bash(awk '/func HealthCheck/,/^}/' internal/proxy/*.go)",
+      "Bash(awk '/^\\\\.diverge-results \\\\{|^\\\\.diverge-results-head|^\\\\.diverge-cards|^\\\\.diverge-card|^\\\\.diverge-card-|^\\\\.diverge-score|^\\\\.diverge-trigger|^\\\\.diverge-card:/{flag=1} flag{print NR\": \"$0} /^\\\\}/{if\\(flag\\) flag=0}' frontend/src/views/InspirationMode.vue)",
+      "Bash(echo \"exit=$?\\(1=无匹配\\)\")",
+      "Bash(echo \"--- exit=$? \\(1=干净无残留\\) ---\")",
+      "Bash(awk '/def test_channel/,/^    async def [a-z]/' /home/aikev/code/arboris-novel/backend/app/services/llm_service.py)",
+      "Bash(grep -niE \"smtp|email_from|^EMAIL\" backend/env.example)",
+      "Bash(grep -niE \"smtp|email_from|^EMAIL\" deploy/.env.example)",
+      "Bash(rm -f /home/aikev/code/aikev/.claude/projects/-home-aikev-code-arboris-novel/memory/ratelimit-and-jwt-aud-pitfall.md)",
+      "Bash(rmdir -p /home/aikev/code/aikev/.claude/projects/-home-aikev-code-arboris-novel/memory)",
+      "Bash(awk 'NR>=2148 && NR<=2260 && \\(/ensure_project_owner|current_user|get_current_user/\\)' backend/app/api/routers/novels.py)",
+      "Bash(awk 'NR>=1719 && NR<=1860 && \\(/ensure_project_owner|current_user/\\)' backend/app/api/routers/novels.py)"
     ]
   }
 }
