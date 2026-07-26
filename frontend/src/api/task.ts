@@ -51,7 +51,7 @@ const taskRequest = async (url: string, options: RequestInit = {}) => {
 // ============================================================
 
 export interface TaskSubmitRequest {
-  type: 'chapter:generate' | 'chapter:batch_generate'
+  type: 'chapter:generate' | 'chapter:batch_generate' | 'blueprint:generate'
   project_id: string
   chapter_number?: number
   chapter_numbers?: number[]
@@ -169,6 +169,28 @@ export class TaskAPI {
   }
 
   /**
+   * 提交蓝图生成任务
+   *
+   * 蓝图两段式 LLM 生成可长达 10 分钟以上，同步直连在生产会被网关/nginx 超时掐断
+   * （后端实际已成功落库但前端看到失败），故生产链路走异步任务路径。
+   */
+  static async submitBlueprintGenerate(
+    projectId: string,
+    priority: number = 1,
+  ): Promise<TaskSubmitResponse> {
+    const authStore = useAuthStore()
+    return taskRequest(`${TASK_BASE}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'blueprint:generate',
+        project_id: projectId,
+        user_id: authStore.user?.id || 0,
+        priority,
+      }),
+    })
+  }
+
+  /**
    * 查询任务状态
    */
   static async getTaskStatus(taskId: string): Promise<TaskStatus> {
@@ -210,6 +232,8 @@ export class TaskAPI {
     timeoutMs: number = 600000,
   ): Promise<TaskStatus> {
     const startTime = Date.now()
+    const MAX_POLL_CONSECUTIVE_ERRORS = 3
+    let consecutiveErrors = 0
 
     return new Promise((resolve, reject) => {
       const poll = async () => {
@@ -220,6 +244,7 @@ export class TaskAPI {
 
         try {
           const status = await TaskAPI.getTaskStatus(taskId)
+          consecutiveErrors = 0
           onProgress?.(status)
 
           if (status.status === 'completed') {
@@ -240,7 +265,14 @@ export class TaskAPI {
           // 继续轮询
           setTimeout(poll, intervalMs)
         } catch (e) {
-          reject(e)
+          // 长任务轮询窗口内数百次请求，单次网络抖动不应整体判败（后端任务仍在跑，
+          // 误报失败会诱导用户重新发起 → 同一任务双跑）；连续多次失败才放弃
+          consecutiveErrors += 1
+          if (consecutiveErrors >= MAX_POLL_CONSECUTIVE_ERRORS) {
+            reject(e)
+            return
+          }
+          setTimeout(poll, intervalMs)
         }
       }
 

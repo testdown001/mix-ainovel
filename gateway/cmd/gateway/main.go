@@ -87,6 +87,7 @@ func main() {
 			MaxPerUser:             cfg.TaskDispatcher.MaxPerUser,
 			DefaultTimeout:         cfg.TaskDispatcher.DefaultTimeout,
 			BatchTimeout:           cfg.TaskDispatcher.BatchTimeout,
+			BlueprintTimeout:       cfg.TaskDispatcher.BlueprintTimeout,
 			MaxRetries:             cfg.TaskDispatcher.MaxRetries,
 			RetryDelay:             cfg.TaskDispatcher.RetryDelay,
 			PollInterval:           cfg.TaskDispatcher.PollInterval,

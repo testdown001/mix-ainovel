@@ -29,6 +29,7 @@ from ...core.feature_gating import (
 )
 from ...db.session import AsyncSessionLocal
 from ...models.novel import Chapter
+from ...services.blueprint_generation_service import generate_blueprint_for_project
 from ...services.generation_billing_service import charge_generation, refund_generation
 from ...services.novel_service import NovelService
 
@@ -248,6 +249,16 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
             result = await _execute_chapter_generate(req, reporter)
         elif req.task_type == "chapter:batch_generate":
             result = await _execute_batch_generate(req, reporter)
+        elif req.task_type == "blueprint:generate":
+            # 蓝图生成不走章节的档位门控/积分计费（上方 gate 块已按 task_type 跳过）
+            try:
+                result = await _execute_blueprint_generate(req, reporter)
+            except HTTPException as exc:
+                # 按状态码区分：4xx（403 非所有者/400 缺对话历史/409 已有章节成果）是
+                # 确定性失败，重试无意义 → permanent；500/502（LLM 坏 JSON/章纲不完整）
+                # 是概率性失败 → 走普通 failed 让 Go dispatcher 重试
+                permanent = exc.status_code < 500
+                return WorkerTaskResponse(status="failed", error=str(exc.detail), permanent=permanent)
         else:
             return WorkerTaskResponse(
                 status="failed",
@@ -413,3 +424,21 @@ async def _execute_batch_generate(
         "results": results,
         "status": "completed",
     }
+
+
+async def _execute_blueprint_generate(
+    req: WorkerTaskRequest,
+    reporter: ProgressReporter,
+) -> Dict[str, Any]:
+    """执行蓝图生成（异步任务路径）。
+
+    两段式 LLM 生成可长达 10 分钟以上，同步端点在生产链路会被网关/nginx 超时掐断
+    （后端实际已成功落库但前端看到失败）。生成核心完全复用
+    blueprint_generation_service.generate_blueprint_for_project（含所有权校验、
+    重生成保护、落库与内部 commit），此处只做进度上报与结果包装。
+    """
+    async with AsyncSessionLocal() as session:
+        await reporter.report(10, "blueprint_generating", "正在生成蓝图（设定与章纲两段式）...")
+        response = await generate_blueprint_for_project(session, req.project_id, req.user_id)
+        await reporter.report(100, "completed", "蓝图生成完成")
+        return response.model_dump()

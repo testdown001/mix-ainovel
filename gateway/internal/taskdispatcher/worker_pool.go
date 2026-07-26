@@ -48,10 +48,16 @@ type WorkerInfo struct {
 
 // NewWorkerPool 创建 Worker Pool
 func NewWorkerPool(cfg *Config) *WorkerPool {
+	// HTTP 客户端超时是全局上限（逐任务超时由 dispatcher 的 per-task context 约束），
+	// 须覆盖耗时最长的单次 /execute 调用：蓝图任务超时可能大于默认任务超时。
+	clientTimeout := cfg.DefaultTimeout
+	if cfg.BlueprintTimeout > clientTimeout {
+		clientTimeout = cfg.BlueprintTimeout
+	}
 	pool := &WorkerPool{
 		config: cfg,
 		httpClient: &http.Client{
-			Timeout: cfg.DefaultTimeout + 30*time.Second, // 超时留余量
+			Timeout: clientTimeout + 30*time.Second, // 超时留余量
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxConnsPerHost:     50,
@@ -102,6 +108,8 @@ func (p *WorkerPool) Execute(ctx context.Context, task *Task) (json.RawMessage, 
 		return p.executeChapterGenerate(ctx, worker, task)
 	case TaskBatchGenerate:
 		return p.executeBatchGenerate(ctx, worker, task)
+	case TaskBlueprintGenerate:
+		return p.executeBlueprintGenerate(ctx, worker, task)
 	default:
 		return nil, fmt.Errorf("未知任务类型: %s", task.Type)
 	}
@@ -241,6 +249,26 @@ func (p *WorkerPool) executeBatchGenerate(ctx context.Context, worker *WorkerInf
 		UserID:         payload.UserID,
 		Config:         configData,
 		CallbackURL:    fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
+	}
+
+	return p.callWorker(ctx, worker, "/execute", workerReq)
+}
+
+// executeBlueprintGenerate 执行蓝图生成
+func (p *WorkerPool) executeBlueprintGenerate(ctx context.Context, worker *WorkerInfo, task *Task) (json.RawMessage, error) {
+	var payload BlueprintGeneratePayload
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		return nil, fmt.Errorf("解析任务载荷失败: %w", err)
+	}
+
+	workerReq := &WorkerTaskRequest{
+		TaskID:    task.ID,
+		TaskType:  string(task.Type),
+		ProjectID: payload.ProjectID,
+		UserID:    payload.UserID,
+		// 蓝图生成无额外配置；显式空对象避免 Go nil 序列化为 JSON null 被 Pydantic 拒收
+		Config:      json.RawMessage("{}"),
+		CallbackURL: fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
 	}
 
 	return p.callWorker(ctx, worker, "/execute", workerReq)

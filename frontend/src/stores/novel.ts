@@ -13,6 +13,7 @@ import type {
   ReferenceSearchResponse
 } from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
+import { TaskAPI } from '@/api/task'
 
 export const useNovelStore = defineStore('novel', () => {
   // State
@@ -205,7 +206,45 @@ export const useNovelStore = defineStore('novel', () => {
       if (!currentProject.value) {
         throw new Error('没有当前项目')
       }
-      return await NovelAPI.generateBlueprint(currentProject.value.id)
+      const projectId = currentProject.value.id
+
+      // 优先走 Go 网关异步任务路径（blueprint:generate）：蓝图两段式 LLM 生成可超过
+      // 网关/nginx 同步超时，同步直连在生产会被掐断（后端已成功落库但前端看到失败、重试重扣）。
+      // 提交失败（dev 直连无网关 / 旧网关不认识该任务类型）时回退原同步端点。
+      let taskId: string | null = null
+      try {
+        const submitted = await TaskAPI.submitBlueprintGenerate(projectId)
+        taskId = submitted.task_id
+      } catch (submitErr: any) {
+        // 只在「网关不存在/不认识该任务类型」时回退同步端点（dev 直连、旧网关 400/404、
+        // 无响应的网络错误）；429 限流、5xx 等生产性错误直接抛出——回退同步会被网关
+        // write_timeout 掐断，后端却继续跑并落库，用户重试就是双跑 LLM。
+        const httpStatus = submitErr?.response?.status
+        if (httpStatus === 400 || httpStatus === 404 || httpStatus === undefined) {
+          taskId = null
+        } else {
+          throw new Error(
+            httpStatus === 429
+              ? '当前并发任务数已达上限，请等待其他任务完成后再生成蓝图'
+              : `蓝图任务提交失败(${httpStatus})，请稍后重试`,
+          )
+        }
+      }
+
+      if (taskId) {
+        // 任务一旦提交成功就不再回退同步端点（避免同一份蓝图跑两次 LLM），失败直接抛出。
+        // 轮询超时给 20 分钟：网关任务超时 15 分钟 + 排队余量。
+        const status = await TaskAPI.pollUntilDone(taskId, undefined, 3000, 1_200_000)
+        const result = status.result as BlueprintGenerationResponse | null
+        if (!result || !result.blueprint) {
+          throw new Error('蓝图任务已完成但未返回蓝图数据，请刷新页面查看')
+        }
+        // 蓝图已在后端落库，静默刷新当前项目使其可见（刷新失败不影响返回结果）
+        await loadProject(projectId, true)
+        return result
+      }
+
+      return await NovelAPI.generateBlueprint(projectId)
     } catch (err) {
       error.value = err instanceof Error ? err.message : '生成蓝图失败'
       throw err

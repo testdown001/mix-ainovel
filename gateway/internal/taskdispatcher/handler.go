@@ -112,6 +112,12 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 			RAGMode:        getStringConfig(req.Config, "rag_mode", "simple"),
 			Extra:          getExtraConfig(req.Config),
 		}
+	case TaskBlueprintGenerate:
+		// 蓝图生成：仅需项目与用户身份，生成参数全部在后端服务内解析
+		payload = BlueprintGeneratePayload{
+			ProjectID: req.ProjectID,
+			UserID:    req.UserID,
+		}
 	default:
 		return c.Status(400).JSON(fiber.Map{"error": "不支持的任务类型: " + req.Type})
 	}
@@ -125,6 +131,9 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 	timeout := h.dispatcher.config.DefaultTimeout
 	if taskType == TaskBatchGenerate {
 		timeout = h.dispatcher.config.BatchTimeout
+	}
+	if taskType == TaskBlueprintGenerate && h.dispatcher.config.BlueprintTimeout > 0 {
+		timeout = h.dispatcher.config.BlueprintTimeout
 	}
 
 	task := &Task{

@@ -55,10 +55,11 @@ func (p Priority) QueueName() string {
 type TaskType string
 
 const (
-	TaskGenerateChapter TaskType = "chapter:generate"
-	TaskBatchGenerate   TaskType = "chapter:batch_generate"
-	TaskRAGRetrieval    TaskType = "rag:retrieve"
-	TaskPostProcess     TaskType = "chapter:postprocess"
+	TaskGenerateChapter   TaskType = "chapter:generate"
+	TaskBatchGenerate     TaskType = "chapter:batch_generate"
+	TaskRAGRetrieval      TaskType = "rag:retrieve"
+	TaskPostProcess       TaskType = "chapter:postprocess"
+	TaskBlueprintGenerate TaskType = "blueprint:generate"
 )
 
 // TaskStatus 任务状态
@@ -120,6 +121,13 @@ type BatchGeneratePayload struct {
 	Extra          map[string]interface{} `json:"extra,omitempty"`
 }
 
+// BlueprintGeneratePayload 蓝图生成任务载荷（两段式 LLM 生成耗时可达 10 分钟以上，
+// 同步 HTTP 会被网关/nginx 超时掐断，故走异步任务路径）
+type BlueprintGeneratePayload struct {
+	ProjectID string `json:"project_id"`
+	UserID    int    `json:"user_id"`
+}
+
 // TaskResult 任务结果
 type TaskResult struct {
 	ChapterID     int    `json:"chapter_id,omitempty"`
@@ -135,8 +143,9 @@ type Config struct {
 	MaxConcurrency int `mapstructure:"max_concurrency"` // 全局最大并发
 	MaxPerUser     int `mapstructure:"max_per_user"`    // 每用户最大并发
 	// 超时
-	DefaultTimeout time.Duration `mapstructure:"default_timeout"` // 默认任务超时
-	BatchTimeout   time.Duration `mapstructure:"batch_timeout"`   // 批量任务超时
+	DefaultTimeout   time.Duration `mapstructure:"default_timeout"`   // 默认任务超时
+	BatchTimeout     time.Duration `mapstructure:"batch_timeout"`     // 批量任务超时
+	BlueprintTimeout time.Duration `mapstructure:"blueprint_timeout"` // 蓝图生成任务超时
 	// 重试
 	MaxRetries int           `mapstructure:"max_retries"` // 最大重试次数
 	RetryDelay time.Duration `mapstructure:"retry_delay"` // 初始重试延迟
@@ -156,6 +165,7 @@ func DefaultConfig() *Config {
 		MaxPerUser:        3,
 		DefaultTimeout:    10 * time.Minute,
 		BatchTimeout:      60 * time.Minute,
+		BlueprintTimeout:  15 * time.Minute,
 		MaxRetries:        3,
 		RetryDelay:        5 * time.Second,
 		PollInterval:      100 * time.Millisecond,

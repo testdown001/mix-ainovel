@@ -134,6 +134,7 @@ type TaskDispatcherConfig struct {
 	MaxPerUser        int           `mapstructure:"max_per_user"`
 	DefaultTimeout    time.Duration `mapstructure:"default_timeout"`
 	BatchTimeout      time.Duration `mapstructure:"batch_timeout"`
+	BlueprintTimeout  time.Duration `mapstructure:"blueprint_timeout"`
 	MaxRetries        int           `mapstructure:"max_retries"`
 	RetryDelay        time.Duration `mapstructure:"retry_delay"`
 	PollInterval      time.Duration `mapstructure:"poll_interval"`
@@ -251,6 +252,7 @@ func bindEnvOverrides() {
 		"task_dispatcher.max_per_user",
 		"task_dispatcher.default_timeout",
 		"task_dispatcher.batch_timeout",
+		"task_dispatcher.blueprint_timeout",
 		"task_dispatcher.max_retries",
 		"task_dispatcher.retry_delay",
 		"task_dispatcher.poll_interval",
@@ -329,6 +331,7 @@ func setDefaults() {
 	viper.SetDefault("task_dispatcher.max_per_user", 3)
 	viper.SetDefault("task_dispatcher.default_timeout", "10m")
 	viper.SetDefault("task_dispatcher.batch_timeout", "60m")
+	viper.SetDefault("task_dispatcher.blueprint_timeout", "15m")
 	viper.SetDefault("task_dispatcher.max_retries", 3)
 	viper.SetDefault("task_dispatcher.retry_delay", "5s")
 	viper.SetDefault("task_dispatcher.poll_interval", "100ms")
