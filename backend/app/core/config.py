@@ -461,6 +461,15 @@ class Settings(BaseSettings):
             raise ValueError("DB_PROVIDER 仅支持 mysql 或 sqlite")
         return candidate
 
+    @validator("qdrant_api_key", pre=True)
+    def _empty_qdrant_key_is_none(cls, value):
+        """空字符串归一为 None。compose 常写 QDRANT_API_KEY: ${QDRANT_API_KEY:-} 注入空串，
+        而 qdrant-client 的 https 推断是 `api_key is not None`——空串会强制走 https 对
+        纯 HTTP 的 qdrant 容器说 TLS，全部向量操作以 SSL WRONG_VERSION_NUMBER 静默失败。"""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @validator("admin_default_email", pre=True)
     def _clean_admin_email(cls, value):
         """清理管理员邮箱中的控制字符/空白（如终端退格符 \\x08）。脏值会被 init_db 写入

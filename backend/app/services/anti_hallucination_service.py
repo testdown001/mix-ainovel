@@ -252,8 +252,13 @@ class AntiHallucinationService:
             logger.warning("提取实体失败: %s", exc)
             return []
 
-    def format_report_for_review(self, report: AntiHallucinationReport) -> str:
-        """将检查报告格式化为可读文本。"""
+    @staticmethod
+    def format_report_for_review(report: AntiHallucinationReport) -> str:
+        """将检查报告格式化为可读文本。
+
+        staticmethod：唯一调用方（generation_analysis_task_service 的后台反幻觉检查）
+        以类名直接调用——原实例方法签名会把 report 绑到 self 致必然 TypeError。
+        """
         if report.passed and not report.issues:
             return "反幻觉检查通过，未发现问题。"
 

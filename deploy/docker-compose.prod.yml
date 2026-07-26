@@ -1,7 +1,6 @@
 # 生产环境 Docker Compose 配置
 # 支持水平扩展：Nginx LB + Go Gateway + 多 API 实例
 
-version: '3.8'
 
 services:
   # Nginx 负载均衡器
