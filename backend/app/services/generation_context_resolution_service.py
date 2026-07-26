@@ -15,6 +15,8 @@ class ResolvedPrefetchContext:
     knowledge_context: Optional[str] = None
     rag_stats: Optional[Dict[str, Any]] = None
     writer_prompt: Optional[str] = None
+    volume_summaries_text: Optional[str] = None
+    book_summary_text: Optional[str] = None
 
 
 class GenerationContextResolutionService:
@@ -55,6 +57,22 @@ class GenerationContextResolutionService:
                 enhanced_context = enhanced_result
 
         project_memory_text = await prefetch_tasks.memory_text_task
+
+        # 卷级前情 / 全书脉络（分层长程记忆转正注入）。
+        # 编排器不直接透传这两个字段，借共享的 history_context 带到 prompt 组装层
+        # （build_prompt_stage 与 story_skeleton 同源从 history_context 读取）；缺数据时静默跳过。
+        volume_summaries_text: Optional[str] = None
+        book_summary_text: Optional[str] = None
+        long_range_task = getattr(prefetch_tasks, "long_range_memory_task", None)
+        if long_range_task is not None:
+            long_range_result = await long_range_task
+            if isinstance(long_range_result, dict):
+                volume_summaries_text = long_range_result.get("volume_summaries_text") or None
+                book_summary_text = long_range_result.get("book_summary_text") or None
+        if volume_summaries_text:
+            history_context["volume_summaries_text"] = volume_summaries_text
+        if book_summary_text:
+            history_context["book_summary_text"] = book_summary_text
 
         # 注意: 历史上的 rag_mode="two_stage"（KnowledgeRetrievalService 第二套检索）已移除，
         # 现统一走单一的多查询向量 RAG（ChapterContextService）。为不破坏 API 契约，
@@ -106,4 +124,6 @@ class GenerationContextResolutionService:
             knowledge_context=knowledge_context,
             rag_stats=rag_stats,
             writer_prompt=writer_prompt,
+            volume_summaries_text=volume_summaries_text,
+            book_summary_text=book_summary_text,
         )

@@ -35,6 +35,11 @@ def _truncate_to_tokens(text: str, max_tokens: int) -> str:
     last_newline = truncated.rfind("\n\n")
     if last_newline > max_chars * 0.6:
         truncated = truncated[:last_newline]
+    else:
+        # 兜底按行截断：避免把一行（如蓝图摘要的一条设定）拦腰截断
+        last_line_break = truncated.rfind("\n")
+        if last_line_break > max_chars * 0.6:
+            truncated = truncated[:last_line_break]
     return truncated.rstrip() + "\n\n…（已截断，以上为最相关内容）"
 
 
@@ -72,6 +77,8 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "世界蓝图": SectionBudget(priority=2, max_tokens=1200),
     "项目长期记忆": SectionBudget(priority=2, max_tokens=1500),
     "记忆层上下文": SectionBudget(priority=2, max_tokens=1500),
+    "卷级前情": SectionBudget(priority=2, max_tokens=800),
+    "全书脉络": SectionBudget(priority=2, max_tokens=600),
     "追更钩子连续性": SectionBudget(priority=2, max_tokens=600),
 
     # TIER 2.5: RAG 检索 — 可压缩

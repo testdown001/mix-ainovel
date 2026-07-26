@@ -219,6 +219,148 @@ class PromptAssemblyService:
             logger.warning("生成创作任务书失败，将回退原始 JSON: %s", exc)
             return None
 
+    @staticmethod
+    def build_blueprint_digest(writer_blueprint: Any) -> str:
+        """把世界蓝图 dict 压缩为逐行的结构化中文摘要（替代 json.dumps 全量注入）。
+
+        每条信息占一行：预算超限时按行截断，不会再产出残破 JSON；
+        字段缺失逐项跳过，异常时回退为紧凑 JSON（保底不阻断生成）。
+        """
+        try:
+            blueprint = writer_blueprint or {}
+            lines: List[str] = []
+
+            title = str(blueprint.get("title") or "").strip()
+            if title:
+                lines.append(f"书名：{title}")
+            meta_bits = [
+                f"{label}：{str(blueprint.get(key)).strip()}"
+                for label, key in (
+                    ("类型", "genre"),
+                    ("风格", "style"),
+                    ("基调", "tone"),
+                    ("目标读者", "target_audience"),
+                )
+                if str(blueprint.get(key) or "").strip()
+            ]
+            if meta_bits:
+                lines.append(" / ".join(meta_bits))
+            one_line = str(blueprint.get("one_sentence_summary") or "").strip()
+            if one_line:
+                lines.append(f"一句话主线：{one_line}")
+
+            world = blueprint.get("world_setting") or {}
+            if isinstance(world, dict):
+                core_rules = str(world.get("core_rules") or "").strip()
+                if core_rules:
+                    lines.append("世界观核心设定：")
+                    for rule in core_rules.splitlines():
+                        rule = rule.strip().lstrip("-").strip()
+                        if rule:
+                            lines.append(f"- {rule}")
+                locations = [item for item in (world.get("key_locations") or []) if isinstance(item, dict)]
+                if locations:
+                    lines.append("关键地点：")
+                    for item in locations[:8]:
+                        name = str(item.get("name") or "").strip()
+                        desc = str(item.get("description") or "").strip()
+                        if name:
+                            lines.append(f"- {name}：{desc}" if desc else f"- {name}")
+                factions = [item for item in (world.get("factions") or []) if isinstance(item, dict)]
+                if factions:
+                    lines.append("势力格局：")
+                    for item in factions[:8]:
+                        name = str(item.get("name") or "").strip()
+                        desc = str(item.get("description") or "").strip()
+                        if name:
+                            lines.append(f"- {name}：{desc}" if desc else f"- {name}")
+                # 非标准键（自由扩展的世界观字段）：标量直接收录；嵌套结构压缩为单行紧凑 JSON，
+                # 截 200 字防膨胀——绝不整体丢弃（修炼体系/时间线等常存于此类键）
+                known_world_keys = {"core_rules", "key_locations", "factions"}
+                for key, value in world.items():
+                    if key in known_world_keys:
+                        continue
+                    if isinstance(value, (str, int, float)):
+                        value_text = str(value).strip()
+                    else:
+                        try:
+                            value_text = json.dumps(value, ensure_ascii=False)
+                        except (TypeError, ValueError):
+                            value_text = str(value)
+                        value_text = value_text.strip()
+                        if len(value_text) > 200:
+                            value_text = value_text[:200] + "…"
+                    if value_text:
+                        lines.append(f"{key}：{value_text}")
+
+            golden = blueprint.get("golden_finger")
+            if isinstance(golden, dict):
+                g_name = str(golden.get("name") or "").strip()
+                g_desc = str(golden.get("description") or "").strip()
+                if g_name or g_desc:
+                    g_type = str(golden.get("type") or "").strip()
+                    g_limit = str(golden.get("limitations") or "").strip()
+                    bits = [f"金手指：{g_name or '（未命名）'}"]
+                    if g_type:
+                        bits.append(f"（{g_type}）")
+                    if g_desc:
+                        bits.append(f"——{g_desc}")
+                    if g_limit:
+                        bits.append(f"；限制：{g_limit}")
+                    lines.append("".join(bits))
+
+            characters = [item for item in (blueprint.get("characters") or []) if isinstance(item, dict)]
+            if characters:
+                lines.append("主要角色：")
+                for item in characters[:10]:
+                    name = str(item.get("name") or "").strip()
+                    if not name:
+                        continue
+                    desc = "；".join(
+                        str(item.get(key) or "").strip()
+                        for key in ("identity", "personality", "abilities", "relationship_to_protagonist", "goals")
+                        if str(item.get(key) or "").strip()
+                    )
+                    lines.append(f"- {name}：{desc}" if desc else f"- {name}")
+
+            relationships = [item for item in (blueprint.get("relationships") or []) if isinstance(item, dict)]
+            rel_lines = []
+            for item in relationships[:10]:
+                src = str(item.get("from") or item.get("character_from") or "").strip()
+                dst = str(item.get("to") or item.get("character_to") or "").strip()
+                desc = str(item.get("description") or "").strip()
+                if src and dst:
+                    rel_lines.append(f"- {src} → {dst}：{desc}" if desc else f"- {src} → {dst}")
+            if rel_lines:
+                lines.append("角色关系：")
+                lines.extend(rel_lines)
+
+            foreshadowings = [
+                item for item in (blueprint.get("foreshadowings") or []) if isinstance(item, dict)
+            ]
+            fs_lines = []
+            for item in foreshadowings[:10]:
+                content = str(item.get("description") or item.get("name") or "").strip()
+                if not content:
+                    continue
+                planted = item.get("planted_chapter")
+                target = item.get("target_chapter")
+                if planted and target:
+                    span = f"（第{planted}章埋 → 第{target}章收）"
+                elif planted:
+                    span = f"（第{planted}章埋）"
+                else:
+                    span = ""
+                fs_lines.append(f"- {content}{span}")
+            if fs_lines:
+                lines.append("蓝图伏笔：")
+                lines.extend(fs_lines)
+
+            return "\n".join(lines) if lines else "（蓝图为空）"
+        except Exception:
+            # 极端异常兜底：退回紧凑 JSON（旧行为），不阻断生成
+            return json.dumps(writer_blueprint, ensure_ascii=False)
+
     def build_prompt_sections(
         self,
         *,
@@ -255,8 +397,10 @@ class PromptAssemblyService:
         relationship_context: Optional[str] = None,
         trajectory_context: Optional[str] = None,
         outline_revision_context: Optional[str] = None,
+        volume_summary_context: Optional[str] = None,
+        book_summary_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
-        blueprint_text = json.dumps(writer_blueprint, ensure_ascii=False, indent=2)
+        blueprint_text = self.build_blueprint_digest(writer_blueprint)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
 
         sections: List[Tuple[str, str]] = [
@@ -299,10 +443,15 @@ class PromptAssemblyService:
             [
                 ("[上一章摘要]", previous_summary or "暂无（这是第一章）"),
                 ("[上一章结尾]", previous_tail or "暂无（这是第一章）"),
-                ("[世界蓝图](JSON，已裁剪)", blueprint_text),
+                ("[世界蓝图](结构化摘要，已按可见性裁剪)", blueprint_text),
             ]
         )
 
+        # 分层长程记忆：全书脉络（最宏观）→ 卷级前情（最近数卷）→ 项目长期记忆
+        if book_summary_context:
+            sections.append(("[全书脉络](全书主线/角色弧光/跨卷悬念)", book_summary_context))
+        if volume_summary_context:
+            sections.append(("[卷级前情](最近数卷的结构化摘要)", volume_summary_context))
         if project_memory_text:
             sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
         if memory_context:

@@ -635,9 +635,15 @@ class ContextPlannerService:
             modules.append("rag_local")
             if not is_fast_path:
                 modules.append("rag_global")
-        if flow_config.get("enable_memory"):
+        # [项目长期记忆] 数据是无条件预取的：非 fast 路径一律注入（不再依赖 enable_memory）；
+        # enable_memory 继续独占管 [记忆层上下文]/[角色当前状态]（character_state 模块）。
+        if flow_config.get("enable_memory") or not is_fast_path:
             modules.append("project_memory")
+        if flow_config.get("enable_memory"):
             modules.append("character_state")
+        if not is_fast_path:
+            # 卷级前情 + 全书脉络：分层长程记忆转正注入（fast 保持轻量不注入）
+            modules.append("long_range_memory")
         if flow_config.get("enable_foreshadowing"):
             modules.append("foreshadowing_alerts")
         if flow_config.get("enable_power_system"):

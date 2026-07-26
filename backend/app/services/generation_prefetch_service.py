@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -17,6 +20,7 @@ class GenerationPrefetchTasks:
     fingerprint_task: Optional[asyncio.Task]
     writer_prompt_task: asyncio.Task
     outline_revision_task: Optional[asyncio.Task] = None
+    long_range_memory_task: Optional[asyncio.Task] = None
 
 
 class GenerationPrefetchService:
@@ -163,6 +167,20 @@ class GenerationPrefetchService:
                 )
             )
 
+        # 卷级/书级分层长程记忆（DB 直查，非向量检索）：fast 路径保持轻量不预取
+        long_range_memory_task: Optional[asyncio.Task] = None
+        if not config.enable_fast_path:
+            long_range_memory_task = asyncio.create_task(
+                self.async_task_service.run_with_timeout(
+                    self._prefetch_long_range_memory(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                    ),
+                    timeout_sec=5,
+                    task_name="long_range_memory",
+                )
+            )
+
         user_style_task = asyncio.create_task(
             self.async_task_service.run_with_timeout(
                 self.user_style_service.prefetch_user_style(user_id),
@@ -206,4 +224,55 @@ class GenerationPrefetchService:
             fingerprint_task=fingerprint_task,
             writer_prompt_task=writer_prompt_task,
             outline_revision_task=outline_revision_task,
+            long_range_memory_task=long_range_memory_task,
         )
+
+    async def _prefetch_long_range_memory(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        session: Any = None,
+    ) -> Optional[Dict[str, Optional[str]]]:
+        """DB 直查卷级/书级摘要，转正为 [卷级前情]/[全书脉络] 独立段的数据源。
+
+        返回 {"volume_summaries_text", "book_summary_text"}；数据缺失时对应值为 None，
+        查询失败整体返回 None——全程降级，绝不影响生成主流程。
+        """
+        try:
+            async def _run(sess: Any) -> Dict[str, Optional[str]]:
+                from .book_summary_service import BookSummaryService
+                from .volume_summary_service import VolumeSummaryService
+
+                # 只读摘要，不触发 LLM 调用，llm_service 传 None 即可
+                volumes = await VolumeSummaryService(sess, None).get_relevant_volume_summaries(
+                    project_id, chapter_number, max_volumes=3
+                )
+                book_summary = await BookSummaryService(sess, None).get_book_summary(project_id)
+                return {
+                    "volume_summaries_text": self._format_volume_summaries(volumes),
+                    "book_summary_text": (book_summary or "").strip() or None,
+                }
+
+            if session is not None:
+                return await _run(session)
+
+            from ..db.session import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as own_session:
+                return await _run(own_session)
+        except Exception as exc:
+            logger.warning("卷/书级摘要预取失败（不影响生成）: %s", exc)
+            return None
+
+    @staticmethod
+    def _format_volume_summaries(volumes: Optional[List[Dict[str, Any]]]) -> Optional[str]:
+        """把最近数卷的卷级摘要拼装为 prompt 段文本，全部为空则返回 None。"""
+        parts: List[str] = []
+        for vol in volumes or []:
+            summary = str(vol.get("summary") or "").strip()
+            if not summary:
+                continue
+            title = str(vol.get("title") or f"第{vol.get('volume_number')}卷").strip()
+            parts.append(f"### {title}\n{summary}")
+        return "\n\n".join(parts) if parts else None

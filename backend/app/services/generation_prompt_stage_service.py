@@ -100,6 +100,8 @@ class GenerationPromptStageService:
             hook_continuity_brief=hook_continuity_brief,
             emotion_expression_brief=emotion_expression_brief,
             story_skeleton=history_context.get("story_skeleton"),
+            volume_summary_context=history_context.get("volume_summaries_text"),
+            book_summary_context=history_context.get("book_summary_text"),
             genre_prompt_injection=genre_prompt_injection,
             fingerprint_context=fingerprint_context,
             prediction_text=prediction_text,
