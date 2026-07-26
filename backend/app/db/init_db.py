@@ -191,6 +191,7 @@ async def _ensure_schema_updates() -> None:
                 "novel_blueprints",
                 {
                     "golden_finger": "golden_finger JSON",
+                    "volumes": "volumes JSON",
                 },
             )
 

@@ -98,6 +98,7 @@ class NovelBlueprint(Base):
     full_synopsis: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
     world_setting: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
     golden_finger: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    volumes: Mapped[Optional[list]] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

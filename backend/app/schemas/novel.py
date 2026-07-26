@@ -137,6 +137,16 @@ class BlueprintForeshadowing(BaseModel):
     related_plots: List[str] = []
 
 
+class BlueprintVolume(BaseModel):
+    """轻量分卷规划：按总篇幅切 3-6 卷。全部字段有默认值，兼容无 volumes 的旧蓝图。"""
+
+    name: str = ""
+    start_chapter: int = 1
+    end_chapter: int = 1
+    arc_goal: str = ""
+    climax_hint: str = ""
+
+
 class Blueprint(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -153,6 +163,7 @@ class Blueprint(BaseModel):
     relationships: List[Relationship] = []
     chapter_outline: List[ChapterOutline] = []
     foreshadowings: List[BlueprintForeshadowing] = []
+    volumes: List[BlueprintVolume] = []
 
 
 class NovelProject(BaseModel):

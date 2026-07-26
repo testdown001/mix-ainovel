@@ -385,6 +385,7 @@ class NovelService:
         record.full_synopsis = blueprint.full_synopsis
         record.world_setting = blueprint.world_setting
         record.golden_finger = blueprint.golden_finger
+        record.volumes = [volume.model_dump() for volume in (blueprint.volumes or [])]
 
         await self.session.execute(delete(BlueprintCharacter).where(BlueprintCharacter.project_id == project_id))
         if blueprint.characters:
@@ -1460,6 +1461,7 @@ class NovelService:
                 one_sentence_summary=blueprint_obj.one_sentence_summary or "",
                 full_synopsis=blueprint_obj.full_synopsis or "",
                 world_setting=blueprint_obj.world_setting or {},
+                volumes=getattr(blueprint_obj, "volumes", None) or [],
                 characters=[
                     {
                         "name": character.name,

@@ -6,7 +6,7 @@ import traceback
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from sqlalchemy import select
@@ -32,6 +32,7 @@ from ...schemas.novel import (
 )
 from ...schemas.reference_novel import ReferenceNovelSelectRequest, ReferenceNovelSummary
 from ...schemas.user import UserInDB
+from ...services.blueprint_generation_service import generate_blueprint_for_project
 from ...services.config_service import ConfigService
 from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
@@ -78,6 +79,52 @@ def _ensure_prompt(prompt: str | None, name: str) -> str:
     if not prompt:
         raise HTTPException(status_code=500, detail=f"未配置名为 {name} 的提示词，请联系管理员")
     return prompt
+
+
+# 概念对话历史瘦身：解析失败时回传原文的截断上限（字符）
+_CONVERSE_HISTORY_FALLBACK_CHARS = 500
+# is_complete 完全由 LLM 自报，最低轮次兜底：用户消息轮次（含本轮）不足该值时强制 False
+_CONVERSE_MIN_COMPLETE_USER_TURNS = 3
+
+
+def _compact_history_for_llm(history_records: List[Any]) -> List[Dict[str, str]]:
+    """把落库的概念对话历史重整为回传 LLM 的精简形态（落库格式不变）。
+
+    assistant 记录落库的是整个响应 JSON 字符串（含 ui_control.options、
+    conversation_state 等），全量回传会让历史 token 随轮次线性膨胀——只取 ai_message；
+    user 记录取 value 字段。解析失败退回原文截断兜底。
+    蓝图生成端 (:blueprint/generate) 有独立的历史重整口径，互不影响。
+    """
+    compact: List[Dict[str, str]] = []
+    for record in history_records:
+        role = record.role
+        content = record.content or ""
+        if not role or not content:
+            continue
+        unwrapped = unwrap_markdown_json(content)
+        try:
+            data = json.loads(unwrapped)
+        except (json.JSONDecodeError, TypeError):
+            # 落库的是未经 repair 的 normalized 原文：坏 JSON（尾逗号等）先修复再解析，
+            # 与响应侧解析链对齐，避免该轮 AI 内容在后续每轮都退化为截断兜底
+            try:
+                data = json.loads(repair_json(unwrapped))
+            except Exception:
+                data = None
+        text = ""
+        if isinstance(data, dict):
+            if role == "assistant":
+                ai_message = data.get("ai_message")
+                if isinstance(ai_message, str) and ai_message.strip():
+                    text = ai_message
+            elif role == "user":
+                value = data.get("value")
+                if isinstance(value, str) and value.strip():
+                    text = value
+        if not text:
+            text = content[:_CONVERSE_HISTORY_FALLBACK_CHARS]
+        compact.append({"role": role, "content": text})
+    return compact
 
 
 def _normalize_reference_novel_names(novel_names: Optional[List[str]]) -> List[str]:
@@ -390,10 +437,8 @@ async def converse_with_concept(
         current_user.id,
         len(history_records),
     )
-    conversation_history = [
-        {"role": record.role, "content": record.content}
-        for record in history_records
-    ]
+    # 历史瘦身：只影响回传给 LLM 的形态，落库格式不变（蓝图生成等消费方口径独立）
+    conversation_history = _compact_history_for_llm(history_records)
     user_content = json.dumps(request.user_input, ensure_ascii=False)
     conversation_history.append({"role": "user", "content": user_content})
 
@@ -556,16 +601,64 @@ async def converse_with_concept(
             detail=f"概念对话失败，AI 返回的内容格式不正确。请重试或联系管理员。错误详情: {str(exc)}"
         ) from exc
 
-    await novel_service.append_conversation(project_id, "user", user_content)
-    await novel_service.append_conversation(project_id, "assistant", normalized)
+    if not isinstance(parsed, dict):
+        logger.error(
+            "概念对话响应不是 JSON 对象，不落库: project_id=%s user_id=%s type=%s",
+            project_id,
+            current_user.id,
+            type(parsed).__name__,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="概念对话失败，AI 返回的内容格式不正确，历史未受影响，请重试。",
+        )
 
-    logger.info("项目 %s 概念对话完成，is_complete=%s", project_id, parsed.get("is_complete"))
+    # is_complete 兜底：完成信号完全由 LLM 自报，用户消息轮次（含本轮）不足最低值时
+    # 强制压制，防止首轮就宣布完成、跳过概念打磨。
+    user_turns = sum(1 for record in history_records if record.role == "user") + 1
+    suppressed_complete = False
+    if parsed.get("is_complete") and user_turns < _CONVERSE_MIN_COMPLETE_USER_TURNS:
+        logger.info(
+            "项目 %s 概念对话 is_complete 被压制：用户轮次 %s < %s",
+            project_id,
+            user_turns,
+            _CONVERSE_MIN_COMPLETE_USER_TURNS,
+        )
+        parsed["is_complete"] = False
+        suppressed_complete = True
 
     if parsed.get("is_complete"):
         parsed["ready_for_blueprint"] = True
 
     parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
-    return ConverseResponse(**parsed)
+
+    # 先校验后落库：LLM 漏必填字段（如 ui_control）时不写入任何脏历史，用户重发即可
+    try:
+        response = ConverseResponse(**parsed)
+    except ValidationError as exc:
+        logger.error(
+            "概念对话响应缺少必要字段，不落库脏 assistant 消息: project_id=%s user_id=%s error=%s",
+            project_id,
+            current_user.id,
+            exc,
+        )
+        # 用户消息单独保留（刷新页面不丢精心输入的构思）；只有坏的 assistant 回复不落库
+        try:
+            await novel_service.append_conversation(project_id, "user", user_content)
+        except Exception:
+            logger.warning("概念对话失败分支保留用户消息失败", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="概念对话失败，AI 返回的内容缺少必要字段，你的输入已保留，请重试。",
+        ) from exc
+
+    # 被压制时落库压制后的 JSON——前端刷新会从历史读 is_complete，须与本次响应一致
+    assistant_record = json.dumps(parsed, ensure_ascii=False) if suppressed_complete else normalized
+    await novel_service.append_conversation(project_id, "user", user_content)
+    await novel_service.append_conversation(project_id, "assistant", assistant_record)
+
+    logger.info("项目 %s 概念对话完成，is_complete=%s", project_id, response.is_complete)
+    return response
 
 
 @router.get("/concept/personas")
@@ -756,211 +849,13 @@ async def generate_blueprint(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> BlueprintGenerationResponse:
-    """根据完整对话生成可执行的小说蓝图。"""
-    novel_service = NovelService(session)
-    prompt_service = PromptService(session)
-    llm_service = LLMService(session)
+    """根据完整对话生成可执行的小说蓝图。
 
-    project = await novel_service.ensure_project_owner(project_id, current_user.id)
-    logger.info("项目 %s 开始生成蓝图", project_id)
-
-    # 重生成保护：replace_blueprint 落库会先清空全部章节大纲再从 1 重编号，
-    # 项目一旦存在章节创作成果（草稿版本或定稿章），重编号会与已写章节错位、毁掉既有成果，
-    # 直接拒绝；纯大纲扩写、零写作时放行（重生成蓝图本就意味着重来，且用户没有自助清空大纲的入口）。
-    # 检查放在 LLM 调用之前，避免白耗 token。
-    from ...models.novel import Chapter, ChapterVersion
-
-    has_chapter_work = (
-        await session.execute(
-            select(ChapterVersion.id)
-            .join(Chapter, ChapterVersion.chapter_id == Chapter.id)
-            .where(Chapter.project_id == project_id)
-            .limit(1)
-        )
-    ).scalar_one_or_none() is not None
-    if not has_chapter_work:
-        has_chapter_work = (
-            await session.execute(
-                select(Chapter.id)
-                .where(Chapter.project_id == project_id, Chapter.selected_version_id.isnot(None))
-                .limit(1)
-            )
-        ).scalar_one_or_none() is not None
-    if has_chapter_work:
-        raise HTTPException(
-            status_code=409,
-            detail="项目已有章节创作成果，重新生成蓝图会清空并重排全部章节大纲、与已写章节错位，已阻止操作。如需全新蓝图请新建项目。",
-        )
-
-    history_records = await novel_service.list_conversations(project_id)
-    if not history_records:
-        logger.warning("项目 %s 缺少对话历史，无法生成蓝图", project_id)
-        raise HTTPException(status_code=400, detail="缺少对话历史，请先完成概念对话后再生成蓝图")
-
-    formatted_history: List[Dict[str, str]] = []
-    for record in history_records:
-        role = record.role
-        content = record.content
-        if not role or not content:
-            continue
-        try:
-            normalized = unwrap_markdown_json(content)
-            data = json.loads(normalized)
-            if role == "user":
-                user_value = data.get("value", data)
-                if isinstance(user_value, str):
-                    formatted_history.append({"role": "user", "content": user_value})
-            elif role == "assistant":
-                ai_message = data.get("ai_message") if isinstance(data, dict) else None
-                if ai_message:
-                    formatted_history.append({"role": "assistant", "content": ai_message})
-        except (json.JSONDecodeError, AttributeError):
-            continue
-
-    if not formatted_history:
-        logger.warning("项目 %s 对话历史格式异常，无法提取有效内容", project_id)
-        raise HTTPException(
-            status_code=400,
-            detail="无法从历史对话中提取有效内容，请检查对话历史格式或重新进行概念对话"
-        )
-
-    system_prompt = _ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
-
-    # 注入融合DNA到蓝图生成 prompt，让蓝图结构直接受参考小说影响
-    if project.fusion_dna:
-        reference_service = ReferenceNovelLibraryService(session)
-        dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
-        if dna_text:
-            system_prompt = (
-                f"{system_prompt}\n\n"
-                "以下为本项目的「创作DNA融合指引」，基于用户选定的参考小说提炼而来。\n"
-                "请在设计蓝图结构、章节节奏和人物关系时参考这些指引，但保持原创性：\n\n"
-                f"{dna_text}"
-            )
-    logger.info("项目 %s 蓝图生成：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
-                project_id, len(system_prompt), len(formatted_history))
-
-    # 蓝图为一次成型的结构化生成：显式降一档 reasoning_effort 提速（仅对 o系列/gpt-5 的
-    # openai 格式生效，其它模型/格式无副作用），且不影响章节生成（章节不传该覆盖、仍用通道默认档）。
-    # 如需更激进可改 "minimal"，质量优先则改 "medium"。
-    blueprint_raw = await llm_service.get_llm_response(
-        system_prompt=system_prompt,
-        conversation_history=formatted_history,
-        temperature=0.7,
-        user_id=current_user.id,
-        timeout=600.0,
-        max_retries=1,
-        max_tokens=8192,
-        reasoning_effort="low",
-    )
-
-    logger.info("项目 %s 蓝图生成：LLM 调用完成，raw_len=%d", project_id, len(blueprint_raw))
-    blueprint_raw = remove_think_tags(blueprint_raw)
-    logger.info("项目 %s 蓝图生成：think标签移除后 len=%d", project_id, len(blueprint_raw))
-
-    blueprint_normalized = unwrap_markdown_json(blueprint_raw)
-    blueprint_sanitized = sanitize_json_like_text(blueprint_normalized)
-    blueprint_repaired = repair_json(blueprint_sanitized)
-    logger.info(
-        "项目 %s 蓝图生成：JSON 清洗完成 normalized_len=%d sanitized_len=%d repaired_len=%d",
-        project_id, len(blueprint_normalized), len(blueprint_sanitized), len(blueprint_repaired),
-    )
-
-    try:
-        blueprint_data = json.loads(blueprint_repaired)
-    except json.JSONDecodeError as exc:
-        logger.error(
-            "项目 %s 蓝图生成 JSON 解析失败: %s\n原始响应(末尾500字): %s\n修复后(末尾500字): %s",
-            project_id, exc,
-            blueprint_raw[-500:],
-            blueprint_repaired[-500:],
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"蓝图生成失败，AI 返回的内容格式不正确。请重试或联系管理员。错误详情: {str(exc)}"
-        ) from exc
-
-    logger.info(
-        "项目 %s 蓝图生成：JSON 解析成功，顶层字段=%s",
-        project_id, list(blueprint_data.keys()) if isinstance(blueprint_data, dict) else type(blueprint_data).__name__,
-    )
-
-    # Pydantic 校验 Blueprint —— 容错处理
-    try:
-        blueprint = Blueprint(**blueprint_data)
-    except Exception as exc:
-        logger.error(
-            "项目 %s 蓝图 Pydantic 校验失败: %s\nblueprint_data 部分内容: title=%s, characters_count=%s, "
-            "chapter_outline_count=%s, relationships_count=%s\n%s",
-            project_id, exc,
-            blueprint_data.get("title"),
-            len(blueprint_data.get("characters", [])),
-            len(blueprint_data.get("chapter_outline", [])),
-            len(blueprint_data.get("relationships", [])),
-            traceback.format_exc(),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"蓝图数据结构校验失败: {str(exc)[:300]}。请重试或联系管理员。"
-        ) from exc
-
-    logger.info(
-        "项目 %s 蓝图生成：Pydantic 校验通过 title=%s characters=%d outlines=%d relationships=%d",
-        project_id, blueprint.title, len(blueprint.characters),
-        len(blueprint.chapter_outline), len(blueprint.relationships),
-    )
-
-    # 保存蓝图到数据库
-    try:
-        await novel_service.replace_blueprint(project_id, blueprint)
-    except Exception as exc:
-        logger.error(
-            "项目 %s 蓝图保存数据库失败: %s\n%s",
-            project_id, exc, traceback.format_exc(),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"蓝图保存失败: {str(exc)[:200]}。请重试或联系管理员。"
-        ) from exc
-
-    logger.info("项目 %s 蓝图生成：数据库保存完成", project_id)
-
-    # 更新项目标题和状态
-    try:
-        if blueprint.title:
-            project.title = blueprint.title
-            project.status = "blueprint_ready"
-            await session.commit()
-            logger.info("项目 %s 更新标题为 %s，并标记为 blueprint_ready", project_id, blueprint.title)
-    except Exception as exc:
-        logger.error(
-            "项目 %s 更新项目状态失败: %s\n%s",
-            project_id, exc, traceback.format_exc(),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"蓝图已生成但更新项目状态失败: {str(exc)[:200]}"
-        ) from exc
-
-    ai_message = (
-        "太棒了！我已经根据我们的对话整理出完整的小说蓝图。请确认是否进入写作阶段，或提出修改意见。"
-    )
-
-    # 自动创建默认 WriterPersona（如果项目尚未配置）
-    try:
-        from sqlalchemy import select as sa_select
-        existing_persona = await session.execute(
-            sa_select(WriterPersona).where(WriterPersona.project_id == project_id).limit(1)
-        )
-        if not existing_persona.scalars().first():
-            default_persona = WriterPersona.create_default_qidian_writer(project_id)
-            session.add(default_persona)
-            await session.commit()
-            logger.info("项目 %s 自动创建默认 WriterPersona", project_id)
-    except Exception as exc:
-        logger.warning("项目 %s 自动创建 WriterPersona 失败（不影响蓝图结果）: %s", project_id, exc)
-
-    return BlueprintGenerationResponse(blueprint=blueprint, ai_message=ai_message)
+    薄壳端点：生成核心（历史重整→两段式 LLM→解析→数量断言→落库）在
+    services/blueprint_generation_service.generate_blueprint_for_project，
+    便于后续异步任务化复用；响应契约不变。
+    """
+    return await generate_blueprint_for_project(session, project_id, current_user.id)
 
 
 @router.post("/{project_id}/blueprint/save", response_model=NovelProjectSchema)
