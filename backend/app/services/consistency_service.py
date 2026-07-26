@@ -409,10 +409,19 @@ class ConsistencyService:
         
         if states:
             state_texts = []
+            seen_names = set()
             for s in states:
-                if s.extra and "raw_state_text" in s.extra:
-                    state_texts.append(s.extra["raw_state_text"])
-                    break
+                # 每角色只取最新一条快照（查询已按章节倒序）
+                if s.character_name in seen_names:
+                    continue
+                seen_names.add(s.character_name)
+                # 兼容历史数据：旧版写入的 raw_state_text 优先
+                if s.extra and s.extra.get("raw_state_text"):
+                    state_texts.append(str(s.extra["raw_state_text"]))
+                    continue
+                line = self._format_character_state_line(s)
+                if line:
+                    state_texts.append(line)
             context["character_state"] = "\n".join(state_texts) if state_texts else ""
         
         # 获取未回收伏笔
@@ -433,7 +442,34 @@ class ConsistencyService:
                 context["foreshadowings"] = "\n".join(foreshadowing_texts)
         
         return context
-    
+
+    @staticmethod
+    def _format_character_state_line(state) -> str:
+        """将 CharacterState 结构化字段拼装为一行可读文本（仅取有值字段，异常静默返回空串）"""
+        try:
+            parts = []
+            if state.location:
+                parts.append(f"位置: {state.location}")
+            if state.emotion:
+                emotion_text = f"情绪: {state.emotion}"
+                if state.emotion_intensity:
+                    emotion_text += f"(强度{state.emotion_intensity})"
+                parts.append(emotion_text)
+            if state.health_status:
+                parts.append(f"健康: {state.health_status}")
+            if state.power_level:
+                parts.append(f"实力: {state.power_level}")
+            for label, value in (("能力变化", state.power_changes), ("当前目标", state.current_goals)):
+                if isinstance(value, list) and value:
+                    parts.append(f"{label}: " + "、".join(str(v) for v in value[:5] if v))
+                elif isinstance(value, str) and value:
+                    parts.append(f"{label}: {value}")
+            if not parts:
+                return ""
+            return f"{state.character_name}(第{state.chapter_number}章): " + "；".join(parts)
+        except Exception:  # 防御性兜底：状态数据异常不阻断一致性检查
+            return ""
+
     def _parse_check_response(self, response: str) -> ConsistencyCheckResult:
         """解析检查响应"""
         import json
