@@ -36,9 +36,15 @@ AI_LEXICAL_PATTERNS: List[str] = [
 # 层2: 转折词列表
 TRANSITION_WORDS: List[str] = ["然而", "但是", "不过", "却"]
 
-# 规则级替换表（无 LLM）：AI 高频词 → 更自然的替代，或空串表示可删
+# 规则级替换表（无 LLM）：AI 高频词 → 更自然的替代，或空串表示可删。
+# 两条硬约束（tests/test_humanization_rules_cleanup.py 程序化锁定）：
+# 1. 替换产物一律不得命中 AI_LEXICAL_PATTERNS（否则替换完再扫仍扣分，自我抵消，
+#    如旧表「显而易见→显然」「总而言之→总之」）；
+# 2. 空串（删除类）仅在句首/行首/标点后等安全位置生效（见 _delete_at_safe_positions），
+#    不做全文盲删。删除在任何位置都会破坏句法的词（「一切都」删掉丢主语，
+#    「仿佛在诉说」「似乎在暗示」删掉悬空宾语）不进本表，仅保留扣分。
 LEXICAL_REPLACEMENTS: Dict[str, str] = {
-    "显而易见": "显然",
+    "显而易见": "一眼就能看出",
     "综上所述": "",
     "值得注意的是": "",
     "不仅如此": "而且",
@@ -51,21 +57,18 @@ LEXICAL_REPLACEMENTS: Dict[str, str] = {
     "换言之": "",
     "由此可见": "",
     "正因如此": "所以",
-    "总而言之": "总之",
+    "总而言之": "说到底",
     "需要指出的是": "",
     "不难发现": "",
     "众所周知": "",
     "某种程度上": "",
     "在这一刻": "",
-    "仿佛在诉说": "",
-    "似乎在暗示": "",
     "不禁": "",
     "缓缓地": "缓缓",
     "默默地": "默默",
     "因此": "所以",
     "总的来说": "",
-    "一切都": "",
-    "这就是": "这便",
+    "这就是": "这便是",
 }
 
 # 层2: 对称句式正则
@@ -107,6 +110,7 @@ class HumanizationReport:
     lexical_deduction: int = 0
     structural_deduction: int = 0
     statistical_deduction: int = 0
+    missing_human_deduction: int = 0
     issues: List[HumanizationIssue] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -115,6 +119,7 @@ class HumanizationReport:
             "lexical_deduction": self.lexical_deduction,
             "structural_deduction": self.structural_deduction,
             "statistical_deduction": self.statistical_deduction,
+            "missing_human_deduction": self.missing_human_deduction,
             "issues": [
                 {
                     "layer": i.layer,
@@ -161,6 +166,21 @@ def _compute_std(values: List[float]) -> float:
     return variance ** 0.5
 
 
+_DELETE_BOUNDARY_CHARS = "。！？…；：，、\n"
+
+
+def _delete_at_safe_positions(text: str, word: str) -> str:
+    """仅在文首/行首/标点后删除 word（连带其后紧跟的逗号/顿号）。
+
+    避免全文盲删破坏句法（如「一切都变了」被截成「变了」）；
+    非安全位置的出现保持原样，由 LLM 定向修复兜底。
+    """
+    pattern = re.compile(
+        r"(^|[" + re.escape(_DELETE_BOUNDARY_CHARS) + r"])" + re.escape(word) + r"[，、]?"
+    )
+    return pattern.sub(r"\1", text)
+
+
 def _compute_cv(values: List[float]) -> float:
     """计算变异系数 (CV = std / mean)。"""
     if len(values) < 2:
@@ -198,7 +218,11 @@ class HumanizationService:
         self._scan_statistical(text, report)
         self._scan_missing_human_elements(text, report)
 
-        report.score = max(0, min(100, 100 - report.lexical_deduction - report.structural_deduction - report.statistical_deduction))
+        report.score = max(0, min(100, 100
+                                  - report.lexical_deduction
+                                  - report.structural_deduction
+                                  - report.statistical_deduction
+                                  - report.missing_human_deduction))
         return report
 
     def apply_rule_fixes(self, text: str, report: Optional[HumanizationReport] = None) -> str:
@@ -218,8 +242,12 @@ class HumanizationService:
             replacement = LEXICAL_REPLACEMENTS.get(word)
             if replacement is None:
                 continue
-            # 替换所有出现（整词，避免误伤）
-            result = result.replace(word, replacement)
+            if replacement == "":
+                # 删除类：仅在句首/行首/标点后等安全位置删除，避免破坏句法
+                result = _delete_at_safe_positions(result, word)
+            else:
+                # 替换所有出现（整词，避免误伤）
+                result = result.replace(word, replacement)
         # 清理替换产生的多余标点（含段落首的残留逗号）
         result = re.sub(r"[，]{2,}", "，", result)
         result = re.sub(r"[。]{2,}", "。", result)
@@ -515,4 +543,6 @@ class HumanizationService:
                 severity=d,
             ))
 
-        report.structural_deduction += min(total_deduction, max_deduction)
+        # 独立记账：不并入 structural 桶（旧实现 += 会让 structural 实际可达 60，穿透其 40 上限，
+        # to_dict 分层归因失真）
+        report.missing_human_deduction = min(total_deduction, max_deduction)
