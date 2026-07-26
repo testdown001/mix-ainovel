@@ -569,7 +569,6 @@ class PipelineOrchestrator(PipelineReviewMixin):
         enhanced_context = resolved_prefetch.enhanced_context
         project_memory_text = resolved_prefetch.project_memory_text
         rag_context = resolved_prefetch.rag_context
-        knowledge_context = resolved_prefetch.knowledge_context
         rag_stats = resolved_prefetch.rag_stats
         writer_prompt = resolved_prefetch.writer_prompt
         _mark_stage("prepare_context", stage_started)
@@ -717,7 +716,6 @@ class PipelineOrchestrator(PipelineReviewMixin):
             chapter_mission=chapter_mission,
             mission_brief_text=mission_brief_text,
             rag_context=rag_context,
-            knowledge_context=knowledge_context,
             outline_title=outline_title,
             outline_summary=outline_summary,
             writing_notes=writing_notes,
@@ -764,6 +762,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
         # ========== Literary 模式：场景级分步生成 ==========
         if config.enable_scene_by_scene:
             await _emit_stage("generate_scene_by_scene", "按场景分步生成中")
+            # 关键路径软预算：与标准分支同一起点(total_started)、同一预算配置；只约束
+            # literary 后处理链（雕塑/人味化/扩写/质检），场景生成本体不受预算约束。
+            _literary_budget_sec = getattr(settings, "generation_time_budget_sec", 0) or 0
+            literary_deadline = (total_started + _literary_budget_sec) if _literary_budget_sec > 0 else None
             literary_result = await self.literary_generation_flow_service.run(
                 voice_samples_task=_voice_samples_task,
                 context_plan=context_plan,
@@ -798,6 +800,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 run_enrichment=self._run_enrichment,
                 run_quality_detection=self._run_quality_detection,
                 mark_stage=_mark_stage,
+                deadline=literary_deadline,
             )
             version = literary_result.version
             best_content = literary_result.best_content

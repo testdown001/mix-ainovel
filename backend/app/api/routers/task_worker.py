@@ -227,7 +227,11 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         if req.task_type in ("chapter:generate", "chapter:batch_generate"):
             extra = req.config.extra or {}
             model_code = extra.get("model_code")
-            enable_polish = bool(extra.get("enable_polish"))
+            # literary 分支（enable_scene_by_scene）的后处理链不含 polish 步，
+            # 勾选也不会执行——不收附加费（收了必须交付，交付不了就不收）
+            enable_polish = bool(extra.get("enable_polish")) and not bool(
+                extra.get("enable_scene_by_scene")
+            )
             chapters = len(req.chapter_numbers) if req.chapter_numbers else 1
             async with AsyncSessionLocal() as gate_session:
                 tier = await get_user_tier(gate_session, req.user_id)
@@ -266,6 +270,28 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
             )
 
         duration_ms = int((time.time() - start_time) * 1000)
+
+        # literary 场景级降级：部分场景缺失的残章仍按 completed 交付（内容保留），
+        # 但已扣积分全额退还——收了钱必须交付完整章（batch 路径整批一笔扣费、
+        # 无法按章拆退，暂不处理，literary 批量场景极少）
+        if (
+            req.task_type == "chapter:generate"
+            and isinstance(result, dict)
+            and result.get("missing_scenes")
+        ):
+            try:
+                async with AsyncSessionLocal() as _refund_session:
+                    refunded = await asyncio.shield(
+                        refund_generation(_refund_session, req.user_id, ref_key=req.task_id)
+                    )
+                result["degraded"] = True
+                if refunded:
+                    logger.warning(
+                        "任务 %s 残章降级（缺失场景 %s），已全额退还积分 %d",
+                        req.task_id, result["missing_scenes"], refunded,
+                    )
+            except Exception:
+                logger.warning("残章退款检查失败（不影响任务交付）", exc_info=True)
 
         return WorkerTaskResponse(
             status="completed",
@@ -364,7 +390,17 @@ async def _execute_chapter_generate(
 
         await reporter.report(100, "completed", "章节生成完成")
 
-        return {
+        # literary 场景级降级信号：任一版本 metadata 带 missing_scenes 即上报，
+        # 供 execute_task 成功路径做"残章退款"判定
+        missing_scenes: list = []
+        for variant in result.get("variants") or []:
+            if isinstance(variant, dict):
+                scenes = (variant.get("metadata") or {}).get("missing_scenes")
+                if scenes:
+                    missing_scenes = list(scenes)
+                    break
+
+        payload = {
             "chapter_id": chapter.id,
             "chapter_number": req.chapter_number,
             "status": "completed",
@@ -372,6 +408,9 @@ async def _execute_chapter_generate(
             "best_version_index": result.get("best_version_index", 0),
             "preset": result.get("preset", config.preset),
         }
+        if missing_scenes:
+            payload["missing_scenes"] = missing_scenes
+        return payload
 
 
 async def _execute_batch_generate(

@@ -51,9 +51,13 @@ class SceneGenerationService:
         if not scenes or len(scenes) < 2:
             scenes = self.build_fallback_scenes(chapter_mission)
 
+        # 硬约束（禁止人物/POV/章节目标）单独成段、不参与压缩，每个场景完整携带；
+        # compress_context 只压叙事性上下文（骨架/前情等）——修复场景2+头部截断丢约束。
+        hard_constraints = self.build_hard_constraints(prompt_sections_data, chapter_mission)
         core_context = self.build_slim_context(prompt_sections_data)
         chapter_parts: List[str] = []
         scene_timings: List[int] = []
+        missing_scenes: List[int] = []
 
         for index, scene in enumerate(scenes):
             scene_start = time.perf_counter()
@@ -61,6 +65,8 @@ class SceneGenerationService:
             is_last = index == len(scenes) - 1
             scene_prompt_parts = []
 
+            if hard_constraints:
+                scene_prompt_parts.append(hard_constraints)
             if is_first:
                 scene_prompt_parts.append(core_context)
             else:
@@ -128,39 +134,43 @@ class SceneGenerationService:
                 fail_on_truncation=True,
             )
             scene_max_tokens = min(4096, int(max(700, scene_words) * 1.8))
+            # 场景级通用容错：任何异常（超时/5xx 等）重试一次，仍失败则以空场景继续拼章，
+            # 不炸整章（与截断的场景级降级一致）；截断降级在 _invoke_scene_llm 内处理。
+            response: Optional[str] = None
             try:
-                response = await self.llm_service.get_llm_response(
-                    max_tokens=scene_max_tokens,
-                    **scene_call_kwargs,
+                response = await self._invoke_scene_llm(
+                    scene_max_tokens=scene_max_tokens,
+                    scene_call_kwargs=scene_call_kwargs,
+                    scene_no=index + 1,
+                    total=len(scenes),
                 )
-            except LLMResponseTruncated as first_truncation:
-                # 场景输出被截断：提升 token 上限重试一次；再截断保留半截文本继续拼章（场景级不整章失败）
-                raised_max_tokens = min(settings.writer_max_tokens, int(scene_max_tokens * 1.5))
-                if raised_max_tokens <= scene_max_tokens:
-                    # writer_max_tokens 配置低于首次上限时「提升」会反降：同额/降额重试无意义，直接保留首次部分文本
-                    logger.warning(
-                        "场景 %d/%d 被截断且 max_tokens 已达配置顶格 (%d)，保留部分内容 (%d 字符)",
-                        index + 1, len(scenes), scene_max_tokens, len(first_truncation.partial_text),
+            except Exception as exc:
+                logger.warning("场景 %d/%d 生成失败（%s），重试一次", index + 1, len(scenes), exc)
+                try:
+                    response = await self._invoke_scene_llm(
+                        scene_max_tokens=scene_max_tokens,
+                        scene_call_kwargs=scene_call_kwargs,
+                        scene_no=index + 1,
+                        total=len(scenes),
                     )
-                    response = first_truncation.partial_text
-                else:
-                    scene_max_tokens = raised_max_tokens
-                    try:
-                        response = await self.llm_service.get_llm_response(
-                            max_tokens=scene_max_tokens,
-                            **scene_call_kwargs,
-                        )
-                    except LLMResponseTruncated as exc:
-                        logger.warning(
-                            "场景 %d/%d 提升 max_tokens=%d 重试后仍被截断，保留部分内容 (%d 字符)",
-                            index + 1, len(scenes), scene_max_tokens, len(exc.partial_text),
-                        )
-                        response = exc.partial_text
-            cleaned = remove_think_tags(response)
-            scene_text = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
+                except Exception as retry_exc:
+                    logger.warning(
+                        "场景 %d/%d 重试后仍失败（%s），以空场景继续拼章",
+                        index + 1, len(scenes), retry_exc,
+                    )
+            scene_text = ""
+            if response:
+                cleaned = remove_think_tags(response)
+                scene_text = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))
             if scene_text:
                 chapter_parts.append(scene_text)
+            else:
+                logger.warning("场景 %d/%d 无有效输出，记为缺失场景继续拼章", index + 1, len(scenes))
+                missing_scenes.append(index + 1)
             scene_timings.append(int((time.perf_counter() - scene_start) * 1000))
+
+        if not chapter_parts:
+            raise RuntimeError(f"文学模式全部 {len(scenes)} 个场景生成失败，无法拼章")
 
         content = "\n\n".join(chapter_parts)
         if max_word_count and len(content) > max_word_count:
@@ -185,8 +195,45 @@ class SceneGenerationService:
 
         metadata["scene_timings_ms"] = scene_timings
         metadata["scene_count"] = len(scenes)
+        if missing_scenes:
+            metadata["missing_scenes"] = missing_scenes
         metadata["scene_plan_applied"] = bool(prompt_sections_data.get("scene_plan"))
         return {"index": 0, "content": content, "metadata": metadata}
+
+    async def _invoke_scene_llm(
+        self,
+        *,
+        scene_max_tokens: int,
+        scene_call_kwargs: Dict[str, Any],
+        scene_no: int,
+        total: int,
+    ) -> str:
+        """单场景 LLM 调用，内置截断降级：提升 token 上限重试一次，仍截断保留半截文本。"""
+        try:
+            return await self.llm_service.get_llm_response(
+                max_tokens=scene_max_tokens,
+                **scene_call_kwargs,
+            )
+        except LLMResponseTruncated as first_truncation:
+            raised_max_tokens = min(settings.writer_max_tokens, int(scene_max_tokens * 1.5))
+            if raised_max_tokens <= scene_max_tokens:
+                # writer_max_tokens 配置低于首次上限时「提升」会反降：同额/降额重试无意义，直接保留首次部分文本
+                logger.warning(
+                    "场景 %d/%d 被截断且 max_tokens 已达配置顶格 (%d)，保留部分内容 (%d 字符)",
+                    scene_no, total, scene_max_tokens, len(first_truncation.partial_text),
+                )
+                return first_truncation.partial_text
+            try:
+                return await self.llm_service.get_llm_response(
+                    max_tokens=raised_max_tokens,
+                    **scene_call_kwargs,
+                )
+            except LLMResponseTruncated as exc:
+                logger.warning(
+                    "场景 %d/%d 提升 max_tokens=%d 重试后仍被截断，保留部分内容 (%d 字符)",
+                    scene_no, total, raised_max_tokens, len(exc.partial_text),
+                )
+                return exc.partial_text
 
     @staticmethod
     def _load_scene_plan(raw: Any) -> List[dict]:
@@ -215,13 +262,34 @@ class SceneGenerationService:
         ]
 
     @staticmethod
+    def build_hard_constraints(
+        prompt_sections_data: Dict[str, Any],
+        chapter_mission: Optional[dict],
+    ) -> str:
+        """硬约束段（章节目标/POV/禁止人物）：不参与压缩，每个场景完整携带。"""
+        parts: List[str] = []
+        chapter_goals = prompt_sections_data.get("chapter_goals", "")
+        if chapter_goals:
+            parts.append(str(chapter_goals))
+        pov = (chapter_mission or {}).get("pov")
+        if pov:
+            parts.append(f"[视角硬约束]\n本章视角(POV)：{pov}，全章不得漂移。")
+        forbidden = prompt_sections_data.get("forbidden_characters", "")
+        if forbidden:
+            parts.append(f"[禁止出场人物——硬约束]\n以下角色严禁在本章出现：{forbidden}")
+        if not parts:
+            return ""
+        return "[硬约束——每个场景都必须遵守]\n\n" + "\n\n".join(parts)
+
+    @staticmethod
     def build_slim_context(prompt_sections_data: Dict[str, Any]) -> str:
+        # 叙事性上下文（可压缩）；chapter_goals/forbidden_characters 已移入 build_hard_constraints
         priority_keys = [
-            "chapter_goals", "mission_brief", "director_script",
+            "mission_brief", "director_script",
             "story_skeleton", "previous_summary", "previous_tail",
             "skill_instructions",
             "scene_plan", "context_strategy",
-            "writer_blueprint", "forbidden_characters",
+            "writer_blueprint",
             "reference_prose", "fusion_dna",
         ]
         parts = []

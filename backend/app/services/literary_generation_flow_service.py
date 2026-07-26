@@ -66,6 +66,7 @@ class LiteraryGenerationFlowService:
         run_enrichment: Callable[..., Awaitable[tuple[str, Optional[Dict[str, Any]]]]],
         run_quality_detection: Callable[..., Awaitable[Dict[str, Any]]],
         mark_stage: Optional[Callable[[str, float], None]] = None,
+        deadline: Optional[float] = None,
     ) -> LiteraryGenerationFlowResult:
         voice_samples_text = ""
         if voice_samples_task is not None:
@@ -97,6 +98,16 @@ class LiteraryGenerationFlowService:
         stage_started = time.perf_counter()
         best_content = version["content"]
         review_summaries: Dict[str, Any] = {}
+
+        # 关键路径软预算（与 standard_post_processing._over_budget 同一模式）：deadline 为
+        # perf_counter 时间戳（None=不限）。每个可选后处理步启动前查剩余预算，不足单步预留
+        # (180s) 即跳过并记录；场景生成本体不受预算约束（正文优先），只裁后处理。
+        skipped_for_budget: list[str] = []
+        _PER_STEP_RESERVE_SEC = 180.0
+
+        def _over_budget() -> bool:
+            return deadline is not None and (deadline - time.perf_counter()) < _PER_STEP_RESERVE_SEC
+
         literary_profile = self.generation_policy_service.resolve_literary_postprocess_profile(
             config=config,
             chapter_mission=chapter_mission,
@@ -105,35 +116,48 @@ class LiteraryGenerationFlowService:
         review_summaries["literary_profile"] = literary_profile
 
         if literary_profile["enable_prose_sculpting"]:
-            from .prose_sculptor_service import ProseSculptorService
+            if _over_budget():
+                skipped_for_budget.append("prose_sculpting")
+            else:
+                from .prose_sculptor_service import ProseSculptorService
 
-            sculptor = ProseSculptorService(self.llm_service)
-            best_content, rhythm_report = await sculptor.sculpt_rhythm(
-                best_content,
-                user_id=user_id,
-                max_word_count=chapter_word_count_max,
-            )
-            review_summaries["rhythm_sculpting"] = rhythm_report
+                sculptor = ProseSculptorService(self.llm_service)
+                best_content, rhythm_report = await sculptor.sculpt_rhythm(
+                    best_content,
+                    user_id=user_id,
+                    max_word_count=chapter_word_count_max,
+                )
+                review_summaries["rhythm_sculpting"] = rhythm_report
 
-            best_content, density_report = await sculptor.sculpt_density(
-                best_content,
-                user_id=user_id,
-                max_word_count=chapter_word_count_max,
-            )
-            review_summaries["density_sculpting"] = density_report
+                # rhythm 与 density 是两次独立 LLM 调用：一次检查连跑两步会冲破
+                # 单步 180s 预留的预算不变量（正是该机制要防的 600s 硬超时复发）
+                if _over_budget():
+                    skipped_for_budget.append("density_sculpting")
+                else:
+                    best_content, density_report = await sculptor.sculpt_density(
+                        best_content,
+                        user_id=user_id,
+                        max_word_count=chapter_word_count_max,
+                    )
+                    review_summaries["density_sculpting"] = density_report
 
         if literary_profile["enable_golden_paragraph"]:
-            from .prose_sculptor_service import ProseSculptorService
+            if _over_budget():
+                skipped_for_budget.append("golden_paragraph")
+            else:
+                from .prose_sculptor_service import ProseSculptorService
 
-            sculptor = ProseSculptorService(self.llm_service)
-            best_content, golden_report = await sculptor.enhance_peak_moments(
-                best_content,
-                user_id=user_id,
-                chapter_mission=chapter_mission,
-            )
-            review_summaries["golden_paragraph"] = golden_report
+                sculptor = ProseSculptorService(self.llm_service)
+                best_content, golden_report = await sculptor.enhance_peak_moments(
+                    best_content,
+                    user_id=user_id,
+                    chapter_mission=chapter_mission,
+                )
+                review_summaries["golden_paragraph"] = golden_report
 
-        if literary_profile["enable_humanization"]:
+        if literary_profile["enable_humanization"] and _over_budget():
+            skipped_for_budget.append("humanization")
+        elif literary_profile["enable_humanization"]:
             try:
                 from .humanization_service import HumanizationService
 
@@ -157,15 +181,18 @@ class LiteraryGenerationFlowService:
             except Exception as exc:
                 logger.warning("人味化检查失败: %s", exc)
 
-        best_content, enrichment_report = await run_enrichment(
-            best_content,
-            user_id=user_id,
-            target_word_count=chapter_target_word_count,
-            min_word_count=chapter_word_count_min,
-            max_word_count=chapter_word_count_max,
-        )
-        if enrichment_report:
-            review_summaries["enrichment"] = enrichment_report
+        if _over_budget():
+            skipped_for_budget.append("enrichment")
+        else:
+            best_content, enrichment_report = await run_enrichment(
+                best_content,
+                user_id=user_id,
+                target_word_count=chapter_target_word_count,
+                min_word_count=chapter_word_count_min,
+                max_word_count=chapter_word_count_max,
+            )
+            if enrichment_report:
+                review_summaries["enrichment"] = enrichment_report
 
         guardrail_result = self.guardrails.check(
             generated_text=best_content,
@@ -185,14 +212,17 @@ class LiteraryGenerationFlowService:
             if chapter.get("summary")
         ][-3:]
         stage_started = time.perf_counter()
-        quality_report = await run_quality_detection(
-            best_content,
-            chapter_number=chapter_number,
-            chapter_mission=chapter_mission,
-            previous_chapters_openings=recent_openings,
-            user_id=user_id,
-        )
-        review_summaries["quality_detection"] = quality_report
+        if _over_budget():
+            skipped_for_budget.append("quality_detection")
+        else:
+            quality_report = await run_quality_detection(
+                best_content,
+                chapter_number=chapter_number,
+                chapter_mission=chapter_mission,
+                previous_chapters_openings=recent_openings,
+                user_id=user_id,
+            )
+            review_summaries["quality_detection"] = quality_report
         if mark_stage:
             mark_stage("literary_readonly_analyses", stage_started)
 
@@ -224,6 +254,13 @@ class LiteraryGenerationFlowService:
                         )
             except Exception as exc:
                 logger.warning("Literary实体别名替换失败（不影响生成）: %s", exc)
+
+        if skipped_for_budget:
+            logger.warning(
+                "Literary 生成超时间预算，已跳过后处理步骤以保证按时返回(避免 600s 硬超时): %s",
+                skipped_for_budget,
+            )
+            review_summaries["time_budget"] = {"exceeded": True, "skipped": skipped_for_budget}
 
         version["content"] = best_content
         version.setdefault("metadata", {})["review_summaries"] = review_summaries
