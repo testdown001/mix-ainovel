@@ -112,3 +112,67 @@ async def test_no_deadline_disables_budget():
     result = await _run(orch, deadline=None)  # 预算关闭
     assert orch.calls == ["combined_revision", "optimizer"]
     assert "time_budget" not in result["review_summaries"]
+
+
+@pytest.mark.asyncio
+async def test_budget_rechecked_between_steps(monkeypatch):
+    # 步间复检：进入 polish/enrichment 段时预算尚足，polish 一步吃穿剩余预算后，
+    # enrichment 应在自己启动前被复检拦下（此前四步只在段首查一次，连跑不复检）。
+    from app.services import standard_post_processing_service as spp_module
+
+    class _Clock:
+        def __init__(self):
+            self.now = 0.0
+
+        def perf_counter(self):
+            return self.now
+
+    clock = _Clock()
+    monkeypatch.setattr(spp_module, "time", clock)
+
+    class _SlowPolishOrchestrator:
+        def __init__(self):
+            self.calls: list[str] = []
+
+        async def _run_polish(self, content, **kwargs):
+            self.calls.append("polish")
+            clock.now += 900  # 该步耗尽剩余预算
+            return content + "·已润色", {"applied": True}
+
+        async def _run_enrichment(self, content, **kwargs):
+            self.calls.append("enrichment")
+            return content + "·已扩写", {"applied": True}
+
+    config = _config()
+    config.enable_optimizer = False
+    config.enable_polish = True
+    config.enable_enrichment = True
+
+    orch = _SlowPolishOrchestrator()
+    svc = StandardPostProcessingService(orch)
+    result = await svc.run(
+        best_content="正文",
+        best_version={"content": "正文", "metadata": {}},
+        ai_review_result=None,
+        review_summaries={},
+        config=config,
+        project_id="p1",
+        chapter_number=1,
+        chapter_mission={"pov": "第三人称"},
+        writer_blueprint={"characters": []},
+        history_context={"previous_summary": "", "completed_chapters": []},
+        user_id=1,
+        chapter_word_count_min=1000,
+        chapter_word_count_max=3000,
+        chapter_target_word_count=2000,
+        enhanced_flow=False,
+        outline_title="标题",
+        forbidden_characters=[],
+        allowed_new_characters=[],
+        deadline=1000.0,
+    )
+
+    # polish 启动时剩余 1000s 正常执行；enrichment 复检时仅剩 100s(<180s 单步预留) 被跳过
+    assert orch.calls == ["polish"]
+    assert result["review_summaries"]["time_budget"]["skipped"] == ["enrichment"]
+    assert result["best_content"] == "正文·已润色"

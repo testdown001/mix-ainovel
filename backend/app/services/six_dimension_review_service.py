@@ -59,7 +59,8 @@ class SixDimensionReviewService:
         chapter_plan: Optional[str] = None,
         previous_summary: Optional[str] = None,
         character_profiles: Optional[str] = None,
-        world_setting: Optional[str] = None
+        world_setting: Optional[str] = None,
+        user_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """执行六维度审查"""
         
@@ -103,6 +104,7 @@ class SixDimensionReviewService:
                     "你是一位资深的小说编辑，负责对章节进行全面的六维度审查。"
                     "请以 JSON 格式输出审查结果。"
                 ),
+                user_id=user_id,
                 default=fallback,
             )
         except Exception:
@@ -156,9 +158,11 @@ class SixDimensionReviewService:
         return results
 
     def _create_default_result(self, summary: str) -> Dict[str, Any]:
-        """创建默认结果"""
+        """创建降级兜底结果：分数置 0 并打 degraded 标记，供调用方识别后跳过
+        自动重写等依赖真实分数的逻辑，避免兜底分伪装成审查通过。"""
         return {
-            "overall_score": 80,
+            "overall_score": 0,
+            "degraded": True,
             "dimensions": {
                 "constitution_compliance": {"score": 100, "issues": []},
                 "internal_consistency": {"score": 100, "issues": []},

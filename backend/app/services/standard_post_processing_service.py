@@ -168,68 +168,73 @@ class StandardPostProcessingService:
         enrichment_enabled = config.enable_enrichment and not optimizer_enabled
         polish_only = config.enable_polish and not optimizer_enabled
         density_enabled = config.enable_density_compression
-        if _over_budget():
-            if optimizer_enabled:
-                skipped_for_budget.append("optimizer")
-            if polish_only:
-                skipped_for_budget.append("polish")
-            if enrichment_enabled:
-                skipped_for_budget.append("enrichment")
-            if density_enabled:
-                skipped_for_budget.append("density_compression")
-            optimizer_enabled = enrichment_enabled = polish_only = density_enabled = False
+        # 每个可选 LLM 步执行前各自复检预算：前一步耗时可能已把剩余预算吃穿，
+        # 只在四步连跑前查一次会让后续步骤在预算耗尽后仍然启动。
         if optimizer_enabled:
-            merge_polish = config.enable_polish
-            merge_density = (
-                config.enable_density_compression
-                and chapter_word_count_max
-                and len(best_content) >= chapter_word_count_max * 0.90
-            )
-            best_content, optimizer_report = await orchestrator._run_optimizer(
-                best_content,
-                user_id=user_id,
-                include_polish=merge_polish,
-                include_density=merge_density,
-                max_word_count=chapter_word_count_max,
-            )
-            review_summaries["optimizer"] = optimizer_report
-            if merge_polish:
-                review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
-            if merge_density:
-                review_summaries["density_compression"] = {"applied": True, "merged_into_optimizer": True}
+            if _over_budget():
+                skipped_for_budget.append("optimizer")
+                optimizer_enabled = False
+            else:
+                merge_polish = config.enable_polish
+                merge_density = (
+                    config.enable_density_compression
+                    and chapter_word_count_max
+                    and len(best_content) >= chapter_word_count_max * 0.90
+                )
+                best_content, optimizer_report = await orchestrator._run_optimizer(
+                    best_content,
+                    user_id=user_id,
+                    include_polish=merge_polish,
+                    include_density=merge_density,
+                    max_word_count=chapter_word_count_max,
+                )
+                review_summaries["optimizer"] = optimizer_report
+                if merge_polish:
+                    review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
+                if merge_density:
+                    review_summaries["density_compression"] = {"applied": True, "merged_into_optimizer": True}
 
         if polish_only:
-            best_content, polish_report = await orchestrator._run_polish(
-                best_content,
-                user_id=user_id,
-                max_word_count=chapter_word_count_max,
-            )
-            review_summaries["polish"] = polish_report
-
-        if enrichment_enabled:
-            best_content, enrichment_report = await orchestrator._run_enrichment(
-                best_content,
-                user_id=user_id,
-                target_word_count=chapter_target_word_count,
-                min_word_count=chapter_word_count_min,
-                max_word_count=chapter_word_count_max,
-            )
-            if enrichment_report:
-                review_summaries["enrichment"] = enrichment_report
-
-        if density_enabled and not (
-            optimizer_enabled and review_summaries.get("density_compression", {}).get("merged_into_optimizer")
-        ):
-            current_len = len(best_content)
-            if chapter_word_count_max and current_len < chapter_word_count_max * 0.90:
-                review_summaries["density_compression"] = {"applied": False, "reason": "below_90pct_max"}
+            if _over_budget():
+                skipped_for_budget.append("polish")
             else:
-                best_content, density_report = await orchestrator._run_density_compression(
+                best_content, polish_report = await orchestrator._run_polish(
                     best_content,
                     user_id=user_id,
                     max_word_count=chapter_word_count_max,
                 )
-                review_summaries["density_compression"] = density_report
+                review_summaries["polish"] = polish_report
+
+        if enrichment_enabled:
+            if _over_budget():
+                skipped_for_budget.append("enrichment")
+            else:
+                best_content, enrichment_report = await orchestrator._run_enrichment(
+                    best_content,
+                    user_id=user_id,
+                    target_word_count=chapter_target_word_count,
+                    min_word_count=chapter_word_count_min,
+                    max_word_count=chapter_word_count_max,
+                )
+                if enrichment_report:
+                    review_summaries["enrichment"] = enrichment_report
+
+        if density_enabled and not (
+            optimizer_enabled and review_summaries.get("density_compression", {}).get("merged_into_optimizer")
+        ):
+            if _over_budget():
+                skipped_for_budget.append("density_compression")
+            else:
+                current_len = len(best_content)
+                if chapter_word_count_max and current_len < chapter_word_count_max * 0.90:
+                    review_summaries["density_compression"] = {"applied": False, "reason": "below_90pct_max"}
+                else:
+                    best_content, density_report = await orchestrator._run_density_compression(
+                        best_content,
+                        user_id=user_id,
+                        max_word_count=chapter_word_count_max,
+                    )
+                    review_summaries["density_compression"] = density_report
 
         if enhanced_flow and config.enable_six_dimension and _over_budget():
             skipped_for_budget.append("six_dimension")
@@ -259,40 +264,57 @@ class StandardPostProcessingService:
                     previous_summary=history_context["previous_summary"],
                 )
 
-                review_summaries["enhanced_review"] = {
-                    "status": "completed",
-                    "score": six_dim_result.get("overall_score", 0),
-                }
-                min_score_threshold = getattr(config, "six_dimension_min_score", 70)
-                overall_score = six_dim_result.get("overall_score", 0)
-                if overall_score < min_score_threshold:
-                    critical_flaws = []
-                    suggestions = six_dim_result.get("overall_review", "")
-                    for dim, analysis in six_dim_result.get("dimensions", {}).items():
-                        if analysis.get("score", 100) < min_score_threshold:
-                            fault = analysis.get("analysis", "")
-                            if fault:
-                                critical_flaws.append(f"[{dim}缺陷]: {fault}")
-                    if critical_flaws or suggestions:
-                        refined_content, revision_meta = await orchestrator._run_combined_revision(
-                            chapter_content=best_content,
-                            critical_flaws=critical_flaws,
-                            refinement_suggestions=suggestions,
-                            enable_self_critique=False,
-                            chapter_mission=chapter_mission,
-                            user_id=user_id,
-                            context=history_context,
-                            max_word_count=chapter_word_count_max,
-                        )
-                        if revision_meta.get("applied"):
-                            best_content = refined_content
-                            review_summaries["auto_refiner"] = {
-                                "triggered": True,
-                                "original_score": overall_score,
-                                "flaws_fixed": len(critical_flaws),
-                            }
+                if six_dim_result.get("degraded"):
+                    # 审查降级（提示词缺失/解析失败兜底）：分数不可信，不触发重写也不伪装通过
+                    review_summaries["enhanced_review"] = {"status": "degraded"}
+                else:
+                    overall_score = six_dim_result.get("overall_score", 0)
+                    review_summaries["enhanced_review"] = {
+                        "status": "completed",
+                        "score": overall_score,
+                    }
+                    min_score_threshold = config.six_dimension_min_score
+                    if overall_score < min_score_threshold:
+                        # 反馈按提示词真实输出结构提取：summary 为总评，
+                        # 各维度 issues 里的重度问题拼成缺陷清单
+                        suggestions = six_dim_result.get("summary", "")
+                        critical_flaws = []
+                        for dim, analysis in six_dim_result.get("dimensions", {}).items():
+                            if not isinstance(analysis, dict):
+                                continue
+                            for issue in analysis.get("issues") or []:
+                                if not isinstance(issue, dict):
+                                    continue
+                                if issue.get("severity") not in ("critical", "major"):
+                                    continue
+                                parts = [
+                                    part
+                                    for part in (issue.get("description", ""), issue.get("suggestion", ""))
+                                    if part
+                                ]
+                                if parts:
+                                    critical_flaws.append(f"[{dim}缺陷]: " + "；".join(parts))
+                        if critical_flaws or suggestions:
+                            refined_content, revision_meta = await orchestrator._run_combined_revision(
+                                chapter_content=best_content,
+                                critical_flaws=critical_flaws,
+                                refinement_suggestions=suggestions,
+                                enable_self_critique=False,
+                                chapter_mission=chapter_mission,
+                                user_id=user_id,
+                                context=history_context,
+                                max_word_count=chapter_word_count_max,
+                            )
+                            if revision_meta.get("applied"):
+                                best_content = refined_content
+                                review_summaries["auto_refiner"] = {
+                                    "triggered": True,
+                                    "original_score": overall_score,
+                                    "flaws_fixed": len(critical_flaws),
+                                }
             except Exception as exc:
                 logger.warning("同步六维打分/重写失败，跳过拦截: %s", exc)
+                review_summaries["enhanced_review"] = {"status": "degraded", "error": str(exc)}
 
         best_guardrail_meta = best_version.get("metadata", {}).get("guardrail", {})
         if best_guardrail_meta.get("deferred_llm_rewrite"):

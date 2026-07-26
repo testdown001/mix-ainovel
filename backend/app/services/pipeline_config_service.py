@@ -24,6 +24,7 @@ class PipelineConfig:
     enable_constitution: bool = False
     enable_persona: bool = False
     enable_six_dimension: bool = False
+    six_dimension_min_score: int = 70
     enable_reader_sim: bool = False
     enable_self_critique: bool = False
     enable_memory: bool = False
@@ -97,6 +98,7 @@ class PipelineConfigService:
         config.rag_retrieval_mode = getattr(settings, "rag_retrieval_mode", "vector")
         config.enable_pacing_control = bool(getattr(settings, "enable_pacing_control", False))
         config.pacing_model = getattr(settings, "pacing_model", "default")
+        config.six_dimension_min_score = int(getattr(settings, "six_dimension_min_score", 70))
 
         if getattr(settings, "enable_humanization", True):
             config.enable_humanization = True
