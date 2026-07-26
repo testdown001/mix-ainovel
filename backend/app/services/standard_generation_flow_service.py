@@ -154,10 +154,9 @@ class StandardGenerationFlowService:
                         entity_service = EntityRegistryService(bg_session)
                         alias_map = await entity_service.build_alias_map(project_id)
                         if alias_map:
-                            for alias, canonical in alias_map.items():
-                                if alias != canonical and alias in best_content:
-                                    best_content = best_content.replace(alias, canonical)
-                                    logger.info("标准模式实体别名替换: %s -> %s", alias, canonical)
+                            best_content = EntityRegistryService.apply_alias_replacements(
+                                best_content, alias_map, log_prefix="标准模式实体别名替换",
+                            )
                 except Exception as exc:
                     logger.warning("标准模式实体别名替换失败（不影响生成）: %s", exc)
 

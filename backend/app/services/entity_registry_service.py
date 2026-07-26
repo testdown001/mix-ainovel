@@ -188,7 +188,13 @@ class EntityRegistryService:
         all_entities = await self.get_all_entities(project_id)
         best_match = None
         best_distance = float("inf")
-        threshold = max(2, len(name) // 3)
+        # 中文名普遍 2-4 字：阈值按长度分级，短名沿用 max(2, len//3) 等于任意换字都算匹配
+        if len(name) <= 2:
+            threshold = 0  # 2 字及以下仅接受精确匹配
+        elif len(name) == 3:
+            threshold = 1
+        else:
+            threshold = max(2, len(name) // 3)
 
         for entity in all_entities:
             dist = self._edit_distance(name, entity.canonical_name)
@@ -277,6 +283,41 @@ class EntityRegistryService:
                     alias=alias,
                     alias_type="alias",
                 ))
+
+    @staticmethod
+    def apply_alias_replacements(
+        content: str,
+        alias_map: Dict[str, str],
+        *,
+        log_prefix: str = "实体别名替换",
+    ) -> str:
+        """按 别名→正式名 映射替换正文，带护栏防误替换（fast/standard/literary 三流共用）。
+
+        护栏：仅替换 len(alias)>=2、alias != canonical、且 alias 不是任何正式名子串的项——
+        单字/常用短词与名字子串（如「小明」之于「王小明」）全文 str.replace 会误伤，直接跳过。
+        """
+        if not content or not alias_map:
+            return content
+        canonical_names = set(alias_map.values())
+        total_replaced = 0
+        for alias, canonical in alias_map.items():
+            if not alias or alias == canonical:
+                continue
+            if len(alias) < 2:
+                logger.debug("%s: 跳过过短别名 %r -> %s", log_prefix, alias, canonical)
+                continue
+            if any(alias in name for name in canonical_names):
+                logger.debug("%s: 跳过子串风险别名 %s -> %s", log_prefix, alias, canonical)
+                continue
+            occurrences = content.count(alias)
+            if not occurrences:
+                continue
+            content = content.replace(alias, canonical)
+            total_replaced += occurrences
+            logger.debug("%s: %s -> %s (%d 处)", log_prefix, alias, canonical, occurrences)
+        if total_replaced:
+            logger.info("%s: 共替换 %d 处", log_prefix, total_replaced)
+        return content
 
     @staticmethod
     def _edit_distance(s1: str, s2: str) -> int:
