@@ -764,6 +764,34 @@ async def generate_blueprint(
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
     logger.info("项目 %s 开始生成蓝图", project_id)
 
+    # 重生成保护：replace_blueprint 落库会先清空全部章节大纲再从 1 重编号，
+    # 项目一旦存在章节创作成果（草稿版本或定稿章），重编号会与已写章节错位、毁掉既有成果，
+    # 直接拒绝；纯大纲扩写、零写作时放行（重生成蓝图本就意味着重来，且用户没有自助清空大纲的入口）。
+    # 检查放在 LLM 调用之前，避免白耗 token。
+    from ...models.novel import Chapter, ChapterVersion
+
+    has_chapter_work = (
+        await session.execute(
+            select(ChapterVersion.id)
+            .join(Chapter, ChapterVersion.chapter_id == Chapter.id)
+            .where(Chapter.project_id == project_id)
+            .limit(1)
+        )
+    ).scalar_one_or_none() is not None
+    if not has_chapter_work:
+        has_chapter_work = (
+            await session.execute(
+                select(Chapter.id)
+                .where(Chapter.project_id == project_id, Chapter.selected_version_id.isnot(None))
+                .limit(1)
+            )
+        ).scalar_one_or_none() is not None
+    if has_chapter_work:
+        raise HTTPException(
+            status_code=409,
+            detail="项目已有章节创作成果，重新生成蓝图会清空并重排全部章节大纲、与已写章节错位，已阻止操作。如需全新蓝图请新建项目。",
+        )
+
     history_records = await novel_service.list_conversations(project_id)
     if not history_records:
         logger.warning("项目 %s 缺少对话历史，无法生成蓝图", project_id)
@@ -1724,6 +1752,7 @@ async def list_concepts(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """获取项目的所有概念 / 设定百科条目"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     stmt = select(EntityRegistry).where(
         EntityRegistry.project_id == project_id,
         EntityRegistry.is_active == True,
@@ -1765,6 +1794,7 @@ async def create_concept(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """创建新概念"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     entity = EntityRegistry(
         project_id=project_id,
         entity_type=data.entity_type,
@@ -1795,6 +1825,7 @@ async def update_concept(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """更新概念"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     stmt = select(EntityRegistry).where(
         EntityRegistry.id == concept_id,
         EntityRegistry.project_id == project_id,
@@ -1836,6 +1867,7 @@ async def delete_concept(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """删除概念"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     stmt = select(EntityRegistry).where(
         EntityRegistry.id == concept_id,
         EntityRegistry.project_id == project_id,
@@ -2130,6 +2162,7 @@ async def get_chapter_scenes(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """获取章节的场景列表"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     from ...models.novel import ChapterOutline
     stmt = select(ChapterOutline).where(
         ChapterOutline.project_id == project_id,
@@ -2154,6 +2187,7 @@ async def update_chapter_scenes(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """更新章节的场景列表"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     from ...models.novel import ChapterOutline
     stmt = select(ChapterOutline).where(
         ChapterOutline.project_id == project_id,
@@ -2210,6 +2244,7 @@ async def generate_chapter_scenes(
     current_user: UserInDB = Depends(get_current_user),
 ):
     """AI自动拆分章节为场景"""
+    await NovelService(session).assert_project_owner(project_id, current_user.id)
     from ...models.novel import ChapterOutline
     llm_service = LLMService(session)
 

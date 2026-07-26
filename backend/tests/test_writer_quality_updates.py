@@ -260,12 +260,14 @@ def test_generate_chapter_scenes_uses_conversation_history(monkeypatch):
             return outline
 
     llm_service = SimpleNamespace(get_llm_response=AsyncMock(return_value='{"scenes": []}'))
+    novel_service = SimpleNamespace(assert_project_owner=AsyncMock())
     fake_session = SimpleNamespace(
         execute=AsyncMock(return_value=_ExecResult()),
         commit=AsyncMock(),
     )
 
     monkeypatch.setattr(novels, "LLMService", lambda session: llm_service)
+    monkeypatch.setattr(novels, "NovelService", lambda session: novel_service)
 
     result = asyncio.run(
         novels.generate_chapter_scenes(
@@ -278,6 +280,7 @@ def test_generate_chapter_scenes_uses_conversation_history(monkeypatch):
 
     assert result["status"] == "success"
     assert result["scenes"] == []
+    novel_service.assert_project_owner.assert_awaited_once_with("project-1", 7)
     assert "0 个场景" in result["message"]
     llm_kwargs = llm_service.get_llm_response.await_args.kwargs
     assert llm_kwargs["conversation_history"] == [{"role": "user", "content": "请拆分场景。"}]
