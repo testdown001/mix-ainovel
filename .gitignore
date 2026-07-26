@@ -40,3 +40,4 @@ __pycache__/
 /gateway/gateway
 /gateway/bin/
 /gateway/logs/
+/backend/storage/bench/
