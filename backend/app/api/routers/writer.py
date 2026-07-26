@@ -1051,13 +1051,41 @@ async def generate_chapters_outline(
                 except Exception:
                     raise
         new_outlines = data.get("chapters", [])
+        # 已完成章节不允许被覆盖（与 regenerate-outlines 的 completed_numbers 口径一致，按 status 判断）
+        completed_numbers = {
+            ch.chapter_number for ch in project.chapters if ch.status == "successful"
+        }
+        skipped_count = 0
         for item in new_outlines:
-            await novel_service.update_or_create_outline(
-                project_id, 
-                item["chapter_number"], 
-                item["title"], 
-                item["summary"]
-            )
+            ch_num = item.get("chapter_number")
+            title = item.get("title")
+            summary = item.get("summary")
+            try:
+                # 兼容 LLM 输出数字字符串（如 "12"，repair_json 修复残缺回包时常见）
+                ch_num = int(ch_num)
+            except (TypeError, ValueError):
+                ch_num = None
+            if ch_num is None or title is None or summary is None:
+                logger.warning(
+                    "大纲生成: 跳过字段缺失或无效的项 chapter_number=%s title=%s",
+                    item.get("chapter_number"), title,
+                )
+                skipped_count += 1
+                continue
+            if ch_num < request.start_chapter or ch_num > end_chapter:
+                logger.warning(
+                    "大纲生成: 章号 %d 超出本次请求范围 [%d, %d]，跳过",
+                    ch_num, request.start_chapter, end_chapter,
+                )
+                skipped_count += 1
+                continue
+            if ch_num in completed_numbers:
+                logger.warning("大纲生成: 第%d章已完成生成，跳过不覆盖其大纲", ch_num)
+                skipped_count += 1
+                continue
+            await novel_service.update_or_create_outline(project_id, ch_num, title, summary)
+        if skipped_count:
+            logger.info("大纲生成: 共跳过 %d 项（字段缺失或章节已完成）", skipped_count)
         await session.commit()
     except Exception as exc:
         logger.exception("生成大纲解析失败: %s\n原始响应前500字: %s", exc, (normalized or "")[:500])
