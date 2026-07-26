@@ -70,6 +70,7 @@ task_dispatcher:
   # 不会让"快模型/失败"傻等，只给慢的思考模型留足时间。需要更久可继续调大。
   default_timeout: 30m
   batch_timeout: 120m
+  blueprint_timeout: 15m     # 蓝图生成任务超时（两段式 LLM，通常 5~12min）
   max_retries: 3
   retry_delay: 5s
   poll_interval: 100ms

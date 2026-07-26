@@ -122,6 +122,19 @@ def _build_recent_full_older_brief(
     return lines
 
 
+def _governed_outline_lines(outlines) -> List[str]:
+    """把大纲对象列表转为治理后的行：近 OUTLINE_CONTEXT_RECENT_CHAPTERS 章全量，更早仅标题。"""
+    entries = [
+        (
+            o.chapter_number,
+            f"第{o.chapter_number}章 - {o.title}: {o.summary}",
+            f"第{o.chapter_number}章 - {o.title}",
+        )
+        for o in sorted(outlines, key=lambda x: x.chapter_number)
+    ]
+    return _build_recent_full_older_brief(entries, OUTLINE_CONTEXT_RECENT_CHAPTERS)
+
+
 ROLLING_OUTLINE_CONTEXT_CHAR_BUDGET = 2000  # 批量大纲：前序批次滚动摘要行的字符预算
 
 
@@ -1369,12 +1382,10 @@ async def regenerate_chapter_outlines(
     prompt_parts.append(f"[世界蓝图]\n{blueprint_text}")
 
     if completed_summaries:
-        # 有已完成章节时，包含其大纲和摘要作为参考
-        existing_completed_outlines = [
-            f"第{o.chapter_number}章 - {o.title}: {o.summary}"
-            for o in sorted(project.outlines, key=lambda x: x.chapter_number)
-            if o.chapter_number in completed_numbers
-        ]
+        # 有已完成章节时，包含其大纲和摘要作为参考（近 20 章全量，更早仅标题）
+        existing_completed_outlines = _governed_outline_lines(
+            [o for o in project.outlines if o.chapter_number in completed_numbers]
+        )
         existing_completed_text = "\n".join(existing_completed_outlines)
         completed_text = "\n".join(completed_summaries)
         prompt_parts.append(f"[已完成章节的大纲（不可修改）]\n{existing_completed_text}")
@@ -1389,11 +1400,8 @@ async def regenerate_chapter_outlines(
         title_style_hint += "，简短凝练、富有意境"
 
     if generate_fresh:
-        # 生成后续时，需要把所有已有大纲（含未完成的）作为上下文传给 LLM
-        all_existing_outlines = [
-            f"第{o.chapter_number}章 - {o.title}: {o.summary}"
-            for o in sorted(project.outlines, key=lambda x: x.chapter_number)
-        ]
+        # 生成后续时，把所有已有大纲（含未完成的）作为上下文传给 LLM（近 20 章全量，更早仅标题）
+        all_existing_outlines = _governed_outline_lines(project.outlines)
         if all_existing_outlines:
             prompt_parts.append(f"[已有全部章节大纲（续写时需衔接）]\n" + "\n".join(all_existing_outlines))
 

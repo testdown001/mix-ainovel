@@ -19,6 +19,7 @@ from ..models.foreshadowing import (
     ForeshadowingReminder
 )
 from .llm_service import LLMService
+from .platinum_writing_context import overdue_age_threshold, resolve_total_chapters
 from .prompt_service import PromptService
 
 logger = logging.getLogger(__name__)
@@ -50,13 +51,18 @@ class ForeshadowingTrackerService:
         return list(result.scalars().all())
 
     async def get_foreshadowings_for_chapter(
-        self, 
-        project_id: str, 
-        chapter_number: int
+        self,
+        project_id: str,
+        chapter_number: int,
+        total_chapters: Optional[int] = None,
     ) -> Dict[str, List[Foreshadowing]]:
         """获取与指定章节相关的伏笔"""
         all_active = await self.get_active_foreshadowings(project_id)
-        
+        # overdue 阈值随总章数缩放：max(20, total//5)；未传时就地取大纲总数，拿不到降级基线 20
+        if total_chapters is None:
+            total_chapters = await resolve_total_chapters(self.db, project_id)
+        overdue_after = overdue_age_threshold(total_chapters)
+
         result = {
             "urgent": [],  # 紧迫的伏笔
             "due_soon": [],  # 即将到期的伏笔
@@ -80,10 +86,10 @@ class ForeshadowingTrackerService:
                     result["overdue"].append(fs)
                     continue
             
-            # 检查是否超期（埋下后超过20章）
+            # 检查是否超期（埋下后超过阈值：基线 20 章，长篇随总章数放宽）
             if fs.chapter_number:
                 chapters_since = chapter_number - fs.chapter_number
-                if chapters_since >= 20:
+                if chapters_since >= overdue_after:
                     result["overdue"].append(fs)
                     continue
             

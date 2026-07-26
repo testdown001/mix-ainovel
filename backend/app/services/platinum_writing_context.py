@@ -6,9 +6,11 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.foreshadowing import Foreshadowing
+from ..models.novel import ChapterOutline
 from .foreshadowing_service import ForeshadowingService
 
 PLATINUM_WRITING_BRIEF_FALLBACK = """
@@ -33,6 +35,29 @@ _IMPORTANCE_WEIGHT = {
     "minor": 2,
     "subtle": 1,
 }
+
+FORESHADOW_OVERDUE_BASE_CHAPTERS = 20  # 埋设超期基线；长篇按 total//5 放宽
+
+
+def overdue_age_threshold(total_chapters: Optional[int]) -> int:
+    """埋设超期阈值：随总章数缩放 max(20, total//5)；拿不到 total 时保持基线 20。"""
+    if not total_chapters or total_chapters <= 0:
+        return FORESHADOW_OVERDUE_BASE_CHAPTERS
+    return max(FORESHADOW_OVERDUE_BASE_CHAPTERS, total_chapters // 5)
+
+
+async def resolve_total_chapters(session: AsyncSession, project_id: str) -> Optional[int]:
+    """取项目大纲总章数（overdue 阈值缩放用）；查询失败/无大纲返回 None（调用方降级基线）。"""
+    try:
+        result = await session.execute(
+            select(func.count())
+            .select_from(ChapterOutline)
+            .where(ChapterOutline.project_id == project_id)
+        )
+        total = int(result.scalar() or 0)
+        return total if total > 0 else None
+    except Exception:
+        return None
 
 
 def build_platinum_rhythm_brief(
@@ -169,10 +194,11 @@ async def build_foreshadowing_urgency_brief(
         return "当前没有未回收伏笔。本章可新增 1-2 个短线伏笔，并确保可在 3-8 章内兑现。"
 
     semantic_scores = await _semantic_foreshadowing_scores(llm_service, query_text or "", unresolved)
+    total_chapters = await resolve_total_chapters(session, project_id)
 
     ranked: List[Tuple[int, List[str], Foreshadowing]] = []
     for item in unresolved:
-        score, reasons = _score_foreshadowing(item, chapter_number)
+        score, reasons = _score_foreshadowing(item, chapter_number, total_chapters)
         sim = semantic_scores.get(item.id)
         if sim and sim > 0:
             sem_points = round(sim * 10)  # 语义相关性加成(0-10)，与紧迫度同量级但不喧宾夺主
@@ -217,7 +243,11 @@ def _resolve_stage(chapter_number: int, total_chapters: int) -> Tuple[str, str, 
     )
 
 
-def _score_foreshadowing(item: Foreshadowing, chapter_number: int) -> Tuple[int, List[str]]:
+def _score_foreshadowing(
+    item: Foreshadowing,
+    chapter_number: int,
+    total_chapters: Optional[int] = None,
+) -> Tuple[int, List[str]]:
     score = 0
     reasons: List[str] = []
 
@@ -248,7 +278,7 @@ def _score_foreshadowing(item: Foreshadowing, chapter_number: int) -> Tuple[int,
 
     if item.chapter_number:
         age = max(0, chapter_number - item.chapter_number)
-        if age >= 20:
+        if age >= overdue_age_threshold(total_chapters):
             score += 4
             reasons.append(f"已埋设 {age} 章，读者记忆风险高")
         elif age >= 10:
