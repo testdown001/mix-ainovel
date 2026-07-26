@@ -465,6 +465,56 @@ class ForeshadowingService:
         
         return reminders
 
+    # 喂给提取 LLM 的未回收伏笔上限（每条一行，token 可控）
+    EXTRACTION_UNRESOLVED_LIMIT = 30
+
+    async def _select_unresolved_for_extraction(
+        self,
+        unresolved: List[Foreshadowing],
+        chapter_number: int,
+        chapter_content: str,
+        llm_service,
+        limit: int = EXTRACTION_UNRESOLVED_LIMIT,
+    ) -> List[Foreshadowing]:
+        """挑选喂给提取 LLM 的未回收伏笔（超过 limit 时按优先级取子集）。
+
+        优先复用白金上下文的语义评分能力：与本章内容的语义相关性 +
+        紧迫度/逾期启发式加权排序；embedding 不可用时降级为
+        「最早 5 条保底 + 其余按埋设章节倒序（近期优先）」，
+        避免长篇几十个活跃伏笔时中后期伏笔永远进不了提取列表。
+        """
+        if len(unresolved) <= limit:
+            return list(unresolved)
+
+        semantic_scores: Dict[int, float] = {}
+        score_heuristic = None
+        try:
+            # 懒 import 避免与 platinum_writing_context 的循环依赖
+            from .platinum_writing_context import (
+                _score_foreshadowing,
+                _semantic_foreshadowing_scores,
+            )
+            score_heuristic = _score_foreshadowing
+            semantic_scores = await _semantic_foreshadowing_scores(
+                llm_service, (chapter_content or "")[:2000], unresolved
+            )
+        except Exception:
+            semantic_scores = {}
+
+        if semantic_scores and score_heuristic is not None:
+            def _priority(item: Foreshadowing) -> float:
+                heuristic, _ = score_heuristic(item, chapter_number)
+                # 语义相关性加成(0-10)，与紧迫度同量级（对齐白金上下文的权重约定）
+                return round(semantic_scores.get(item.id, 0.0) * 10) + heuristic
+
+            return sorted(unresolved, key=_priority, reverse=True)[:limit]
+
+        # 降级：最早 5 条保底 + 其余按埋设章节倒序（近期优先）
+        by_chapter = sorted(unresolved, key=lambda f: (f.chapter_number or 0, f.id or 0))
+        earliest = by_chapter[:5]
+        recent_first = list(reversed(by_chapter[5:]))
+        return earliest + recent_first[: limit - len(earliest)]
+
     async def extract_foreshadowings_from_chapter(
         self,
         *,
@@ -495,8 +545,11 @@ class ForeshadowingService:
         unresolved = await self.get_unresolved_foreshadowings(project_id, chapter_number)
         unresolved_text = ""
         if unresolved:
+            selected = await self._select_unresolved_for_extraction(
+                unresolved, chapter_number, chapter_content, llm_service
+            )
             items = []
-            for f in unresolved[:10]:
+            for f in selected:
                 items.append(f"ID={f.id} | {f.content} | 关键词：{','.join(f.keywords or [])}")
             unresolved_text = "\n".join(items)
 

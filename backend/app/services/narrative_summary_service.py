@@ -251,7 +251,7 @@ class NarrativeSummaryService:
             parts.append("# 卷级概要")
             for v in volume_summaries:
                 vol_title = v['title'] or f"第{v['volume_number']}卷"
-            parts.append(f"## {vol_title}\n{v['summary']}")
+                parts.append(f"## {vol_title}\n{v['summary']}")
             parts.append("")
 
         # 章节摘要（增量模式只送最近章节，首次送全量）
