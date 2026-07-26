@@ -19,6 +19,20 @@ from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 全部已打开的 redis 客户端（CacheService 按实例懒建、从不关闭——CLI/脚本进程退出时
+# 客户端在事件循环关闭后才被 GC 析构，__del__ 触发 "Event loop is closed" 噪音）
+_open_clients: "set[Redis]" = set()
+
+
+async def close_all_cache_clients() -> None:
+    """关闭全部缓存 redis 连接。供 CLI/脚本在事件循环关闭前调用；Web 进程无需调用。"""
+    for client in list(_open_clients):
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+        _open_clients.discard(client)
+
 
 class CacheService:
     """
@@ -64,6 +78,7 @@ class CacheService:
                 decode_responses=True,
                 max_connections=50,
             )
+            _open_clients.add(self._redis)
         return self._redis
 
     def _make_key(self, prefix: str, *args) -> str:

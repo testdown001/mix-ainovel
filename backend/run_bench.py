@@ -620,8 +620,21 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(env_error, file=sys.stderr)
         return 2
 
+    async def _run_with_teardown() -> int:
+        try:
+            return await args.func(args)
+        finally:
+            # 事件循环关闭前收尾 redis 连接，否则进程退出时 __del__ 在已关循环上
+            # 析构连接，刷出 "RuntimeError: Event loop is closed" 噪音 traceback
+            try:
+                from app.services.cache_service import close_all_cache_clients
+
+                await close_all_cache_clients()
+            except Exception:
+                pass
+
     try:
-        return asyncio.run(args.func(args))
+        return asyncio.run(_run_with_teardown())
     except CLIError as exc:
         print(str(exc), file=sys.stderr)
         return 2

@@ -47,3 +47,25 @@ def test_format_report_callable_as_classlevel():
         )
     )
     assert "未通过" in bad and "王五" in bad and "自动注册 2" in bad
+
+
+import asyncio
+from unittest.mock import AsyncMock
+
+
+def test_cache_clients_registry_and_close(monkeypatch):
+    """CLI 退出前可统一关闭 redis 连接（否则进程退出时在已关循环上析构，刷噪音 traceback）。"""
+    from app.services import cache_service as cs
+
+    fake = AsyncMock()
+    monkeypatch.setattr(cs.aioredis, "from_url", AsyncMock(return_value=fake))
+
+    async def _run():
+        svc = cs.CacheService()
+        await svc._get_redis()
+        assert fake in cs._open_clients
+        await cs.close_all_cache_clients()
+
+    asyncio.run(_run())
+    fake.aclose.assert_awaited_once()
+    assert fake not in cs._open_clients
