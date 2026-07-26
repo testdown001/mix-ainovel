@@ -57,8 +57,8 @@ from ...schemas.novel import (
 from ...schemas.user import UserInDB
 from ...services.cache_service import CacheService
 from ...services.chapter_context_service import ChapterContextService
-from ...services.chapter_ingest_service import ChapterIngestionService
-from ...services.chapter_post_processor import ChapterPostProcessor, compute_ingest_hash
+from ...services.chapter_post_processor import ChapterPostProcessor
+from ...services.rag_rebuild_service import rebuild_project_rag
 from ...services.batch_generation_service import BatchGenerationService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
@@ -91,7 +91,6 @@ from ...services.writer_shared import (
     rewrite_with_guardrails,
 )
 from ...services.pipeline_orchestrator import PipelineOrchestrator
-from ...services.vector_store_service import VectorStoreService
 
 router = APIRouter(prefix="/api/writer", tags=["Writer"])
 logger = logging.getLogger(__name__)
@@ -2313,7 +2312,11 @@ async def rebuild_rag(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
-    """重建项目知识库，默认增量索引，仅处理新增/变更章节。"""
+    """重建项目知识库，默认增量索引，仅处理新增/变更章节。
+
+    核心逻辑在 rag_rebuild_service.rebuild_project_rag（与 backfill_vectors.py CLI 共用），
+    本端点只做权限校验、向量库可用性检查与响应体映射。
+    """
     llm_service = LLMService(session)
 
     owner_stmt = select(NovelProject.id).where(
@@ -2328,103 +2331,22 @@ async def rebuild_rag(
     if not vector_store:
         raise HTTPException(status_code=400, detail="向量库未启用")
 
-    ingest_service = ChapterIngestionService(llm_service=llm_service, vector_store=vector_store)
-    processor = ChapterPostProcessor(session, llm_service)
-
-    chapters_result = await session.execute(
-        select(Chapter)
-        .options(selectinload(Chapter.selected_version))
-        .where(Chapter.project_id == project_id)
-        .order_by(Chapter.chapter_number.asc())
-    )
-    chapters = chapters_result.scalars().all()
-
-    outlines_result = await session.execute(
-        select(ChapterOutline.chapter_number, ChapterOutline.title).where(
-            ChapterOutline.project_id == project_id
-        )
-    )
-    outline_title_map = {
-        chapter_number: title
-        for chapter_number, title in outlines_result.all()
-    }
-
-    existing_state = await VectorStoreService.get_ingest_state_from_db(session, project_id)
-    logger.info(
-        "项目 %s 知识库刷新开始: 已索引章节=%s, force_full=%s",
-        project_id, list(existing_state.keys()), force_full
-    )
-
-    indexable_chapters: list[tuple[Chapter, str, str, Optional[str], str]] = []
-    for chapter in chapters:
-        content = (chapter.selected_version.content if chapter.selected_version else "") or ""
-        if not content.strip():
-            logger.debug("章节 %d 内容为空，跳过", chapter.chapter_number)
-            continue
-        title = outline_title_map.get(chapter.chapter_number) or f"第{chapter.chapter_number}章"
-        summary = chapter.real_summary
-        content_hash = compute_ingest_hash(title, summary, content)
-        indexable_chapters.append((chapter, content, title, summary, content_hash))
-        logger.debug(
-            "章节 %d: selected_version_id=%s, title=%s, summary=%s, content_len=%d, hash=%s..., existing_hash=%s...",
-            chapter.chapter_number,
-            chapter.selected_version_id,
-            title,
-            summary[:50] if summary else None,
-            len(content),
-            content_hash[:8],
-            (existing_state.get(chapter.chapter_number) or "")[:8]
-        )
-
-    current_chapter_numbers = {chapter.chapter_number for chapter, _, _, _, _ in indexable_chapters}
-    stale_numbers = sorted(set(existing_state.keys()) - current_chapter_numbers)
-
-    removed = 0
-    if stale_numbers:
-        logger.info("删除过期章节: %s", stale_numbers)
-        await ingest_service.delete_chapters(project_id, stale_numbers)
-        await VectorStoreService.clear_ingest_hash_in_db(session, project_id, stale_numbers)
-        removed = len(stale_numbers)
-
-    indexed = 0
-    skipped = 0
-    for chapter, content, title, summary, content_hash in sorted(
-        indexable_chapters,
-        key=lambda item: item[0].chapter_number,
-    ):
-        existing_hash = existing_state.get(chapter.chapter_number)
-        if not force_full and existing_hash == content_hash:
-            logger.debug("章节 %d 哈希未变化，跳过索引", chapter.chapter_number)
-            skipped += 1
-            continue
-        logger.info(
-            "索引章节 %d: hash变化 %s... -> %s...",
-            chapter.chapter_number, (existing_hash or "")[:8], content_hash[:8]
-        )
-        await processor.ingest_chapter(
-            project_id=project_id,
-            chapter_number=chapter.chapter_number,
-            title=title,
-            content=content,
-            summary=summary,
-            user_id=current_user.id,
-            sync_bm25=not skip_bm25,
-        )
-        indexed += 1
-
-    await session.commit()
-
-    logger.info(
-        "项目 %s 知识库刷新完成: indexed=%d, skipped=%d, removed=%d",
-        project_id, indexed, skipped, removed
+    stats = await rebuild_project_rag(
+        session,
+        llm_service,
+        project_id,
+        user_id=current_user.id,
+        force_full=force_full,
+        skip_bm25=skip_bm25,
+        vector_store=vector_store,
     )
 
     return {
-        "indexed_chapters": indexed,
-        "skipped_chapters": skipped,
-        "removed_chapters": removed,
-        "mode": "full" if force_full else "incremental",
-        "bm25_indexed": not skip_bm25,
+        "indexed_chapters": stats["indexed"],
+        "skipped_chapters": stats["skipped"],
+        "removed_chapters": stats["removed"],
+        "mode": stats["mode"],
+        "bm25_indexed": stats["bm25_indexed"],
     }
 
 
