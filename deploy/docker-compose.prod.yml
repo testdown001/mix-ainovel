@@ -87,6 +87,8 @@ services:
       ENVIRONMENT: production
       DEBUG: false
       LOGGING_LEVEL: ${LOGGING_LEVEL:-INFO}
+      # mem0 OSS 默认向 PostHog 上报遥测（含配置类型信息），生产关闭
+      MEM0_TELEMETRY: "False"
       # TLS 在前置 nginx/LB 层终止；以 HTTP 对外时必须为 false，否则 FastAPI(生产模式)
       # 会把请求 308 跳到不存在的 https 导致全站打不开。启用 HTTPS 后再设为 true。
       FORCE_HTTPS_REDIRECT: ${FORCE_HTTPS_REDIRECT:-false}

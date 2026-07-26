@@ -4,7 +4,10 @@ sqlalchemy==2.0.44
 asyncmy==0.2.9
 asyncpg
 aiosqlite
-mem0ai
+# 必须锁 1.x：mem0 2.0 起 search/get_all 的顶层 user_id/limit 参数被移除会直接 raise，
+# 我们的调用点在 memory_layer_service/memory_distillation_service（异常被降级吞掉=premium
+# 记忆静默失效）。升 2.x 前先改这两处为 filters={"user_id":...}/top_k= 并配 infer=False
+mem0ai==1.0.4
 alembic==1.13.1
 passlib[bcrypt]==1.7.4
 bcrypt>=3.2.0,<4.0.0
