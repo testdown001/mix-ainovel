@@ -89,7 +89,6 @@ class PromptAssemblyTool(AgentTool):
                     chapter_mission=args.get("chapter_mission", ""),
                     mission_brief_text=args.get("mission_brief_text", ""),
                     rag_context=args.get("rag_context", ""),
-                    knowledge_context=None,
                     outline_title=args.get("outline_title", ""),
                     outline_summary=args.get("outline_summary", ""),
                     writing_notes=args.get("writing_notes", ""),

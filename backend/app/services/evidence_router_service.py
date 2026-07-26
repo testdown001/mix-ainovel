@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 class RoutedEvidenceResult:
     evidence_pack: GenerationEvidencePack
     rag_context: Dict[str, Any] = field(default_factory=dict)
-    knowledge_context: str = ""
     context_data: Dict[str, Any] = field(default_factory=dict)
     foreshadowing_data: Dict[str, Any] = field(default_factory=dict)
     power_system_context: str = ""
@@ -180,7 +179,6 @@ class EvidenceRouterService:
         power_system_context: Optional[str] = None,
         relationship_context: Optional[str] = None,
         rag_context: Optional[Dict[str, Any]] = None,
-        knowledge_context: Optional[str] = None,
         local_queries: Optional[Sequence[str]] = None,
         retrieval_mode: str = "vector",
         session: Optional[Any] = None,
@@ -195,14 +193,13 @@ class EvidenceRouterService:
         foreshadowing = dict(foreshadowing_data or {})
         task_sources = {task.source for task in plan.retrieval_tasks}
         routed_rag_context = dict(rag_context or {})
-        routed_knowledge_context = str(knowledge_context or "")
         routed_context_data = dict(ctx)
         routed_foreshadowing_data = dict(foreshadowing)
         routed_power_system_context = str(power_system_context or "")
         routed_relationship_context = str(relationship_context or "")
         task_reports: Dict[str, Any] = {}
 
-        if "local_plot_rag" in task_sources and not (routed_rag_context or routed_knowledge_context):
+        if "local_plot_rag" in task_sources and not routed_rag_context:
             routed_local = await self.route_local_plot(
                 plan=plan,
                 project_id=project_id,
@@ -234,7 +231,6 @@ class EvidenceRouterService:
             self._append_local_plot(
                 evidence_pack=evidence_pack,
                 rag_context=routed_rag_context,
-                knowledge_context=routed_knowledge_context,
             )
 
         if "global_arc_rag" in task_sources:
@@ -329,7 +325,6 @@ class EvidenceRouterService:
         return RoutedEvidenceResult(
             evidence_pack=evidence_pack,
             rag_context=routed_rag_context,
-            knowledge_context=routed_knowledge_context,
             context_data=routed_context_data,
             foreshadowing_data=routed_foreshadowing_data,
             power_system_context=routed_power_system_context,
@@ -651,7 +646,6 @@ class EvidenceRouterService:
         *,
         evidence_pack: GenerationEvidencePack,
         rag_context: Dict[str, Any],
-        knowledge_context: str,
     ) -> None:
         for index, chunk in enumerate(rag_context.get("chunks") or [], start=1):
             content = chunk if isinstance(chunk, str) else str(chunk.get("content") or "")
@@ -682,16 +676,6 @@ class EvidenceRouterService:
                     title=f"章节摘要 {index}",
                     content=content,
                     score=0.6,
-                )
-            )
-
-        if knowledge_context:
-            evidence_pack.local_plot.append(
-                EvidenceItem(
-                    source="local_plot_rag",
-                    title="精筛上下文",
-                    content=knowledge_context,
-                    score=0.8,
                 )
             )
 

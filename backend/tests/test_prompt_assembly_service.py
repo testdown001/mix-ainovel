@@ -36,7 +36,6 @@ def test_prompt_assembly_service_build_prompt_sections_contains_core_sections():
         chapter_mission={"goal": "推进主线"},
         mission_brief_text="任务书",
         rag_context={"chunks": ["片段A"], "summaries": ["摘要A"]},
-        knowledge_context="精筛知识",
         outline_title="第十章",
         outline_summary="大战将起",
         writing_notes="推进主线",

@@ -26,7 +26,7 @@ class PromptCompilerService:
         "world_blueprint": ("[世界蓝图]",),
         "project_memory": ("[项目长期记忆]",),
         "long_range_memory": ("[卷级前情]", "[全书脉络]"),
-        "rag_local": ("[检索到的剧情上下文]", "[检索到的章节摘要]", "[RAG精筛上下文]"),
+        "rag_local": ("[检索到的剧情上下文]", "[检索到的章节摘要]"),
         "hard_constraints": ("[写作硬性约束]", "[禁止角色]", "[白金写作准则]"),
     }
     _SCENE_KEY_MODULE_MAP: Dict[str, str] = {

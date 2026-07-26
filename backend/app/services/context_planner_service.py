@@ -633,8 +633,6 @@ class ContextPlannerService:
             modules.append("story_skeleton")
         if flow_config.get("enable_rag", True):
             modules.append("rag_local")
-            if not is_fast_path:
-                modules.append("rag_global")
         # [项目长期记忆] 数据是无条件预取的：非 fast 路径一律注入（不再依赖 enable_memory）；
         # character_state 模块（[角色当前状态]/[记忆层上下文]）由 enable_memory 或
         # enable_state_tracking 解锁：standard 档只写状态类记忆，[记忆层上下文] 的数据

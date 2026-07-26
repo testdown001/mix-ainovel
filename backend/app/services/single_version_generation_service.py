@@ -59,18 +59,11 @@ class SingleVersionGenerationService:
         disable_guardrail_rewrite: bool = False,
         stream_callback: Optional[Callable[[str], Awaitable[None] | None]] = None,
     ) -> Dict[str, Any]:
-        if isinstance(style_hint, dict):
-            style_text = style_hint.get("text", "")
-            temp_offset = float(style_hint.get("temp_offset", 0.0))
-        elif isinstance(style_hint, str):
-            style_text = style_hint
-            temp_offset = 0.0
-        else:
-            style_text = ""
-            temp_offset = 0.0
+        # style_hint 两个真实来源（resolve_style_hints / persona hint）均为 str；
+        # 历史 dict 形态（含 temp_offset）已无生产者，死分支删除。
+        style_text = style_hint if isinstance(style_hint, str) else ""
 
-        base_temp = self.generation_policy_service.resolve_temperature(chapter_mission)
-        resolved_temp = max(0.1, min(1.5, base_temp + temp_offset))
+        resolved_temp = self.generation_policy_service.resolve_temperature(chapter_mission)
         metadata: Dict[str, Any] = {
             "chapter_mission": chapter_mission,
             "style_hint": style_hint,

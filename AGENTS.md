@@ -25,7 +25,7 @@ Recent git history shows the product surface has moved beyond pure generation in
 - structured LLM output through `LLMService.generate_structured()` with Pydantic schema validation and retry-on-validation-error
 - scene planning, scene-by-scene literary generation, claim-level narrative verification, and lightweight NovelBench regression snapshots
 - security hardening: stricter CORS, security response headers, production HTTPS redirect, request body size limiting, gateway worker auth, and payment idempotency
-- architecture cleanup: removed Go `cmd/api`, removed `gateway/internal/llmgateway`, removed Agent message bus routing, removed stale `KnowledgeRetrievalService` / `chapter_tasks.py`
+- architecture cleanup: removed Go `cmd/api`, removed `gateway/internal/llmgateway`, removed Agent message bus routing, removed stale `KnowledgeRetrievalService` / `chapter_tasks.py`; later dead-code batches also removed `core/writing_presets.py`, the `knowledge_context` / `rag_global` two-stage retrieval remnants, the `style_hint` dict `temp_offset` branch, and the unused pipeline-review revise/self-critique/reader-simulation helpers (combined revision and background stage-B analysis replaced them)
 - test/CI direction: backend regression coverage expanded, frontend Vitest introduced, and gateway build/deploy paths narrowed to the single gateway binary
 
 ## Source Of Truth

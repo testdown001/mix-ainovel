@@ -277,7 +277,6 @@ def _build_sections(*, memory_context, chapter_state_context):
         chapter_mission=None,
         mission_brief_text=None,
         rag_context=None,
-        knowledge_context=None,
         outline_title="突袭",
         outline_summary="敌人来袭",
         writing_notes="推进冲突",

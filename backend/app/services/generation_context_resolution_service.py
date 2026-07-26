@@ -12,7 +12,6 @@ class ResolvedPrefetchContext:
     enhanced_context: Dict[str, Any] = field(default_factory=dict)
     project_memory_text: Optional[str] = None
     rag_context: Optional[Dict[str, Any]] = None
-    knowledge_context: Optional[str] = None
     rag_stats: Optional[Dict[str, Any]] = None
     writer_prompt: Optional[str] = None
     volume_summaries_text: Optional[str] = None
@@ -78,7 +77,6 @@ class GenerationContextResolutionService:
         # 现统一走单一的多查询向量 RAG（ChapterContextService）。为不破坏 API 契约，
         # 仍接受 rag_mode="two_stage" 入参，但行为等价于 simple，优雅回退。
         rag_context: Optional[Dict[str, Any]] = None
-        knowledge_context: Optional[str] = None
         rag_stats: Optional[Dict[str, Any]] = None
         if config.enable_rag:
             if pre_rag_context:
@@ -104,7 +102,7 @@ class GenerationContextResolutionService:
                     "queries": list((routed_local or {}).get("queries") or []),
                 }
 
-        if rag_context or knowledge_context:
+        if rag_context:
             await telemetry.emit_rag(
                 {
                     "chunks": rag_context.get("chunks", []) if rag_context else [],
@@ -121,7 +119,6 @@ class GenerationContextResolutionService:
             enhanced_context=enhanced_context,
             project_memory_text=project_memory_text,
             rag_context=rag_context,
-            knowledge_context=knowledge_context,
             rag_stats=rag_stats,
             writer_prompt=writer_prompt,
             volume_summaries_text=volume_summaries_text,

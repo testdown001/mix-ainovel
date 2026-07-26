@@ -109,7 +109,6 @@ class GenerationEvidenceStageService:
             prompt_service=self.prompt_service,
             llm_service=self.llm_service,
             rag_context=resolved_prefetch.rag_context,
-            knowledge_context=resolved_prefetch.knowledge_context,
             context_data=base_context_middle,
             foreshadowing_data=foreshadowing_structured or (
                 {"brief": foreshadowing_urgency_brief} if foreshadowing_urgency_brief else {}

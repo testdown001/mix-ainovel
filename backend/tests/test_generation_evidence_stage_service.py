@@ -67,7 +67,6 @@ def test_generation_evidence_stage_service_resolves_context_and_strategy(monkeyp
         resolved_prefetch = SimpleNamespace(
             rag_stats={"queries": ["q1"]},
             rag_context={"chunks": ["片段"], "summaries": ["摘要"]},
-            knowledge_context=None,
         )
         result = await service.resolve_evidence_stage(
             config=SimpleNamespace(preset="platinum", rag_retrieval_mode="vector"),

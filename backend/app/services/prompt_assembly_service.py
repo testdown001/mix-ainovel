@@ -370,7 +370,6 @@ class PromptAssemblyService:
         chapter_mission: Optional[dict],
         mission_brief_text: Optional[str],
         rag_context: Optional[Dict[str, Any]],
-        knowledge_context: Optional[str],
         outline_title: str,
         outline_summary: str,
         writing_notes: str,
@@ -456,8 +455,6 @@ class PromptAssemblyService:
             sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
         if memory_context:
             sections.append(("[记忆层上下文]", memory_context))
-        if knowledge_context:
-            sections.append(("[RAG精筛上下文](含POV裁剪)", knowledge_context))
         if rag_context:
             rag_chunks_text = "\n\n".join(rag_context.get("chunks", [])) or "未检索到章节片段"
             rag_summaries_text = "\n".join(rag_context.get("summaries", [])) or "未检索到章节摘要"

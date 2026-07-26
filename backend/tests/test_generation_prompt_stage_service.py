@@ -55,7 +55,6 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
             chapter_mission={},
             mission_brief_text="任务书",
             rag_context=None,
-            knowledge_context=None,
             outline_title="标题",
             outline_summary="摘要",
             writing_notes="说明",

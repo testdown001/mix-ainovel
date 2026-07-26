@@ -163,7 +163,8 @@ def test_scene_by_scene_override_service_first_contract():
 
     assert config.enable_scene_by_scene is True
     assert "mission_brief" in plan.prompt_modules
-    assert "rag_global" in plan.prompt_modules
+    # rag_global 死模块已删（two_stage 精筛链路移除后无任何消费方）
+    assert "rag_global" not in plan.prompt_modules
     assert "skill_instructions" in plan.prompt_modules
     assert "mission_brief" in compiled_scene
     assert "story_skeleton" in compiled_scene

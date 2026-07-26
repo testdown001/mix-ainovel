@@ -17,7 +17,7 @@
 | 阶段 | 主要接口 | 提示词 ID | 模型温度 | 说明 |
 |------|----------|-----------|----------|------|
 | 概念对话 | `POST /api/novels/{id}/concept/converse` | `concept`（附带 JSON schema 指令） | 0.8 | 引导用户梳理世界观与剧情要素 |
-| 蓝图生成 | `POST /api/novels/{id}/blueprint/generate` | `screenwriting` | 0.3 | 基于概念对话整理正式蓝图 |
+| 蓝图生成 | `POST /api/novels/{id}/blueprint/generate`（或 Go 网关异步任务 `blueprint:generate`） | `screenwriting` + `screenwriting_outline`（两段式） | 0.7 | 设定段 + 章纲段两次 LLM 调用，章纲覆盖不足时补问一次 |
 | 章节生成 | `POST /api/writer/novels/{id}/chapters/generate` | `writing` | 0.9 | 结合蓝图、前情摘要与 RAG 结果生成章节草稿 |
 | 章节评审 | `POST /api/writer/novels/{id}/chapters/evaluate` | `evaluation` | 0.3 | 对全部候选版本给出改进建议 |
 | 摘要提取 | 调用 `LLMService.get_summary`（生成/编辑/选择时触发） | `extraction` | 0.15 | 对最终正文提炼真实摘要 |
@@ -38,13 +38,17 @@
 - **LLM 参数**：温度 0.8，超时 240 秒
 - **输出**：`ConverseResponse`，包含 AI 建议、UI 控件描述以及对话状态；当 `is_complete` 为真时，允许进入蓝图阶段。
 
-### 2.2 蓝图生成（Blueprint）
+### 2.2 蓝图生成（Blueprint，两段式）
 
-- **入口**：`POST /api/novels/{project_id}/blueprint/generate`
-- **上下文**：
-  - 概念对话中成功解析的用户/助手消息（提取自存档 JSON）
-- **提示词**：`screenwriting`
-- **LLM 参数**：温度 0.3，超时 480 秒
+- **入口**：`POST /api/novels/{project_id}/blueprint/generate`（同步薄壳）；生产环境可走 Go 网关异步任务 `blueprint:generate`（`task_worker.py` 执行同一服务）
+- **实现**：`services/blueprint_generation_service.generate_blueprint_for_project`，拆为两段：
+  1. **设定段**（提示词 `screenwriting`）：标题/题材/世界观/角色/金手指/关系/伏笔 + volumes 分卷规划，`max_tokens=8192`
+  2. **章纲段**（提示词 `screenwriting_outline`）：以设定段摘要为输入生成前 N 章章纲，独立 `max_tokens=12288`
+- **上下文**：概念对话中成功解析的用户/助手消息（提取自存档 JSON）；如项目绑定参考小说，设定段追加融合 DNA 指引
+- **LLM 参数**：每段温度 0.7，超时 600 秒，`reasoning_effort=low`（仅对 o 系列/gpt-5 openai 格式生效）
+- **保护与断言**：
+  - 重生成保护：项目已有章节创作成果（草稿版本或定稿章）时直接 409，避免大纲重编号毁掉已写章节
+  - 章纲覆盖断言：按 1..承诺章数计覆盖率，不足 80% 时按缺失章号区间补问一次，仍不足则 502，绝不静默落库残缺蓝图
 - **输出**：结构化蓝图 JSON，映射到 `NovelBlueprint`（世界观、角色、章节纲要等）
 - **后续**：
   - `PATCH /api/novels/{project_id}/blueprint` 可局部修改蓝图
