@@ -91,6 +91,28 @@ class VectorStoreService:
 
         vector_size = await self._resolve_vector_size()
 
+        async def _warn_if_dim_mismatch(collection_name: str) -> None:
+            """既有集合与当前 embedding 维度不一致时大声报错。
+
+            换 embedding 模型（后台「接口管理」可随时改）会改变向量维度，而既有
+            collection 的维度是建表时固定的。二者不一致时 Qdrant 对每次写入/检索都返回
+            400，而本服务全是 best-effort 调用 —— 整个向量层静默死亡，日志里只有零散的
+            "写入 rag_chunks 失败"。此处不自动重建（会丢数据），只把问题说清楚。
+            """
+            try:
+                info = await self._client.get_collection(collection_name)
+                params = info.config.params.vectors
+                existing = getattr(params, "size", None)
+                if existing is not None and existing != vector_size:
+                    logger.error(
+                        "Qdrant collection %s 维度不匹配：集合建于 dim=%s，当前 embedding 输出 dim=%s。"
+                        "所有写入与检索都会被拒（400），向量层等同失效。"
+                        "解决：改回原 embedding 模型，或删除该 collection 后用 backfill_vectors.py 重新灌入。",
+                        collection_name, existing, vector_size,
+                    )
+            except Exception as exc:  # noqa: BLE001 - 诊断用，绝不阻断
+                logger.debug("检查 collection %s 维度失败（忽略）: %s", collection_name, exc)
+
         async def _check_and_create(collection_name: str) -> None:
             if not await self._client.collection_exists(collection_name):
                 logger.info("正在创建 Qdrant collection: %s", collection_name)
@@ -113,6 +135,8 @@ class VectorStoreService:
                     field_name="chapter_number",
                     field_schema=rest.PayloadSchemaType.INTEGER,
                 )
+            else:
+                await _warn_if_dim_mismatch(collection_name)
 
         try:
             await _check_and_create(self.COLLECTION_CHUNKS)
