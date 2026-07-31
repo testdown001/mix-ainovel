@@ -66,3 +66,49 @@ async def test_embedding_key_falls_back_to_llm_key(db_session, monkeypatch):
     cfg = await MemoryLayerService(db=db_session)._build_mem0_config()
 
     assert cfg["embedder"]["config"]["api_key"] == "sk-shared"
+
+
+@pytest.mark.asyncio
+async def test_vector_dims_passed_to_mem0(db_session, monkeypatch):
+    """必须把真实向量维度告知 mem0，否则它按默认 1536 建集合 → 读写恒 400。"""
+    monkeypatch.delenv("EMBEDDING_MODEL_VECTOR_SIZE", raising=False)
+    await _seed(
+        db_session,
+        llm__api_key="sk-x",
+        embedding__model="jina-clip-v2",
+        embedding__model_vector_size="1024",
+    )
+
+    cfg = await MemoryLayerService(db=db_session)._build_mem0_config()
+
+    assert cfg["vector_store"]["config"]["embedding_model_dims"] == 1024
+    assert cfg["embedder"]["config"]["embedding_dims"] == 1024
+
+
+@pytest.mark.asyncio
+async def test_unknown_dims_left_to_mem0_default(db_session, monkeypatch):
+    """维度未知时不臆测，交回 mem0 自身默认。"""
+    monkeypatch.delenv("EMBEDDING_MODEL_VECTOR_SIZE", raising=False)
+    monkeypatch.setattr(
+        "app.services.memory_layer_service.settings.embedding_model_vector_size", None, raising=False
+    )
+    await _seed(db_session, llm__api_key="sk-x")
+
+    cfg = await MemoryLayerService(db=db_session)._build_mem0_config()
+
+    assert "embedding_model_dims" not in cfg["vector_store"]["config"]
+    assert "embedding_dims" not in cfg["embedder"]["config"]
+
+
+@pytest.mark.asyncio
+async def test_garbage_dims_does_not_crash(db_session, monkeypatch):
+    """维度配成非数字时不得炸掉 mem0 初始化。"""
+    monkeypatch.delenv("EMBEDDING_MODEL_VECTOR_SIZE", raising=False)
+    monkeypatch.setattr(
+        "app.services.memory_layer_service.settings.embedding_model_vector_size", None, raising=False
+    )
+    await _seed(db_session, llm__api_key="sk-x", embedding__model_vector_size="abc")
+
+    cfg = await MemoryLayerService(db=db_session)._build_mem0_config()
+
+    assert "embedding_model_dims" not in cfg["vector_store"]["config"]

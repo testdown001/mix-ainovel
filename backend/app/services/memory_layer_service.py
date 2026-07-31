@@ -73,6 +73,27 @@ class MemoryLayerService:
         embed_base_url = await self._cfg("embedding.base_url") or llm_base_url
         embed_model = await self._cfg("embedding.model")
 
+        embedder_config: Dict[str, Any] = {
+            "model": embed_model or settings.embedding_model,
+            "api_key": embed_key,
+            "openai_base_url": embed_base_url,
+        }
+
+        # 必须显式告知 mem0 实际向量维度：QdrantConfig.embedding_model_dims 默认 1536，
+        # mem0 会按该默认值建自己的 collection，而本项目的 embedding 模型未必是 1536 维
+        # （实测 jina-clip-v2 为 1024）→ mem0 每次读写都被 Qdrant 以 400 拒绝
+        # "Vector dimension error: expected dim: 1536, got 1024"，长期记忆全废且静默。
+        # 维度未知时不填，保留 mem0 自身默认，不做臆测。
+        dims = await self._cfg("embedding.model_vector_size")
+        vector_dims = None
+        try:
+            vector_dims = int(dims) if dims else settings.embedding_model_vector_size
+        except (TypeError, ValueError):
+            vector_dims = settings.embedding_model_vector_size
+        if vector_dims:
+            qdrant_config["embedding_model_dims"] = int(vector_dims)
+            embedder_config["embedding_dims"] = int(vector_dims)
+
         return {
             "vector_store": {
                 "provider": "qdrant",
@@ -88,11 +109,7 @@ class MemoryLayerService:
             },
             "embedder": {
                 "provider": "openai",
-                "config": {
-                    "model": embed_model or settings.embedding_model,
-                    "api_key": embed_key,
-                    "openai_base_url": embed_base_url,
-                },
+                "config": embedder_config,
             },
         }
 
