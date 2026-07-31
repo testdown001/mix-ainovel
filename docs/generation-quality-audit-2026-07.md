@@ -6,6 +6,21 @@
 
 ---
 
+## 交付状态（更新于 2026-07-31）
+
+**阶段 0～4 已全部交付**，共 28 个提交（`7c629fa..95415af`），后端 596 tests passed，前端 type-check/unit + go build/vet 全绿。
+下方第四节清单已按实际代码逐条核对勾选（`[x]` 附提交号），**仅剩 3 项未闭环**：
+
+| 项 | 状态 | 实证 |
+|----|------|------|
+| #33 `revision_hint` 生命周期 | 🟡 一半 | 大纲重写/蓝图重建即清 ✅；但无 `consumed` 标记，触发点仍在写侧任务（`generation_write_task_service.py:195`）而非 select/finalize |
+| outline 结构化字段落库 | ❌ 未做 | `outline_generation.md:134-139` 每章都让 LLM 产出 `narrative_phase`/`foreshadowing.plant-payoff`/`emotion_hook`，但 `update_or_create_outline(project_id, ch_num, title, summary)` 只落标题+摘要，三字段全丢弃 |
+| #19 premium enrichment 互斥 | ❌ 未做 | `standard_post_processing_service.py:179` `enrichment_enabled = enable_enrichment and not optimizer_enabled` 在 optimizer 执行前算死、跑完不复检长度 → premium 档章节偏短时无补救（density 只管偏长） |
+
+**运维待办**：网关需重新构建部署才认识 `blueprint:generate` 任务类型（旧网关下前端自动回退同步蓝图生成，安全但失去异步收益）。
+
+---
+
 ## 一、P0（假功能 / 毁数据 / 越权）
 
 ### A. 质量机制实际不生效
@@ -79,55 +94,55 @@
 原则：先修「假功能/毁数据/越权」（零新架构、立竿见影），再让长程记忆真正进 prompt（长篇核心竞争力），再补构思长线结构，最后策略打磨与死代码清理。每项落地必须带回归测试（本仓既有教训：死路径正是被 `enable_six_dimension=False` 的测试掩盖的）。
 
 ### 阶段 0：安全与数据完整性热修（0.5-1 天，无需拍板）
-- [ ] scenes×3 / concepts×4 补 `ensure_project_owner` + 端点回归测试（#10）
-- [ ] 重生成不再先毁章：旧摘要/选中版本延迟到新版本落库成功后再替换（#11）
-- [ ] `replace_blueprint` 保护：项目已有超出蓝图范围的扩写大纲或已完成章时，拒绝全删重编（409 + 前端确认弹窗），或只更新蓝图字段不动大纲（#12）
-- [ ] `/chapters/outline` 对齐 regenerate 校验：章号范围 + 跳过已完成 + `item.get()` 容错（#15）
+- [x] scenes×3 / concepts×4 补 `ensure_project_owner` + 端点回归测试（#10）—— 7 端点所有权校验
+- [x] 重生成不再先毁章：旧摘要/选中版本延迟到新版本落库成功后再替换（#11）—— 成功才原子替换，顺带修了既有 MissingGreenlet
+- [x] `replace_blueprint` 保护：项目已有超出蓝图范围的扩写大纲或已完成章时，拒绝全删重编（409 + 前端确认弹窗），或只更新蓝图字段不动大纲（#12）—— 有创作成果才 409
+- [x] `/chapters/outline` 对齐 regenerate 校验：章号范围 + 跳过已完成 + `item.get()` 容错（#15）
 
 ### 阶段 1：让已建质量机制通电（2-3 天，纯修 bug）
-- [ ] 六维评审：去 `user_id` 实参；反馈键改 `summary`/`issues[].description|suggestion`；阈值读 `settings.six_dimension_min_score`；解析失败返回 `degraded=True` 不再伪装 80 分；补「低分→触发 refine」真单测（#1/#2）
-- [ ] 叙事摘要缩进一行修（#23）
-- [ ] 伏笔回收：`[:10]` → 按当前章大纲相关性（embedding 相似度）预筛 top20 + 逾期加权；读侧 overdue 阈值随总章数缩放（#7）
-- [ ] mem0 蒸馏：namespace 统一 + 补 await；若评估 mem0 价值不足则显式停用并记档（#9）
-- [ ] `finish_reason=length`：写作调用截断→标记失败/重试；后处理步截断→回退原文（#14）
-- [ ] combined_revision / auto_fix / enrichment / humanize 统一挂 `is_probable_chapter_plain_text` + 0.5× 长度守卫（复用现成函数）（#17）
-- [ ] optimizer `{{{{` 转义修复
-- [ ] `enable_temporal_state` 传入 planner_flow_config；或按 Occam 直接删时序快照死路径（#6）——**倾向先接通再观测**
-- [ ] Hubu 技能注入 category 兼容修复（skill_base 已有兼容写法，抄过来）（#8）
-- [ ] enrichment/consistency 显式 `timeout=180`；`_over_budget` 每步复检（#21）
+- [x] 六维评审：去 `user_id` 实参；反馈键改 `summary`/`issues[].description|suggestion`；阈值读 `settings.six_dimension_min_score`；解析失败返回 `degraded=True` 不再伪装 80 分；补「低分→触发 refine」真单测（#1/#2）
+- [x] 叙事摘要缩进一行修（#23）
+- [x] 伏笔回收：`[:10]` → 按当前章大纲相关性（embedding 相似度）预筛 top20 + 逾期加权；读侧 overdue 阈值随总章数缩放（#7）—— 实际预筛 30 条语义排序；overdue 阈值 `max(20, total//5)`（`5f16252`）
+- [x] mem0 蒸馏：namespace 统一 + 补 await；若评估 mem0 价值不足则显式停用并记档（#9）—— 双 bug 已修；另锁 `mem0ai==1.0.4` + 关遥测（`a609717`）
+- [x] `finish_reason=length`：写作调用截断→标记失败/重试；后处理步截断→回退原文（#14）—— `LLMResponseTruncated` + 重试升额 + 计量
+- [x] combined_revision / auto_fix / enrichment / humanize 统一挂 `is_probable_chapter_plain_text` + 0.5× 长度守卫（复用现成函数）（#17）—— 重写守卫四处
+- [x] optimizer `{{{{` 转义修复
+- [x] `enable_temporal_state` 传入 planner_flow_config；或按 Occam 直接删时序快照死路径（#6）—— 阶段 2b 接通（`708b7e8`）：先修共享 session 并发→串行 + 五处 `_safe_rollback`，evidence_router 时序分支改补充语义后才传开关
+- [x] Hubu 技能注入 category 兼容修复（skill_base 已有兼容写法，抄过来）（#8）
+- [x] enrichment/consistency 显式 `timeout=180`；`_over_budget` 每步复检（#21）
 
 ### 阶段 2：长程记忆真正进 prompt（约 1 周，长篇核心）
-- [ ] **卷/书摘要转正**：作为独立 prompt 段（`[卷级前情]`/`[全书脉络]`，priority 2，各 800/600 tok）直接注入，不再依赖 rag_summaries 撞运气；telemetry-only 定位保留给证据评分（#4，⚠️ 反转一个「经评审确认的有意设计」，需确认）
-- [ ] **standard 档解锁基础记忆**：`[项目长期记忆]` 已无条件预取 → 进 standard 的 prompt_modules（成本已花，零新增调用）；CharacterState 写侧是否下放 standard **需拍板**（商业分档 vs 质量底线）（#5/#26）
-- [ ] story_skeleton 远章采样改进：伏笔/实体关联章优先 + 卷摘要衔接，替代等步长抽样（#24）
-- [ ] consistency 角色状态输入接通：改读 CharacterState 结构化字段而非已死的 `raw_state_text`（#25）
-- [ ] revision_hint 生命周期：注入后标 consumed、大纲重写时清除、触发点挪到 select/finalize（#33）
-- [ ] 世界蓝图段改结构化摘要注入（替代 `json.dumps` 截断成破损 JSON）
-- [ ] 实体注册表接通：蓝图落库时调 `register_from_blueprint`；别名替换加词边界保护（#27）
-- [ ] 无上限历史注入治理：大纲/评审/推演三处改用「近 N 章全量 + 远章卷摘要」；摘要回填加 semaphore(3-5)；书摘要输入改增量（#28）
+- [x] **卷/书摘要转正**：作为独立 prompt 段（`[卷级前情]`/`[全书脉络]`，priority 2，各 800/600 tok）直接注入，不再依赖 rag_summaries 撞运气；telemetry-only 定位保留给证据评分（#4）—— 已拍板并落地，DB 直查 + 5s 降级，非 fast 档
+- [x] **standard 档解锁基础记忆**：`[项目长期记忆]` 已无条件预取 → 进 standard 的 prompt_modules（成本已花，零新增调用）；CharacterState 写侧是否下放 standard（#5/#26）—— 已拍板下放：新增 `enable_state_tracking` 轻量路径（零 mem0），premium 完整路径不变（`e7f36ec`）
+- [x] story_skeleton 远章采样改进：伏笔/实体关联章优先 + 卷摘要衔接，替代等步长抽样（#24）—— 伏笔章 quota-2 席 + 首尾锚点（`704df25`）
+- [x] consistency 角色状态输入接通：改读 CharacterState 结构化字段而非已死的 `raw_state_text`（#25）
+- [ ] revision_hint 生命周期：注入后标 consumed、大纲重写时清除、触发点挪到 select/finalize（#33）—— 🟡 **只做了一半**：大纲重写/蓝图重建即清已实现；`consumed` 标记未做，触发点仍在写侧任务（`generation_write_task_service.py:195`）
+- [x] 世界蓝图段改结构化摘要注入（替代 `json.dumps` 截断成破损 JSON）—— digest 含能力/嵌套键/伏笔，按行截断
+- [x] 实体注册表接通：蓝图落库时调 `register_from_blueprint`；别名替换加词边界保护（#27）—— ⚠️ 前半为**审计误判**：`_sync_blueprint_entities` 自 `5c63103` 起就在注册蓝图实体；后半已加护栏公共函数 + `resolve_alias` 短名阈值收紧（`830c978`）
+- [x] 无上限历史注入治理：大纲/评审/推演三处改用「近 N 章全量 + 远章卷摘要」；摘要回填加 semaphore(3-5)；书摘要输入改增量（#28）—— 回填 cap30 + 并发 5 + 总墙钟 180s + 被跳过章走大纲兜底（`704df25`）
 
 ### 阶段 3：构思与大纲长线结构（约 1 周）
-- [ ] 蓝图生成异步任务化（走 Go dispatcher，同章节生成路径），根治 120s/300s 链路掐断 + 连接池占用（#16）
-- [ ] 蓝图分两段生成：设定（世界观/角色/金手指/卷规划）与章纲分开调用，各自 max_tokens 充足；落库前数量断言（outlines≥承诺章数、伏笔≥5），不足自动补问一次（#13）
-- [ ] 大纲批次滚动上下文：每批带前批「压缩摘要」（每章 30 字）而非仅标题；数量核验不足自动补；前端修 `estimated_total_chapters` 传参（#29/#34）
-- [ ] 轻量分卷：蓝图新增 `volumes[{name, chapter_range, arc_goal, climax}]`，大纲生成按卷分批、卷内阶段模板替代全书百分比（#30，规模较大**需拍板优先级**）
-- [ ] 概念对话瘦身：历史回传只取 `ai_message`/user value（存储不动）；参考素材注入加截断；`is_complete` 加最低轮次（如 ≥3）后端约束；先校验后落库（#31/#32）
-- [ ] outline_generation 结构化字段落库：`foreshadowing.plant/payoff` 进伏笔表、`emotion_hook`/`narrative_phase` 进 outline.metadata
+- [x] 蓝图生成异步任务化（走 Go dispatcher，同章节生成路径），根治 120s/300s 链路掐断 + 连接池占用（#16）—— `8ddee0e`，网关登记 `blueprint:generate`（15m 超时）；⚠️ **网关需重建部署才生效**，旧网关下前端仅在 400/404/网络错误时回退同步
+- [x] 蓝图分两段生成：设定（世界观/角色/金手指/卷规划）与章纲分开调用，各自 max_tokens 充足；落库前数量断言（outlines≥承诺章数、伏笔≥5），不足自动补问一次（#13）—— `cc83f25`，数量断言按 1..promised **覆盖率**计（防编号偏移），补问一次仍不足则 502 零落库
+- [x] 大纲批次滚动上下文：每批带前批「压缩摘要」（每章 30 字）而非仅标题；数量核验不足自动补；前端修 `estimated_total_chapters` 传参（#29/#34）—— `374a085`，滚动摘要 2000 字预算
+- [x] 轻量分卷：蓝图新增 `volumes[{name, chapter_range, arc_goal, climax}]`，大纲生成按卷分批、卷内阶段模板替代全书百分比（#30）—— 已拍板做轻量版（`cc83f25`/`374a085`）
+- [x] 概念对话瘦身：历史回传只取 `ai_message`/user value（存储不动）；参考素材注入加截断；`is_complete` 加最低轮次（如 ≥3）后端约束；先校验后落库（#31/#32）—— 素材 800/600/800 截断
+- [ ] outline_generation 结构化字段落库：`foreshadowing.plant/payoff` 进伏笔表、`emotion_hook`/`narrative_phase` 进 outline.metadata —— ❌ **未做**（2026-07-31 实证）：prompt 已产出这三个字段，`update_or_create_outline(project_id, ch_num, title, summary)` 只落标题+摘要，字段被丢弃
 
 ### 阶段 4：策略打磨与清理（按价值取舍，穿插进行）
-- [ ] 多版本决策：要么 standard 开 version_count=2 实验（成本×2 需拍板），要么删 editor_review 选优死代码——不要养着 7KB 提示词不用（#3）
-- [ ] refine 后重打分、分数下降则回退（低成本对比验证）（#18）
-- [ ] premium enrichment 互斥修复：optimizer 后仍短则补跑 enrichment（#19）
-- [ ] polish 计费口径对齐（强开不计费 or 勾选才跑才计费）**需拍板**（#20）
-- [ ] literary 分支：场景 try/except + 预算保护，或明确标记实验性（#21/#22）
-- [ ] 人味化规则表清理（自我抵消对、盲替换、上限穿透、双套阈值统一）；standard 先跑免费 `apply_rule_fixes` 再决定是否 LLM humanize
-- [ ] 硬截断保护章尾：从中部压缩或保留最后一段
-- [ ] 死代码清理批次（writing_presets / knowledge_context / temp_offset / pipeline_review 三方法 / README.ai / novel_workflow.md）
-- [ ] 静默降级治理：统一 `review_summaries` 里 skipped/degraded/failed 语义，前端可见
+- [x] 多版本决策：要么 standard 开 version_count=2 实验（成本×2 需拍板），要么删 editor_review 选优死代码——不要养着 7KB 提示词不用（#3）—— 已拍板：**保留机制但不默认开**（`ai_review_service.py` 与 `editor_review.md` 保留，用户显式传 `versions>1` 时生效）
+- [x] refine 后重打分、分数下降则回退（低成本对比验证）（#18）—— `56bec05`
+- [ ] premium enrichment 互斥修复：optimizer 后仍短则补跑 enrichment（#19）—— ❌ **未做**（2026-07-31 实证）：`standard_post_processing_service.py:179` 在 optimizer 执行前就把 `enrichment_enabled` 算死，跑完不复检长度
+- [x] polish 计费口径对齐（强开不计费 or 勾选才跑才计费）（#20）—— 已拍板「勾选才跑才计费」（`f9c756c`）：preset 不再强开、`enable_polish` 移出 `FLOW_OVERRIDE_SWITCHES`（纯积分项，free 也可购买）、付费必交付（预算不跳过）、无 `model_code` 也照收附加费
+- [x] literary 分支：场景 try/except + 预算保护，或明确标记实验性（#21/#22）—— `a660679`，场景级容错 + 时间预算 + 硬约束保真 + 残章全额退款 + `degraded` 标记 + 不收润色费
+- [x] 人味化规则表清理（自我抵消对、盲替换、上限穿透、双套阈值统一）；standard 先跑免费 `apply_rule_fixes` 再决定是否 LLM humanize —— `ee01560`
+- [x] 硬截断保护章尾：从中部压缩或保留最后一段 —— `56bec05` `hard_trim` 重写（保开头 + 保末段钩子、牺牲中部、`max_chars` 无例外硬上限）
+- [x] 死代码清理批次（writing_presets / knowledge_context / temp_offset / pipeline_review 三方法 / README.ai / novel_workflow.md）—— `f335a45`；`api/routers/README.ai` 因当时误判为二进制而漏掉，已于 2026-07-31 补齐（2 条失效条目 + 14 个未收录路由）
+- [x] 静默降级治理：统一 `review_summaries` 里 skipped/degraded/failed 语义，前端可见 —— `skipped_for_budget` / `degraded` / 失败步 `applied:False` 已贯通
 
-### 需用户拍板的商业/产品决策
-1. 卷/书摘要转正（反转既往「telemetry-only 有意设计」的评审结论）
-2. standard 档是否下放 CharacterState 写入（记忆能力分档 vs 质量底线）
-3. polish 计费口径（强开不计费 / 勾选才跑）
-4. 多版本选优：standard 开 2 版本（成本×2）还是删除该机制
-5. 分卷结构改造的优先级（阶段 3 最大单项）
+### 需用户拍板的商业/产品决策 —— **5 项已全部拍板（2026-07-26）**
+1. ✅ 卷/书摘要转正（反转既往「telemetry-only 有意设计」的评审结论）→ **转正**，作为独立 prompt 段注入
+2. ✅ standard 档是否下放 CharacterState 写入 → **下放**，走 `enable_state_tracking` 轻量路径（零 mem0），完整记忆仍 premium 独占
+3. ✅ polish 计费口径 → **勾选才跑才计费**，且付费必交付
+4. ✅ 多版本选优 → **保留机制但不默认开**（不做 standard 开 2 版本的成本×2 实验，也不删 `editor_review`）
+5. ✅ 分卷结构改造优先级 → **做轻量版**，排进阶段 3

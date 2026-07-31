@@ -1,47 +1,66 @@
 # Arboris-Novel 待办（下次继续）
 
-> 更新于 2026-06-17（A1 落地后）。**质量/RAG 路线图二阶段已全部完成**；仅余两个低优先小尾巴。供下次开工**直接上手、无需重新实证**。
-> 架构权威见 `CLAUDE.md`；已完成项见 `git log`。
+> 更新于 **2026-07-31**。质量/RAG 路线图二阶段（6 月）与生成质量五阶段整改（7 月）**均已全部完成**。
+> 架构权威见 `CLAUDE.md`；7 月整改的完整清单与逐条勾选状态见 `docs/generation-quality-audit-2026-07.md`；已完成项见 `git log`。
 
 ---
 
-## ✅ 质量/RAG 路线图二阶段 —— 全部完成
+## 🔴 优先级 1：运维 —— 网关重建部署
 
-### A1 滚动细纲修订回路 · **已实现（2026-06-17）**
-- 设计+实现说明见 `docs/a1-outline-revision-design.md`（§0 记录两处偏差：不注册 CAPABILITIES 跟随 enable_memory 范式 / 灰度走 env `OUTLINE_REVISION_ENABLED` 而非 SystemConfig）。
-- 落地：新增 `OutlineRevisionService`（写侧 `review_downstream`：generate_structured 评审后续 K=3 章漂移 + merge 写 `outline.metadata.revision_hint` 防覆盖导演脚本；读侧 `build_revision_brief`：注入 `[大纲修订提示]` 段）+ `prompts/outline_revision.md` + 写侧三层挂载（write_task→门面→schedule_followups→orchestrator 三处）+ 读侧四环（prefetch→evidence_stage→prompt_stage→prompt_assembly）+ config（PipelineConfig.enable_outline_revision，premium 块由 env 开关 gate，ultra-fast 关）。
-- flagship 独占（preset=premium 入口门控 transitively 实现）/ 纯后端注入提示 / 仅注入不改 summary / 全程降级。+8 测试，后端全量 **329 passed**。
-- **灰度上线**：默认关，需在部署 env 设 `OUTLINE_REVISION_ENABLED=true` 才对 flagship 生效。
+蓝图生成已异步任务化（`8ddee0e`），`gateway/internal/taskdispatcher/dispatcher.go:62` 登记了 `blueprint:generate`（15m 超时），但**服务器上跑的仍是旧网关二进制**，不认识该任务类型：
+
+- 现象：前端提交蓝图任务收 400 → 自动回退同步蓝图生成（安全降级，但异步化收益为零，长蓝图仍可能被 120s 掐断）
+- 动作：服务器上重建 gateway 镜像并重启（生产栈命令**必带** `-f docker-compose.prod.yml`，否则会拆掉 prod 栈的 app 副本）
+- 验证：提交一次蓝图生成，看是否走异步任务路径（不再回退）；`docker logs gateway | grep panic` 应为空
 
 ---
 
-## 🟡 小尾巴（低优先，可顺手）
-- ~~**`satisfaction_design.intensity` 恒未写入**~~ **✅ 已修复（见 git log）**：`_build_emotion_points` 新增优先读 `EmotionDeviationService.build_actual_intensity_curve`（CharacterState 实际情绪峰值）作为实际强度，缺则退回 mission 规划强度（仍从无写入）、再退默认 5.0。一处改动同时修复故事形状分析（不再恒 FLAT）+ 复用 A5 数据。无 CharacterState 的非精品档自然降级为既有 5.0 行为（无回归）。
-- **`backend/app/api/routers/README.ai`**：二进制文件（`file` 判 data，Read 工具拒读），仍含已删的 `analytics_enhanced` 过时条目，无法安全编辑。评估转为纯文本或重建。（注：`backend/app/services/README.ai` 是 UTF-8 文本，可用 sed 行删——A5 已用此法清掉 emotion_analyzer_enhanced 条目。）
-- **remote 迁移**：GitHub 提示仓库已迁移 `leanb525/mix-ainovel` → `testdown001/mix-ainovel`。确认后执行 `git remote set-url origin git@github.com:testdown001/mix-ainovel.git`。
+## 🟠 优先级 2：跑评估基线（三件套之①的收尾）
+
+评估基线子系统已交付（`1a9d980`，`backend/run_bench.py` + `app/services/bench/`），但**一次都没跑过**——`bench_results` 不存在，所有质量开关目前仍是「信仰」而非数据。
+
+- 用法见 `docs/bench-guide.md`：先 `--dry-run` 冒烟 → freeze 一个真实项目为夹具 → 跑 standard / premium / full 拿基线 → 对可疑开关做消融（`--baseline full`）
+- ⚠️ **首跑前先启动一次后端**，让 `init_db` 给开发库补列（`volumes` 等）
+- ⚠️ 跑批走真 LLM 有成本，CLI 有预估 + 确认步骤
+- 需要你指定用哪个真实项目做夹具
+
+---
+
+## 🟡 优先级 3：7 月整改遗留的 3 项（2026-07-31 实证）
+
+| 项 | 状态 | 实证位置 |
+|----|------|----------|
+| outline 结构化字段落库 | ❌ 未做 | `prompts/outline_generation.md:134-139` 每章都让 LLM 产出 `narrative_phase` / `foreshadowing.plant-payoff` / `emotion_hook`，但 `update_or_create_outline(project_id, ch_num, title, summary)` 只落标题+摘要 → **三个字段每章都在生成、每章都被丢弃**（付了 token 没拿到东西，性价比最高的一项） |
+| premium enrichment 互斥（#19） | ❌ 未做 | `app/services/standard_post_processing_service.py:179` `enrichment_enabled = enable_enrichment and not optimizer_enabled` 在 optimizer 执行前算死、跑完不复检长度 → premium 档章节偏短时无任何补救（density 只管偏长） |
+| revision_hint 生命周期（#33） | 🟡 一半 | 大纲重写/蓝图重建即清 ✅；`consumed` 标记未做，触发点仍在写侧任务 `app/services/generation_write_task_service.py:195` 而非 select/finalize |
+
+---
+
+## 🔵 优先级 4：下一步路线三件套 ②③（未动）
+
+① 评估基线 ✅ 已交付（待跑，见优先级 2）
+② **卷级复盘正式重规划 + 卷级发散卡片** —— 未动
+③ **两遍制草稿-改写** —— 未动
+
+针对上次分析出的核心思想缺陷：开环规划 / 事实非意义 / 防错非求好 / 约束堆叠上限。
+
+---
+
+## ⚪ 小尾巴（低优先）
+
+- **`backend/app/services/README.ai` 索引严重不全**：无失效条目，但 122 个服务里 **93 个未收录**。补全是纯机械活且容易写不准，价值中等，按需再做。
+- **mem0 升 2.x**：6 条迁移清单已归档，当前已锁 `mem0ai==1.0.4` + 关遥测，可长期不动。
+- ~~`api/routers/README.ai` 二进制不可读~~ ✅ **已澄清并修复（2026-07-31）**：该文件实为 UTF-8+CRLF 文本，只是 Read/Write 工具按 `.ai` 扩展名判定为二进制而拒读——用 shell 读写即可。已补齐 2 条失效条目（`analytics_enhanced` / `llm_config`）+ 14 个未收录路由。
+- ~~remote 迁移~~ ✅ **已完成（2026-07-31）**：`leanb525/mix-ainovel` → `testdown001/mix-ainovel`（切换前已用 `git ls-remote` 验证新地址可达且 HEAD 与本地一致）。
 
 ---
 
 ## ⚠️ 工作原则（血泪教训，务必遵守）
-- **删/改/采纳路线图项前，必须亲自 `grep` 实证现状（含 `tests/`），勿信旧报告/记忆/多代理调研的「现状/缺失」描述** —— 调研的现状部分有严重幻觉。A5 本次即靠直接 grep 确认了「`satisfaction_design.intensity` 全仓无写入」「standard 档 `enable_memory=False`」「`creative_guidance` 缓存由 `novel_service:1271` 写入」三条关键事实，才定准设计。
-- **对抗复审会过度索要测试**：A5 复审 27 findings 里多数是「再加测试」，真正代码 bug 仅 2 个（方向判定离群、规划点 0.0 兜底）。按价值取舍，勿无脑全采纳。
+
+- **删/改/采纳路线图项前，必须亲自 `grep` 实证现状（含 `tests/`），勿信旧报告/记忆/多代理调研的「现状/缺失」描述** —— 调研的现状部分有严重幻觉。本次勾选审计清单时即靠直接读码抓出 3 项「以为做了其实没做/只做一半」，以及 1 项「审计误判为缺失、实际早已实现」（`register_from_blueprint`）。
+- **对抗复审会过度索要测试**：历史上 27 findings 里真代码 bug 仅 2 个，其余是「再加测试」。按价值取舍，勿无脑全采纳。
 - **删代码前必查 `tests/` 引用**（历史上 `novel_bench_service` 差点被误删，实有回归测试在用）。
 - 提交用显式 pathspec 且 `-m` 放在 `--` **之前**（`git commit -m "msg" -- <paths>`），避免卷入暂存区其他改动（如 `.claude/settings.local.json`）。
+- **异步路径「任务超时」先查 `docker logs gateway | grep panic` + `trace.log` 是否为空**，别默认是生成慢（历史真凶是网关 nil-map panic 整进程崩）。
+- **dry-run 冒烟是免费的生产体检**（历史上一次冒烟揪出「生产 Qdrant 自始至终是坏的」）。
 - 项目未上线，改动直接提交 main。
-
----
-
-## ✅ 已完成（已提交 main，详见 git log）
-| 提交 | 主题 |
-|------|------|
-| `00619a1` | 部署：前端静态服务 + 两栈装配 + HTTPS + 文档 |
-| `9d677c1` | 测试：支付宝/微信回调验签 |
-| `9a7a65b` | CI：纳入 go test |
-| `3bf3e0b` | 测试：前端订阅推导 |
-| `584d5bb` | 清理：死代码（净删 1140 行） |
-| `9e8de95` | 质量：B4 伏笔语义化 |
-| `da5df97` | **质量：A5 情感曲线偏差校正**（规划曲线 vs CharacterState 实际情绪，偏差注入 prompt；18 测试，全量 316 passed） |
-| `60b21a7` | 清理：删零引用 emotion_analyzer_enhanced + README.ai 索引 |
-| `65785de` | 质量：故事形状分析改读 CharacterState 实际强度（修 `satisfaction_design.intensity` 恒未写入 → FLAT 退化；复用 A5 数据；321 passed） |
-| `36d8201` | 文档：A1 滚动细纲修订设计定稿 |
-| _本次_ | **质量：A1 滚动细纲修订回路实现**（`OutlineRevisionService` 写/读侧 + 写侧三层挂载 + 读侧四环注入；flagship 独占 env 开关；8 测试，全量 329 passed） |
