@@ -19,7 +19,9 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      # 必须用 127.0.0.1 而非 localhost：容器内 localhost 先解析到 ::1，而上游只监听
+      # IPv4 0.0.0.0 → wget 恒 "Connection refused" → 容器永久 unhealthy（服务其实正常）。
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -62,7 +64,8 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/health"]
+      # 同 nginx：localhost→::1 而网关只听 IPv4 0.0.0.0:3000，必须写 127.0.0.1
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/health"]
       interval: 15s
       timeout: 5s
       retries: 3
