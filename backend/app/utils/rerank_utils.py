@@ -21,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 RERANK_SCORE_WEIGHT = 0.6
 
+# 连续失败达到该次数后，本进程内对该 URL 熄火，不再重试（与 llm_service 的
+# 「按目标学习」进程级集合同一范式）。
+# 动机：rag_reranker_enabled 默认 True 而 rag_reranker_api_url 默认 None，配置缺省时
+# 会回退去猜 embedding.base_url + "/rerank"。多数 embedding 供应商并不提供该端点，
+# 于是每次检索都发一个注定失败的请求——降级虽优雅，但永久地白付一次往返和日志噪音。
+_RERANK_FAILURE_THRESHOLD = 3
+_rerank_failures: Dict[str, int] = {}
+
 
 async def _get_embedding_config(key: str) -> Optional[str]:
     """从 system_configs 表读取 embedding 配置，回退到环境变量。"""
@@ -133,6 +141,10 @@ async def rerank_documents(
         )
         return None
 
+    if _rerank_failures.get(api_url, 0) >= _RERANK_FAILURE_THRESHOLD:
+        logger.debug("Rerank 已因连续失败在本进程内熄火，跳过 (url=%s)", api_url)
+        return None
+
     truncated = [d[:1024] for d in documents]
 
     try:
@@ -184,9 +196,21 @@ async def rerank_documents(
             })
 
         scored.sort(key=lambda x: x["combined_score"], reverse=True)
+        _rerank_failures.pop(api_url, None)  # 成功即清零，避免偶发抖动累积成熄火
         logger.info("Rerank 完成: %d 个文档已重排 (url=%s)", len(scored), api_url)
         return scored
 
     except Exception as exc:
-        logger.warning("Rerank API 调用失败，保持原排序 (url=%s, docs=%d): %s", api_url, len(documents), exc)
+        count = _rerank_failures.get(api_url, 0) + 1
+        _rerank_failures[api_url] = count
+        if count >= _RERANK_FAILURE_THRESHOLD:
+            logger.warning(
+                "Rerank API 连续失败 %d 次，本进程内不再重试该地址 (url=%s)；"
+                "如需重排请配置可用的 RAG_RERANKER_API_URL/_API_KEY，或设 RAG_RERANKER_ENABLED=false 显式关闭: %s",
+                count, api_url, exc,
+            )
+        else:
+            logger.warning(
+                "Rerank API 调用失败，保持原排序 (url=%s, docs=%d): %s", api_url, len(documents), exc
+            )
         return None

@@ -160,6 +160,24 @@ async def _ensure_schema_updates() -> None:
                         continue
                     sync_conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
 
+            def _ensure_nullable(table_name: str, column_name: str, column_type: str) -> None:
+                """把既有库上误设的 NOT NULL 放开为可空（幂等）。
+
+                _ensure_columns 只能补列，改不了既有列的非空约束；而 create_all 对已存在
+                的表完全不动，所以模型改 nullable 后老库仍会因 NOT NULL 拒绝写入。
+                """
+                if not inspector.has_table(table_name):
+                    return
+                for col in inspector.get_columns(table_name):
+                    if col["name"] != column_name:
+                        continue
+                    if col.get("nullable"):
+                        return  # 已经可空，幂等返回
+                    sync_conn.execute(
+                        text(f"ALTER TABLE {table_name} MODIFY {column_name} {column_type} NULL")
+                    )
+                    return
+
             def _ensure_index(table_name: str, index_name: str, columns: list[str]) -> None:
                 """为既有库补建缺失的复合索引（幂等）。"""
                 if not inspector.has_table(table_name):
@@ -248,6 +266,10 @@ async def _ensure_schema_updates() -> None:
                 },
             )
             _ensure_index("users", "ix_users_phone", ["phone"])
+
+            # character_states.character_id 原为 NOT NULL，导致角色状态在既有库上 100% 写入
+            # 失败（详见模型侧注释）。放开为可空，老库无需重建即可恢复写入。
+            _ensure_nullable("character_states", "character_id", "BIGINT")
 
             # 热点联合过滤补复合索引（与模型 __table_args__ 对齐，覆盖既有库）
             _ensure_index("chapters", "ix_chapters_project_chapter",

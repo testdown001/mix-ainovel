@@ -54,7 +54,8 @@ class MemoryDistillationService:
             from mem0 import AsyncMemory
             from .memory_layer_service import MemoryLayerService
 
-            config = MemoryLayerService._build_mem0_config()
+            # 通道配置改走 SystemConfig 后不再是静态方法，需借 llm_service 的 session
+            config = await MemoryLayerService(db=self.llm_service.session)._build_mem0_config()
             self._memory = await AsyncMemory.from_config(config_dict=config)
             return self._memory
         except Exception:

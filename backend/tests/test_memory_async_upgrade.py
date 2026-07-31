@@ -17,10 +17,23 @@ import app.models.user_quota  # noqa: F401
 from app.services.memory_layer_service import MemoryLayerService
 
 
+def _dummy_session():
+    """链式 mock：让 SystemConfigRepository.get_by_key 返回 None（配置回落 env）。
+
+    mem0 通道配置已改走 SystemConfig（原先直读 settings 导致线上用占位 key 恒 401），
+    _build_mem0_config 因此会查库；本文件只测 AsyncMemory 升级，不测配置来源。
+    """
+    session = SimpleNamespace()
+    session.execute = AsyncMock(
+        return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))
+    )
+    return session
+
+
 def _make_service():
     """构造 MemoryLayerService，不触发任何外部连接。"""
     return MemoryLayerService(
-        db=SimpleNamespace(),
+        db=_dummy_session(),
         llm_service=SimpleNamespace(),
         prompt_service=SimpleNamespace(),
     )
@@ -68,6 +81,10 @@ def test_get_memory_context_uses_async_search():
             return self
         def all(self):
             return []
+        def first(self):
+            # SystemConfigRepository.get_by_key 用的是 scalars().first()
+            # （mem0 通道配置改走 SystemConfig 后会走到这里，无记录即回落 env）
+            return None
 
     # Mock time tracker
     tracker = SimpleNamespace(current_time=None, current_date=None, project_id="p1", chapter_time_map={})
@@ -155,6 +172,10 @@ def test_build_chapter_state_context_no_mem0():
             return self
         def all(self):
             return []
+        def first(self):
+            # SystemConfigRepository.get_by_key 用的是 scalars().first()
+            # （mem0 通道配置改走 SystemConfig 后会走到这里，无记录即回落 env）
+            return None
         def scalar_one_or_none(self):
             return None
 

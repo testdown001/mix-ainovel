@@ -40,7 +40,11 @@ class CharacterState(Base):
 
     id = Column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
     project_id = Column(String(255), ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    character_id = Column(BigInteger, ForeignKey("blueprint_characters.id", ondelete="CASCADE"), nullable=False, index=True)
+    # nullable=True 是刻意的：状态由 LLM 从正文抽取，抽到的角色未必在蓝图角色表里（新出场/
+    # 配角），而全部读路径都按 character_name 查，从不读 character_id。此前的 NOT NULL 让
+    # 唯一写入方（MemoryLayerService.update_character_state 不传 id、又要靠"上一条状态"取 id）
+    # 陷入死锁：首次写必为 NULL → IntegrityError → 永远 bootstrap 不了，角色状态从未落库。
+    character_id = Column(BigInteger, ForeignKey("blueprint_characters.id", ondelete="CASCADE"), nullable=True, index=True)
     character_name = Column(String(255), nullable=False)  # 冗余存储，方便查询
     
     # 状态快照（章节结束时）

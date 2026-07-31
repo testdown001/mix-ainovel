@@ -34,6 +34,8 @@ def _mock_llm(response_json=None):
         "obsolete": [{"id": "mem_3", "reason": "被后续事件取代"}],
     })
     llm.get_grader_llm_response = AsyncMock(return_value=default)
+    # 蒸馏侧构建 mem0 配置时要借 llm_service 的 session（配置已改走 SystemConfig）
+    llm.session = None
     return llm
 
 
@@ -56,7 +58,7 @@ def test_ensure_memory_awaits_from_config():
 
     with patch("mem0.AsyncMemory", fake_cls), patch(
         "app.services.memory_layer_service.MemoryLayerService._build_mem0_config",
-        return_value={"cfg": 1},
+        new=AsyncMock(return_value={"cfg": 1}),
     ):
         memory = asyncio.run(service._ensure_memory())
 
@@ -73,7 +75,7 @@ def test_should_distill_true_through_real_ensure_memory():
 
     with patch("mem0.AsyncMemory", fake_cls), patch(
         "app.services.memory_layer_service.MemoryLayerService._build_mem0_config",
-        return_value={"cfg": 1},
+        new=AsyncMock(return_value={"cfg": 1}),
     ):
         result = asyncio.run(service.should_distill("proj-1"))
 

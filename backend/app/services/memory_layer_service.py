@@ -7,6 +7,7 @@ from typing import Optional, List, Dict, Any
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime
 
 from mem0 import AsyncMemory
@@ -20,6 +21,7 @@ from ..models.memory_layer import (
     CausalChain,
     StoryTimeTracker
 )
+from ..repositories.system_config_repository import SystemConfigRepository
 from ..utils.json_utils import parse_llm_json
 from .llm_service import LLMService
 from .prompt_service import PromptService
@@ -41,9 +43,20 @@ class MemoryLayerService:
         self.prompt_service = prompt_service
         self._memory: Optional[AsyncMemory] = None
 
-    @staticmethod
-    def _build_mem0_config() -> dict:
-        """构建 mem0 配置字典。"""
+    async def _cfg(self, key: str) -> Optional[str]:
+        """按全系统统一口径解析通道配置：SystemConfig 优先，env 兜底。
+
+        与 LLMService._get_config_value_for_session 同规则（env 键 = 大写并把 . 换成 _）。
+        mem0 曾是全系统唯一直读 settings.* 的 LLM 出口，而 env 按约定只是首次启动的种子
+        值——线上后台改过 key 后 env 仍是占位符，导致 mem0 恒 401、长期记忆全废。
+        """
+        record = await SystemConfigRepository(self.db).get_by_key(key)
+        if record and record.value:
+            return record.value
+        return os.getenv(key.upper().replace(".", "_")) or None
+
+    async def _build_mem0_config(self) -> dict:
+        """构建 mem0 配置字典（通道参数走 SystemConfig）。"""
         qdrant_config: Dict[str, Any] = {
             "host": settings.qdrant_host,
             "port": settings.qdrant_port,
@@ -51,14 +64,14 @@ class MemoryLayerService:
         if settings.qdrant_api_key:
             qdrant_config["api_key"] = settings.qdrant_api_key
 
-        # LLM base_url：使用项目配置的第三方兼容 API 地址
-        llm_base_url = str(settings.openai_base_url) if settings.openai_base_url else None
+        llm_key = await self._cfg("llm.api_key")
+        llm_base_url = await self._cfg("llm.base_url")
+        llm_model = await self._cfg("llm.model")
 
-        # Embedder base_url：优先使用专用的 embedding base_url，否则回退到 LLM base_url
-        embedder_base_url = (
-            str(settings.embedding_base_url) if settings.embedding_base_url
-            else llm_base_url
-        )
+        embed_key = await self._cfg("embedding.api_key") or llm_key
+        # Embedder base_url：优先专用 embedding 通道，否则回退 LLM 通道
+        embed_base_url = await self._cfg("embedding.base_url") or llm_base_url
+        embed_model = await self._cfg("embedding.model")
 
         return {
             "vector_store": {
@@ -68,17 +81,17 @@ class MemoryLayerService:
             "llm": {
                 "provider": "openai",
                 "config": {
-                    "model": settings.openai_model_name,
-                    "api_key": settings.openai_api_key,
+                    "model": llm_model or settings.openai_model_name,
+                    "api_key": llm_key,
                     "openai_base_url": llm_base_url,
                 },
             },
             "embedder": {
                 "provider": "openai",
                 "config": {
-                    "model": settings.embedding_model,
-                    "api_key": settings.embedding_api_key or settings.openai_api_key,
-                    "openai_base_url": embedder_base_url,
+                    "model": embed_model or settings.embedding_model,
+                    "api_key": embed_key,
+                    "openai_base_url": embed_base_url,
                 },
             },
         }
@@ -86,7 +99,7 @@ class MemoryLayerService:
     async def _ensure_memory(self) -> AsyncMemory:
         """异步延迟初始化 AsyncMemory 实例，缓存到实例属性。"""
         if self._memory is None:
-            config = self._build_mem0_config()
+            config = await self._build_mem0_config()
             logger.info("初始化 mem0 AsyncMemory 实例...")
             self._memory = await AsyncMemory.from_config(config_dict=config)
         return self._memory
@@ -151,6 +164,17 @@ class MemoryLayerService:
         
         result = await self.db.execute(query)
         return list(result.scalars().all())
+
+    async def _safe_rollback(self) -> None:
+        """异常后复位共享 session（可能已处于待回滚状态）。
+
+        与 TemporalStateService._safe_rollback 同义：不复位则同 session 的后续写入
+        全部连带失败，各步骤之间的"独立错误隔离"形同虚设。
+        """
+        try:
+            await self.db.rollback()
+        except Exception:
+            pass
 
     async def update_character_state(
         self,
@@ -706,6 +730,9 @@ class MemoryLayerService:
                     results["character_states_updated"] += 1
         except Exception as e:
             logger.warning(f"写入角色状态到数据库失败: {e}")
+            # 失败的 flush 会让 session 停在待回滚态，不复位则"独立错误隔离"名存实亡：
+            # 步骤 2 必然连带报 PendingRollbackError（线上实测角色状态与时间线总是同时丢）。
+            await self._safe_rollback()
 
         # ---- 步骤 2: 写入时间线事件（独立错误隔离） ----
         try:
@@ -718,6 +745,7 @@ class MemoryLayerService:
                 results["timeline_events_added"] += 1
         except Exception as e:
             logger.warning(f"写入时间线事件到数据库失败: {e}")
+            await self._safe_rollback()
 
         return results
 
