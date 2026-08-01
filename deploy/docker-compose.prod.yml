@@ -119,6 +119,12 @@ services:
       OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-gpt-4o-mini}
       WRITER_CHAPTER_VERSION_COUNT: ${WRITER_CHAPTER_VERSION_COUNT:-1}
 
+      # 质量回路灰度开关（均为 flagship 档独占，默认关；打开后才会真正触发）
+      # - 滚动细纲修订：章节定稿后评审后续大纲漂移并产出修订建议
+      # - 卷级复盘重规划：卷末章定稿后复盘该卷并修订下一卷方向
+      OUTLINE_REVISION_ENABLED: ${OUTLINE_REVISION_ENABLED:-false}
+      VOLUME_RETROSPECTIVE_ENABLED: ${VOLUME_RETROSPECTIVE_ENABLED:-false}
+
       # 嵌入模型配置
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
