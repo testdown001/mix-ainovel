@@ -208,7 +208,8 @@ async def snapshot_environment(session_factory) -> Dict[str, Any]:
         "writer_ultra_fast_mode": settings.writer_ultra_fast_mode,
         "generation_time_budget_sec": settings.generation_time_budget_sec,
         "rag_retrieval_mode": settings.rag_retrieval_mode,
-        "rag_reranker_enabled": settings.rag_reranker_enabled,
+        # 下面会用 SystemConfig 的生效值覆盖；env 只是兜底
+        "rerank_enabled": settings.rag_reranker_enabled,
         "db_provider": settings.db_provider,
     }
     try:
@@ -227,6 +228,14 @@ async def snapshot_environment(session_factory) -> Dict[str, Any]:
                 (urlparse(base_url).netloc or base_url) if base_url else "（未配置）"
             )
             snapshot["llm_grader_configured"] = bool(await _value("llm_grader.api_key"))
+            # 重排配置已迁到 SystemConfig（后台可改），快照必须记生效值而非 env 种子，
+            # 否则跨 run 对比会把「后台关掉了重排」误读成同一配置。
+            rerank_enabled = await _value("rerank.enabled")
+            if rerank_enabled:
+                snapshot["rerank_enabled"] = rerank_enabled.lower() in ("1", "true", "yes", "on")
+            snapshot["rerank_configured"] = bool(
+                await _value("rerank.api_url") and await _value("rerank.api_key")
+            )
     except Exception as exc:  # noqa: BLE001 - 快照失败不阻断跑批，但显式留痕
         logger.warning("bench 环境快照读取 SystemConfig 失败: %s", exc)
         snapshot.setdefault("llm_model", f"（读取失败: {type(exc).__name__}）")

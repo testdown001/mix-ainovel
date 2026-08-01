@@ -105,7 +105,7 @@ import { useAlert } from '@/composables/useAlert'
 const { showAlert } = useAlert()
 
 const CHANNEL_LABELS: Record<string, string> = {
-  default: '默认', fallback: '兜底', polish: '润色', search: '搜索', grader: '评分', embedding: '向量',
+  default: '默认', fallback: '兜底', polish: '润色', search: '搜索', grader: '评分', embedding: '向量', rerank: '重排',
 }
 const channelLabel = (c: string) => CHANNEL_LABELS[c] || c
 

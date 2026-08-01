@@ -83,7 +83,7 @@ class ChapterContextService:
             return ChapterRAGContext(query=query, chunks=[], summaries=[])
 
         from ..utils.rerank_utils import is_rerank_enabled, rerank_documents
-        need_rerank = is_rerank_enabled()
+        need_rerank = await is_rerank_enabled()
 
         # 混合检索模式
         if retrieval_mode == "hybrid":
@@ -204,7 +204,7 @@ class ChapterContextService:
         effective_top_k = top_k_chunks or settings.vector_top_k_chunks
 
         from ..utils.rerank_utils import is_rerank_enabled, rerank_documents
-        need_rerank = is_rerank_enabled()
+        need_rerank = await is_rerank_enabled()
         per_query_k = effective_top_k  # 每个 query 取 top_k 条
 
         # ---- 批量生成所有 query 的 embedding ----

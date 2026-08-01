@@ -663,13 +663,13 @@ async def change_password(
 # LLM / embedding 通道可用性测试（「测试」按钮）
 # ------------------------------------------------------------------
 
-_TESTABLE_CHANNELS = {"default", "fallback", "polish", "search", "grader", "embedding"}
+_TESTABLE_CHANNELS = {"default", "fallback", "polish", "search", "grader", "embedding", "rerank"}
 # 健康检测覆盖的全部通道（顺序即页面展示顺序）
-_HEALTH_CHANNELS = ["default", "fallback", "polish", "search", "grader", "embedding"]
+_HEALTH_CHANNELS = ["default", "fallback", "polish", "search", "grader", "embedding", "rerank"]
 
 
 class TestChannelRequest(BaseModel):
-    channel_type: str  # default | fallback | polish | search | embedding
+    channel_type: str  # default | fallback | polish | search | grader | embedding | rerank
 
 
 @router.post("/test-llm-channel")

@@ -34,7 +34,7 @@ _DIMS = ("immersion", "pacing", "hook", "character", "prose", "outline_fit")
 _ENV_SNAPSHOT_KEYS = (
     "llm_model", "llm_base_url_host", "llm_grader_configured",
     "writer_chapter_versions", "writer_fast_mode", "writer_ultra_fast_mode",
-    "generation_time_budget_sec", "rag_retrieval_mode", "rag_reranker_enabled",
+    "generation_time_budget_sec", "rag_retrieval_mode", "rerank_enabled", "rerank_configured",
     "db_provider",
 )
 

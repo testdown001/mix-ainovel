@@ -10,7 +10,7 @@ const adminRequest = <T = any>(path: string, options: RequestInit = {}) =>
   requestJson<T>(`${API_BASE_URL}${ADMIN_API_PREFIX}${path}`, options)
 
 // 类型定义
-export type ChannelType = 'default' | 'fallback' | 'polish' | 'search' | 'grader' | 'embedding'
+export type ChannelType = 'default' | 'fallback' | 'polish' | 'search' | 'grader' | 'embedding' | 'rerank'
 
 export interface TestChannelResult {
   ok: boolean

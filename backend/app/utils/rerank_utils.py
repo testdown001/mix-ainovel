@@ -5,13 +5,17 @@
 提供单一入口调用外部 Reranker API，
 并将 reranker 分数与原始分数加权组合，避免直接覆盖。
 
-优先使用专用 Reranker 配置（RAG_RERANKER_API_URL / RAG_RERANKER_API_KEY），
-仅在未配置时回退到 embedding 配置（embedding.base_url / embedding.api_key），
-以兼容旧部署。
+配置口径（2026-08-01 起，与全系统 LLM 通道一致）：
+    SystemConfig 表 `rerank.*` 优先 → env（`settings.rag_reranker_*`）兜底。
+env 只在首次启动时把值播种进 SystemConfig（见 db/system_config_defaults.py），
+之后一切以后台「接口管理 → 重排序模型」为准，改完即时生效、无需重启。
+
+仍保留 embedding 配置回退：未单独配置 `rerank.api_url/api_key` 时借用
+`embedding.base_url`/`embedding.api_key` 并自动补 `/rerank`，以兼容旧部署。
 """
 import logging
-import os
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -23,73 +27,105 @@ RERANK_SCORE_WEIGHT = 0.6
 
 # 连续失败达到该次数后，本进程内对该 URL 熄火，不再重试（与 llm_service 的
 # 「按目标学习」进程级集合同一范式）。
-# 动机：rag_reranker_enabled 默认 True 而 rag_reranker_api_url 默认 None，配置缺省时
-# 会回退去猜 embedding.base_url + "/rerank"。多数 embedding 供应商并不提供该端点，
+# 动机：rerank.enabled 默认开而 api_url 可能缺省，此时会回退去猜
+# embedding.base_url + "/rerank"。多数 embedding 供应商并不提供该端点，
 # 于是每次检索都发一个注定失败的请求——降级虽优雅，但永久地白付一次往返和日志噪音。
+# 注意：熄火是「进程级」的，多副本部署下后台测试只能解除当前进程的熄火，
+# 其余副本要等各自的下一次成功调用或重启才恢复。
 _RERANK_FAILURE_THRESHOLD = 3
 _rerank_failures: Dict[str, int] = {}
 
+# SystemConfig 键 → 缺省兜底值（取自 settings，即 env）
+_CONFIG_FALLBACKS: Dict[str, Any] = {
+    "rerank.enabled": lambda: settings.rag_reranker_enabled,
+    "rerank.api_url": lambda: settings.rag_reranker_api_url,
+    "rerank.api_key": lambda: settings.rag_reranker_api_key,
+    "rerank.model": lambda: settings.rag_reranker_model,
+    "embedding.base_url": lambda: settings.embedding_base_url,
+    "embedding.api_key": lambda: settings.embedding_api_key,
+}
 
-async def _get_embedding_config(key: str) -> Optional[str]:
-    """从 system_configs 表读取 embedding 配置，回退到环境变量。"""
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+async def _load_config() -> Dict[str, Optional[str]]:
+    """一次查询取回 rerank 相关的全部配置项，DB 缺失的键回退到 env。
+
+    刻意用「单次 IN 查询」而非逐键查询：本函数在每轮检索里会被调用两次
+    （enabled 判定 + 地址解析），逐键查会把一次检索放大成 6 个 DB 往返。
+    """
+    keys = list(_CONFIG_FALLBACKS)
+    values: Dict[str, Optional[str]] = {}
     try:
-        from ..db.session import AsyncSessionLocal
-        from ..models.system_config import SystemConfig
         from sqlalchemy import select
 
+        from ..db.session import AsyncSessionLocal
+        from ..models.system_config import SystemConfig
+
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
-                select(SystemConfig.value).where(SystemConfig.key == key)
+            rows = await session.execute(
+                select(SystemConfig.key, SystemConfig.value).where(SystemConfig.key.in_(keys))
             )
-            value = result.scalar_one_or_none()
-            if value:
-                return value
-    except Exception as e:
-        logger.debug("从数据库读取配置 %s 失败，回退环境变量: %s", key, e)
+            for key, value in rows.all():
+                if value not in (None, ""):
+                    values[key] = value
+    except Exception as exc:  # pragma: no cover - DB 不可用时静默回退 env
+        logger.debug("读取 rerank 配置失败，回退环境变量: %s", exc)
 
-    env_key = key.upper().replace(".", "_")
-    return os.getenv(env_key)
+    for key, fallback in _CONFIG_FALLBACKS.items():
+        if values.get(key):
+            continue
+        raw = fallback()
+        values[key] = str(raw) if raw not in (None, "") else None
+    return values
 
 
-def is_rerank_enabled() -> bool:
-    """检查 reranker 是否已启用（同步检查环境变量标志）。"""
-    return bool(getattr(settings, "rag_reranker_enabled", False))
+def _as_bool(value: Optional[str]) -> bool:
+    return str(value).strip().lower() in _TRUTHY if value is not None else False
+
+
+def _to_rerank_endpoint(base_url: str) -> str:
+    """基础地址自动补 `/rerank`；已是完整 rerank 端点则原样保留。"""
+    url = str(base_url).rstrip("/")
+    return url if url.endswith("/rerank") else url + "/rerank"
+
+
+async def is_rerank_enabled() -> bool:
+    """重排是否启用（后台开关优先，env 兜底）。"""
+    config = await _load_config()
+    return _as_bool(config.get("rerank.enabled"))
 
 
 async def get_rerank_runtime_status() -> Dict[str, Any]:
-    """返回当前实例的 Reranker 运行时状态，供启动日志和诊断使用。"""
-    model = getattr(settings, "rag_reranker_model", "jina-reranker-v2-base-multilingual")
-    dedicated_url = getattr(settings, "rag_reranker_api_url", None)
-    dedicated_key = getattr(settings, "rag_reranker_api_key", None)
+    """返回当前实例的 Reranker 运行时状态，供启动日志、后台展示和诊断使用。"""
+    config = await _load_config()
+    model = config.get("rerank.model") or "jina-reranker-v2-base-multilingual"
+    enabled = _as_bool(config.get("rerank.enabled"))
 
+    dedicated_url = config.get("rerank.api_url")
+    dedicated_key = config.get("rerank.api_key")
     if dedicated_url and dedicated_key:
-        rerank_url = str(dedicated_url).rstrip("/")
-        if not rerank_url.endswith("/rerank"):
-            rerank_url += "/rerank"
         return {
-            "enabled": is_rerank_enabled(),
+            "enabled": enabled,
             "model": model,
             "config_source": "dedicated",
-            "api_url": rerank_url,
+            "api_url": _to_rerank_endpoint(dedicated_url),
             "api_key_configured": True,
         }
 
-    fallback_url = await _get_embedding_config("embedding.base_url")
-    fallback_key = await _get_embedding_config("embedding.api_key")
+    fallback_url = config.get("embedding.base_url")
+    fallback_key = config.get("embedding.api_key")
     if fallback_url and fallback_key:
-        rerank_url = str(fallback_url).rstrip("/")
-        if not rerank_url.endswith("/rerank"):
-            rerank_url += "/rerank"
         return {
-            "enabled": is_rerank_enabled(),
+            "enabled": enabled,
             "model": model,
             "config_source": "embedding_fallback",
-            "api_url": rerank_url,
+            "api_url": _to_rerank_endpoint(fallback_url),
             "api_key_configured": True,
         }
 
     return {
-        "enabled": is_rerank_enabled(),
+        "enabled": enabled,
         "model": model,
         "config_source": "unconfigured",
         "api_url": None,
@@ -97,24 +133,117 @@ async def get_rerank_runtime_status() -> Dict[str, Any]:
     }
 
 
-async def _resolve_rerank_config() -> tuple:
+async def _resolve_rerank_config() -> Tuple[Optional[str], Optional[str], str]:
     """解析 rerank 的 API 地址、密钥和模型。
 
-    优先级：
-    1. 专用 Reranker 配置（settings.rag_reranker_api_url / api_key）
-    2. 旧兼容路径：embedding.base_url / embedding.api_key
-
-    传入基础地址时自动拼接 /rerank；若已经是完整 rerank 端点则保持原样。
+    优先级：专用 `rerank.api_url`/`rerank.api_key` → 旧兼容的 `embedding.*`。
     """
-    status = await get_rerank_runtime_status()
-    model = status["model"]
-    base_url = status["api_url"]
-    api_key = getattr(settings, "rag_reranker_api_key", None) or await _get_embedding_config("embedding.api_key")
+    config = await _load_config()
+    model = config.get("rerank.model") or "jina-reranker-v2-base-multilingual"
 
-    if not base_url or not api_key:
+    url = config.get("rerank.api_url")
+    key = config.get("rerank.api_key")
+    if not (url and key):
+        url = config.get("embedding.base_url")
+        key = config.get("embedding.api_key")
+    if not (url and key):
         return None, None, model
 
-    return str(base_url), api_key, model
+    return _to_rerank_endpoint(url), key, model
+
+
+def reset_rerank_failures(api_url: Optional[str] = None) -> None:
+    """清除熄火计数。传 URL 只清该地址，否则全清（后台改配置/测试成功后调用）。"""
+    if api_url:
+        _rerank_failures.pop(api_url, None)
+    else:
+        _rerank_failures.clear()
+
+
+async def _post_rerank(
+    api_url: str,
+    api_key: str,
+    model: str,
+    query: str,
+    documents: List[str],
+    top_n: int,
+) -> Dict[str, Any]:
+    """发一次 rerank 请求并返回解析后的 JSON（异常直接上抛，由调用方处理）。"""
+    from .llm_tool import _get_ssl_verify
+
+    async with httpx.AsyncClient(timeout=30.0, verify=_get_ssl_verify()) as client:
+        response = await client.post(
+            api_url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "query": query,
+                "documents": documents,
+                "top_n": top_n,
+            },
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+async def test_rerank_connection() -> Dict[str, Any]:
+    """真实发起一次最小 rerank 调用，检测配置可用性（后台「测试连接」按钮）。
+
+    返回 ``{ok, model, latency_ms, detail}``，与 LLMService.test_channel 同构。
+    任何异常都被捕获为 ok=False + detail，绝不抛出。
+    成功时清除该地址的熄火计数——「管理员刚验证过」就是最可靠的恢复信号。
+    """
+    start = time.monotonic()
+    status = await get_rerank_runtime_status()
+    model = status["model"]
+    api_url, api_key, _ = await _resolve_rerank_config()
+
+    if not api_url or not api_key:
+        return {
+            "ok": False,
+            "model": model,
+            "latency_ms": 0,
+            "detail": "未配置 Reranker 地址或 API Key（也无可回退的 embedding 配置）",
+        }
+
+    try:
+        data = await _post_rerank(
+            api_url,
+            api_key,
+            model,
+            query="连接测试",
+            documents=["这是一段用于连通性测试的文本。", "另一段无关文本。"],
+            top_n=2,
+        )
+        latency = int((time.monotonic() - start) * 1000)
+        results = data.get("results")
+        if not results:
+            return {
+                "ok": False,
+                "model": model,
+                "latency_ms": latency,
+                "detail": f"接口可达但未返回 results 字段，响应片段：{str(data)[:120]}",
+            }
+        reset_rerank_failures(api_url)
+        source = "专用配置" if status["config_source"] == "dedicated" else "回退 embedding 配置"
+        note = "" if status["enabled"] else "；⚠️ 当前开关为关闭状态，实际检索不会重排"
+        return {
+            "ok": True,
+            "model": model,
+            "latency_ms": latency,
+            "detail": f"重排正常，返回 {len(results)} 条（{source}：{api_url}）{note}",
+        }
+    except Exception as exc:  # noqa: BLE001 - 测试不应抛出
+        latency = int((time.monotonic() - start) * 1000)
+        return {
+            "ok": False,
+            "model": model,
+            "latency_ms": latency,
+            "detail": f"{api_url} 调用失败：{str(exc)[:200]}",
+        }
 
 
 async def rerank_documents(
@@ -148,23 +277,9 @@ async def rerank_documents(
     truncated = [d[:1024] for d in documents]
 
     try:
-        from .llm_tool import _get_ssl_verify
-        async with httpx.AsyncClient(timeout=30.0, verify=_get_ssl_verify()) as client:
-            response = await client.post(
-                api_url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "query": query,
-                    "documents": truncated,
-                    "top_n": top_n or len(truncated),
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
+        data = await _post_rerank(
+            api_url, api_key, model, query, truncated, top_n or len(truncated)
+        )
 
         results = data.get("results", [])
         if not results:
@@ -206,7 +321,8 @@ async def rerank_documents(
         if count >= _RERANK_FAILURE_THRESHOLD:
             logger.warning(
                 "Rerank API 连续失败 %d 次，本进程内不再重试该地址 (url=%s)；"
-                "如需重排请配置可用的 RAG_RERANKER_API_URL/_API_KEY，或设 RAG_RERANKER_ENABLED=false 显式关闭: %s",
+                "请到后台「接口管理 → 重排序模型」填写可用地址并点「测试连接」，"
+                "或直接关闭该开关: %s",
                 count, api_url, exc,
             )
         else:

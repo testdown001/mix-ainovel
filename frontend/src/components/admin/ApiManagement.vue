@@ -206,6 +206,45 @@
             </n-spin>
           </n-card>
 
+          <!-- 重排序模型 (Reranker) -->
+          <n-card :bordered="false">
+            <template #header>
+              <div class="card-header">
+                <span class="card-title">🎯 重排序模型 (Reranker)</span>
+                <n-tag :type="rerankStatusTag.type" size="small">{{ rerankStatusTag.text }}</n-tag>
+              </div>
+            </template>
+            <n-spin :show="loading">
+              <n-alert type="info" :bordered="false" style="margin-bottom:16px">
+                对 RAG 召回的片段做二次精排，提升注入正文的上下文相关度。<b>可选功能</b>：
+                多数 embedding 服务并不提供 /rerank 端点，地址填错会让每次检索都白发一个失败请求
+                （连续失败 3 次后本进程自动熄火）。<b>没有可用的重排服务就把开关关掉</b>，
+                检索会保持原始召回顺序，不影响生成。
+              </n-alert>
+              <n-form label-placement="top">
+                <n-form-item label="启用重排序">
+                  <n-switch v-model:value="rerankForm.enabled" />
+                  <span style="margin-left:12px;color:#888;font-size:12px">关闭后不再调用 Reranker，检索保持原排序</span>
+                </n-form-item>
+                <n-grid :cols="2" :x-gap="16">
+                  <n-gi><n-form-item label="模型名称">
+                    <n-input v-model:value="rerankForm.model" placeholder="例：jina-reranker-v2-base-multilingual" />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="API Key">
+                    <n-input v-model:value="rerankForm.api_key" type="password" show-password-on="click" placeholder="留空则回退使用 embedding 的 API Key" />
+                  </n-form-item></n-gi>
+                  <n-gi :span="2"><n-form-item label="API 地址">
+                    <n-input v-model:value="rerankForm.api_url" placeholder="例：https://api.jina.ai/v1（自动补 /rerank），留空则回退 embedding Base URL" />
+                  </n-form-item></n-gi>
+                </n-grid>
+                <n-space justify="end">
+                  <n-button :loading="testing.rerank" @click="testChannel('rerank')">测试连接</n-button>
+                  <n-button type="primary" :loading="rerankSaving" @click="saveRerank">保存</n-button>
+                </n-space>
+              </n-form>
+            </n-spin>
+          </n-card>
+
         </n-space>
       </n-tab-pane>
 
@@ -302,11 +341,11 @@
 </template>
 
 <script setup lang="ts">
-import { h, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref } from 'vue'
 import {
   NAlert, NButton, NCard, NDataTable, NDatePicker, NEmpty, NForm, NFormItem,
   NGi, NGrid, NInput, NRadioButton, NRadioGroup, NSelect, NSpace,
-  NSpin, NStatistic, NTabPane, NTabs, NTag, type DataTableColumns
+  NSpin, NStatistic, NSwitch, NTabPane, NTabs, NTag, type DataTableColumns
 } from 'naive-ui'
 import { AdminAPI, type ApiUsageStats, type ChannelType } from '@/api/admin'
 import { useAlert } from '@/composables/useAlert'
@@ -345,16 +384,27 @@ const embeddingProviderOptions = [
   { label: 'OpenAI 兼容', value: 'openai' },
   { label: 'Ollama 本地', value: 'ollama' },
 ]
+// 重排序：布尔开关 + 独立端点，与 LLM 通道键形状不同，单列
+const rerankForm = reactive({ enabled: false, api_url: '', api_key: '', model: '' })
 
 const defaultSaving = ref(false)
 const fallbackSaving = ref(false)
 const polishSaving = ref(false)
 const searchSaving = ref(false)
 const embeddingSaving = ref(false)
+const rerankSaving = ref(false)
 
 // 仅覆盖本页配置卡管理的通道（grader 在「通道诊断」页测试，这里不配置）
 const testing = reactive<Partial<Record<ChannelType, boolean>>>({
-  default: false, fallback: false, polish: false, search: false, embedding: false,
+  default: false, fallback: false, polish: false, search: false, embedding: false, rerank: false,
+})
+
+// 未填专用地址/密钥时会回退 embedding 配置，状态标签要如实反映这三种情形
+const rerankStatusTag = computed(() => {
+  if (!rerankForm.enabled) return { type: 'default' as const, text: '已关闭' }
+  if (rerankForm.api_url && rerankForm.api_key) return { type: 'success' as const, text: '已配置' }
+  if (embeddingForm.base_url && embeddingForm.api_key) return { type: 'warning' as const, text: '回退 embedding 配置' }
+  return { type: 'error' as const, text: '已启用但未配置' }
 })
 
 const CONFIG_MAP = {
@@ -390,6 +440,10 @@ const fetchAllConfigs = async () => {
     embeddingForm.base_url = map.get('embedding.base_url') || ''
     embeddingForm.model = map.get('embedding.model') || ''
     embeddingForm.model_vector_size = map.get('embedding.model_vector_size') || ''
+    rerankForm.enabled = (map.get('rerank.enabled') || '').toLowerCase() === 'true'
+    rerankForm.api_url = map.get('rerank.api_url') || ''
+    rerankForm.api_key = map.get('rerank.api_key') || ''
+    rerankForm.model = map.get('rerank.model') || ''
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '加载配置失败', 'error')
   } finally {
@@ -415,6 +469,26 @@ const saveEmbedding = async () => {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
   } finally {
     embeddingSaving.value = false
+  }
+}
+
+const saveRerank = async () => {
+  rerankSaving.value = true
+  try {
+    const entries = [
+      { key: 'rerank.enabled', value: rerankForm.enabled ? 'true' : 'false', description: '重排序 是否启用' },
+      { key: 'rerank.api_url', value: rerankForm.api_url, description: '重排序 API 地址(可填基础地址,自动补 /rerank)' },
+      { key: 'rerank.api_key', value: rerankForm.api_key, description: '重排序 API Key(留空回退 embedding.api_key)' },
+      { key: 'rerank.model', value: rerankForm.model, description: '重排序 模型名称' },
+    ]
+    for (const entry of entries) {
+      await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
+    }
+    showAlert('重排序配置已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    rerankSaving.value = false
   }
 }
 

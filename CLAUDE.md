@@ -114,7 +114,7 @@ Layered architecture: **Routers → Services → Repositories → Models**
 - **Structured output, two-layer strategy**: stable-schema call sites use `generate_structured(prompt, schema)` (json_object + repair + Pydantic validation + error-feedback retry; soft-fail via `default`); everything else uses `json_utils.parse_llm_json(raw, default)` (strip think tags → strip md fences → json_repair → loads). **Never write `content.find('{')..rfind('}')` brace-slicing.**
 - **Output sanitization**: `json_utils.is_probable_chapter_plain_text` gates final chapter text (rejects analysis/task-echo output) — see pipeline section.
 - **Embeddings**: `get_embedding`/`get_embeddings_batch` return `[]` on any failure (callers must check); misconfiguration guard skips calls when no dedicated embedding key and default base_url isn't a known embedding-capable host.
-- **Channel testing**: `POST /api/admin/test-llm-channel` → `LLMService.test_channel` performs a real minimal call per channel, returns `{ok, model, latency_ms, detail}`.
+- **Channel testing**: `POST /api/admin/test-llm-channel` → `LLMService.test_channel` performs a real minimal call per channel, returns `{ok, model, latency_ms, detail}`. Testable channels: `default/fallback/polish/search/grader/embedding/rerank` (`rerank` is not an LLM channel — `test_channel` forwards to `rerank_utils.test_rerank_connection`).
 
 ### Commercial / Membership Layer
 
@@ -178,7 +178,7 @@ Active access layer: `ContextAccessService` + `ChapterContextService`. Single-qu
 
 1. Build multiple query strings from outline_title, outline_summary, writing_notes, character names
 2. `ChapterContextService` → `VectorStoreService` → vector similarity search: top-K chunks (default 5) + top-K summaries (default 3)
-3. Optional **reranker**: hybrid path fetches 2×top_k then reranks via a Jina-compatible API (`utils/rerank_utils.py`; `RAG_RERANKER_ENABLED/_API_URL/_API_KEY/_MODEL`, key falls back to `embedding.api_key`)
+3. Optional **reranker**: hybrid path fetches 2×top_k then reranks via a Jina-compatible API (`utils/rerank_utils.py`). Config is **SystemConfig `rerank.enabled/api_url/api_key/model`** (admin panel 「接口管理 → 重排序模型」, with a real-call 「测试连接」 button); `RAG_RERANKER_*` env vars are seeds only. Base URLs get `/rerank` appended automatically; url/key fall back to `embedding.base_url`/`embedding.api_key` when unset. A per-URL failure latch (3 consecutive failures) extinguishes rerank **per process** so a dead endpoint can't burn a round-trip on every retrieval — a successful call or a successful admin test clears it (only in that process).
 4. Retrieved content injected into LLM prompt alongside blueprint + previous chapter summaries
 5. After chapter finalization: text split (LangChain `RecursiveCharacterTextSplitter`, 480 chars/120 overlap) → embed → store in Qdrant
 6. Optional hybrid mode: `HybridRetrievalService` (Vector + BM25 + RRF fusion), activated only when `rag_retrieval_mode="hybrid"`
@@ -226,7 +226,7 @@ LLM seeds: `OPENAI_API_BASE_URL`, `OPENAI_MODEL_NAME`, `WRITER_CHAPTER_VERSION_C
 
 Embedding: `EMBEDDING_PROVIDER` (openai|ollama), `EMBEDDING_MODEL`, `EMBEDDING_BASE_URL`
 
-Vector DB / RAG: `QDRANT_HOST`, `QDRANT_PORT`, `VECTOR_TOP_K_CHUNKS`, `VECTOR_TOP_K_SUMMARIES`, `VECTOR_CHUNK_SIZE`, `RAG_RERANKER_ENABLED/_API_URL/_API_KEY/_MODEL`, `RAG_BM25_WEIGHT`, `RAG_MIN_SCORE`, `RAG_DEFAULT_MODE`
+Vector DB / RAG: `QDRANT_HOST`, `QDRANT_PORT`, `VECTOR_TOP_K_CHUNKS`, `VECTOR_TOP_K_SUMMARIES`, `VECTOR_CHUNK_SIZE`, `RAG_RERANKER_ENABLED/_API_URL/_API_KEY/_MODEL` (**seeds only** — runtime value lives in SystemConfig `rerank.*`), `RAG_BM25_WEIGHT`, `RAG_MIN_SCORE`, `RAG_DEFAULT_MODE`
 
 DB: `DB_PROVIDER` (sqlite|mysql), `SQLITE_PATH` (not SQLITE_DB_PATH), `MYSQL_HOST/PORT/USER/PASSWORD/DATABASE`, `DATABASE_URL` (overrides everything)
 

@@ -1648,7 +1648,7 @@ class LLMService:
     async def test_channel(self, channel_type: str) -> Dict[str, Any]:
         """真实检测某个已配置的 LLM / embedding 通道是否可用（管理后台「测试」按钮）。
 
-        channel_type: default | fallback | polish | search | grader | embedding
+        channel_type: default | fallback | polish | search | grader | embedding | rerank
         返回: {ok: bool, model: str, latency_ms: int, detail: str}
         - 真正发起一次最小调用（LLM 回 "ok" / embedding 取一条向量），验证密钥/地址/模型可达。
         - 任何异常都被捕获为 ok=False + detail，绝不抛出。
@@ -1664,6 +1664,13 @@ class LLMService:
         }
         start = _time.monotonic()
         try:
+            if channel_type == "rerank":
+                # 重排不是 LLM 通道（请求体/响应体都不同），实现留在 rerank_utils，
+                # 这里只做转发，保证后台仍是「一个测试入口」。
+                from ..utils.rerank_utils import test_rerank_connection
+
+                return await test_rerank_connection()
+
             if channel_type == "embedding":
                 model = (
                     await self._get_config_value("embedding.model")

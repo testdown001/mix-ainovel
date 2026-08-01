@@ -174,6 +174,26 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="嵌入向量维度，留空则自动检测。",
     ),
     SystemConfigDefault(
+        key="rerank.enabled",
+        value_getter=lambda config: _bool_to_text(config.rag_reranker_enabled),
+        description="是否启用检索结果重排序（Reranker）。关闭后检索保持原始召回顺序。",
+    ),
+    SystemConfigDefault(
+        key="rerank.api_url",
+        value_getter=lambda config: _to_optional_str(config.rag_reranker_api_url),
+        description="Reranker API 地址。可填基础地址（自动补 /rerank）或完整 /rerank 端点；留空则回退 embedding.base_url。",
+    ),
+    SystemConfigDefault(
+        key="rerank.api_key",
+        value_getter=lambda config: config.rag_reranker_api_key,
+        description="Reranker API Key，留空则回退 embedding.api_key。",
+    ),
+    SystemConfigDefault(
+        key="rerank.model",
+        value_getter=lambda config: config.rag_reranker_model,
+        description="Reranker 模型名称，例如 jina-reranker-v2-base-multilingual。",
+    ),
+    SystemConfigDefault(
         key="ollama.embedding_base_url",
         value_getter=lambda config: _to_optional_str(config.ollama_embedding_base_url),
         description="Ollama 嵌入模型服务地址。",

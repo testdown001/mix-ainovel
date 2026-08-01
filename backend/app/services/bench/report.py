@@ -348,7 +348,8 @@ def _render_markdown(
             ("writer_ultra_fast_mode", "writer_ultra_fast_mode"),
             ("generation_time_budget_sec", "生成时间预算(生效值,秒)"),
             ("rag_retrieval_mode", "rag_retrieval_mode"),
-            ("rag_reranker_enabled", "rag_reranker_enabled"),
+            ("rerank_enabled", "重排开关(生效值)"),
+            ("rerank_configured", "重排已单独配置地址/密钥"),
             ("db_provider", "db_provider"),
         )
         for key, label in env_labels:
