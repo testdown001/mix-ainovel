@@ -705,6 +705,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         fingerprint_context = evidence_stage.fingerprint_context
         trajectory_context = evidence_stage.trajectory_context
         outline_revision_context = evidence_stage.outline_revision_context
+        volume_replan_context = evidence_stage.volume_replan_context
         chapter_state_context = evidence_stage.chapter_state_context
         power_system_context = evidence_stage.power_system_context
         relationship_context = evidence_stage.relationship_context
@@ -750,6 +751,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             relationship_context=relationship_context,
             trajectory_context=trajectory_context,
             outline_revision_context=outline_revision_context,
+            volume_replan_context=volume_replan_context,
             project=project,
             chapter_number=chapter_number,
             project_reference_novels=project_reference_novels,
@@ -837,6 +839,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 enable_memory=config.enable_memory,
                 enable_state_tracking=config.enable_state_tracking,
                 enable_outline_revision=config.enable_outline_revision,
+                enable_volume_retrospective=config.enable_volume_retrospective,
                 six_dimension_payload=six_dimension_payload,
             )
 
@@ -942,6 +945,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 enable_memory=config.enable_memory,
                 enable_state_tracking=config.enable_state_tracking,
                 enable_outline_revision=config.enable_outline_revision,
+                enable_volume_retrospective=config.enable_volume_retrospective,
                 stage_b_params=_stage_b_params,
             )
 
@@ -1050,6 +1054,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             enable_memory=config.enable_memory,
             enable_state_tracking=config.enable_state_tracking,
             enable_outline_revision=config.enable_outline_revision,
+            enable_volume_retrospective=config.enable_volume_retrospective,
             stage_b_params=_stage_b_params,
             run_post_processor=True,
         )

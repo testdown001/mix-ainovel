@@ -176,6 +176,46 @@ class GenerationWriteTaskService:
                 chapter_number,
             )
 
+    async def run_volume_retrospective(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        user_id: int,
+    ) -> None:
+        """卷级复盘重规划：本章若是所属卷末章则复盘该卷并修订下一卷规划。全程降级。
+
+        不需要 chapter_content——复盘吃的是已聚合的卷级摘要，而非单章正文。
+        """
+        try:
+            async with AsyncSessionLocal() as session:
+                try:
+                    from .volume_retrospective_service import VolumeRetrospectiveService
+
+                    llm_service = LLMService(session)
+                    prompt_service = PromptService(session)
+                    stats = await VolumeRetrospectiveService().review_volume(
+                        project_id=project_id,
+                        finalized_chapter_number=chapter_number,
+                        session=session,
+                        llm_service=llm_service,
+                        prompt_service=prompt_service,
+                        user_id=user_id,
+                    )
+                    logger.info(
+                        "异步卷级复盘完成 project=%s chapter=%s stats=%s",
+                        project_id, chapter_number, stats,
+                    )
+                except Exception:
+                    await session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步卷级复盘失败 project=%s chapter=%s",
+                project_id,
+                chapter_number,
+            )
+
     async def run_outline_revision(
         self,
         *,

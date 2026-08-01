@@ -20,6 +20,7 @@ class GenerationPrefetchTasks:
     fingerprint_task: Optional[asyncio.Task]
     writer_prompt_task: asyncio.Task
     outline_revision_task: Optional[asyncio.Task] = None
+    volume_replan_task: Optional[asyncio.Task] = None
     long_range_memory_task: Optional[asyncio.Task] = None
 
 
@@ -167,6 +168,21 @@ class GenerationPrefetchService:
                 )
             )
 
+        volume_replan_task: Optional[asyncio.Task] = None
+        if getattr(config, "enable_volume_retrospective", False):
+            from .volume_retrospective_service import VolumeRetrospectiveService
+
+            volume_replan_task = asyncio.create_task(
+                self.async_task_service.run_with_timeout(
+                    VolumeRetrospectiveService().build_replan_brief(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                    ),
+                    timeout_sec=5,
+                    task_name="volume_replan",
+                )
+            )
+
         # 卷级/书级分层长程记忆（DB 直查，非向量检索）：fast 路径保持轻量不预取
         long_range_memory_task: Optional[asyncio.Task] = None
         if not config.enable_fast_path:
@@ -224,6 +240,7 @@ class GenerationPrefetchService:
             fingerprint_task=fingerprint_task,
             writer_prompt_task=writer_prompt_task,
             outline_revision_task=outline_revision_task,
+            volume_replan_task=volume_replan_task,
             long_range_memory_task=long_range_memory_task,
         )
 

@@ -63,6 +63,7 @@ class PipelineConfig:
     enable_trajectory_analysis: bool = False
     enable_temporal_state: bool = False
     enable_outline_revision: bool = False
+    enable_volume_retrospective: bool = False
 
 
 class PipelineConfigService:
@@ -193,6 +194,9 @@ class PipelineConfigService:
             # A1 滚动细纲修订：flagship 独占 + env 灰度开关（默认关），仅 premium 档启用
             if getattr(settings, "outline_revision_enabled", False):
                 config.enable_outline_revision = True
+            # 卷级复盘重规划：同为 flagship 独占 + env 灰度开关（默认关）
+            if getattr(settings, "volume_retrospective_enabled", False):
+                config.enable_volume_retrospective = True
 
         # === Ultra Fast Mode（settings 级别覆盖）===
         if getattr(settings, "writer_ultra_fast_mode", False):
@@ -224,6 +228,7 @@ class PipelineConfigService:
             config.enable_memory = False
             config.enable_state_tracking = False
             config.enable_outline_revision = False
+            config.enable_volume_retrospective = False
             config.disable_guardrail_rewrite = True
             config.skip_history_summary_backfill = True
             config.use_local_anti_hallucination = True

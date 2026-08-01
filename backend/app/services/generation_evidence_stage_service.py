@@ -15,6 +15,7 @@ class ResolvedEvidenceStage:
     fingerprint_context: Optional[str] = None
     trajectory_context: Optional[str] = None
     outline_revision_context: Optional[str] = None
+    volume_replan_context: Optional[str] = None
     chapter_state_context: Optional[str] = None
     power_system_context: Optional[str] = None
     relationship_context: Optional[str] = None
@@ -78,6 +79,10 @@ class GenerationEvidenceStageService:
         outline_revision_context: Optional[str] = None
         if getattr(prefetch_tasks, "outline_revision_task", None) is not None:
             outline_revision_context = await prefetch_tasks.outline_revision_task
+
+        volume_replan_context: Optional[str] = None
+        if getattr(prefetch_tasks, "volume_replan_task", None) is not None:
+            volume_replan_context = await prefetch_tasks.volume_replan_task
 
         had_initial_foreshadowing = bool(foreshadowing_urgency_brief or foreshadowing_structured)
         if had_initial_foreshadowing:
@@ -166,6 +171,7 @@ class GenerationEvidenceStageService:
             fingerprint_context=fingerprint_context,
             trajectory_context=trajectory_context,
             outline_revision_context=outline_revision_context,
+            volume_replan_context=volume_replan_context,
             chapter_state_context=chapter_state_context,
             power_system_context=power_system_context,
             relationship_context=relationship_context,

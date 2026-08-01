@@ -192,6 +192,11 @@ class Settings(BaseSettings):
         env="OUTLINE_REVISION_ENABLED",
         description="滚动细纲修订(A1)灰度开关：开启后 flagship 档章节定稿会异步评审后续大纲漂移并产出修订建议，默认关",
     )
+    volume_retrospective_enabled: bool = Field(
+        default=False,
+        env="VOLUME_RETROSPECTIVE_ENABLED",
+        description="卷级复盘重规划灰度开关：开启后 flagship 档在一卷末章定稿时复盘该卷并修订下一卷规划，默认关",
+    )
     writer_literary_adaptive_postprocess: bool = Field(
         default=True,
         env="WRITER_LITERARY_ADAPTIVE_POSTPROCESS",

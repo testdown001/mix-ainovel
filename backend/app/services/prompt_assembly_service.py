@@ -396,6 +396,7 @@ class PromptAssemblyService:
         relationship_context: Optional[str] = None,
         trajectory_context: Optional[str] = None,
         outline_revision_context: Optional[str] = None,
+        volume_replan_context: Optional[str] = None,
         volume_summary_context: Optional[str] = None,
         book_summary_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
@@ -473,6 +474,9 @@ class PromptAssemblyService:
         if trajectory_context:
             sections.append(("[故事轨迹分析](基于历史章节的节奏建议)", trajectory_context))
 
+        if volume_replan_context:
+            # 放在章级修订提示之前：卷级是更大尺度的方向校正，先定方向再谈本章微调
+            sections.append(("[卷级重规划](上一卷复盘后对本卷方向的修订)", volume_replan_context))
         if outline_revision_context:
             sections.append(("[大纲修订提示](前文实际走向与本章原大纲的偏差，参考调整)", outline_revision_context))
         if genre_prompt_injection and genre_weight > 0:

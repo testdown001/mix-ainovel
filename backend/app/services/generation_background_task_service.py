@@ -134,6 +134,19 @@ class GenerationBackgroundTaskService:
             user_id=user_id,
         )
 
+    async def run_volume_retrospective(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        user_id: int,
+    ) -> None:
+        await self.write_tasks.run_volume_retrospective(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            user_id=user_id,
+        )
+
     async def run_outline_revision(
         self,
         *,

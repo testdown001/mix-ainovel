@@ -73,6 +73,7 @@ class GenerationPromptStageService:
         relationship_context: Optional[str],
         trajectory_context: Optional[str],
         outline_revision_context: Optional[str],
+        volume_replan_context: Optional[str] = None,
         project: Any,
         chapter_number: int,
         project_reference_novels: Any,
@@ -114,6 +115,7 @@ class GenerationPromptStageService:
             relationship_context=relationship_context,
             trajectory_context=trajectory_context,
             outline_revision_context=outline_revision_context,
+            volume_replan_context=volume_replan_context,
         )
         prompt_sections, prompt_compile_summary = self.prompt_compiler.compile(
             plan=context_plan,
