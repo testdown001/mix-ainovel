@@ -86,7 +86,7 @@ def test_system_config_overrides_env():
             }):
         url, key, model = asyncio.run(ru._resolve_rerank_config())
 
-    assert url == "https://from-db.example.com/v1/rerank"
+    assert url == "https://from-db.example.com/v1"  # 原样使用
     assert key == "db-key"
     assert model == "db-model"
 
@@ -97,7 +97,7 @@ def test_env_used_when_system_config_absent():
             _patch_system_configs({}):
         url, key, _ = asyncio.run(ru._resolve_rerank_config())
 
-    assert url == "https://from-env.example.com/v1/rerank"
+    assert url == "https://from-env.example.com/v1"  # 原样使用
     assert key == "env-key"
 
 
@@ -108,12 +108,22 @@ def test_env_used_when_system_config_absent():
 @pytest.mark.parametrize(
     "configured,expected",
     [
-        ("https://api.jina.ai/v1", "https://api.jina.ai/v1/rerank"),
-        ("https://api.jina.ai/v1/", "https://api.jina.ai/v1/rerank"),
+        # 各家 rerank 路径不一样，管理员填什么就用什么，只去掉末尾斜杠
         ("https://api.jina.ai/v1/rerank", "https://api.jina.ai/v1/rerank"),
+        ("https://api.jina.ai/v1/rerank/", "https://api.jina.ai/v1/rerank"),
+        ("https://router.tumuer.me/v1/rerank/multimodal", "https://router.tumuer.me/v1/rerank/multimodal"),
+        ("https://host/custom/path", "https://host/custom/path"),
+        # 即使看起来像基础地址也不擅自补——猜错比不猜更糟
+        ("https://api.jina.ai/v1", "https://api.jina.ai/v1"),
     ],
 )
-def test_endpoint_suffix_is_appended_once(configured, expected):
+def test_admin_supplied_url_is_used_verbatim(configured, expected):
+    """后台填的地址原样使用。
+
+    历史事故（2026-08-01）：填 `…/v1/rerank/multimodal` 被自动补成
+    `…/v1/rerank/multimodal/rerank` → 404。自动补 /rerank 只该用于
+    「没填地址、退回借 embedding base_url」那条推导路径。
+    """
     with _patch_system_configs({"rerank.api_url": configured, "rerank.api_key": "k"}):
         url, _, _ = asyncio.run(ru._resolve_rerank_config())
     assert url == expected

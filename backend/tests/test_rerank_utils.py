@@ -67,7 +67,8 @@ def test_get_rerank_runtime_status_marks_chapter_generation_integration_source(
     monkeypatch, empty_system_config
 ):
     monkeypatch.setattr(module.settings, "rag_reranker_enabled", True)
-    monkeypatch.setattr(module.settings, "rag_reranker_api_url", "https://router.example/v1")
+    # 专用地址原样使用，不再被补 /rerank
+    monkeypatch.setattr(module.settings, "rag_reranker_api_url", "https://router.example/v1/rerank/multimodal")
     monkeypatch.setattr(module.settings, "rag_reranker_api_key", "rerank-key")
     monkeypatch.setattr(module.settings, "rag_reranker_model", "jina-reranker-v3")
 
@@ -77,6 +78,6 @@ def test_get_rerank_runtime_status_marks_chapter_generation_integration_source(
         "enabled": True,
         "model": "jina-reranker-v3",
         "config_source": "dedicated",
-        "api_url": "https://router.example/v1/rerank",
+        "api_url": "https://router.example/v1/rerank/multimodal",
         "api_key_configured": True,
     }

@@ -84,8 +84,23 @@ def _as_bool(value: Optional[str]) -> bool:
     return str(value).strip().lower() in _TRUTHY if value is not None else False
 
 
-def _to_rerank_endpoint(base_url: str) -> str:
-    """基础地址自动补 `/rerank`；已是完整 rerank 端点则原样保留。"""
+def _as_typed(url: str) -> str:
+    """管理员在后台填的 rerank 地址：**原样使用**，只去掉末尾斜杠。
+
+    刻意不做任何路径推导。各家 rerank 端点路径五花八门
+    （`/v1/rerank`、`/v1/rerank/multimodal`、`/rerank/v2` …），
+    自作聪明补 `/rerank` 只会把用户填对的地址改错——2026-08-01 实发：
+    填 `…/v1/rerank/multimodal` 被补成 `…/v1/rerank/multimodal/rerank` → 404。
+    """
+    return str(url).rstrip("/")
+
+
+def _derive_rerank_endpoint(base_url: str) -> str:
+    """从 embedding **基础地址**推导 rerank 端点（仅旧兼容回退路径使用）。
+
+    这条路径上拿到的是 `https://host/v1` 这类 base_url，本就没有 rerank 路径可用，
+    只能按最常见约定补 `/rerank`——是猜测，所以失败时熄火机制尤其重要。
+    """
     url = str(base_url).rstrip("/")
     return url if url.endswith("/rerank") else url + "/rerank"
 
@@ -109,7 +124,7 @@ async def get_rerank_runtime_status() -> Dict[str, Any]:
             "enabled": enabled,
             "model": model,
             "config_source": "dedicated",
-            "api_url": _to_rerank_endpoint(dedicated_url),
+            "api_url": _as_typed(dedicated_url),
             "api_key_configured": True,
         }
 
@@ -120,7 +135,7 @@ async def get_rerank_runtime_status() -> Dict[str, Any]:
             "enabled": enabled,
             "model": model,
             "config_source": "embedding_fallback",
-            "api_url": _to_rerank_endpoint(fallback_url),
+            "api_url": _derive_rerank_endpoint(fallback_url),
             "api_key_configured": True,
         }
 
@@ -136,20 +151,23 @@ async def get_rerank_runtime_status() -> Dict[str, Any]:
 async def _resolve_rerank_config() -> Tuple[Optional[str], Optional[str], str]:
     """解析 rerank 的 API 地址、密钥和模型。
 
-    优先级：专用 `rerank.api_url`/`rerank.api_key` → 旧兼容的 `embedding.*`。
+    优先级：专用 `rerank.api_url`/`rerank.api_key`（**原样使用**）
+    → 旧兼容的 `embedding.*`（基础地址，需推导端点）。
     """
     config = await _load_config()
     model = config.get("rerank.model") or "jina-reranker-v2-base-multilingual"
 
     url = config.get("rerank.api_url")
     key = config.get("rerank.api_key")
-    if not (url and key):
-        url = config.get("embedding.base_url")
-        key = config.get("embedding.api_key")
-    if not (url and key):
-        return None, None, model
+    if url and key:
+        return _as_typed(url), key, model
 
-    return _to_rerank_endpoint(url), key, model
+    url = config.get("embedding.base_url")
+    key = config.get("embedding.api_key")
+    if url and key:
+        return _derive_rerank_endpoint(url), key, model
+
+    return None, None, model
 
 
 def reset_rerank_failures(api_url: Optional[str] = None) -> None:

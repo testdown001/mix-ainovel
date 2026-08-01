@@ -216,10 +216,12 @@
             </template>
             <n-spin :show="loading">
               <n-alert type="info" :bordered="false" style="margin-bottom:16px">
-                对 RAG 召回的片段做二次精排，提升注入正文的上下文相关度。<b>可选功能</b>：
-                多数 embedding 服务并不提供 /rerank 端点，地址填错会让每次检索都白发一个失败请求
-                （连续失败 3 次后本进程自动熄火）。<b>没有可用的重排服务就把开关关掉</b>，
-                检索会保持原始召回顺序，不影响生成。
+                对 RAG 召回的片段做二次精排，提升注入正文的上下文相关度。<b>可选功能</b>。<br>
+                <b>API 地址请填完整端点，系统原样请求、不做任何路径拼接</b>（各家路径不同，
+                如 <code>/v1/rerank</code>、<code>/v1/rerank/multimodal</code>）。留空才会退回借用
+                embedding 的 Base URL 并按惯例补 <code>/rerank</code>——多数 embedding 服务并不提供该端点。<br>
+                地址填错会让每次检索都白发一个失败请求（连续失败 3 次后本进程自动熄火）。
+                <b>没有可用的重排服务就把开关关掉</b>，检索保持原始召回顺序，不影响生成。
               </n-alert>
               <n-form label-placement="top">
                 <n-form-item label="启用重排序">
@@ -233,8 +235,8 @@
                   <n-gi><n-form-item label="API Key">
                     <n-input v-model:value="rerankForm.api_key" type="password" show-password-on="click" placeholder="留空则回退使用 embedding 的 API Key" />
                   </n-form-item></n-gi>
-                  <n-gi :span="2"><n-form-item label="API 地址">
-                    <n-input v-model:value="rerankForm.api_url" placeholder="例：https://api.jina.ai/v1（自动补 /rerank），留空则回退 embedding Base URL" />
+                  <n-gi :span="2"><n-form-item label="API 地址（完整端点，原样使用）">
+                    <n-input v-model:value="rerankForm.api_url" placeholder="例：https://api.jina.ai/v1/rerank —— 填什么就请求什么，不会自动补路径" />
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
