@@ -1,6 +1,6 @@
 # Arboris-Novel 待办（下次继续）
 
-> 更新于 **2026-08-01**。质量/RAG 路线图二阶段（6 月）与生成质量五阶段整改（7 月）**均已全部完成**。
+> 更新于 **2026-08-01**（7 月整改遗留三项已于 `8527a9f` 全部收掉）。质量/RAG 路线图二阶段（6 月）与生成质量五阶段整改（7 月）**均已全部完成**。
 > 架构权威见 `CLAUDE.md`；7 月整改的完整清单与逐条勾选状态见 `docs/generation-quality-audit-2026-07.md`；已完成项见 `git log`。
 
 ---
@@ -17,17 +17,17 @@
 
 ---
 
-## 🔴 优先级 1：7 月整改遗留的 3 项（2026-08-01 二次实证仍未做）
+## ✅ 7 月整改遗留 3 项已全部收掉（`8527a9f`，2026-08-01）
 
-| 项 | 状态 | 实证位置 |
-|----|------|----------|
-| **outline 结构化字段落库** | ❌ 未做 | `prompts/outline_generation.md:134-139` 每章都让 LLM 产出 `narrative_phase` / `foreshadowing.plant-payoff` / `emotion_hook`；`update_or_create_outline` **已支持 `metadata` 形参**，但三个调用点（`writer.py:1251` / `:1452` / `:1641`）只传 title+summary → **字段每章都在生成、每章都被丢弃**。付了 token 没拿到东西，**性价比最高的一项**，且改动面小（落 metadata 即可，无需建表） |
-| **premium enrichment 互斥（#19）** | ❌ 未做，且比原描述更差 | `standard_post_processing_service.py:179` `enrichment_enabled = enable_enrichment and not optimizer_enabled` 在 optimizer 执行前算死；而 `:187` 是 optimizer **失败后**才把 `optimizer_enabled` 置回 False —— 此时 enrichment 早已判 False。**即 optimizer 失败时 enrichment 也一起不跑**，premium 档偏短章节完全无补救（density 只管偏长） |
-| **revision_hint 生命周期（#33）** | 🟡 一半 | 大纲重写/蓝图重建即清 ✅（`novel_service.py:366` `_strip_revision_hint` + `:1016`）；**`consumed` 标记未做**，触发点仍在写侧任务 `generation_write_task_service.py:195` 而非 select/finalize |
+| 项 | 处理 |
+|----|------|
+| **outline 结构化字段落库** | ✅ 落进 `outline.metadata["planning"]`；`narrative_phase` **替换**掉 PacingController 的位置公式猜测注入生成提示，`emotion_hook` 补一行。顺带把 `update_or_create_outline` 的 metadata **由整体替换改为合并**（否则会抹掉别处写入的 `prediction`）。plant/payoff 只落库不注入——伏笔子系统已有真实抽取的注入通道，再来一路平行的计划版就是约束堆叠 |
+| **premium enrichment 互斥（#19）** | ✅ 两处「跑完再复检」：optimizer 被预算跳过时恢复 enrichment（原来连坐不跑，旁边 polish 有对称降级却漏了它）；optimizer 产出低于字数下限时启用 enrichment 兜底（density 只压不扩，此前无救） |
+| **revision_hint 生命周期（#33）** | ✅ 补上真实缺口：编辑章节后伏笔会重提取、大纲修订不会 → 陈旧 hint 一直注入。**审计另记两条经复核不成立**：①「触发点在写侧任务」——`generation_write_task_service` 只是实现所在模块，真正触发点是 `generation_finalize_service.schedule_followups:117`，与伏笔提取并列；②「缺 consumed 标记」——hint 描述的是「前章既成事实 vs 本章未改大纲」的持续性矛盾，大纲被改写前一直成立（改写时已清除），定稿即标 consumed 会让重生成拿不到仍有效的指导，是净损失 |
 
 ---
 
-## 🟠 优先级 2：评估基线要拿可信结论
+## 🔴 优先级 1：评估基线要拿可信结论
 
 三轮基线的最大产出是**量出了噪声水平**，不是分数。现状：
 
@@ -40,7 +40,7 @@
 
 ---
 
-## 🔵 优先级 3：下一步路线三件套 ②③（未动）
+## 🔵 优先级 2：下一步路线三件套 ②③（未动）
 
 ① 评估基线 ✅ 已交付并跑过（结论见上）
 ② **卷级复盘正式重规划 + 卷级发散卡片** —— 未动
