@@ -57,11 +57,14 @@
 - 读侧 `[卷级重规划]` 段注入，排在章级 `[大纲修订提示]` 之前（先定卷方向再谈本章微调）
 - 门控：flagship 独占 + env 灰度 `VOLUME_RETROSPECTIVE_ENABLED`（**默认关**，
   发散端点走 `muse_divergence` 能力位）
-- 🔜 **遗留：前端未接**。后端两个端点已上线（`POST /api/novels/{id}/volumes/{n}/diverge`
-  与 `.../diverge/apply`），但没有 UI 入口——卷级发散卡片目前只能用 API 调用。
-  接入位置建议在小说详情页的分卷区域。
-- 🔜 **遗留：灰度未开**。`VOLUME_RETROSPECTIVE_ENABLED` 默认关，要实跑需在服务器
-  `deploy/.env` 打开并重启（自动复盘才会触发；发散端点不受该开关影响）。
+- ✅ **前端已接**（`ac5a8a0` + `428098c`）：小说详情页新增「分卷规划」页签，展示
+  当前生效方向 / 原规划（折叠）/ 本卷复盘 / 来源标注，「✨换个方向」出发散卡片
+  （三轴评分 + 点评）→「用这个方向」即刻生效。非旗舰档渲染**升级引导**而非报错按钮。
+- ✅ **灰度已开**（`7a899b1`）：prod compose 此前**从未透传**这两个开关（与历史上
+  FORCE_HTTPS_REDIRECT 同一类漏接线），现已补入并在服务器 `.env` 置 true，
+  容器内实证 `outline_revision_enabled=True` / `volume_retrospective_enabled=True`。
+- 🔜 **待实跑验证**：自动复盘需要「某卷全部章节定稿 + 卷摘要已生成」才触发，
+  目前尚无真实项目走到卷末，线上还没有真实复盘样本。
 
 ---
 
