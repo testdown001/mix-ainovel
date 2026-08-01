@@ -257,6 +257,7 @@ import ChapterOutlineSection from '@/components/novel-detail/ChapterOutlineSecti
 import ChaptersSection from '@/components/novel-detail/ChaptersSection.vue'
 import EmotionCurveSection from '@/components/novel-detail/EmotionCurveSection.vue'
 import ForeshadowingSection from '@/components/novel-detail/ForeshadowingSection.vue'
+import VolumesSection from '@/components/novel-detail/VolumesSection.vue'
 import WriterPersonaPanel from '@/components/WriterPersonaPanel.vue'
 import ConceptLibrarySection from '@/components/novel-detail/ConceptLibrarySection.vue'
 
@@ -281,7 +282,7 @@ interface Props {
   isAdmin?: boolean
 }
 
-type SectionKey = AllSectionType | 'writer_persona' | 'concept_library'
+type SectionKey = AllSectionType | 'writer_persona' | 'concept_library' | 'volumes'
 
 const props = withDefaults(defineProps<Props>(), {
   isAdmin: false
@@ -300,6 +301,7 @@ const tabs: Array<{ key: SectionKey; label: string }> = [
   { key: 'characters', label: '人物' },
   { key: 'world_setting', label: '世界观' },
   { key: 'chapter_outline', label: '大纲' },
+  { key: 'volumes', label: '分卷规划' },
   { key: 'foreshadowing', label: '伏笔' },
   { key: 'emotion_curve', label: '情感曲线' },
   { key: 'concept_library', label: '设定库' },
@@ -314,6 +316,7 @@ const sectionComponents: Record<SectionKey, any> = {
   chapters: ChaptersSection,
   emotion_curve: EmotionCurveSection,
   foreshadowing: ForeshadowingSection,
+  volumes: VolumesSection,
   writer_persona: WriterPersonaPanel,
   concept_library: ConceptLibrarySection
 }
@@ -323,13 +326,13 @@ const sectionLoading = reactive<Record<SectionKey, boolean>>({
   overview: false, world_setting: false, characters: false,
   relationships: false, chapter_outline: false, chapters: false,
   emotion_curve: false, foreshadowing: false, writer_persona: false,
-  concept_library: false
+  concept_library: false, volumes: false
 })
 const sectionError = reactive<Record<SectionKey, string | null>>({
   overview: null, world_setting: null, characters: null,
   relationships: null, chapter_outline: null, chapters: null,
   emotion_curve: null, foreshadowing: null, writer_persona: null,
-  concept_library: null
+  concept_library: null, volumes: null
 })
 
 const overviewMeta = reactive<{ title: string; updated_at: string | null }>({
@@ -439,7 +442,8 @@ const loadProjectAnalysis = async () => {
 const loadSection = async (section: SectionKey, force = false) => {
   if (!projectId) return
 
-  const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing', 'writer_persona', 'concept_library']
+  // volumes 与 analysis 系列一样由组件自行取数（专用端点），不走通用 section 接口
+  const analysisSections: SectionKey[] = ['emotion_curve', 'foreshadowing', 'writer_persona', 'concept_library', 'volumes']
   if (analysisSections.includes(section)) return
 
   if (!force && sectionData[section]) return
@@ -522,6 +526,8 @@ const componentProps = computed(() => {
     case 'chapters':
       return { chapters: data?.chapters || [], isAdmin: props.isAdmin }
     case 'writer_persona':
+      return { projectId }
+    case 'volumes':
       return { projectId }
     default:
       return {}

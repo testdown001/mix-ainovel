@@ -715,6 +715,27 @@ async def diverge_concepts(
     return {"seeds": seeds, "tier": user_tier}
 
 
+@router.get("/{project_id}/volumes")
+async def list_volumes(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """分卷规划总览：原规划 + 卷级复盘 + 当前生效的重规划。
+
+    volumes 挂在 NovelBlueprint（主键即 project_id），原样返回 JSON，
+    前端据 `retrospective` / `replan` 是否存在决定展示。
+    """
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    from ...models.novel import NovelBlueprint
+
+    blueprint = await session.get(NovelBlueprint, project_id)
+    volumes = getattr(blueprint, "volumes", None) if blueprint else None
+    return {"volumes": volumes if isinstance(volumes, list) else []}
+
+
 @router.post("/{project_id}/volumes/{volume_number}/diverge")
 async def diverge_volume(
     project_id: str,
