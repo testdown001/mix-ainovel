@@ -161,6 +161,7 @@ type MenuKey =
   | 'password'
   | 'membership_plans'
   | 'feature_gating'
+  | 'quality_loop'
   | 'payment_channels'
   | 'payment_records'
 
@@ -178,6 +179,7 @@ const components: Record<MenuKey, ReturnType<typeof defineAsyncComponent>> = {
   password: defineAsyncComponent(() => import('../components/admin/PasswordManagement.vue')),
   membership_plans: defineAsyncComponent(() => import('../components/admin/MembershipPlans.vue')),
   feature_gating: defineAsyncComponent(() => import('../components/admin/FeatureGatingConfig.vue')),
+  quality_loop: defineAsyncComponent(() => import('../components/admin/QualityLoopConfig.vue')),
   payment_channels: defineAsyncComponent(() => import('../components/admin/PaymentChannels.vue')),
   payment_records: defineAsyncComponent(() => import('../components/admin/PaymentRecords.vue'))
 }
@@ -196,6 +198,7 @@ const iconRenderers: Record<MenuKey, () => any> = {
   password: () => h('span', { class: 'menu-icon' }, '🔒'),
   membership_plans: () => h('span', { class: 'menu-icon' }, '💳'),
   feature_gating: () => h('span', { class: 'menu-icon' }, '🎚️'),
+  quality_loop: () => h('span', { class: 'menu-icon' }, '✨'),
   payment_channels: () => h('span', { class: 'menu-icon' }, '🏦'),
   payment_records: () => h('span', { class: 'menu-icon' }, '🧾')
 }
@@ -219,6 +222,7 @@ const menuOptions: MenuOption[] = [
     children: [
       { key: 'membership_plans', label: '会员套餐', icon: iconRenderers.membership_plans },
       { key: 'feature_gating', label: '能力门控', icon: iconRenderers.feature_gating },
+      { key: 'quality_loop', label: '质量回路', icon: iconRenderers.quality_loop },
       { key: 'payment_channels', label: '支付渠道', icon: iconRenderers.payment_channels },
       { key: 'payment_records', label: '支付记录', icon: iconRenderers.payment_records }
     ]

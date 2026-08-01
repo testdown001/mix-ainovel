@@ -174,6 +174,26 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="嵌入向量维度，留空则自动检测。",
     ),
     SystemConfigDefault(
+        key="quality_loop.outline_revision",
+        value_getter=lambda config: _bool_to_text(config.outline_revision_enabled),
+        description="滚动细纲修订（旗舰档）：章节定稿后评审后续大纲是否被本章实际内容写过时，产出修订提示。异步、不阻塞正文。",
+    ),
+    SystemConfigDefault(
+        key="quality_loop.volume_retrospective",
+        value_getter=lambda config: _bool_to_text(config.volume_retrospective_enabled),
+        description="卷级复盘重规划（旗舰档）：一卷末章定稿后对比「原规划 vs 实际写成」，复盘并修订下一卷方向。异步、不阻塞正文。",
+    ),
+    SystemConfigDefault(
+        key="quality_loop.character_significance",
+        value_getter=lambda config: _bool_to_text(config.character_significance_enabled),
+        description="人物意义层（旗舰档）：抽取信念变化/代价/关系质变/未言明，作为后续生成的底色注入。异步、不阻塞正文，成本较低。",
+    ),
+    SystemConfigDefault(
+        key="quality_loop.two_pass_draft",
+        value_getter=lambda config: _bool_to_text(config.two_pass_draft_enabled),
+        description="两遍制草稿-改写（旗舰档）：先以轻约束写草稿，再据全部规则改写一遍。⚠️ 每章多一次整章级 LLM 调用，单章成本近乎翻倍。",
+    ),
+    SystemConfigDefault(
         key="rerank.enabled",
         value_getter=lambda config: _bool_to_text(config.rag_reranker_enabled),
         description="是否启用检索结果重排序（Reranker）。关闭后检索保持原始召回顺序。",

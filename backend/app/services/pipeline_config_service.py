@@ -72,6 +72,42 @@ class PipelineConfigService:
     def __init__(self, session):
         self.session = session
 
+    # 后台「质量回路」面板管理的四个开关：SystemConfig 键 → env 兜底属性名
+    _QUALITY_LOOP_SWITCHES = {
+        "outline_revision": "outline_revision_enabled",
+        "volume_retrospective": "volume_retrospective_enabled",
+        "two_pass_draft": "two_pass_draft_enabled",
+        "character_significance": "character_significance_enabled",
+    }
+    _TRUTHY = {"1", "true", "yes", "on"}
+
+    async def _load_quality_loop_switches(self) -> Dict[str, bool]:
+        """读取四个质量回路开关：SystemConfig 优先，env 兜底。
+
+        这些原本是纯 env 开关，改一次要编辑 deploy/.env 并重建容器——运行时业务配置
+        本就该进 SystemConfig（同 rerank.*）。单次 IN 查询取全部键，避免每次解析配置
+        打 4 个 DB 往返；DB 不可用时静默退回 env，绝不阻断生成。
+        """
+        values: Dict[str, bool] = {}
+        keys = {f"quality_loop.{name}": name for name in self._QUALITY_LOOP_SWITCHES}
+        try:
+            from sqlalchemy import select
+
+            from ..models.system_config import SystemConfig
+
+            rows = await self.session.execute(
+                select(SystemConfig.key, SystemConfig.value).where(SystemConfig.key.in_(list(keys)))
+            )
+            for key, value in rows.all():
+                if value not in (None, ""):
+                    values[keys[key]] = str(value).strip().lower() in self._TRUTHY
+        except Exception as exc:  # noqa: BLE001 - 读不到就退回 env
+            logger.debug("读取质量回路开关失败，回退环境变量: %s", exc)
+
+        for name, env_attr in self._QUALITY_LOOP_SWITCHES.items():
+            values.setdefault(name, bool(getattr(settings, env_attr, False)))
+        return values
+
     async def resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
         """解析最终生效的 PipelineConfig。
 
@@ -193,17 +229,16 @@ class PipelineConfigService:
             config.rag_mode = settings.rag_default_mode
             if getattr(settings, "enable_entity_registry", True):
                 config.enable_anti_hallucination = True
-            # A1 滚动细纲修订：flagship 独占 + env 灰度开关（默认关），仅 premium 档启用
-            if getattr(settings, "outline_revision_enabled", False):
+            # 四个质量回路开关：flagship 独占，后台「质量回路」面板可随时开关
+            # （SystemConfig 优先 → env 兜底；env 只是首次启动的种子值）
+            quality_switches = await self._load_quality_loop_switches()
+            if quality_switches["outline_revision"]:
                 config.enable_outline_revision = True
-            # 卷级复盘重规划：同为 flagship 独占 + env 灰度开关（默认关）
-            if getattr(settings, "volume_retrospective_enabled", False):
+            if quality_switches["volume_retrospective"]:
                 config.enable_volume_retrospective = True
-            # 两遍制草稿-改写：同为 flagship 独占 + env 灰度开关（默认关）
-            if getattr(settings, "two_pass_draft_enabled", False):
+            if quality_switches["two_pass_draft"]:
                 config.enable_two_pass_draft = True
-            # 人物意义层：同为 flagship 独占 + env 灰度开关（默认关）
-            if getattr(settings, "character_significance_enabled", False):
+            if quality_switches["character_significance"]:
                 config.enable_character_significance = True
 
         # === Ultra Fast Mode（settings 级别覆盖）===
