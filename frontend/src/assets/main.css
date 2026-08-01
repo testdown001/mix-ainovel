@@ -1181,40 +1181,48 @@ body {
 /* ============================================
    Prose Overrides for Material 3
    ============================================ */
-.prose {
-  max-width: none;
-  color: var(--md-on-surface);
-}
+/* 必须放进 @layer base：Tailwind v4 的工具类在 @layer utilities 内，而**无 layer 的
+   CSS 恒定胜过任何 layered CSS**（与书写顺序无关）。这些规则此前不在 layer 里，于是
+   `.prose{color:var(--md-on-surface)}`（= 纯白 #FFFFFF，全局仅此一份、无明暗两套）
+   把元素上显式写的 text-gray-600 / text-gray-700 / text-[#2ED573] 全部压掉 →
+   白卡片上的 .prose 正文变成白字白底看不见（蓝图确认页/蓝图展示页/章节摘要都中招）。
+   放进 base 层后：显式写了颜色的按作者意图走，没写的仍拿到 M3 默认白（暗色面板不受影响）。*/
+@layer base {
+  .prose {
+    max-width: none;
+    color: var(--md-on-surface);
+  }
 
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-  color: var(--md-on-surface);
-  font-family: var(--md-font-family);
-}
+  .prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+    color: var(--md-on-surface);
+    font-family: var(--md-font-family);
+  }
 
-.prose a {
-  color: var(--md-primary);
-  text-decoration: none;
-}
+  .prose a {
+    color: var(--md-primary);
+    text-decoration: none;
+  }
 
-.prose a:hover {
-  text-decoration: underline;
-}
+  .prose a:hover {
+    text-decoration: underline;
+  }
 
-.prose code {
-  font-family: var(--md-font-mono);
-  background-color: var(--md-surface-container);
-  padding: 2px 6px;
-  border-radius: var(--md-radius-xs);
-}
+  .prose code {
+    font-family: var(--md-font-mono);
+    background-color: var(--md-surface-container);
+    padding: 2px 6px;
+    border-radius: var(--md-radius-xs);
+  }
 
-.prose pre {
-  background-color: var(--md-surface-container-highest);
-  border-radius: var(--md-radius-sm);
-}
+  .prose pre {
+    background-color: var(--md-surface-container-highest);
+    border-radius: var(--md-radius-sm);
+  }
 
-.prose blockquote {
-  border-left: 4px solid var(--md-primary);
-  color: var(--md-on-surface-variant);
+  .prose blockquote {
+    border-left: 4px solid var(--md-primary);
+    color: var(--md-on-surface-variant);
+  }
 }
 
 /* ============================================

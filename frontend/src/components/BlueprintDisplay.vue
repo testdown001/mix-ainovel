@@ -8,7 +8,7 @@
       <p class="text-blue-800">{{ aiMessage }}</p>
     </div>
 
-    <div class="prose max-w-none p-6 bg-gray-50 rounded-lg border border-gray-200" v-html="formattedBlueprint"></div>
+    <div class="prose max-w-none p-6 bg-gray-50 rounded-lg border border-gray-200 text-gray-700" v-html="formattedBlueprint"></div>
 
     <!-- 加载状态 -->
     <div v-if="isSaving" class="text-center py-8">
