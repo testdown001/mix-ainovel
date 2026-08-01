@@ -134,6 +134,23 @@ class GenerationBackgroundTaskService:
             user_id=user_id,
         )
 
+    async def run_character_significance(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        character_names: list,
+        user_id: int,
+    ) -> None:
+        await self.write_tasks.run_character_significance(
+            project_id=project_id,
+            chapter_number=chapter_number,
+            chapter_content=chapter_content,
+            character_names=character_names,
+            user_id=user_id,
+        )
+
     async def run_volume_retrospective(
         self,
         *,

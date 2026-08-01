@@ -127,6 +127,8 @@ services:
       # ⚠️ 两遍制会让 flagship 档每章多一次整章级 LLM 调用（成本近乎翻倍），
       #    开启前先确认单章成本可接受
       TWO_PASS_DRAFT_ENABLED: ${TWO_PASS_DRAFT_ENABLED:-false}
+      # 人物意义层：每章多一次抽取调用（异步，不阻塞正文）
+      CHARACTER_SIGNIFICANCE_ENABLED: ${CHARACTER_SIGNIFICANCE_ENABLED:-false}
 
       # 嵌入模型配置
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}

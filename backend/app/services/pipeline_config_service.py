@@ -65,6 +65,7 @@ class PipelineConfig:
     enable_outline_revision: bool = False
     enable_volume_retrospective: bool = False
     enable_two_pass_draft: bool = False
+    enable_character_significance: bool = False
 
 
 class PipelineConfigService:
@@ -201,6 +202,9 @@ class PipelineConfigService:
             # 两遍制草稿-改写：同为 flagship 独占 + env 灰度开关（默认关）
             if getattr(settings, "two_pass_draft_enabled", False):
                 config.enable_two_pass_draft = True
+            # 人物意义层：同为 flagship 独占 + env 灰度开关（默认关）
+            if getattr(settings, "character_significance_enabled", False):
+                config.enable_character_significance = True
 
         # === Ultra Fast Mode（settings 级别覆盖）===
         if getattr(settings, "writer_ultra_fast_mode", False):
@@ -234,6 +238,7 @@ class PipelineConfigService:
             config.enable_outline_revision = False
             config.enable_volume_retrospective = False
             config.enable_two_pass_draft = False
+            config.enable_character_significance = False
             config.disable_guardrail_rewrite = True
             config.skip_history_summary_backfill = True
             config.use_local_anti_hallucination = True

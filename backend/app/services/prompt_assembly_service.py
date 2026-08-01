@@ -397,6 +397,7 @@ class PromptAssemblyService:
         trajectory_context: Optional[str] = None,
         outline_revision_context: Optional[str] = None,
         volume_replan_context: Optional[str] = None,
+        significance_context: Optional[str] = None,
         volume_summary_context: Optional[str] = None,
         book_summary_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
@@ -474,6 +475,13 @@ class PromptAssemblyService:
         if trajectory_context:
             sections.append(("[故事轨迹分析](基于历史章节的节奏建议)", trajectory_context))
 
+        if significance_context:
+            # 紧跟角色状态之后：事实说「他是什么状态」，意义说「这对他意味着什么」，
+            # 两段挨着读才成立。标题里就点明「不得直接写出」，避免模型把底色当台词。
+            sections.append((
+                "[人物意义层](人物此刻的底色——只可通过选择与反应体现，不得直接写出)",
+                significance_context,
+            ))
         if volume_replan_context:
             # 放在章级修订提示之前：卷级是更大尺度的方向校正，先定方向再谈本章微调
             sections.append(("[卷级重规划](上一卷复盘后对本卷方向的修订)", volume_replan_context))

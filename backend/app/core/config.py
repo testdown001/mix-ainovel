@@ -202,6 +202,11 @@ class Settings(BaseSettings):
         env="TWO_PASS_DRAFT_ENABLED",
         description="两遍制草稿-改写灰度开关：开启后 flagship 档先以轻约束写草稿，再据全部规则改写一遍，默认关",
     )
+    character_significance_enabled: bool = Field(
+        default=False,
+        env="CHARACTER_SIGNIFICANCE_ENABLED",
+        description="人物意义层灰度开关：开启后 flagship 档章节定稿会抽取信念变化/代价/关系质变/未言明，作为后续生成的底色注入，默认关",
+    )
     writer_literary_adaptive_postprocess: bool = Field(
         default=True,
         env="WRITER_LITERARY_ADAPTIVE_POSTPROCESS",

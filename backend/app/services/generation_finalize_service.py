@@ -56,6 +56,7 @@ class GenerationFinalizeService:
         enable_state_tracking: bool = False,
         enable_outline_revision: bool = False,
         enable_volume_retrospective: bool = False,
+        enable_character_significance: bool = False,
         stage_b_params: Optional[Dict[str, Any]] = None,
         six_dimension_payload: Optional[Dict[str, Any]] = None,
         run_post_processor: bool = False,
@@ -121,6 +122,18 @@ class GenerationFinalizeService:
                     project_id=project_id,
                     chapter_number=chapter_number,
                     chapter_content=best_content,
+                    user_id=user_id,
+                )
+            )
+            self._track_task(task_registry, task)
+
+        if enable_character_significance:
+            task = asyncio.create_task(
+                self.generation_background_task_service.run_character_significance(
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    chapter_content=best_content,
+                    character_names=introduced_characters,
                     user_id=user_id,
                 )
             )

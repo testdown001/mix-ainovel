@@ -176,6 +176,43 @@ class GenerationWriteTaskService:
                 chapter_number,
             )
 
+    async def run_character_significance(
+        self,
+        *,
+        project_id: str,
+        chapter_number: int,
+        chapter_content: str,
+        character_names: list,
+        user_id: int,
+    ) -> None:
+        """人物意义层：从定稿章节抽取信念变化/代价/关系质变/未言明。全程降级。"""
+        try:
+            async with AsyncSessionLocal() as session:
+                try:
+                    from .character_significance_service import CharacterSignificanceService
+
+                    stats = await CharacterSignificanceService().extract_and_store(
+                        project_id=project_id,
+                        chapter_number=chapter_number,
+                        chapter_content=chapter_content,
+                        character_names=character_names,
+                        session=session,
+                        llm_service=LLMService(session),
+                        prompt_service=PromptService(session),
+                        user_id=user_id,
+                    )
+                    logger.info(
+                        "异步人物意义层完成 project=%s chapter=%s stats=%s",
+                        project_id, chapter_number, stats,
+                    )
+                except Exception:
+                    await session.rollback()
+                    raise
+        except Exception:
+            logger.exception(
+                "异步人物意义层失败 project=%s chapter=%s", project_id, chapter_number,
+            )
+
     async def run_volume_retrospective(
         self,
         *,
