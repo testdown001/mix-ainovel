@@ -134,4 +134,41 @@ router.beforeEach(async (to, from, next) => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// 发版自愈：旧标签页遇到已被删除的 chunk 时整页重载一次
+//
+// 路由组件都是懒加载（() => import(...)），chunk 文件名带内容 hash。发版后旧文件
+// 即被删除，而**已经打开着的**标签页跑的仍是旧 SPA，切路由时就会去请求那个不存在的
+// chunk → "Failed to fetch dynamically imported module"，页面卡死在原地。
+// 服务端已把 index.html 设为 no-cache（见 backend/app/main.py 的 _apply_spa_cache_headers），
+// 所以整页重载必定拿到新 index 与新 chunk 名。
+//
+// sessionStorage 打标防死循环：重载后若仍失败（真的服务端坏了），不再继续刷。
+// ---------------------------------------------------------------------------
+const CHUNK_RELOAD_FLAG = 'arb:chunk-reload'
+const CHUNK_ERROR_RE =
+  /Failed to fetch dynamically imported module|error loading dynamically imported module|Importing a module script failed/i
+
+function reloadOnceForStaleChunk(target?: string): boolean {
+  if (sessionStorage.getItem(CHUNK_RELOAD_FLAG)) return false
+  sessionStorage.setItem(CHUNK_RELOAD_FLAG, '1')
+  window.location.assign(target || window.location.href)
+  return true
+}
+
+router.onError((error, to) => {
+  if (!CHUNK_ERROR_RE.test(String((error as Error)?.message ?? ''))) return
+  reloadOnceForStaleChunk(to?.fullPath)
+})
+
+// Vite 对 <link rel=modulepreload> 的加载失败走这个事件，不经过 router.onError
+window.addEventListener('vite:preloadError', () => {
+  reloadOnceForStaleChunk()
+})
+
+// 导航成功即说明当前构建产物可用，清标；下次发版才能再自愈一次
+router.afterEach(() => {
+  sessionStorage.removeItem(CHUNK_RELOAD_FLAG)
+})
+
 export default router

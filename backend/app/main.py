@@ -232,23 +232,9 @@ async def health_check():
 # 未命中的非 API 路径回退到 index.html 以支持 Vue Router 的 history 模式。
 # 该挂载必须在所有 API 路由与 /health 注册之后，确保接口优先匹配；
 # dist 缺失（开发模式）时静默跳过，不影响接口与测试。
-# 与 frontend/src/router/index.ts 顶层路由保持一致：仅这些前缀(及根路径)在 history 模式下
-# 未命中静态文件时才回退 index.html；其余未知路径(爬虫/垃圾 URL，如 /dyplay、/m/xijupian)
-# 返回 404，不再被 SPA 兜底统统应答 200（污染日志、白吃资源）。新增前端顶层路由时同步此处。
-_SPA_ROUTE_PREFIXES = frozenset({
-    "home", "workspace", "inspiration", "detail", "novel",
-    "login", "register", "forgot-password", "admin",
-    "settings", "pricing", "terms", "privacy",
-})
-
-
-def _is_spa_navigation_path(path: str) -> bool:
-    """请求路径是否对应前端 SPA 路由（决定未命中静态文件时是否回退 index.html）。"""
-    cleaned = path.strip("/")
-    if not cleaned:
-        return True  # 根路径
-    return cleaned.split("/", 1)[0] in _SPA_ROUTE_PREFIXES
-
+# SPA 路由回退判定与缓存策略见 core/spa_assets.py（纯函数，便于单测直接覆盖）
+from .core.spa_assets import apply_spa_cache_headers as _apply_spa_cache_headers
+from .core.spa_assets import is_spa_navigation_path as _is_spa_navigation_path
 
 _frontend_dist = Path(settings.frontend_dist_dir)
 if _frontend_dist.is_dir() and (_frontend_dist / "index.html").is_file():
@@ -260,15 +246,19 @@ if _frontend_dist.is_dir() and (_frontend_dist / "index.html").is_file():
 
         async def get_response(self, path, scope):
             try:
-                return await super().get_response(path, scope)
+                response = await super().get_response(path, scope)
             except StarletteHTTPException as exc:
                 if (
                     exc.status_code == 404
                     and not path.startswith("api")
                     and _is_spa_navigation_path(path)
                 ):
-                    return await super().get_response("index.html", scope)
+                    response = await super().get_response("index.html", scope)
+                    _apply_spa_cache_headers(response, "index.html")
+                    return response
                 raise
+            _apply_spa_cache_headers(response, path)
+            return response
 
     app.mount("/", _SPAStaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
     logger.info("前端静态资源已挂载：%s", _frontend_dist)
