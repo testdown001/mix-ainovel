@@ -71,6 +71,27 @@ class DivergeRequest(BaseModel):
     keep: int = Field(default=3, ge=1, le=8, description="评分后保留的 Top 数量")
 
 
+class VolumeDivergeRequest(BaseModel):
+    """卷级 N 路发散请求体（旗舰档特性）。
+
+    与概念发散不同：不需要 seed_topic —— 发散的依据是故事**实际所处的位置**
+    （上一卷复盘 + 实际摘要），由服务端自行取材。
+    """
+
+    n: int = Field(default=5, ge=2, le=8, description="发散方案数量")
+    keep: int = Field(default=3, ge=1, le=8, description="评分后保留的 Top 数量")
+
+
+class VolumeDivergeApplyRequest(BaseModel):
+    """把选中的卷级发散卡片写入该卷 replan。"""
+
+    title: Optional[str] = None
+    arc_goal: str = Field(..., description="本卷目标")
+    climax_hint: Optional[str] = None
+    focus: Optional[str] = None
+    avoid: Optional[str] = None
+
+
 class ReferenceSearchRequest(BaseModel):
     """参考小说搜索请求体。"""
 

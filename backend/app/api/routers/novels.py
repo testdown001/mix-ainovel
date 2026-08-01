@@ -23,6 +23,8 @@ from ...schemas.novel import (
     ConverseRequest,
     ConverseResponse,
     DivergeRequest,
+    VolumeDivergeApplyRequest,
+    VolumeDivergeRequest,
     ReferenceSearchRequest,
     ReferenceSearchResponse,
     NovelProject as NovelProjectSchema,
@@ -711,6 +713,73 @@ async def diverge_concepts(
         keep=request.keep,
     )
     return {"seeds": seeds, "tier": user_tier}
+
+
+@router.post("/{project_id}/volumes/{volume_number}/diverge")
+async def diverge_volume(
+    project_id: str,
+    volume_number: int,
+    request: VolumeDivergeRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """卷级 N 路发散（旗舰档特性）：基于故事实际所处位置发散下一卷走向并评分取 Top。
+
+    与开书前的概念发散复用同一能力位（muse_divergence）——同样是 2 次 LLM 的高耗特性。
+    """
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    user_tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
+    if not tier_allows(user_tier, "muse_divergence", min_tiers):
+        raise HTTPException(
+            status_code=403,
+            detail="卷级发散为旗舰档特性，升级旗舰版即可基于已写内容一次生成多个迥异的下一卷走向并智能评分。",
+        )
+
+    from ...services.volume_divergence_service import VolumeDivergenceService
+
+    cards = await VolumeDivergenceService(session).diverge(
+        project_id=project_id,
+        volume_number=volume_number,
+        user_id=current_user.id,
+        n=request.n,
+        keep=request.keep,
+    )
+    return {"cards": cards, "tier": user_tier}
+
+
+@router.post("/{project_id}/volumes/{volume_number}/diverge/apply")
+async def apply_volume_divergence(
+    project_id: str,
+    volume_number: int,
+    request: VolumeDivergeApplyRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """把作者选中的发散卡片写入该卷 replan，即刻对后续章节生成生效。
+
+    落点与卷级复盘相同（volumes[i].replan），复用 [卷级重规划] 读侧注入通路。
+    """
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    user_tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
+    if not tier_allows(user_tier, "muse_divergence", min_tiers):
+        raise HTTPException(status_code=403, detail="卷级发散为旗舰档特性。")
+
+    from ...services.volume_divergence_service import VolumeDivergenceService
+
+    applied = await VolumeDivergenceService(session).apply_card(
+        project_id=project_id,
+        volume_number=volume_number,
+        card=request.model_dump(),
+    )
+    if not applied:
+        raise HTTPException(status_code=404, detail="未找到该卷，无法应用发散方案。")
+    return {"applied": True, "volume_number": volume_number}
 
 
 @router.get("/{project_id}/reference-novels", response_model=List[ReferenceNovelSummary])
