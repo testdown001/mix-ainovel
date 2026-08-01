@@ -45,7 +45,7 @@ class _FakeNovelService:
     async def _serialize_project(self, project):
         return NS(blueprint=NS(model_dump=lambda: {"title": "测试蓝图"}))
 
-    async def update_or_create_outline(self, project_id, chapter_number, title, summary):
+    async def update_or_create_outline(self, project_id, chapter_number, title, summary, metadata=None):
         self.saved.append((chapter_number, title, summary))
 
 

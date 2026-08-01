@@ -1010,16 +1010,20 @@ class NovelService:
             if outline:
                 outline.title = title
                 outline.summary = summary
-                if metadata is not None:
-                    outline.metadata = metadata
-                else:
-                    # 大纲被重写(title/summary 更新)后，旧的 revision_hint 依据已失效：
-                    # 先读后并清除该键，保留 metadata 其他键(如导演脚本)，整体重赋值触发变更检测
-                    existing_meta = outline.metadata
-                    if isinstance(existing_meta, dict) and "revision_hint" in existing_meta:
-                        outline.metadata = {
-                            k: v for k, v in existing_meta.items() if k != "revision_hint"
-                        }
+                # 大纲被重写(title/summary 更新)后，旧的 revision_hint 依据已失效，必须清除。
+                # 传入的 metadata 与既有键**合并**而非整体替换：outline.metadata 上还挂着
+                # prediction(writer.py 写)、导演脚本等别处写入的键，整体替换会把它们静默抹掉。
+                existing_meta = outline.metadata if isinstance(outline.metadata, dict) else None
+                needs_rewrite = bool(metadata) or (
+                    existing_meta is not None and "revision_hint" in existing_meta
+                )
+                if needs_rewrite:
+                    merged = {
+                        k: v for k, v in (existing_meta or {}).items() if k != "revision_hint"
+                    }
+                    if metadata:
+                        merged.update(metadata)
+                    outline.metadata = merged  # 整体重赋值以触发 SQLAlchemy 变更检测
             else:
                 outline = ChapterOutline(
                     project_id=project_id,

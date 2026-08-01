@@ -134,7 +134,7 @@ def _install_fakes(monkeypatch, blueprint_dict, project):
         async def _serialize_project(self, p):
             return NS(blueprint=NS(model_dump=lambda: dict(blueprint_dict)))
 
-        async def update_or_create_outline(self, project_id, chapter_number, title, summary):
+        async def update_or_create_outline(self, project_id, chapter_number, title, summary, metadata=None):
             pass
 
     async def _fake_load_schema(service, project_id, user_id):

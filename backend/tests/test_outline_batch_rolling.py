@@ -85,7 +85,7 @@ class _FakeNovelService:
             )
         )
 
-    async def update_or_create_outline(self, project_id, chapter_number, title, summary):
+    async def update_or_create_outline(self, project_id, chapter_number, title, summary, metadata=None):
         self.saved.append((chapter_number, title, summary))
 
 

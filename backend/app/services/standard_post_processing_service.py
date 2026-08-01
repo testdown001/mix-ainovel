@@ -176,7 +176,13 @@ class StandardPostProcessingService:
         review_summaries["quality_detection"] = {"status": "scheduled_async"}
 
         optimizer_enabled = config.enable_optimizer
+        # enrichment 与 optimizer 互斥：optimizer 本身是全篇改写增益，两步叠加是浪费。
+        # 但互斥的前提是「optimizer 确实跑了且产出达标」——这个判断**不能在 optimizer
+        # 跑之前一次算死**，否则出现两种漏网（下方两处复检各修其一）：
+        #   1. optimizer 被预算跳过 → 互斥前提不成立，enrichment 却已被判 False 一起不跑；
+        #   2. optimizer 跑完但产出偏短 → 无任何补救（density 只压不扩）。
         enrichment_enabled = config.enable_enrichment and not optimizer_enabled
+        enrichment_trigger: Optional[str] = None  # 非空表示 enrichment 是被兜底逻辑触发的
         polish_only = config.enable_polish and not optimizer_enabled
         density_enabled = config.enable_density_compression
         # 每个可选 LLM 步执行前各自复检预算：前一步耗时可能已把剩余预算吃穿，
@@ -188,6 +194,9 @@ class StandardPostProcessingService:
                 # optimizer 被预算跳过时，已付费勾选的润色降级为独立 polish 步执行（付费必交付）
                 if config.enable_polish:
                     polish_only = True
+                # 互斥前提（optimizer 会跑）已不成立，恢复 enrichment。
+                # 若预算也不够，下方 enrichment 自己的 _over_budget 会拦并如实计入 skipped。
+                enrichment_enabled = config.enable_enrichment
             else:
                 merge_polish = config.enable_polish
                 merge_density = (
@@ -207,6 +216,19 @@ class StandardPostProcessingService:
                     review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
                 if merge_density:
                     review_summaries["density_compression"] = {"applied": True, "merged_into_optimizer": True}
+                # optimizer 跑完复检长度：它是「改写增益」不是「扩写」，产出低于下限时
+                # 全流程再无补救（density 只压不扩）。此时解除互斥，让 enrichment 兜底。
+                if (
+                    config.enable_enrichment
+                    and chapter_word_count_min
+                    and len(best_content) < chapter_word_count_min
+                ):
+                    enrichment_enabled = True
+                    enrichment_trigger = "below_min_after_optimizer"
+                    logger.info(
+                        "optimizer 产出低于字数下限(%d < %d)，启用 enrichment 兜底",
+                        len(best_content), chapter_word_count_min,
+                    )
 
         if polish_only:
             # 付费必交付：enable_polish 只可能来自用户勾选（preset 不再强开），
@@ -230,6 +252,8 @@ class StandardPostProcessingService:
                     max_word_count=chapter_word_count_max,
                 )
                 if enrichment_report:
+                    if enrichment_trigger:
+                        enrichment_report = {**enrichment_report, "trigger": enrichment_trigger}
                     review_summaries["enrichment"] = enrichment_report
 
         if density_enabled and not (

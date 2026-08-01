@@ -460,11 +460,20 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     pacing_info = pacing_controller.get_chapter_pacing(chapter_number)
                     if not pacing_info:
                         return ""
+                    # 大纲里 LLM 逐章声明的规划字段**优先于** PacingController：
+                    # 后者只按章号在通用三幕模板上取值，不知道本书实际是怎么排的；
+                    # 而大纲声明的是「事件/势力/挑衅1..回击4」这套具体得多的循环结构。
+                    # 是替换而非叠加——避免同一件事说两遍（约束堆叠）。
+                    planned = (getattr(outline, "metadata_", None) or {}).get("planning") or {}
+
                     parts = ["### 节奏控制指令 (Pacing Control)"]
                     if pacing_info.get("emotion_intensity"):
                         parts.append(f"- **情绪强度**: {pacing_info['emotion_intensity']:.1f}/10")
-                    if pacing_info.get("narrative_phase"):
-                        parts.append(f"- **叙事阶段**: {pacing_info['narrative_phase']}")
+                    narrative_phase = planned.get("narrative_phase") or pacing_info.get("narrative_phase")
+                    if narrative_phase:
+                        parts.append(f"- **叙事阶段**: {narrative_phase}")
+                    if planned.get("emotion_hook"):
+                        parts.append(f"- **本章情绪钩子**: {planned['emotion_hook']}")
                     if pacing_info.get("trend"):
                         parts.append(f"- **趋势**: {pacing_info['trend']}")
                     for advice in (pacing_info.get("pacing_advice") or []):

@@ -81,8 +81,13 @@ async def test_outline_rewrite_without_hint_keeps_metadata(db_session):
 
 
 @pytest.mark.asyncio
-async def test_outline_update_with_explicit_metadata_unchanged_semantics(db_session):
-    """显式传 metadata 仍为整体替换（原行为不变），创建分支不受影响。"""
+async def test_outline_update_with_explicit_metadata_merges(db_session):
+    """显式传 metadata 是**合并**语义（2026-08-01 由整体替换改）。
+
+    改动理由：outline.metadata 上还挂着别处写入的键——`prediction`（writer.py 直写）、
+    导演脚本等。大纲生成开始落库 planning 字段后，若沿用整体替换，会把这些键静默抹掉。
+    该形参此前在生产代码中零调用方，语义收紧不影响既有行为。
+    """
     service = NovelService(db_session)
     created = await service.update_or_create_outline(
         "proj-hint3", 1, "标题", "摘要", metadata={"foo": "bar"},
@@ -92,7 +97,28 @@ async def test_outline_update_with_explicit_metadata_unchanged_semantics(db_sess
     updated = await service.update_or_create_outline(
         "proj-hint3", 1, "标题2", "摘要2", metadata={"baz": 1},
     )
-    assert updated.metadata == {"baz": 1}
+    assert updated.metadata == {"foo": "bar", "baz": 1}  # 既有键保留
+
+    # 同名键以新值为准
+    again = await service.update_or_create_outline(
+        "proj-hint3", 1, "标题3", "摘要3", metadata={"baz": 2},
+    )
+    assert again.metadata["baz"] == 2
+
+
+@pytest.mark.asyncio
+async def test_explicit_metadata_still_strips_stale_revision_hint(db_session):
+    """传 metadata 的同时，过时的 revision_hint 仍须清除（两条逻辑不能互相顶掉）。"""
+    await _seed_outline(
+        db_session, "proj-hint4", 2,
+        metadata={"revision_hint": dict(_PENDING_HINT), "prediction": {"p": 1}},
+    )
+    outline = await NovelService(db_session).update_or_create_outline(
+        "proj-hint4", 2, "新标题", "新摘要", metadata={"planning": {"narrative_phase": "回击2"}},
+    )
+    assert "revision_hint" not in outline.metadata
+    assert outline.metadata["prediction"] == {"p": 1}          # 别处写的键不被抹
+    assert outline.metadata["planning"] == {"narrative_phase": "回击2"}
 
 
 def test_strip_revision_hint_helper():

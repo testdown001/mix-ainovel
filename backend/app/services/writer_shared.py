@@ -27,6 +27,45 @@ def extract_tail_excerpt(text: Optional[str], limit: int = 500) -> str:
     return stripped[-limit:]
 
 
+def extract_outline_planning_metadata(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """从大纲生成的单章条目里挑出结构化规划字段，供落库到 `outline.metadata["planning"]`。
+
+    `prompts/outline_generation.md` 每章都要求 LLM 产出 `narrative_phase` /
+    `foreshadowing.plant|payoff` / `emotion_hook`，而落库只取 title+summary
+    ——这三个字段章章生成、章章丢弃，等于每章都白付一笔 token。
+
+    统一收在 `planning` 子键下，避免与 `prediction`（writer.py 写）、
+    `revision_hint`（OutlineRevisionService 写）、导演脚本等既有键相撞。
+    全部字段缺失时返回 None，调用方就不必写空壳。
+    """
+    planning: Dict[str, Any] = {}
+
+    phase = item.get("narrative_phase")
+    if isinstance(phase, str) and phase.strip():
+        planning["narrative_phase"] = phase.strip()
+
+    hook = item.get("emotion_hook")
+    if isinstance(hook, str) and hook.strip():
+        planning["emotion_hook"] = hook.strip()
+
+    raw_fs = item.get("foreshadowing")
+    if isinstance(raw_fs, dict):
+        foreshadowing: Dict[str, List[str]] = {}
+        for key in ("plant", "payoff"):
+            value = raw_fs.get(key)
+            # LLM 偶尔把单条伏笔写成字符串而非数组，一并归一
+            if isinstance(value, str):
+                value = [value] if value.strip() else []
+            if isinstance(value, list):
+                cleaned = [str(v).strip() for v in value if str(v).strip()]
+                if cleaned:
+                    foreshadowing[key] = cleaned
+        if foreshadowing:
+            planning["foreshadowing"] = foreshadowing
+
+    return planning or None
+
+
 def normalize_blueprint_relationships(blueprint_dict: Dict[str, Any]) -> Dict[str, Any]:
     """修正蓝图关系字段名：character_from -> from, character_to -> to。
 

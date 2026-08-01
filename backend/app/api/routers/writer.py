@@ -85,6 +85,7 @@ from ...core.constants import CHAPTER_STYLE_HARD_RULE, CHAPTER_WORD_COUNT_RULE
 from ...services.writer_shared import (
     build_blueprint_constraints_for_mission,
     create_vector_store_or_none,
+    extract_outline_planning_metadata,
     extract_tail_excerpt,
     generate_chapter_mission,
     normalize_blueprint_relationships,
@@ -343,6 +344,33 @@ async def _background_chapter_post_process(
                         "编辑后伏笔提取失败(不影响主流程): project=%s chapter=%d error=%s",
                         project_id, chapter_number, fs_exc,
                     )
+
+                # 同理刷新滚动细纲修订：后续章节的 revision_hint 是按「本章实际内容」算出来的，
+                # 本章被手工改过之后那些提示就基于旧文本了。伏笔在上面已经重提取，
+                # 大纲修订此前漏了这一路 → 陈旧建议会一直注入到后续章节的生成提示里。
+                # 门控沿用该特性的 env 灰度开关（默认关），与 pipeline_config_service 同口径。
+                if getattr(settings, "outline_revision_enabled", False):
+                    try:
+                        from ...services.outline_revision_service import OutlineRevisionService
+
+                        stats = await OutlineRevisionService().review_downstream(
+                            project_id=project_id,
+                            finalized_chapter_number=chapter_number,
+                            chapter_content=content,
+                            session=session,
+                            llm_service=llm_service,
+                            prompt_service=PromptService(session),
+                            user_id=user_id,
+                        )
+                        logger.info(
+                            "编辑后细纲修订完成: project=%s chapter=%d stats=%s",
+                            project_id, chapter_number, stats,
+                        )
+                    except Exception as rev_exc:
+                        logger.warning(
+                            "编辑后细纲修订失败(不影响主流程): project=%s chapter=%d error=%s",
+                            project_id, chapter_number, rev_exc,
+                        )
         except Exception as exc:
             logger.exception(
                 "后台章节后处理异常: project=%s chapter=%d mode=%s: %s",
@@ -1248,7 +1276,10 @@ async def generate_chapters_outline(
                 logger.warning("大纲生成: 第%d章已完成生成，跳过不覆盖其大纲", ch_num)
                 skipped_count += 1
                 continue
-            await novel_service.update_or_create_outline(project_id, ch_num, title, summary)
+            await novel_service.update_or_create_outline(
+                project_id, ch_num, title, summary,
+                metadata=extract_outline_planning_metadata(item),
+            )
         if skipped_count:
             logger.info("大纲生成: 共跳过 %d 项（字段缺失或章节已完成）", skipped_count)
         await session.commit()
@@ -1451,6 +1482,7 @@ async def regenerate_chapter_outlines(
                 summary = item.get("summary", "")
                 await novel_service.update_or_create_outline(
                     project_id, ch_num, title, summary,
+                    metadata=extract_outline_planning_metadata(item),
                 )
                 applied.append(ch_num)
                 snippet = " ".join(str(summary or "").split())[:30]
@@ -1643,6 +1675,7 @@ async def regenerate_chapter_outlines(
                     ch_num,
                     item.get("title", f"第{ch_num}章"),
                     item.get("summary", ""),
+                    metadata=extract_outline_planning_metadata(item),
                 )
                 updated_numbers.append(ch_num)
             await session.commit()
