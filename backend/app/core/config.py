@@ -197,6 +197,11 @@ class Settings(BaseSettings):
         env="VOLUME_RETROSPECTIVE_ENABLED",
         description="卷级复盘重规划灰度开关：开启后 flagship 档在一卷末章定稿时复盘该卷并修订下一卷规划，默认关",
     )
+    two_pass_draft_enabled: bool = Field(
+        default=False,
+        env="TWO_PASS_DRAFT_ENABLED",
+        description="两遍制草稿-改写灰度开关：开启后 flagship 档先以轻约束写草稿，再据全部规则改写一遍，默认关",
+    )
     writer_literary_adaptive_postprocess: bool = Field(
         default=True,
         env="WRITER_LITERARY_ADAPTIVE_POSTPROCESS",

@@ -43,6 +43,7 @@ class StandardGenerationFlowService:
         self,
         *,
         prompt_input: str,
+        prompt_sections: Optional[list] = None,
         writer_prompt: str,
         enhanced_context: Dict[str, Any],
         config: Any,
@@ -69,6 +70,7 @@ class StandardGenerationFlowService:
         stage_started = time.perf_counter()
         generation_result = await self.version_generation_service.run(
             prompt_input=prompt_input,
+            prompt_sections=prompt_sections,
             writer_prompt=writer_prompt,
             enhanced_context=enhanced_context,
             version_count=version_count,

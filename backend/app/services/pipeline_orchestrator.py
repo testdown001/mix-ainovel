@@ -1002,6 +1002,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         postproc_deadline = (total_started + _budget_sec) if _budget_sec > 0 else None
         standard_result = await self.standard_generation_flow_service.run(
             prompt_input=prompt_input,
+            prompt_sections=prompt_sections,
             writer_prompt=writer_prompt,
             enhanced_context=enhanced_context,
             config=config,
