@@ -69,8 +69,16 @@
           </div>
 
           <template #action>
-            <n-space justify="end">
+            <n-space justify="end" align="center" :size="10">
+              <!-- 非旗舰档不渲染会报错的按钮，直接给升级引导（升级引导不该长得像故障） -->
+              <span v-if="!canDiverge" class="upsell">
+                ✨ 换个方向为旗舰档特性——基于已写内容发散多条走向并智能评分
+              </span>
+              <n-button v-if="!canDiverge" size="small" tertiary @click="goPricing">
+                了解旗舰版
+              </n-button>
               <n-button
+                v-else
                 size="small"
                 :loading="divergingIndex === idx"
                 :disabled="divergingIndex !== null"
@@ -147,12 +155,16 @@ import {
 } from 'naive-ui'
 import { VolumesAPI, type VolumeDivergenceCard, type VolumePlan } from '@/api/volumes'
 import { useAlert } from '@/composables/useAlert'
+import { useRouter } from 'vue-router'
 
 const props = defineProps<{ projectId: string }>()
 const { showAlert } = useAlert()
+const router = useRouter()
+const goPricing = () => router.push('/pricing')
 
 const loading = ref(false)
 const volumes = ref<VolumePlan[]>([])
+const canDiverge = ref(true)   // 先按可用渲染，取数后以后端为准
 
 const cardsVisible = ref(false)
 const cards = ref<VolumeDivergenceCard[]>([])
@@ -169,7 +181,9 @@ const effective = (vol: VolumePlan) => ({
 const load = async () => {
   loading.value = true
   try {
-    volumes.value = (await VolumesAPI.list(props.projectId)).volumes || []
+    const res = await VolumesAPI.list(props.projectId)
+    volumes.value = res.volumes || []
+    canDiverge.value = res.can_diverge !== false
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '加载分卷规划失败', 'error')
   } finally {
@@ -229,5 +243,6 @@ onMounted(load)
 .kv > p, .kv > ul { margin: 0; flex: 1; }
 .kv > ul { padding-left: 18px; }
 .comment { margin-top: 8px; font-size: 12px; opacity: .65; }
+.upsell { font-size: 12px; opacity: .7; }
 .diverge-card { margin-bottom: 4px; }
 </style>

@@ -733,7 +733,16 @@ async def list_volumes(
 
     blueprint = await session.get(NovelBlueprint, project_id)
     volumes = getattr(blueprint, "volumes", None) if blueprint else None
-    return {"volumes": volumes if isinstance(volumes, list) else []}
+
+    # 一并返回档位与发散可用性：让前端把「换个方向」渲染成升级引导，
+    # 而不是让用户点下去吃一个 403 报错（升级引导不该长得像故障）。
+    user_tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
+    return {
+        "volumes": volumes if isinstance(volumes, list) else [],
+        "tier": user_tier,
+        "can_diverge": tier_allows(user_tier, "muse_divergence", min_tiers),
+    }
 
 
 @router.post("/{project_id}/volumes/{volume_number}/diverge")

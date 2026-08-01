@@ -52,7 +52,9 @@ const BASE = '/api/novels'
 
 export const VolumesAPI = {
   list: (projectId: string) =>
-    requestJson<{ volumes: VolumePlan[] }>(`${BASE}/${projectId}/volumes`),
+    requestJson<{ volumes: VolumePlan[]; tier: string; can_diverge: boolean }>(
+      `${BASE}/${projectId}/volumes`,
+    ),
 
   /** N 路发散（旗舰档，约 2 次 LLM 调用，耗时较久） */
   diverge: (projectId: string, volumeNumber: number, payload: { n?: number; keep?: number } = {}) =>
