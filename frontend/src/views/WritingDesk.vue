@@ -118,6 +118,7 @@
               @hide-version-selector="hideVersionSelector"
               @update:selected-version-index="selectedVersionIndex = $event"
               @show-version-detail="showVersionDetail"
+              @open-version-compare="showVersionCompare = true"
               @confirm-version-selection="confirmVersionSelection"
               @generate-chapter="generateChapter"
               @show-evaluation-detail="showEvaluationDetailModal = true"
@@ -137,6 +138,14 @@
         :is-current="isCurrentVersion(detailVersionIndex)"
         @close="closeVersionDetail"
         @select-version="selectVersionFromDetail"
+      />
+      <WDVersionCompareView
+        :show="showVersionCompare"
+        :versions="availableVersions"
+        :current-content="selectedChapter?.content ?? null"
+        :selecting="isSelectingVersion"
+        @close="showVersionCompare = false"
+        @select="handleCompareSelect"
       />
       <WDEvaluationDetailModal
         :show="showEvaluationDetailModal"
@@ -459,6 +468,7 @@ import WDSidebar from '@/components/writing-desk/WDSidebar.vue'
 import WDWorkspace from '@/components/writing-desk/WDWorkspace.vue'
 import WDModelPicker from '@/components/writing-desk/WDModelPicker.vue'
 import WDVersionDetailModal from '@/components/writing-desk/WDVersionDetailModal.vue'
+import WDVersionCompareView from '@/components/writing-desk/WDVersionCompareView.vue'
 import WDEvaluationDetailModal from '@/components/writing-desk/WDEvaluationDetailModal.vue'
 import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue'
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
@@ -551,6 +561,7 @@ const generatingChapter = ref<number | null>(null)
 const sidebarOpen = ref(false)
 const showVersionDetailModal = ref(false)
 const detailVersionIndex = ref<number>(0)
+const showVersionCompare = ref(false)
 const showEvaluationDetailModal = ref(false)
 const showEditChapterModal = ref(false)
 const editingChapter = ref<ChapterOutline | null>(null)
@@ -1567,6 +1578,13 @@ const selectVersionFromDetail = async () => {
   selectedVersionIndex.value = detailVersionIndex.value
   await selectVersion(detailVersionIndex.value)
   closeVersionDetail()
+}
+
+// 从对比分屏中选用版本（选定即确认为本章正文）
+const handleCompareSelect = async (index: number) => {
+  showVersionCompare.value = false
+  selectedVersionIndex.value = index
+  await selectVersion(index)
 }
 
 const confirmVersionSelection = async () => {

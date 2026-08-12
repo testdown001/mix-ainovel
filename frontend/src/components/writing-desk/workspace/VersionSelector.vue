@@ -91,6 +91,17 @@
           {{ availableVersions.length > 1 ? '选择版本' : '生成内容' }}
           <span class="md-body-small md-on-surface-variant ml-2">({{ availableVersions.length }} 个版本)</span>
         </h4>
+        <button
+          v-if="availableVersions.length > 1"
+          @click="$emit('openVersionCompare')"
+          class="md-btn md-btn-tonal md-ripple flex items-center gap-1.5"
+          title="并排对比两个版本的全文"
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 4v16m6-16v16M4 4h16v16H4z"/>
+          </svg>
+          对比选版
+        </button>
       </div>
 
       <div class="grid gap-3">
@@ -185,8 +196,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import type { Chapter, ChapterGenerationResponse, ChapterVersion } from '@/api/novel'
+import { cleanVersionContent } from '@/utils/versionContent'
 
 interface Props {
   selectedChapter: Chapter | null
@@ -200,7 +211,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-defineEmits(['hideVersionSelector', 'update:selectedVersionIndex', 'showVersionDetail', 'confirmVersionSelection', 'evaluateChapter', 'showEvaluationDetail'])
+defineEmits(['hideVersionSelector', 'update:selectedVersionIndex', 'showVersionDetail', 'confirmVersionSelection', 'evaluateChapter', 'showEvaluationDetail', 'openVersionCompare'])
 
 
 const isCurrentVersion = (versionIndex: number) => {
@@ -208,45 +219,6 @@ const isCurrentVersion = (versionIndex: number) => {
   const cleanCurrentContent = cleanVersionContent(props.selectedChapter.content)
   const cleanVersionContentStr = cleanVersionContent(props.availableVersions[versionIndex].content)
   return cleanCurrentContent === cleanVersionContentStr
-}
-
-const cleanVersionContent = (content: string): string => {
-  if (!content) return ''
-  try {
-    const parsed = JSON.parse(content)
-    const extractContent = (value: any): string | null => {
-      if (!value) return null
-      if (typeof value === 'string') return value
-      if (Array.isArray(value)) {
-        for (const item of value) {
-          const nested = extractContent(item)
-          if (nested) return nested
-        }
-        return null
-      }
-      if (typeof value === 'object') {
-        for (const key of ['content', 'chapter_content', 'chapter_text', 'text', 'body', 'story']) {
-          if (value[key]) {
-            const nested = extractContent(value[key])
-            if (nested) return nested
-          }
-        }
-      }
-      return null
-    }
-    const extracted = extractContent(parsed)
-    if (extracted) {
-      content = extracted
-    }
-  } catch (error) {
-    // not a json
-  }
-  let cleaned = content.replace(/^"|"$/g, '')
-  cleaned = cleaned.replace(/\\n/g, '\n')
-  cleaned = cleaned.replace(/\\"/g, '"')
-  cleaned = cleaned.replace(/\\t/g, '\t')
-  cleaned = cleaned.replace(/\\\\/g, '\\')
-  return cleaned
 }
 
 const parseMarkdown = (text: string): string => {

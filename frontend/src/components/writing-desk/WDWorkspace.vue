@@ -161,6 +161,7 @@
           @hideVersionSelector="$emit('hideVersionSelector')"
           @update:selectedVersionIndex="$emit('update:selectedVersionIndex', $event)"
           @showVersionDetail="$emit('showVersionDetail', $event)"
+          @openVersionCompare="$emit('openVersionCompare')"
           @confirmVersionSelection="$emit('confirmVersionSelection')"
           @generateChapter="(...args: any[]) => $emit('generateChapter', ...args)"
           @showVersionSelector="$emit('showVersionSelector')"
@@ -292,6 +293,7 @@ const emit = defineEmits([
   'hideVersionSelector',
   'update:selectedVersionIndex',
   'showVersionDetail',
+  'openVersionCompare',
   'confirmVersionSelection',
   'generateChapter',
   'showVersionSelector',
