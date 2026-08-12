@@ -36,7 +36,9 @@ class UserQuota(Base):
     monthly_token_used = Column(Integer, default=0, nullable=False, comment="本月已使用 token")
 
     # 积分制额度（按模型 + 润色计费消耗；月度池、30 天滚动重置）
-    credit_balance = Column(Integer, default=0, nullable=False, server_default="0", comment="当前可用积分")
+    credit_balance = Column(Integer, default=0, nullable=False, server_default="0", comment="当前可用积分(月度池,重置时清零/累加)")
+    # 永久池：充值(加油包)所得，永不随月度重置清零——「月赠清零、充值常驻」的拍板落地
+    credit_purchased = Column(Integer, default=0, nullable=False, server_default="0", comment="充值积分(永久池,不随月度重置)")
     monthly_credit_grant = Column(Integer, default=0, nullable=False, server_default="0", comment="每月发放积分额度")
     credit_carryover = Column(Boolean, default=False, nullable=False, comment="月度积分是否累积(默认到期清零)")
     credit_reset_at = Column(DateTime, nullable=True, comment="积分滚动重置锚点(首次用时初始化)")
@@ -75,6 +77,11 @@ class UserQuota(Base):
     def can_use_tokens(self, tokens: int) -> bool:
         """检查是否有足够 token 配额"""
         return self.monthly_token_used + tokens <= self.monthly_token_limit
+
+    @property
+    def credit_total(self) -> int:
+        """总可用积分 = 月度池 + 永久池（消费时先扣月度池）。"""
+        return (self.credit_balance or 0) + (self.credit_purchased or 0)
 
     @property
     def is_premium_active(self) -> bool:

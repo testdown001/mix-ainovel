@@ -247,6 +247,7 @@ async def _ensure_schema_updates() -> None:
                 {
                     "plan_tier": "plan_tier VARCHAR(32) NOT NULL DEFAULT 'free'",
                     "credit_balance": "credit_balance INT NOT NULL DEFAULT 0",
+                    "credit_purchased": "credit_purchased INT NOT NULL DEFAULT 0",
                     "monthly_credit_grant": "monthly_credit_grant INT NOT NULL DEFAULT 0",
                     "credit_carryover": "credit_carryover TINYINT(1) NOT NULL DEFAULT 0",
                     "credit_reset_at": "credit_reset_at DATETIME NULL",

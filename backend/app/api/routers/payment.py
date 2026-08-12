@@ -30,6 +30,19 @@ class CreateOrderRequest(BaseModel):
     return_url: Optional[str] = None
 
 
+class CreateCreditOrderRequest(BaseModel):
+    pack_code: str
+    channel: str  # alipay | wechat | stripe
+    return_url: Optional[str] = None
+
+
+class CreditPackItem(BaseModel):
+    code: str
+    name: str
+    credits: int
+    price: float
+
+
 class CreateOrderResponse(BaseModel):
     order_no: str
     pay_url: Optional[str] = None
@@ -106,6 +119,74 @@ async def create_order(
                 plan_name=plan.name,
                 amount=plan.price,
                 return_url=payload.return_url,
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的支付渠道: {payload.channel}")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return CreateOrderResponse(
+        order_no=order.order_no,
+        pay_url=order.pay_url,
+        channel=order.channel,
+        status=order.status,
+    )
+
+
+# ------------------------------------------------------------------
+# 积分加油包（一次性充值；积分入永久池，不随月度重置清零）
+# ------------------------------------------------------------------
+
+@router.get("/credit-packs", response_model=list[CreditPackItem])
+async def list_credit_packs(
+    service: PaymentService = Depends(get_payment_service),
+):
+    """加油包目录（公开）。SystemConfig credits.packs 可覆写，缺省为默认三档。"""
+    return await service.list_credit_packs()
+
+
+@router.post("/create-credit-order", response_model=CreateOrderResponse)
+async def create_credit_order(
+    payload: CreateCreditOrderRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    service: PaymentService = Depends(get_payment_service),
+):
+    """创建加油包充值订单。金额与积分数以服务端目录为准，不信任客户端。
+
+    订单以 plan_id=0 + remark=credit_pack:{code}:{credits} 标记，
+    支付回调在 _activate_membership 统一分流为永久池入账（按订单号幂等）。
+    """
+    pack = await service.get_credit_pack(payload.pack_code)
+    if not pack:
+        raise HTTPException(status_code=404, detail="加油包不存在或已下架")
+
+    remark = f"credit_pack:{pack['code']}:{pack['credits']}"
+    try:
+        if payload.channel == "alipay":
+            order = await service.create_alipay_order(
+                user_id=current_user.id,
+                plan_id=0,
+                plan_name=pack["name"],
+                amount=pack["price"],
+                return_url=payload.return_url,
+                remark=remark,
+            )
+        elif payload.channel == "wechat":
+            order = await service.create_wechat_order(
+                user_id=current_user.id,
+                plan_id=0,
+                plan_name=pack["name"],
+                amount=pack["price"],
+                remark=remark,
+            )
+        elif payload.channel == "stripe":
+            order = await service.create_stripe_order(
+                user_id=current_user.id,
+                plan_id=0,
+                plan_name=pack["name"],
+                amount=pack["price"],
+                return_url=payload.return_url,
+                remark=remark,
             )
         else:
             raise HTTPException(status_code=400, detail=f"不支持的支付渠道: {payload.channel}")

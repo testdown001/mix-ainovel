@@ -80,6 +80,14 @@ export interface CreateOrderResponse {
   status: string
 }
 
+// 积分加油包（一次性充值商品；充值积分入永久池，不随月度重置清零）
+export interface CreditPack {
+  code: string
+  name: string
+  credits: number
+  price: number
+}
+
 export const paymentApi = {
   /** 公开套餐列表（后端返回原始数组，无 {success,data} 包裹）。 */
   async listPlans(): Promise<Plan[]> {
@@ -97,6 +105,26 @@ export const paymentApi = {
   ): Promise<CreateOrderResponse> {
     const { data } = await http.post<CreateOrderResponse>(`${PAYMENT}/create-order`, {
       plan_id: planId,
+      channel,
+      return_url: returnUrl,
+    })
+    return data
+  },
+
+  /** 加油包目录（公开）。 */
+  async listCreditPacks(): Promise<CreditPack[]> {
+    const { data } = await http.get<CreditPack[]>(`${PAYMENT}/credit-packs`)
+    return data
+  },
+
+  /** 创建加油包充值订单（金额/积分以服务端目录为准）。 */
+  async createCreditOrder(
+    packCode: string,
+    channel: 'alipay' | 'wechat' | 'stripe',
+    returnUrl?: string
+  ): Promise<CreateOrderResponse> {
+    const { data } = await http.post<CreateOrderResponse>(`${PAYMENT}/create-credit-order`, {
+      pack_code: packCode,
       channel,
       return_url: returnUrl,
     })

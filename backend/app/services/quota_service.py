@@ -223,10 +223,10 @@ class QuotaService:
         return (await self.session.execute(stmt)).first() is not None
 
     async def has_credits(self, user_id: int, amount: int) -> bool:
-        """是否有足够积分（不扣减）。"""
+        """是否有足够积分（不扣减）。双池合计：月度池 + 永久池。"""
         quota = await self.get_or_create_quota(user_id)
         quota = await self.check_and_reset_credit(quota)
-        return quota.credit_balance >= amount
+        return quota.credit_total >= amount
 
     async def consume_credits(
         self,
@@ -237,23 +237,31 @@ class QuotaService:
         ref_key: Optional[str] = None,
         note: Optional[str] = None,
     ) -> UserQuota:
-        """扣减积分。余额不足抛 402；带 ref_key 时按 (reason, ref_key) 幂等(不重复扣)。"""
+        """扣减积分。余额不足抛 402；带 ref_key 时按 (reason, ref_key) 幂等(不重复扣)。
+
+        双池语义：先扣月度池（会随重置清零/过期），再扣永久池（充值所得）——
+        让会过期的积分先被消耗，对用户最有利。balance_after 记录扣后总可用。
+        """
         quota = await self.get_or_create_quota(user_id)
         quota = await self.check_and_reset_credit(quota)
         if amount <= 0:
             return quota
         if ref_key and await self._credit_log_exists(reason, ref_key):
             return quota  # 幂等：已扣过
-        if quota.credit_balance < amount:
+        if quota.credit_total < amount:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"积分不足：本次需 {amount} 积分，剩余 {quota.credit_balance}。"
-                       f"可升级套餐或等待月度重置。",
+                detail=f"积分不足：本次需 {amount} 积分，剩余 {quota.credit_total}。"
+                       f"可购买积分加油包、升级套餐或等待月度重置。",
             )
-        quota.credit_balance -= amount
+        from_monthly = min(quota.credit_balance, amount)
+        quota.credit_balance -= from_monthly
+        remaining = amount - from_monthly
+        if remaining:
+            quota.credit_purchased = (quota.credit_purchased or 0) - remaining
         self.session.add(CreditLog(
             user_id=user_id, delta=-amount, reason=reason, ref_key=ref_key,
-            balance_after=quota.credit_balance, note=note,
+            balance_after=quota.credit_total, note=note,
         ))
         try:
             await self.session.commit()
@@ -275,7 +283,12 @@ class QuotaService:
         reason: str = "refund",
         note: Optional[str] = None,
     ) -> UserQuota:
-        """退还积分（生成失败/取消）。按 (reason, ref_key) 幂等，避免重复退。"""
+        """退还积分（生成失败/取消）。按 (reason, ref_key) 幂等，避免重复退。
+
+        退款进月度池（credit_balance），不进永久池：① 与扣费主池对称（消费先扣月度）；
+        ② 若退进永久池，用户可通过故意触发失败把「会过期的月度积分」洗成永久积分；
+        ③ 退款紧随扣费发生，撞上月度重置的蒸发窗口极小。永久池只由真实充值入账。
+        """
         quota = await self.get_or_create_quota(user_id)
         if amount <= 0 or not ref_key:
             return quota
@@ -284,7 +297,7 @@ class QuotaService:
         quota.credit_balance += amount
         self.session.add(CreditLog(
             user_id=user_id, delta=amount, reason=reason, ref_key=ref_key,
-            balance_after=quota.credit_balance, note=note,
+            balance_after=quota.credit_total, note=note,
         ))
         try:
             await self.session.commit()
@@ -294,6 +307,40 @@ class QuotaService:
         await self.session.refresh(quota)
         logger.info("退还积分: user_id=%s amount=%s ref=%s balance=%s",
                     user_id, amount, ref_key, quota.credit_balance)
+        return quota
+
+    async def add_purchased_credits(
+        self,
+        user_id: int,
+        amount: int,
+        *,
+        ref_key: str,
+        note: Optional[str] = None,
+        reason: str = "topup",
+    ) -> UserQuota:
+        """充值积分入永久池（加油包支付成功后调用）。
+
+        按 (reason='topup', ref_key=订单号) 幂等——支付回调重放/并发不会重复入账。
+        永久池不随月度重置清零（「充值常驻」拍板决策）。
+        """
+        quota = await self.get_or_create_quota(user_id)
+        if amount <= 0 or not ref_key:
+            return quota
+        if await self._credit_log_exists(reason, ref_key):
+            return quota  # 幂等：已入账
+        quota.credit_purchased = (quota.credit_purchased or 0) + amount
+        self.session.add(CreditLog(
+            user_id=user_id, delta=amount, reason=reason, ref_key=ref_key,
+            balance_after=quota.credit_total, note=note,
+        ))
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            await self.session.rollback()
+            return await self.get_or_create_quota(user_id)
+        await self.session.refresh(quota)
+        logger.info("充值积分入账: user_id=%s amount=%s ref=%s total=%s",
+                    user_id, amount, ref_key, quota.credit_total)
         return quota
 
     async def check_chapter_quota(self, user_id: int) -> bool:
@@ -484,6 +531,8 @@ class QuotaService:
             "plan_tier": quota.effective_tier,
             "credit": {
                 "balance": quota.credit_balance,
+                "purchased": quota.credit_purchased or 0,
+                "total": quota.credit_total,
                 "monthly_grant": quota.monthly_credit_grant,
                 "carryover": bool(quota.credit_carryover),
                 "reset_at": quota.credit_reset_at.isoformat() if quota.credit_reset_at else None,

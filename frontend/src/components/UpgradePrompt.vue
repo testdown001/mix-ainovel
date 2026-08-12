@@ -18,15 +18,17 @@
       </h3>
       <p class="text-sm mb-6 leading-relaxed" style="color:#888888;">{{ message }}</p>
       <div class="space-y-2.5">
-        <button @click="goSubscription"
-          class="w-full py-2.5 rounded-lg font-semibold text-sm"
-          style="background:#FFE500; color:#000;">
-          {{ kind === 'credits' ? '升级套餐获取更多积分' : '查看升级方案' }}
-        </button>
         <button v-if="kind === 'credits'" @click="goCredits"
           class="w-full py-2.5 rounded-lg font-semibold text-sm"
-          style="background:transparent; border:1px solid #2A2A2A; color:#CCCCCC;">
-          查看积分明细
+          style="background:#FFE500; color:#000;">
+          购买积分加油包
+        </button>
+        <button @click="goSubscription"
+          class="w-full py-2.5 rounded-lg font-semibold text-sm"
+          :style="kind === 'credits'
+            ? 'background:transparent; border:1px solid #2A2A2A; color:#CCCCCC;'
+            : 'background:#FFE500; color:#000;'">
+          {{ kind === 'credits' ? '升级套餐（每月赠更多积分）' : '查看升级方案' }}
         </button>
         <button @click="$emit('close')"
           class="w-full py-2.5 rounded-lg font-semibold text-sm"

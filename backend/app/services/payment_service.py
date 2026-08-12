@@ -17,6 +17,18 @@ from ..repositories.system_config_repository import SystemConfigRepository
 
 logger = logging.getLogger(__name__)
 
+# 加油包订单在 PaymentOrder.remark 上的标记：credit_pack:{code}:{credits}
+# （plan_id=0 + 此前缀即视为充值订单，三渠道回调统一在 _activate_membership 分流）
+CREDIT_PACK_REMARK_PREFIX = "credit_pack:"
+
+# 默认加油包目录（SystemConfig credits.packs 为 JSON 数组时覆盖）。
+# 定价原则：单价略高于订阅内含积分的折算单价，保持「订阅是更划算的主路径」。
+DEFAULT_CREDIT_PACKS: List[Dict[str, Any]] = [
+    {"code": "pack_300", "name": "加油包·300积分", "credits": 300, "price": 6.0},
+    {"code": "pack_1000", "name": "加油包·1000积分", "credits": 1000, "price": 18.0},
+    {"code": "pack_3000", "name": "加油包·3000积分", "credits": 3000, "price": 45.0},
+]
+
 
 class PaymentService:
     """统一支付服务：支持支付宝、微信支付下单/回调验证/订单管理。"""
@@ -32,6 +44,36 @@ class PaymentService:
     async def _get_config(self, key: str) -> Optional[str]:
         record = await self.config_repo.get_by_key(key)
         return record.value if record else None
+
+    # ------------------------------------------------------------------
+    # 积分加油包（一次性充值商品；积分入永久池，不随月度重置清零）
+    # ------------------------------------------------------------------
+
+    async def list_credit_packs(self) -> List[Dict[str, Any]]:
+        """加油包目录：SystemConfig credits.packs（JSON 数组）优先，缺失/非法回退默认三档。"""
+        raw = await self._get_config("credits.packs")
+        packs: List[Dict[str, Any]] = []
+        if raw:
+            try:
+                data = json.loads(raw)
+                for item in data if isinstance(data, list) else []:
+                    code = str(item.get("code") or "").strip()
+                    name = str(item.get("name") or "").strip()
+                    credits = int(item.get("credits") or 0)
+                    price = float(item.get("price") or 0)
+                    # code 参与 remark 冒号分隔格式，不允许含冒号
+                    if code and ":" not in code and name and credits > 0 and price > 0:
+                        packs.append({"code": code, "name": name, "credits": credits, "price": price})
+            except (ValueError, TypeError) as exc:
+                logger.warning("credits.packs 配置解析失败，回退默认加油包: %s", exc)
+                packs = []
+        return packs or [dict(p) for p in DEFAULT_CREDIT_PACKS]
+
+    async def get_credit_pack(self, code: str) -> Optional[Dict[str, Any]]:
+        for pack in await self.list_credit_packs():
+            if pack["code"] == code:
+                return pack
+        return None
 
     async def _get_alipay_config(self) -> Dict[str, str]:
         keys = [
@@ -83,6 +125,7 @@ class PaymentService:
         plan_name: str,
         amount: float,
         return_url: Optional[str] = None,
+        remark: Optional[str] = None,
     ) -> PaymentOrder:
         cfg = await self._get_alipay_config()
         if cfg.get("enabled") != "true":
@@ -114,6 +157,7 @@ class PaymentService:
             channel="alipay",
             status="pending",
             pay_url=pay_url,
+            remark=remark,
         )
         self.session.add(order)
         await self.session.commit()
@@ -122,8 +166,30 @@ class PaymentService:
         return order
 
     async def _activate_membership(self, order: PaymentOrder) -> None:
-        """支付成功后激活会员配额。"""
+        """支付成功后的权益发放：会员套餐 → 升级配额；积分加油包 → 永久池入账。
+
+        三个渠道（支付宝/微信/Stripe）的回调都汇聚到这里，加油包分流只此一处。
+        """
         from .quota_service import QuotaService
+
+        # 加油包订单（plan_id=0 + remark 标记）：充值积分入永久池，按订单号幂等
+        if (order.plan_id or 0) <= 0 and (order.remark or "").startswith(CREDIT_PACK_REMARK_PREFIX):
+            try:
+                credits = int((order.remark or "").rsplit(":", 1)[1])
+            except (IndexError, ValueError):
+                logger.error(
+                    "加油包订单 remark 解析失败，无法入账: order_no=%s remark=%s",
+                    order.order_no, order.remark,
+                )
+                return
+            await QuotaService(self.session).add_purchased_credits(
+                order.user_id, credits,
+                ref_key=order.order_no,
+                note=f"充值 {order.plan_name}",
+            )
+            logger.info("加油包已入账: user=%s credits=%s order=%s",
+                        order.user_id, credits, order.order_no)
+            return
 
         plan_result = await self.session.execute(
             select(Plan).where(Plan.id == order.plan_id)
@@ -226,6 +292,7 @@ class PaymentService:
         plan_name: str,
         amount: float,
         return_url: Optional[str] = None,
+        remark: Optional[str] = None,
     ) -> PaymentOrder:
         cfg = await self._get_stripe_config()
         if cfg.get("enabled") != "true":
@@ -284,6 +351,7 @@ class PaymentService:
             status="pending",
             transaction_id=data.get("id"),  # Stripe checkout session id
             pay_url=data.get("url"),
+            remark=remark,
         )
         self.session.add(order)
         await self.session.commit()
@@ -384,6 +452,7 @@ class PaymentService:
         plan_id: int,
         plan_name: str,
         amount: float,
+        remark: Optional[str] = None,
     ) -> PaymentOrder:
         cfg = await self._get_wechat_config()
         if cfg.get("enabled") != "true":
@@ -428,6 +497,7 @@ class PaymentService:
             channel="wechat",
             status="pending",
             pay_url=pay_url,
+            remark=remark,
         )
         self.session.add(order)
         await self.session.commit()

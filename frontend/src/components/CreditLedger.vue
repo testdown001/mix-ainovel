@@ -1,13 +1,19 @@
 <!-- AIMETA P=积分流水明细页|R=展示当前用户积分余额+流水分页|NR=不含扣费逻辑|E=component:CreditLedger|X=ui|A=面板|D=vue,credits-api|S=net -->
 <template>
   <div class="credit-ledger">
-    <!-- 余额概览 -->
+    <!-- 余额概览（双池：月度池随重置清零，永久池为充值所得永不过期） -->
     <div class="rounded-xl p-5 mb-5" style="background:#141414; border:1px solid #2A2A2A;">
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <div class="text-xs" style="color:#888;">当前积分余额</div>
+          <div class="text-xs" style="color:#888;">当前可用积分</div>
           <div class="text-3xl font-bold mt-1" style="color:#FFE500; font-family:'Space Grotesk',sans-serif;">
-            🪙 {{ (balance ?? 0).toLocaleString() }}
+            🪙 {{ totalCredits.toLocaleString() }}
+          </div>
+          <div class="text-[11px] mt-1.5" style="color:#888;">
+            月度池 <span style="color:#ccc;">{{ (balance ?? 0).toLocaleString() }}</span>
+            <span class="mx-1.5" style="color:#444;">·</span>
+            永久池 <span style="color:#2ED573;">{{ (purchased ?? 0).toLocaleString() }}</span>
+            <span class="ml-1" style="color:#555;">(充值所得,不过期)</span>
           </div>
         </div>
         <div class="text-right text-xs" style="color:#888;">
@@ -16,7 +22,45 @@
         </div>
       </div>
       <div class="text-[11px] mt-3" style="color:#666;">
-        锚点：1 篇标准章（章鱼2.0）= 10 积分；润色每章 +5。月度池默认不累积。
+        锚点：1 篇标准章（章鱼2.0）= 10 积分；润色每章 +5。消费先扣月度池，再扣永久池。
+      </div>
+    </div>
+
+    <!-- 积分加油包 -->
+    <div class="rounded-xl p-5 mb-5" style="background:#141414; border:1px solid #2A2A2A;">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-semibold text-white">积分加油包</span>
+        <div class="flex items-center gap-1.5">
+          <button v-for="ch in channelOptions" :key="ch.value" @click="packChannel = ch.value"
+            class="px-2.5 py-0.5 rounded-full text-[11px] transition-colors"
+            :style="packChannel === ch.value
+              ? 'background:#FFE500;color:#000;font-weight:600;'
+              : 'background:#1A1A1A;border:1px solid #2A2A2A;color:#888;'">
+            {{ ch.label }}
+          </button>
+        </div>
+      </div>
+      <div class="text-[11px] mb-3" style="color:#666;">充值积分入永久池，永不过期；支付完成后点「刷新」查看到账。</div>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div v-for="pack in packs" :key="pack.code"
+          class="rounded-lg p-4 flex flex-col gap-2"
+          style="background:#0F0F0F; border:1px solid #2A2A2A;">
+          <div class="text-xs" style="color:#888;">{{ pack.name }}</div>
+          <div class="text-xl font-bold" style="color:#FFE500; font-family:'Space Grotesk',sans-serif;">
+            {{ pack.credits.toLocaleString() }} <span class="text-xs font-normal" style="color:#888;">积分</span>
+          </div>
+          <button @click="buyPack(pack)"
+            :disabled="buyingCode === pack.code"
+            class="mt-1 w-full py-2 rounded-lg text-xs font-semibold transition-colors"
+            style="background:#FFE500;color:#000;">
+            {{ buyingCode === pack.code ? '创建订单中…' : `¥${pack.price} 购买` }}
+          </button>
+        </div>
+      </div>
+      <div v-if="packError" class="text-xs mt-3" style="color:#E5484D;">{{ packError }}</div>
+      <div v-if="packPayUrl" class="text-xs mt-3" style="color:#888;">
+        已在新窗口打开支付页；如未打开请
+        <a :href="packPayUrl" target="_blank" style="color:#FFE500;">点此前往支付</a>。
       </div>
     </div>
 
@@ -70,6 +114,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { creditsApi, type CreditLogItem } from '@/api/credits'
 import { ModelCatalogAPI } from '@/api/model_catalog'
+import { paymentApi, type CreditPack } from '@/api/payment'
 
 const limit = 20
 const offset = ref(0)
@@ -79,8 +124,49 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 
 const balance = ref<number | null>(null)
+const purchased = ref<number | null>(null)
 const monthlyGrant = ref<number | null>(null)
 const resetAt = ref<string | null>(null)
+const totalCredits = computed(() => (balance.value ?? 0) + (purchased.value ?? 0))
+
+// 加油包购买
+const packs = ref<CreditPack[]>([])
+const packChannel = ref<'alipay' | 'wechat' | 'stripe'>('alipay')
+const channelOptions: { value: 'alipay' | 'wechat' | 'stripe'; label: string }[] = [
+  { value: 'alipay', label: '支付宝' },
+  { value: 'wechat', label: '微信' },
+  { value: 'stripe', label: 'Stripe' },
+]
+const buyingCode = ref<string | null>(null)
+const packError = ref('')
+const packPayUrl = ref('')
+
+const fetchPacks = async () => {
+  try {
+    packs.value = await paymentApi.listCreditPacks()
+  } catch {
+    // 目录拉取失败不阻塞页面
+  }
+}
+
+const buyPack = async (pack: CreditPack) => {
+  buyingCode.value = pack.code
+  packError.value = ''
+  packPayUrl.value = ''
+  try {
+    const result = await paymentApi.createCreditOrder(pack.code, packChannel.value)
+    if (result.pay_url) {
+      packPayUrl.value = result.pay_url
+      window.open(result.pay_url, '_blank')
+    } else {
+      packError.value = '未获取到支付链接，请换一个支付方式重试'
+    }
+  } catch (err: any) {
+    packError.value = err?.message || '创建订单失败，请稍后重试'
+  } finally {
+    buyingCode.value = null
+  }
+}
 
 const page = computed(() => Math.floor(offset.value / limit) + 1)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit)))
@@ -90,6 +176,8 @@ const reasonLabelMap: Record<string, string> = {
   polish: '润色加成',
   refund: '失败退款',
   grant: '额度发放',
+  topup: '积分充值',
+  trial: '注册礼',
   admin: '管理员调整',
 }
 const reasonLabel = (r: string) => reasonLabelMap[r] || r
@@ -98,6 +186,8 @@ const reasonColorMap: Record<string, string> = {
   polish: '#FFB020',
   refund: '#2ED573',
   grant: '#3B82F6',
+  topup: '#FFE500',
+  trial: '#2ED573',
   admin: '#888888',
 }
 const reasonStyle = (r: string) => {
@@ -139,6 +229,7 @@ const fetchBalance = async () => {
   try {
     const res = await ModelCatalogAPI.getAvailable()
     balance.value = res.credit?.balance ?? 0
+    purchased.value = (res.credit as any)?.purchased ?? 0
     monthlyGrant.value = res.credit?.monthly_grant ?? null
     resetAt.value = res.credit?.reset_at ?? null
   } catch {
@@ -160,6 +251,7 @@ const reload = () => {
 onMounted(() => {
   fetchBalance()
   fetchLogs()
+  fetchPacks()
 })
 </script>
 
