@@ -219,7 +219,7 @@
 
           <div v-else-if="recentNovels.length === 0"
             class="rounded-xl border p-8 text-center" style="background:#141414; border-color:#2A2A2A;">
-            <p style="color:#888888;">还没有小说，去灵感模式开始吧 ✨</p>
+            <p style="color:#888888;">还没有小说，去灵感模式开始吧</p>
             <button @click="goToInspiration"
               class="mt-4 px-4 py-2 rounded-lg text-sm font-semibold"
               style="background:#FFE500; color:#000;">

@@ -18,27 +18,15 @@
         <span style="color: #fff; font-size: 14px;">{{ deleteMessage.text }}</span>
       </div>
     </transition>
-    
-    <div class="w-full max-w-7xl mx-auto px-6 pt-10">
+
+    <!-- 全局导航（与入口页一致，替代此前孤立的「返回」箭头） -->
+    <AppTopNav />
+
+    <div class="w-full max-w-7xl mx-auto px-6 pt-8">
       <!-- Page Header -->
       <div class="flex justify-between items-center mb-6">
         <div>
-          <div class="flex items-center gap-4 mb-1.5">
-            <router-link
-              to="/home"
-              class="flex items-center gap-1.5 text-sm transition-colors"
-              style="color: #888;"
-              @mouseenter="($event.target as HTMLElement).style.color='#fff'"
-              @mouseleave="($event.target as HTMLElement).style.color='#888'"
-            >
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-              返回
-            </router-link>
-            <div class="h-4 w-px" style="background: #2A2A2A;"></div>
-            <h1 style="font-family: 'Space Grotesk', sans-serif; font-weight: 900; font-size: 32px; color: #fff;">我的小说库</h1>
-          </div>
+          <h1 class="mb-1.5" style="font-family: 'Space Grotesk', sans-serif; font-weight: 900; font-size: 32px; color: #fff;">我的小说库</h1>
           <p style="color: #888; font-size: 14px;">
             共 {{ novelStore.projects.length }} 部小说
           </p>
@@ -253,6 +241,7 @@ import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
 import ProjectCard from '@/components/ProjectCard.vue'
 import RenewalBanner from '@/components/RenewalBanner.vue'
+import AppTopNav from '@/components/shared/AppTopNav.vue'
 import type { NovelProject, NovelProjectSummary } from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
 

@@ -10,7 +10,7 @@
           <span class="brand-accent">✦</span>
           <span class="brand-name">Octopus AI Novel</span>
         </div>
-        <div class="brand-badge">💡 灵感模式</div>
+        <div class="brand-badge">✦ 灵感模式</div>
       </div>
 
       <!-- ── PRE-START: config panel ── -->
@@ -79,7 +79,7 @@
           <!-- 缪斯人格选择（创作者档+）-->
           <label class="muse-field-label">
             缪斯人格
-            <span v-if="!canUsePersona" class="lock-hint">🔒 创作者档</span>
+            <span v-if="!canUsePersona" class="lock-hint"><svg class="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path stroke-linecap="round" d="M8 11V8a4 4 0 118 0v3"/></svg>创作者档</span>
           </label>
           <select v-model="selectedPersona" :disabled="!canUsePersona" class="muse-select">
             <option v-for="p in musePersonas" :key="p.key" :value="p.key">{{ p.label }}</option>
@@ -93,7 +93,7 @@
             <input type="checkbox" :checked="canUseMuseSearch && !disableMuseSearch"
                    :disabled="!canUseMuseSearch"
                    @change="disableMuseSearch = !($event.target as HTMLInputElement).checked" />
-            <span>开场跨界找素材（联网）<span v-if="!canUseMuseSearch" class="lock-hint">🔒 创作者档</span></span>
+            <span>开场跨界找素材（联网）<span v-if="!canUseMuseSearch" class="lock-hint"><svg class="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path stroke-linecap="round" d="M8 11V8a4 4 0 118 0v3"/></svg>创作者档</span></span>
           </label>
 
           <!-- 灵感扰动（免费）-->
@@ -111,7 +111,7 @@
             class="start-btn"
             :class="{ disabled: novelStore.isLoading || isPreparingConversation }"
           >
-            {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '⚡ 开启灵感模式' }}
+            {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
           </button>
           <button @click="goBack" class="back-link">返回首页</button>
         </div>
@@ -139,7 +139,7 @@
         <div v-if="normalizedReferenceNovels.length" class="sidebar-refs">
           <p class="refs-label">参考小说</p>
           <div class="refs-chips">
-            <span v-for="r in normalizedReferenceNovels" :key="r" class="ref-chip">📚 {{ r }}</span>
+            <span v-for="r in normalizedReferenceNovels" :key="r" class="ref-chip"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>{{ r }}</span>
           </div>
         </div>
 
@@ -268,7 +268,7 @@
             @click="handleDiverge"
             title="一次生成 5 个迥异世界观种子并智能评分（旗舰）"
           >
-            {{ isDiverging ? '✨ 缪斯发散中…' : '✨ 给我 5 个狂点子' }}
+            {{ isDiverging ? '✦ 缪斯发散中…' : '✦ 给我 5 个狂点子' }}
           </button>
           <!-- 缪斯发散中：隐藏并禁用选项/输入/发送，改显发散进度状态 -->
           <InlineProgress
@@ -1300,7 +1300,9 @@ onMounted(() => {
   display: flex; align-items: center; gap: 6px;
   font-size: 12px; opacity: 0.85; margin: 8px 0 4px;
 }
-.lock-hint { font-size: 11px; opacity: 0.7; }
+.lock-hint { font-size: 11px; opacity: 0.7; display: inline-flex; align-items: center; gap: 3px; }
+.lock-ico { width: 10px; height: 10px; flex-shrink: 0; }
+.chip-ico { width: 11px; height: 11px; flex-shrink: 0; margin-right: 4px; vertical-align: -1px; display: inline-block; }
 .muse-select {
   width: 100%;
   padding: 6px 8px;

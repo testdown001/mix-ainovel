@@ -2,19 +2,8 @@
 <template>
   <div class="min-h-screen" style="background: #0A0A0A; color: #fff; font-family: 'Inter', sans-serif;">
 
-    <!-- Top bar -->
-    <header class="sticky top-0 z-30 border-b flex items-center gap-4 px-6 h-14" style="background: #141414; border-color: #2A2A2A;">
-      <router-link to="/home" class="flex items-center gap-2 text-sm transition-colors" style="color: #888888;"
-        @mouseenter="($event.target as HTMLElement).style.color='#fff'"
-        @mouseleave="($event.target as HTMLElement).style.color='#888888'">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/>
-        </svg>
-        返回
-      </router-link>
-      <div class="h-4 w-px" style="background:#2A2A2A;"></div>
-      <h1 class="text-sm font-semibold text-white">设置</h1>
-    </header>
+    <!-- 全局导航（与入口页一致，替代此前孤立的「返回」条） -->
+    <AppTopNav />
 
     <div class="flex max-w-5xl mx-auto px-6 py-8 gap-7">
 
@@ -76,6 +65,7 @@ import { useAuthStore } from '@/stores/auth'
 import WritingPreferences from '@/components/WritingPreferences.vue'
 import SubscriptionPanel from '@/components/SubscriptionPanel.vue'
 import CreditLedger from '@/components/CreditLedger.vue'
+import AppTopNav from '@/components/shared/AppTopNav.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
