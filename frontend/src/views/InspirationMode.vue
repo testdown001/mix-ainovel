@@ -171,8 +171,24 @@
       <!-- Empty state before start -->
       <div v-if="!conversationStarted" class="chat-empty">
         <div class="empty-icon">✦</div>
-        <p class="empty-title">准备好了吗？</p>
-        <p class="empty-sub">在左侧配置好参考小说，点击「开启灵感模式」开始与文思对话。</p>
+        <p class="empty-title">从一句灵感，到完整蓝图</p>
+        <p class="empty-sub">
+          和「文思」聊几轮你的想法——AI 会引导你确定题材、世界观与核心角色，聊满 3 轮即可一键生成小说蓝图。
+        </p>
+        <div class="empty-steps">
+          <div class="empty-step">
+            <span class="step-num">1</span>
+            <span>可选：在左侧挂上参考小说、划定创作禁区</span>
+          </div>
+          <div class="empty-step">
+            <span class="step-num">2</span>
+            <span>点「开启灵感模式」，说出哪怕半句点子</span>
+          </div>
+          <div class="empty-step">
+            <span class="step-num">3</span>
+            <span>聊满 3 轮，生成蓝图，直接进入连载写作</span>
+          </div>
+        </div>
       </div>
 
       <!-- Chat area (always rendered once started) -->
@@ -958,12 +974,15 @@ onMounted(() => {
   background: none;
   border: none;
   cursor: pointer;
-  color: #555;
+  color: #888;
   font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: #333;
   transition: color 0.15s;
 }
 
-.back-link:hover { color: #888; }
+.back-link:hover { color: #CCC; }
 
 /* ── Status Panel ── */
 .sidebar-status {
@@ -1137,25 +1156,61 @@ onMounted(() => {
 
 .empty-icon {
   font-size: 48px;
-  color: #2A2A2A;
+  color: rgba(255, 229, 0, 0.28);
   line-height: 1;
   margin-bottom: 4px;
 }
 
 .empty-title {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 20px;
+  font-family: 'Space Grotesk', 'Noto Sans SC', sans-serif;
+  font-size: 24px;
   font-weight: 700;
-  color: #444;
+  color: #DDDDDD;
   margin: 0;
 }
 
 .empty-sub {
   font-size: 14px;
-  color: #333;
-  max-width: 320px;
-  line-height: 1.6;
+  color: #777777;
+  max-width: 400px;
+  line-height: 1.7;
   margin: 0;
+}
+
+.empty-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.empty-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #999999;
+  text-align: left;
+  background: var(--md-surface, #141414);
+  border: 1px solid var(--md-outline-variant, #1C1C1C);
+  border-radius: 12px;
+}
+
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(255, 229, 0, 0.12);
+  color: #FFE500;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 /* Chat scroll area */

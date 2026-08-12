@@ -124,7 +124,7 @@
               即 <span :style="`color:${plan.color};`">¥{{ Math.round(plan.price * 0.8 * 12) }}</span> / 年
             </div>
             <div class="text-xs mt-2 flex items-center gap-1" style="color:#aaa;">
-              🪙 每月赠
+              <CoinIcon :size="12" :style="`color:${plan.color};`" /> 每月赠
               <span class="font-bold" :style="`color:${plan.color};`">{{ plan.monthlyCredits.toLocaleString() }}</span>
               积分
             </div>
@@ -247,6 +247,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import CoinIcon from '@/components/shared/CoinIcon.vue'
 import { paymentApi, type Plan, type Subscription as SubType } from '@/api/payment'
 import { resolvePlanForTier } from '@/utils/planResolve'
 import { useAuthStore } from '@/stores/auth'

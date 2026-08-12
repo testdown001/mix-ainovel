@@ -6,8 +6,9 @@
       <div class="flex items-center justify-between flex-wrap gap-3">
         <div>
           <div class="text-xs" style="color:#888;">当前可用积分</div>
-          <div class="text-3xl font-bold mt-1" style="color:#FFE500; font-family:'Space Grotesk',sans-serif;">
-            🪙 {{ totalCredits.toLocaleString() }}
+          <div class="text-3xl font-bold mt-1 flex items-center gap-2"
+            style="color:#FFE500; font-family:'Space Grotesk',sans-serif;">
+            <CoinIcon :size="24" /> {{ totalCredits.toLocaleString() }}
           </div>
           <div class="text-[11px] mt-1.5" style="color:#888;">
             月度池 <span style="color:#ccc;">{{ (balance ?? 0).toLocaleString() }}</span>
@@ -75,7 +76,7 @@
       <div v-if="loading" class="py-16 text-center text-sm" style="color:#666;">加载中…</div>
       <div v-else-if="error" class="py-16 text-center text-sm" style="color:#E5484D;">{{ error }}</div>
       <div v-else-if="items.length === 0" class="py-16 text-center" style="color:#666;">
-        <div class="text-3xl mb-2">🪙</div>
+        <CoinIcon :size="28" class="mx-auto mb-2" style="color:#444;" />
         <div class="text-sm">暂无积分流水</div>
       </div>
 
@@ -112,6 +113,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import CoinIcon from '@/components/shared/CoinIcon.vue'
 import { creditsApi, type CreditLogItem } from '@/api/credits'
 import { ModelCatalogAPI } from '@/api/model_catalog'
 import { paymentApi, type CreditPack } from '@/api/payment'

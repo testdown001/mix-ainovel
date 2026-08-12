@@ -719,6 +719,8 @@ body {
   gap: 8px;
   height: 32px;
   padding: 0 16px;
+  /* 状态标签(未开始/已完成)在窄容器内不允许断字竖排 */
+  white-space: nowrap;
   border-radius: var(--md-radius-sm);
   font-size: var(--md-label-large);
   font-weight: 500;

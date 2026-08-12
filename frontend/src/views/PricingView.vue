@@ -121,7 +121,7 @@
                 <span class="ml-1 line-through opacity-50">¥{{ plan.price * 12 }}</span>
               </div>
               <div class="text-sm mt-2 flex items-center gap-1.5" style="color:#aaa;">
-                🪙 每月赠
+                <CoinIcon :size="14" :style="`color:${plan.color};`" /> 每月赠
                 <span class="font-bold" :style="`color:${plan.color};`">{{ planCredits(plan.id).toLocaleString() }}</span>
                 积分
               </div>
@@ -146,12 +146,21 @@
                 </div>
                 <span :style="f.ok ? 'color:#DDDDDD;' : 'color:#555555;'">{{ f.text }}</span>
               </li>
-              <!-- 灵感缪斯高级能力（与后台档位配置同源，自动同步）-->
-              <li v-for="cap in (capsByTier[plan.id] || [])" :key="cap.key"
+              <!-- 档位解锁能力（与后台门控注册表同源，自动同步；键为 tier 而非营销页 plan.id）-->
+              <li v-if="(capsByTier[planIdToTier[plan.id]] || []).length"
+                  class="pt-2.5 mt-1 border-t" style="border-color:#1F1F1F;">
+                <span class="text-[10px] font-semibold tracking-widest uppercase" style="color:#666;">
+                  该档位解锁能力
+                </span>
+              </li>
+              <li v-for="cap in (capsByTier[planIdToTier[plan.id]] || [])" :key="cap.key"
                   class="flex items-center gap-2.5 text-sm" :title="cap.description">
                 <div class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
                   :style="`background:${plan.color}20;`">
-                  <span class="text-[10px]" :style="`color:${plan.color};`">⚡</span>
+                  <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="2.5"
+                    viewBox="0 0 24 24" :style="`color:${plan.color};`">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                  </svg>
                 </div>
                 <span style="color:#DDDDDD;">{{ cap.label }}</span>
               </li>
@@ -302,6 +311,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import CoinIcon from '@/components/shared/CoinIcon.vue'
 import { plansApi, type PlanCapability } from '@/api/plans'
 import { paymentApi, type Plan } from '@/api/payment'
 import { resolvePlanForTier } from '@/utils/planResolve'
@@ -394,8 +404,7 @@ const plans = [
     features: [
       { text: '无限小说项目', ok: true },
       { text: '每月充足积分，支撑稳定日更', ok: true },
-      { text: '稳定连载生成模式（章鱼2.0）', ok: true },
-      { text: '多风格灵感缪斯 + 跨界素材', ok: true },
+      { text: '章鱼2.0 标准模型档位', ok: true },
       { text: '章节体检与返工建议', ok: true },
       { text: '积分加油包随时补充', ok: true },
       { text: '关键章节精修', ok: false },
@@ -413,11 +422,10 @@ const plans = [
     features: [
       { text: '无限小说项目', ok: true },
       { text: '超大月度积分池，重度创作无忧', ok: true },
-      { text: '关键章节精修（章鱼3.0 旗舰引擎）', ok: true },
-      { text: '概念发散：一次 5 个开局方向', ok: true },
+      { text: '章鱼3.0 旗舰模型档位', ok: true },
       { text: '卷级复盘与重规划', ok: true },
       { text: '质量回路：两遍制草稿 / 人物意义层', ok: true },
-      { text: '全部模型档位与流水线能力', ok: true },
+      { text: '全部流水线能力开关', ok: true },
     ],
   },
 ]
