@@ -338,6 +338,23 @@ class LLMClient:
         await self._client.close()
 
 
+# ── Anthropic prompt caching ──
+# 按 base_url 记忆「不支持 cache_control 系统块」的端点（进程级失败闩，与 rerank 同款思路）：
+# 官方 API 与合规代理都接受块数组 system；个别第三方兼容层会 4xx，命中一次即降级纯字符串。
+_ANTHROPIC_CACHE_UNSUPPORTED: set = set()
+
+# system 短于该长度不打缓存标记：Anthropic 缓存有最小 token 门槛（1024/2048 tok），
+# 短 system 打标记只多付 25% 缓存写入费、拿不到命中收益。写作路径的 system（作家人格
+# + 硬规则）稳定且大，跨章/多版本调用 5 分钟 TTL 内命中读价仅 0.1x。
+_ANTHROPIC_CACHE_MIN_CHARS = 2000
+
+
+def _anthropic_cache_enabled() -> bool:
+    return os.environ.get("ANTHROPIC_PROMPT_CACHE", "true").strip().lower() not in (
+        "0", "false", "no", "off",
+    )
+
+
 class AnthropicLLMClient:
     """原生 Anthropic Messages API (/v1/messages) 的异步流式调用封装，使用 x-api-key 认证。"""
 
@@ -411,7 +428,7 @@ class AnthropicLLMClient:
             "messages": api_messages,
         }
         if system_text:
-            payload["system"] = system_text
+            payload["system"] = self._build_system_payload(system_text)
 
         if thinking_budget:
             payload["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
@@ -429,14 +446,41 @@ class AnthropicLLMClient:
         msg_summary = [{"role": m.role, "content_length": len(m.content)} for m in messages]
         log_payload = {k: v for k, v in payload.items() if k not in ("messages", "system")}
         logger.info(
-            "LLM请求(Anthropic) >> url=%s/messages model=%s params=%s system_len=%d messages=%s",
+            "LLM请求(Anthropic) >> url=%s/messages model=%s params=%s system_len=%d cache=%s messages=%s",
             self._base_url, payload.get("model"), log_payload,
-            len(system_text), msg_summary,
+            len(system_text), isinstance(payload.get("system"), list), msg_summary,
         )
 
         url = f"{self._base_url}/messages"
+        try:
+            async for chunk in self._do_stream(url, payload, timeout):
+                yield chunk
+            return
+        except httpx.HTTPStatusError as exc:
+            # 端点不认 cache_control 块数组（4xx）→ 记闩、降级纯字符串重试一次。
+            # _do_stream 的状态码检查发生在任何 chunk 产出之前，此处重试不会重复输出。
+            # 5xx/网络错误照旧抛出，走上层既有重试与 fallback 通道。
+            if not isinstance(payload.get("system"), list) or exc.response.status_code >= 500:
+                raise
+            _ANTHROPIC_CACHE_UNSUPPORTED.add(self._base_url)
+            logger.warning(
+                "Anthropic 端点疑似不支持 prompt cache 块(status=%d)，降级纯字符串 system 重试并记闩: %s",
+                exc.response.status_code, self._base_url,
+            )
+            payload["system"] = system_text
         async for chunk in self._do_stream(url, payload, timeout):
             yield chunk
+
+    def _build_system_payload(self, system_text: str):
+        """system 载荷：满足条件时用带 cache_control 的内容块（稳定前缀跨调用缓存，
+        命中读价 0.1x、TTFT 显著下降）；否则保持纯字符串。"""
+        if (
+            not _anthropic_cache_enabled()
+            or self._base_url in _ANTHROPIC_CACHE_UNSUPPORTED
+            or len(system_text) < _ANTHROPIC_CACHE_MIN_CHARS
+        ):
+            return system_text
+        return [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
 
     async def _do_stream(
         self, url: str, payload: Dict, timeout: int,

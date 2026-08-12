@@ -127,7 +127,13 @@
             </span>
             <span class="status-label">{{ showBlueprint ? '蓝图已生成' : showBlueprintConfirmation ? '信息收集完成' : '对话进行中' }}</span>
           </div>
-          <div v-if="currentTurn > 0" class="status-turn">第 {{ currentTurn }} 轮对话</div>
+          <div v-if="currentTurn > 0" class="status-turn">
+            第 {{ currentTurn }} 轮对话
+            <span v-if="!showBlueprint && !showBlueprintConfirmation && currentTurn < 3"
+              style="color:#FFE500;">
+              · 再聊 {{ 3 - currentTurn }} 轮解锁蓝图
+            </span>
+          </div>
         </div>
 
         <div v-if="normalizedReferenceNovels.length" class="sidebar-refs">

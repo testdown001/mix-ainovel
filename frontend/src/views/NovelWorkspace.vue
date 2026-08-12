@@ -84,6 +84,9 @@
         </div>
       </div>
 
+      <!-- 会员到期提醒（到期前 3 天，含试用转化） -->
+      <RenewalBanner />
+
       <!-- Loading State -->
       <div v-if="novelStore.isLoading" class="flex flex-col items-center justify-center py-24">
         <div class="loader"></div>
@@ -249,6 +252,7 @@ import { useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
 import ProjectCard from '@/components/ProjectCard.vue'
+import RenewalBanner from '@/components/RenewalBanner.vue'
 import type { NovelProject, NovelProjectSummary } from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
 
