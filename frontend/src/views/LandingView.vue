@@ -133,10 +133,10 @@ const steps = [
 ]
 
 const stats = [
-  { value: '10,000+', label: '注册创作者' },
-  { value: '500万+', label: '已生成章节' },
-  { value: '98%', label: '用户满意度' },
-  { value: '3天', label: '免费试用期' },
+  { value: '多引擎', label: '智能调度 · 顶尖大模型' },
+  { value: '全流程', label: '灵感 → 蓝图 → 连载' },
+  { value: '积分制', label: '按量计费 · 充值不过期' },
+  { value: '3天', label: '注册即享创作者版试用' },
 ]
 </script>
 
@@ -272,7 +272,7 @@ const stats = [
           </span>
           <span class="flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:#FFE500;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-            3天免费试用高级版
+            注册即享创作者版 3 天试用
           </span>
           <span class="flex items-center gap-1.5">
             <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:#FFE500;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
@@ -384,7 +384,7 @@ const stats = [
             选择适合你的<span style="color:#FFE500;">创作套餐</span>
           </h2>
           <p class="text-base max-w-xl mx-auto mb-8" style="color:#666;">
-            从免费版开始，随时升级。所有付费计划均包含3天免费试用期。
+            从免费版开始，随时升级；注册即享创作者版 3 天完整试用，积分不够可随时购买加油包。
           </p>
 
           <!-- Billing toggle -->

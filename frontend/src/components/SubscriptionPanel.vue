@@ -21,7 +21,7 @@
           </div>
           <div class="font-semibold text-white text-sm">{{ currentPlanName }}</div>
           <div class="text-xs mt-0.5" :style="isTrialing ? 'color:#FFE500;' : 'color:#888888;'">
-            {{ isTrialing ? `试用还剩 ${trialDaysLeft} 天，到期自动降为免费版` : '20次AI生成/月 · 1个小说项目' }}
+            {{ isTrialing ? `试用还剩 ${trialDaysLeft} 天，到期自动降为免费版` : '免费版 · 每月自动发放体验积分' }}
           </div>
         </div>
       </div>
@@ -64,8 +64,8 @@
     <!-- Plans heading -->
     <div class="flex items-center justify-between mb-4" ref="plansRef">
       <h2 class="text-base font-bold text-white">选择套餐</h2>
-      <!-- Annual toggle -->
-      <div class="flex items-center gap-2.5 px-3 py-1.5 rounded-full border text-xs" style="border-color:#2A2A2A; background:#141414;">
+      <!-- Annual toggle（仅当后台配置了年付套餐时展示） -->
+      <div v-if="hasYearlyPlans" class="flex items-center gap-2.5 px-3 py-1.5 rounded-full border text-xs" style="border-color:#2A2A2A; background:#141414;">
         <span :style="!annual ? 'color:#fff; font-weight:600;' : 'color:#888;'">按月</span>
         <button @click="annual = !annual"
           class="relative w-8 h-4 rounded-full transition-colors flex-shrink-0"
@@ -300,9 +300,9 @@ const PLAN_PRESENTATION = [
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>',
     features: [
       { text: '1 个小说项目', ok: true },
-      { text: '20次基础章节生成 / 月', ok: true },
-      { text: '灵感到蓝图主流程', ok: true },
-      { text: '基础角色与大纲管理', ok: true },
+      { text: '每月自动发放体验积分', ok: true },
+      { text: '灵感到蓝图完整主流程', ok: true },
+      { text: '快速生成模式（章鱼1.0）', ok: true },
       { text: '跨界素材与多缪斯开局', ok: false },
       { text: '稳定连载生成模式', ok: false },
       { text: '关键章节精修', ok: false },
@@ -318,12 +318,12 @@ const PLAN_PRESENTATION = [
     badge: '最受欢迎',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>',
     features: [
-      { text: '无限 小说项目', ok: true },
-      { text: '200次章节生成 / 月', ok: true },
-      { text: '多风格灵感缪斯', ok: true },
-      { text: '跨界素材嫁接', ok: true },
-      { text: '稳定连载生成模式', ok: true },
+      { text: '无限小说项目', ok: true },
+      { text: '每月充足积分，支撑稳定日更', ok: true },
+      { text: '稳定连载生成模式（章鱼2.0）', ok: true },
+      { text: '多风格灵感缪斯 + 跨界素材', ok: true },
       { text: '章节体检与返工建议', ok: true },
+      { text: '积分加油包随时补充', ok: true },
       { text: '关键章节精修', ok: false },
     ],
   },
@@ -337,13 +337,12 @@ const PLAN_PRESENTATION = [
     badge: '全功能解锁',
     iconPath: '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"/>',
     features: [
-      { text: '无限 小说项目', ok: true },
-      { text: '无限章节生成', ok: true },
-      { text: '多方向开局筛选', ok: true },
-      { text: '关键章节精修', ok: true },
-      { text: '读者模拟与自我批判', ok: true },
-      { text: '最高优先队列', ok: true },
-      { text: '自定义 LLM 接入（自带 Key）', ok: true },
+      { text: '无限小说项目', ok: true },
+      { text: '超大月度积分池，重度创作无忧', ok: true },
+      { text: '关键章节精修（章鱼3.0 旗舰引擎）', ok: true },
+      { text: '概念发散：一次 5 个开局方向', ok: true },
+      { text: '卷级复盘与重规划', ok: true },
+      { text: '质量回路：两遍制草稿 / 人物意义层', ok: true },
     ],
   },
 ]
@@ -356,6 +355,11 @@ type DisplayPlan = (typeof PLAN_PRESENTATION)[number] & {
 
 const backendPlans = ref<Plan[]>([])
 const plansLoadError = ref(false)
+
+// 后台没有年付套餐时隐藏年付开关：否则「省20%」是无法兑现的展示价
+const hasYearlyPlans = computed(() =>
+  backendPlans.value.some((p) => p.is_active && p.period === 'yearly'),
+)
 
 // 与后端 SystemConfig credits.monthly.* 默认值一致，仅作展示兜底
 const creditFallbackMap: Record<string, number> = { free: 60, creator: 3000, flagship: 18000 }
@@ -382,15 +386,16 @@ const plans = computed<DisplayPlan[]>(() =>
   })
 )
 
-const comparisonRows: { label: string; vals: (string | boolean)[] }[] = [
+const comparisonRows = computed<{ label: string; vals: (string | boolean)[] }[]>(() => [
   { label: '小说项目数量', vals: ['1 个', '无限', '无限'] },
-  { label: '章节生成额度', vals: ['20次/月', '200次/月', '无限次'] },
-  { label: '灵感模式增强', vals: ['基础对话', '缪斯 + 素材', '多方向筛选'] },
+  { label: '每月赠送积分', vals: plans.value.map((p) => p.monthlyCredits.toLocaleString()) },
+  { label: '可用模型档位', vals: ['章鱼1.0', '章鱼1.0 / 2.0', '全部（含章鱼3.0）'] },
   { label: '生成质量链路', vals: ['快速生成', '稳定连载', '关键章节精修'] },
+  { label: '灵感模式增强', vals: ['基础对话', '缪斯 + 素材', '多方向筛选'] },
   { label: '章节体检', vals: [false, true, true] },
-  { label: '长篇一致性工具', vals: [false, true, true] },
-  { label: '自定义 LLM 接入', vals: [false, false, true] },
-]
+  { label: '卷级复盘与质量回路', vals: [false, false, true] },
+  { label: '积分加油包', vals: [true, true, true] },
+])
 
 const displayPrice = (plan: DisplayPlan) => {
   if (plan.price === 0) return '¥0'

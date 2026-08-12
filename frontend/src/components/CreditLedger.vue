@@ -18,7 +18,7 @@
         </div>
         <div class="text-right text-xs" style="color:#888;">
           <div v-if="monthlyGrant != null">每月发放 <span style="color:#ccc;">{{ monthlyGrant.toLocaleString() }}</span></div>
-          <div v-if="resetAt" class="mt-1">下次重置 <span style="color:#ccc;">{{ formatDate(resetAt) }}</span></div>
+          <div v-if="nextResetLabel" class="mt-1">下次重置 <span style="color:#ccc;">{{ nextResetLabel }}</span></div>
         </div>
       </div>
       <div class="text-[11px] mt-3" style="color:#666;">
@@ -204,12 +204,15 @@ const formatDateTime = (s?: string | null) => {
   if (isNaN(d.getTime())) return s
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
-const formatDate = (s?: string | null) => {
-  if (!s) return '—'
-  const d = new Date(s)
-  if (isNaN(d.getTime())) return s
+// 后端返回的 reset_at 是「上次重置锚点」，下次重置 = 锚点 + 30 天（与后端 CREDIT_RESET_DAYS 对齐）。
+// 此前直接展示锚点日期，用户会看到一个过去的「下次重置」时间。
+const nextResetLabel = computed(() => {
+  if (!resetAt.value) return null
+  const d = new Date(resetAt.value)
+  if (isNaN(d.getTime())) return null
+  d.setDate(d.getDate() + 30)
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
+})
 
 const fetchLogs = async () => {
   loading.value = true
