@@ -45,6 +45,10 @@ class QuotaService:
     DEFAULT_FLAGSHIP_MONTHLY_CREDITS = 18000  # =1800 篇章鱼2.0（60/天×30）
     CREDIT_RESET_DAYS = 30
 
+    # 注册试用（定价页「注册即享创作者版 3 天完整试用」的承诺落地；SystemConfig trial.* 可覆写）
+    TRIAL_DEFAULT_DAYS = 3
+    TRIAL_DEFAULT_CREDITS = 300  # ≈3 天的墨韵档体验量，与 creator 月度 3000/30 天同一量级
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -125,6 +129,58 @@ class QuotaService:
             await self.session.commit()
             logger.info("重置积分: user_id=%s -> balance=%s", quota.user_id, quota.credit_balance)
         return quota
+
+    async def grant_signup_trial(self, user_id: int) -> bool:
+        """注册即赠创作者试用：3 天 creator 档 + 一次性体验积分。
+
+        - SystemConfig 可控：trial.enabled（默认开，定价页已作出承诺）/ trial.days / trial.credits
+        - 幂等：CreditLog (reason='trial', ref_key='signup:{user_id}') 唯一约束兜底，
+          OAuth 回调重放/重复调用不会重复发放
+        - 已是会员（含管理员手动授予）不叠加；月度发放额度保持 free 档不变——
+          试用是一次性体验积分，不改变滚动发放语义，到期 effective_tier 自然回落 free
+        """
+        from ..repositories.system_config_repository import SystemConfigRepository
+
+        raw = await SystemConfigRepository(self.session).get_many(
+            ["trial.enabled", "trial.days", "trial.credits"]
+        )
+        enabled = str(raw.get("trial.enabled", "true")).strip().lower() in ("1", "true", "yes", "on")
+        if not enabled:
+            return False
+        try:
+            days = max(1, int(raw.get("trial.days", self.TRIAL_DEFAULT_DAYS)))
+        except (TypeError, ValueError):
+            days = self.TRIAL_DEFAULT_DAYS
+        try:
+            credits = max(0, int(raw.get("trial.credits", self.TRIAL_DEFAULT_CREDITS)))
+        except (TypeError, ValueError):
+            credits = self.TRIAL_DEFAULT_CREDITS
+
+        quota = await self.get_or_create_quota(user_id)
+        if quota.is_premium:
+            return False
+        ref_key = f"signup:{user_id}"
+        if await self._credit_log_exists("trial", ref_key):
+            return False
+
+        quota.is_premium = True
+        quota.plan_tier = "creator"
+        quota.premium_expires_at = datetime.utcnow() + timedelta(days=days)
+        if credits > 0:
+            quota.credit_balance += credits
+        self.session.add(CreditLog(
+            user_id=user_id, delta=credits, reason="trial", ref_key=ref_key,
+            balance_after=quota.credit_balance,
+            note=f"注册礼：创作者版 {days} 天试用" + (f" + {credits} 体验积分" if credits > 0 else ""),
+        ))
+        try:
+            await self.session.commit()
+        except IntegrityError:
+            # 并发注册回调下同 ref 已入账 → 视为已发放
+            await self.session.rollback()
+            return False
+        logger.info("注册试用发放: user_id=%s days=%s credits=%s", user_id, days, credits)
+        return True
 
     async def list_credit_logs(self, user_id: int, *, limit: int = 20, offset: int = 0) -> dict:
         """分页查询用户积分流水（按时间倒序），返回 {items,total,limit,offset}。"""

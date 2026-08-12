@@ -1000,6 +1000,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         # ========== 标准模式：多版本并行生成 ==========
         await _emit_stage("generate_versions", "多版本生成中")
+
+        # 草稿流式（2026-08-12）：standard/premium 此前是分钟级黑盒（仅阶段事件），
+        # 现复用 fast 的 text_delta 管道把草稿逐字流给前端；version_count>1 时
+        # 由 VersionGenerationService 自动关闭（并行 delta 交错无意义）。
+        async def _stream_standard_text_delta(delta: str) -> None:
+            await telemetry.emit_text_delta(delta, "generate_versions", chapter_number)
         # 关键路径软预算：从生成总起点(total_started, perf_counter)起算，超过即让后处理链
         # 跳过剩余可选步骤、带当前最佳稿返回，避免后处理把整章拖到 600s 硬超时而全盘失败。
         _budget_sec = getattr(settings, "generation_time_budget_sec", 0) or 0
@@ -1027,6 +1033,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             history_context=history_context,
             mark_stage=_mark_stage,
             deadline=postproc_deadline,
+            emit_text_delta=_stream_standard_text_delta if stream_handler else None,
         )
         version_count = config.version_count
         versions = standard_result.versions

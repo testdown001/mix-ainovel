@@ -18,6 +18,7 @@ import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from ...core.safe_task import safe_create_task
 
@@ -29,7 +30,12 @@ from sqlalchemy.orm import load_only, selectinload
 
 from ...core.config import settings
 from ...core.dependencies import get_current_user
-from ...core.feature_gating import ensure_flow_overrides_allowed, ensure_generation_preset_allowed
+from ...core.feature_gating import (
+    ensure_flow_overrides_allowed,
+    ensure_generation_preset_allowed,
+    ensure_model_allowed,
+)
+from ...services.generation_billing_service import charge_generation, refund_generation
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
 from ...models.writing_archive import WritingArchive
@@ -472,6 +478,41 @@ async def _set_chapter_failed_status(
 # 档位门控（含 preset 别名归一化）统一在 core/feature_gating.ensure_generation_preset_allowed，
 # 与 task_worker.py 异步入口共用，避免两处漂移。
 # 生产异步生成由 Go Gateway → /api/internal/tasks/execute (task_worker.py) 承担。
+#
+# 同步/SSE 路径的模型门控与积分计费（2026-08-12）：此前只有异步任务路径计费，
+# 网关不可用时前端静默降级 SSE 即可免费使用付费模型通道——三个同步入口现与
+# task_worker 同一套「ensure_model_allowed + 先扣后跑 + 失败幂等退款」。
+
+
+def _sync_billing_args(flow_config: Any) -> tuple[Optional[str], bool]:
+    """同步路径计费参数。literary(scene_by_scene) 分支后处理链不含 polish 步，
+    勾选也不会执行 → 不收附加费（收了必须交付，与异步入口同口径）。"""
+    model_code = getattr(flow_config, "model_code", None)
+    enable_polish = bool(getattr(flow_config, "enable_polish", None)) and not bool(
+        getattr(flow_config, "enable_scene_by_scene", None)
+    )
+    return model_code, enable_polish
+
+
+async def _refund_sync_generation_safely(user_id: int, ref_key: Optional[str]) -> None:
+    """同步路径退款：独立 session + shield（与 task_worker 同款），失败仅记日志、
+    绝不遮蔽原始错误。按 ref_key 幂等，未扣过则 no-op。"""
+    if not ref_key:
+        return
+    try:
+        async with AsyncSessionLocal() as refund_session:
+            await asyncio.shield(refund_generation(refund_session, user_id, ref_key=ref_key))
+    except BaseException:  # noqa: BLE001
+        logger.warning("同步生成退款失败(已忽略): user=%s ref=%s", user_id, ref_key)
+
+
+def _result_has_missing_scenes(result: Dict[str, Any]) -> bool:
+    """literary 场景级降级信号：任一版本 metadata 带 missing_scenes → 残章，
+    按「付费必须交付完整章」原则全额退款（与异步入口同口径）。"""
+    for variant in result.get("variants") or []:
+        if isinstance(variant, dict) and (variant.get("metadata") or {}).get("missing_scenes"):
+            return True
+    return False
 
 
 @router.post("/advanced/generate", response_model=AdvancedGenerateResponse)
@@ -502,6 +543,16 @@ async def advanced_generate_chapter(
     await ensure_generation_preset_allowed(session, preset, effective_tier)
     await ensure_flow_overrides_allowed(session, request.flow_config.model_dump(), effective_tier)
 
+    # ===== 模型门控 + 先扣后跑（与异步任务入口同一套判定；402/403 直接抛给前端）=====
+    model_code, billed_polish = _sync_billing_args(request.flow_config)
+    await ensure_model_allowed(session, model_code, effective_tier)
+    billing_ref: Optional[str] = f"sync:{uuid4().hex}"
+    charged = await charge_generation(
+        session, current_user.id, model_code, billed_polish, ref_key=billing_ref
+    )
+    if not charged:
+        billing_ref = None  # 未产生扣费（未选模型且未勾润色）→ 无需退款
+
     executor = HybridExecutor(session, user_id=current_user.id)
 
     # 检查是否启用 Agent 系统（保留，但不推荐使用）
@@ -518,6 +569,10 @@ async def advanced_generate_chapter(
             writing_notes=request.writing_notes,
             flow_config=request.flow_config.model_dump(),
         )
+
+        # literary 残章（部分场景缺失）：付费必须交付完整章 → 全额退款、内容保留
+        if billing_ref and _result_has_missing_scenes(result):
+            await _refund_sync_generation_safely(current_user.id, billing_ref)
 
         flow_config = request.flow_config
         if flow_config.async_finalize and result.get("variants"):
@@ -536,6 +591,7 @@ async def advanced_generate_chapter(
 
         return AdvancedGenerateResponse(**result)
     except HTTPException as exc:
+        await _refund_sync_generation_safely(current_user.id, billing_ref)
         logger.warning(
             "高级生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
             request.project_id,
@@ -562,6 +618,7 @@ async def advanced_generate_chapter(
                 )
         raise
     except Exception as exc:
+        await _refund_sync_generation_safely(current_user.id, billing_ref)
         logger.exception(
             "高级生成异常: project=%s chapter=%s user=%s preset=%s",
             request.project_id,
@@ -615,6 +672,16 @@ async def advanced_generate_chapter_stream(
     await ensure_generation_preset_allowed(session, preset, effective_tier)
     await ensure_flow_overrides_allowed(session, request.flow_config.model_dump(), effective_tier)
 
+    # ===== 模型门控 + 先扣后跑：在建立 SSE 流之前完成，402/403 以标准 HTTP 错误返回 =====
+    model_code, billed_polish = _sync_billing_args(request.flow_config)
+    await ensure_model_allowed(session, model_code, effective_tier)
+    billing_ref: Optional[str] = f"sync:{uuid4().hex}"
+    charged = await charge_generation(
+        session, current_user.id, model_code, billed_polish, ref_key=billing_ref
+    )
+    if not charged:
+        billing_ref = None
+
     use_agent = request.flow_config.use_agent or False
 
     event_queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
@@ -655,6 +722,11 @@ async def advanced_generate_chapter_stream(
                     stream_handler=_stream_handler,
                 )
 
+                # literary 残章：付费必须交付完整章 → 全额退款、内容保留并打降级标记
+                if billing_ref and _result_has_missing_scenes(result):
+                    await _refund_sync_generation_safely(current_user.id, billing_ref)
+                    result["degraded"] = True
+
                 flow_config = request.flow_config
                 if flow_config.async_finalize and result.get("variants"):
                     best_index = result.get("best_version_index", 0)
@@ -670,7 +742,12 @@ async def advanced_generate_chapter_stream(
                         )
 
                 await _push_event("completed", result)
+            except asyncio.CancelledError:
+                # 客户端断开/生成被取消：已扣费但未交付 → 退款后继续传播取消
+                await _refund_sync_generation_safely(current_user.id, billing_ref)
+                raise
             except HTTPException as exc:
+                await _refund_sync_generation_safely(current_user.id, billing_ref)
                 logger.warning(
                     "高级流式生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
                     request.project_id,
@@ -704,6 +781,7 @@ async def advanced_generate_chapter_stream(
                     },
                 )
             except Exception as exc:
+                await _refund_sync_generation_safely(current_user.id, billing_ref)
                 logger.exception(
                     "高级流式生成异常: project=%s chapter=%s user=%s preset=%s",
                     request.project_id,
@@ -804,16 +882,48 @@ async def batch_generate_chapters(
     novel_service = NovelService(session)
     await novel_service.ensure_project_owner(request.project_id, current_user.id)
 
-    results = await BatchGenerationService.generate_chapter_batch(
-        project_id=request.project_id,
-        chapter_numbers=request.chapter_numbers,
-        user_id=current_user.id,
-        writing_notes=request.writing_notes,
-        flow_config=request.flow_config.model_dump() if request.flow_config else None,
+    # ===== 模型门控 + 先扣后跑：整批一笔、按章计价；失败章按比例退款 =====
+    model_code, billed_polish = (
+        _sync_billing_args(request.flow_config) if request.flow_config else (None, False)
     )
+    await ensure_model_allowed(session, model_code, user_quota.effective_tier)
+    chapters_count = len(request.chapter_numbers)
+    billing_ref: Optional[str] = f"sync:{uuid4().hex}"
+    charged = await charge_generation(
+        session, current_user.id, model_code, billed_polish,
+        ref_key=billing_ref, chapters=chapters_count,
+    )
+    if not charged:
+        billing_ref = None
+
+    try:
+        results = await BatchGenerationService.generate_chapter_batch(
+            project_id=request.project_id,
+            chapter_numbers=request.chapter_numbers,
+            user_id=current_user.id,
+            writing_notes=request.writing_notes,
+            flow_config=request.flow_config.model_dump() if request.flow_config else None,
+        )
+    except BaseException:
+        # 整批异常（含取消）：全额退款后原样抛出
+        await _refund_sync_generation_safely(current_user.id, billing_ref)
+        raise
 
     completed = sum(1 for r in results if r["status"] == "success")
     failed = sum(1 for r in results if r["status"] == "failed")
+
+    # 部分章失败：按章比例退款（一笔扣费按 单价=总额/章数 拆退；同 ref_key 幂等一次）
+    if billing_ref and failed:
+        refund_amount = (charged // chapters_count) * failed
+        if refund_amount > 0:
+            try:
+                async with AsyncSessionLocal() as refund_session:
+                    await QuotaService(refund_session).refund_credits(
+                        current_user.id, refund_amount, ref_key=billing_ref,
+                        note=f"批量生成 {failed}/{chapters_count} 章失败，按章退款",
+                    )
+            except Exception:
+                logger.warning("批量生成部分退款失败(已忽略): ref=%s", billing_ref)
 
     return BatchGenerateResponse(
         project_id=request.project_id,

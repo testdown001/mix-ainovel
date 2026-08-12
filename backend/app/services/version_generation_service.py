@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +35,16 @@ class VersionGenerationService:
         chapter_target_word_count: int,
         chapter_word_count_max: int,
         genre_profile: Optional[Dict[str, Any]],
+        stream_callback: Optional[Callable[[str], Any]] = None,
     ) -> Dict[str, Any]:
         orchestrator = self.orchestrator
         version_style_hints = orchestrator.generation_policy_service.resolve_style_hints(
             enhanced_context, version_count
         )
+
+        # 草稿流式只在单版本时开启：多版本并行的 delta 交错到同一条流上是噪音。
+        # premium 强制 version_count=1，standard 配置为 1 版时同样受益。
+        effective_stream_callback = stream_callback if version_count == 1 else None
 
         # ---- 两遍制第一遍：只给事实与方向，把规则留到第二遍 ----
         # 动机见 two_pass_draft_service：26 个段落一次性堆进单次生成，其中约一半是
@@ -85,6 +90,7 @@ class VersionGenerationService:
                     max_word_count=chapter_word_count_max,
                     genre_profile=genre_profile,
                     disable_guardrail_rewrite=config.disable_guardrail_rewrite,
+                    stream_callback=effective_stream_callback,
                 )
             )
 

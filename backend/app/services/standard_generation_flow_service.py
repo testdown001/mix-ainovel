@@ -64,11 +64,13 @@ class StandardGenerationFlowService:
         history_context: Dict[str, Any],
         mark_stage: Optional[Callable[[str, float], None]] = None,
         deadline: Optional[float] = None,
+        emit_text_delta: Optional[Callable[[str], Any]] = None,
     ) -> StandardGenerationFlowResult:
         version_count = config.version_count
 
         stage_started = time.perf_counter()
         generation_result = await self.version_generation_service.run(
+            stream_callback=emit_text_delta,
             prompt_input=prompt_input,
             prompt_sections=prompt_sections,
             writer_prompt=writer_prompt,

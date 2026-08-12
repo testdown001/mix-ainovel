@@ -248,6 +248,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { paymentApi, type Plan, type Subscription as SubType } from '@/api/payment'
+import { resolvePlanForTier } from '@/utils/planResolve'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -370,11 +371,7 @@ const plans = computed<DisplayPlan[]>(() =>
       const freePlan = backendPlans.value.find((p) => p.tier === 'free')
       return { ...pres, dbId: null, available: true, monthlyCredits: resolveCredits('free', freePlan) }
     }
-    const cands = backendPlans.value.filter((p) => p.tier === pres.tier && p.is_active)
-    const matched =
-      cands.find((p) => p.period === 'monthly') ||
-      cands.find((p) => p.period === 'forever') ||
-      cands[0]
+    const matched = resolvePlanForTier(backendPlans.value, pres.tier) ?? undefined
     return {
       ...pres,
       dbId: matched ? matched.id : null,

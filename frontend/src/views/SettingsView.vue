@@ -71,7 +71,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import WritingPreferences from '@/components/WritingPreferences.vue'
 import SubscriptionPanel from '@/components/SubscriptionPanel.vue'
@@ -79,6 +79,7 @@ import CreditLedger from '@/components/CreditLedger.vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 const userInitial = computed(() => {
   const name = authStore.user?.username || ''
   return name.charAt(0).toUpperCase() || 'U'
@@ -86,7 +87,22 @@ const userInitial = computed(() => {
 
 type TabId = 'writing' | 'subscription' | 'credits' | 'admin'
 
-const activeTab = ref<TabId>('writing')
+// 支持 /settings?tab=subscription 直达（升级引导/定价页跳转的落点）
+const VALID_QUERY_TABS: TabId[] = ['writing', 'subscription', 'credits']
+const tabFromQuery = (): TabId | null => {
+  const t = String(route.query.tab || '')
+  return (VALID_QUERY_TABS as string[]).includes(t) ? (t as TabId) : null
+}
+
+const activeTab = ref<TabId>(tabFromQuery() || 'writing')
+
+watch(
+  () => route.query.tab,
+  () => {
+    const t = tabFromQuery()
+    if (t) activeTab.value = t
+  },
+)
 
 watch(activeTab, (val) => {
   if (val === 'admin') {

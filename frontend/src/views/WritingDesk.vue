@@ -163,6 +163,12 @@
         @close="showBatchGenerateModal = false"
         @start="batchGenerateChapters"
       />
+      <UpgradePrompt
+        :show="upgradePrompt.show"
+        :kind="upgradePrompt.kind"
+        :message="upgradePrompt.message"
+        @close="upgradePrompt.show = false"
+      />
       <WDCodexPanel
         :visible="codexPanelOpen"
         :blueprint="project?.blueprint"
@@ -458,6 +464,8 @@ import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
 import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal.vue'
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
+import UpgradePrompt from '@/components/UpgradePrompt.vue'
+import { detectUpgradeHint } from '@/utils/upgradeHint'
 import PresetSelector from '@/components/shared/PresetSelector.vue'
 import MiddleProductViewer from '@/components/shared/MiddleProductViewer.vue'
 import DiagnosticPanel from '@/components/shared/DiagnosticPanel.vue'
@@ -807,6 +815,14 @@ const detectAsyncMode = async () => {
     useAsyncMode.value = false
   }
 }
+
+// 402 积分不足 / 403 档位不足 → 升级引导弹窗（替代裸报错的统一转化入口；
+// 判定逻辑在 @/utils/upgradeHint，有 Vitest 回归）
+const upgradePrompt = ref<{ show: boolean; kind: 'credits' | 'tier'; message: string }>({
+  show: false,
+  kind: 'credits',
+  message: '',
+})
 
 // 连续生成相关状态
 const showBatchGenerateModal = ref(false)
@@ -1475,10 +1491,14 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
       }
     }
 
-    globalAlert.showError(
-      `生成章节失败: ${error instanceof Error ? error.message : '未知错误'}`,
-      '生成失败',
-    )
+    const errMessage = error instanceof Error ? error.message : '未知错误'
+    const upgradeKind = detectUpgradeHint(errMessage)
+    if (upgradeKind) {
+      // 402 积分不足 / 403 档位不足：给升级动线而不是裸报错（卷级规划同款模式）
+      upgradePrompt.value = { show: true, kind: upgradeKind, message: errMessage }
+    } else {
+      globalAlert.showError(`生成章节失败: ${errMessage}`, '生成失败')
+    }
   } finally {
     generatingChapter.value = null
     streamingStage.value = null

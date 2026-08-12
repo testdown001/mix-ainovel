@@ -162,7 +162,7 @@
               class="w-full py-3 rounded-xl font-semibold text-sm transition-all"
               :style="getCtaStyle(plan)">
               <span class="flex items-center justify-center gap-2">
-                {{ plan.cta }}
+                {{ ctaLabel(plan) }}
                 <svg v-if="plan.id !== 'free'" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                 </svg>
@@ -249,9 +249,9 @@
       </div>
     </main>
 
-    <!-- Upgrade coming soon dialog -->
-    <div v-if="showUpgradeDialog" class="fixed inset-0 z-50 flex items-center justify-center"
-      style="background:rgba(0,0,0,0.7);" @click.self="showUpgradeDialog = false">
+    <!-- Checkout dialog（真实下单：渠道选择 → 创建订单 → 跳转支付） -->
+    <div v-if="showCheckout" class="fixed inset-0 z-50 flex items-center justify-center"
+      style="background:rgba(0,0,0,0.7);" @click.self="closeCheckout">
       <div class="rounded-2xl border p-8 max-w-sm w-full mx-4 text-center"
         style="background:#141414; border-color:#2A2A2A;">
         <div class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style="background:rgba(255,229,0,0.1);">
@@ -259,15 +259,40 @@
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
           </svg>
         </div>
-        <h3 class="text-lg font-bold text-white mb-2">付费功能即将上线</h3>
-        <p class="text-sm mb-6" style="color:#888888;">
-          我们正在完善订阅系统，敬请期待。<br>
-          现在注册即可享受创作者版 <strong class="text-white">3天完整试用</strong>。
-        </p>
-        <button @click="showUpgradeDialog = false"
+        <h3 class="text-lg font-bold text-white mb-3">
+          {{ pendingTier === 'flagship' ? '订阅旗舰版' : '订阅创作者版' }}
+        </h3>
+        <div class="flex items-center justify-center gap-2 mb-4">
+          <button v-for="ch in channelOptions" :key="ch.value" @click="switchChannel(ch.value)"
+            class="px-3 py-1 rounded-full text-xs transition-colors"
+            :style="selectedChannel === ch.value
+              ? 'background:#FFE500;color:#000;font-weight:600;'
+              : 'background:#1A1A1A;border:1px solid #2A2A2A;color:#888;'">
+            {{ ch.label }}
+          </button>
+        </div>
+        <template v-if="checkoutLoading">
+          <div class="flex justify-center my-4">
+            <div class="w-6 h-6 border-2 rounded-full animate-spin"
+              style="border-color:#FFE500; border-top-color:transparent;"></div>
+          </div>
+          <p class="text-sm mb-4" style="color:#888888;">正在创建订单...</p>
+        </template>
+        <template v-else-if="checkoutError">
+          <p class="text-sm mb-4" style="color:#FF6B6B;">{{ checkoutError }}</p>
+        </template>
+        <template v-else-if="checkoutUrl">
+          <p class="text-sm mb-4" style="color:#888888;">已在新窗口打开支付页；如未自动打开，请点击下方按钮。</p>
+          <a :href="checkoutUrl" target="_blank"
+            class="block w-full py-2.5 rounded-lg font-semibold text-sm text-center mb-2.5"
+            style="background:#FFE500;color:#000;">
+            前往支付
+          </a>
+        </template>
+        <button @click="closeCheckout"
           class="w-full py-2.5 rounded-lg font-semibold text-sm"
-          style="background:#FFE500; color:#000;">
-          知道了
+          style="background:transparent;border:1px solid #2A2A2A;color:#888888;">
+          关闭
         </button>
       </div>
     </div>
@@ -276,11 +301,31 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { plansApi, type PlanCapability } from '@/api/plans'
+import { paymentApi, type Plan } from '@/api/payment'
+import { resolvePlanForTier } from '@/utils/planResolve'
+import { useAuthStore } from '@/stores/auth'
+
+const router = useRouter()
+const authStore = useAuthStore()
 
 const annual = ref(false)
 const openFaq = ref<number | null>(null)
-const showUpgradeDialog = ref(false)
+
+// 真实收银台（与 SubscriptionPanel 同一套下单链路：套餐解析 → createOrder → 跳转支付）
+const showCheckout = ref(false)
+const checkoutLoading = ref(false)
+const checkoutError = ref('')
+const checkoutUrl = ref('')
+const pendingTier = ref<'creator' | 'flagship' | null>(null)
+const selectedChannel = ref<'stripe' | 'alipay' | 'wechat'>('stripe')
+const channelOptions: { value: 'stripe' | 'alipay' | 'wechat'; label: string }[] = [
+  { value: 'stripe', label: 'Stripe' },
+  { value: 'alipay', label: '支付宝' },
+  { value: 'wechat', label: '微信支付' },
+]
+const backendPlans = ref<Plan[]>([])
 
 // 各档位解锁的高级能力（来自后端 /plans/public，与门控/后台配置同源）
 const capsByTier = ref<Record<string, PlanCapability[]>>({})
@@ -308,6 +353,11 @@ onMounted(async () => {
     if (Object.keys(credits).length) creditsByTier.value = { ...creditsByTier.value, ...credits }
   } catch {
     // 拉取失败则不展示能力区/用默认积分，不影响定价页其余内容
+  }
+  try {
+    backendPlans.value = await paymentApi.listPlans()
+  } catch {
+    // 下单时若仍无套餐数据会给出明确报错
   }
 })
 
@@ -410,8 +460,70 @@ const getCtaStyle = (plan: typeof plans[0]) => {
   return 'background:linear-gradient(135deg,#7C3AED,#4F46E5);color:#fff;box-shadow:0 4px 16px rgba(124,58,237,0.3);'
 }
 
-const handleUpgrade = (plan: typeof plans[0]) => {
-  if (plan.id === 'free') return
-  showUpgradeDialog.value = true
+const ctaLabel = (plan: typeof plans[0]): string => {
+  if (plan.id === 'free') return authStore.isAuthenticated ? '当前起点' : '免费开始'
+  return authStore.isAuthenticated ? '立即订阅' : plan.cta
+}
+
+// 后端真实套餐解析：tier → 可下单的 plan.id（共享工具，月付优先，有 Vitest 回归）
+const resolvePlanDbId = (tier: string): number | null =>
+  resolvePlanForTier(backendPlans.value, tier)?.id ?? null
+
+const closeCheckout = () => {
+  showCheckout.value = false
+  checkoutLoading.value = false
+  checkoutError.value = ''
+  checkoutUrl.value = ''
+  pendingTier.value = null
+}
+
+const createCheckoutOrder = async () => {
+  if (!pendingTier.value) return
+  checkoutLoading.value = true
+  checkoutError.value = ''
+  checkoutUrl.value = ''
+  try {
+    if (!backendPlans.value.length) {
+      try {
+        backendPlans.value = await paymentApi.listPlans()
+      } catch {
+        // 下面按 dbId 缺失统一报错
+      }
+    }
+    const dbId = resolvePlanDbId(pendingTier.value)
+    if (dbId == null) throw new Error('套餐信息加载失败，请刷新页面后重试')
+    const result = await paymentApi.createOrder(dbId, selectedChannel.value)
+    if (result.pay_url) {
+      checkoutUrl.value = result.pay_url
+      window.open(result.pay_url, '_blank')
+    } else {
+      throw new Error('未获取到支付链接，请换一个支付方式重试')
+    }
+  } catch (err: any) {
+    checkoutError.value = err?.message || '创建订单失败，请稍后重试'
+  } finally {
+    checkoutLoading.value = false
+  }
+}
+
+const switchChannel = async (ch: 'stripe' | 'alipay' | 'wechat') => {
+  if (selectedChannel.value === ch) return
+  selectedChannel.value = ch
+  if (showCheckout.value && !checkoutLoading.value) await createCheckoutOrder()
+}
+
+const handleUpgrade = async (plan: typeof plans[0]) => {
+  if (plan.id === 'free') {
+    if (!authStore.isAuthenticated) router.push('/register')
+    return
+  }
+  if (!authStore.isAuthenticated) {
+    // 未登录：先注册（注册即享 3 天创作者试用），随后可在本页或设置页完成订阅
+    router.push('/register')
+    return
+  }
+  pendingTier.value = (planIdToTier[plan.id] as 'creator' | 'flagship') || 'creator'
+  showCheckout.value = true
+  await createCheckoutOrder()
 }
 </script>

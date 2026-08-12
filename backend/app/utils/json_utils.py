@@ -394,6 +394,56 @@ def parse_llm_json(raw, default=_UNSET):
         raise ValueError(f"无法解析 LLM JSON 输出: {exc}") from exc
 
 
+# ── 模型身份泄漏过滤（匿名模型策略的出口防线） ──
+# 只匹配厂商/模型品牌词：正文中出现基本必属身份泄漏。刻意不含泛化词（"人工智能"/"AI"），
+# 科幻角色自称 AI 属合法叙事，误伤代价高于漏网；"豆包"单独出现是食物，只匹配"豆包大模型"。
+_MODEL_BRAND_RE = re.compile(
+    r"Claude|ChatGPT|OpenAI|Anthropic|DeepSeek|深度求索|月之暗面|Moonshot"
+    r"|ChatGLM|智谱清言|通义千问|文心一言|豆包大模型"
+    r"|GPT-\d[\w.\-]*|Gemini"
+    r"|(?<![A-Za-z])Kimi(?![A-Za-z])|(?<![A-Za-z])GLM-\d[\w.\-]*|(?<![A-Za-z])Qwen[\w.\-]*",
+    re.IGNORECASE,
+)
+_EN_SELF_ID_RE = re.compile(
+    r"\b(as an ai(?: language model)?|i(?:'m| am) (?:an ai|a large language model))\b",
+    re.IGNORECASE,
+)
+
+
+def strip_model_self_identification(text: str) -> str:
+    """删除泄漏底层模型身份的句子（"我是 Claude""As an AI language model"等）。
+
+    按句末标点/换行切句，仅剔除命中句；若剔除量超过全文 20%，
+    视为疑似误判（如整篇讨论 AI 行业的设定文），保留原文并记日志。
+    真实泄漏通常只有一两句自我介绍，在整章正文中占比极小。
+    """
+    if not text:
+        return text
+    if not (_MODEL_BRAND_RE.search(text) or _EN_SELF_ID_RE.search(text)):
+        return text
+    parts = re.split(r"(?<=[。！？!?\n])", text)
+    kept, dropped = [], []
+    for part in parts:
+        if _MODEL_BRAND_RE.search(part) or _EN_SELF_ID_RE.search(part):
+            dropped.append(part.strip())
+        else:
+            kept.append(part)
+    if not dropped:
+        return text
+    dropped_len = sum(len(p) for p in dropped)
+    if dropped_len > len(text) * 0.2:
+        logger.warning(
+            "模型自称过滤：命中比例过高(%d/%d)，疑似误判，保留原文", dropped_len, len(text)
+        )
+        return text
+    logger.warning(
+        "模型自称过滤：剔除 %d 句身份泄漏文本: %s",
+        len(dropped),
+        " | ".join(d[:60] for d in dropped),
+    )
+    return "".join(kept)
+
+
 def sanitize_chapter_plain_text(raw_text: str) -> str:
     """清理章节正文中的 Markdown 标签和 LLM 前言，确保输出为纯文本叙事。"""
     if not raw_text:
@@ -485,6 +535,9 @@ def sanitize_chapter_plain_text(raw_text: str) -> str:
     text = re.sub(r"\*\*(.*?)\*\*", r"\1", text, flags=re.DOTALL)
     text = re.sub(r"\*([^*]+)\*", r"\1", text)
     text = re.sub(r"_([^_]+)_", r"\1", text)
+
+    # 剔除模型身份泄漏句（所有生成正文出口统一防线）
+    text = strip_model_self_identification(text)
 
     # 收敛多余空行
     text = re.sub(r"\n{3,}", "\n\n", text)

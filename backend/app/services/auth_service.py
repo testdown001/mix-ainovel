@@ -23,6 +23,7 @@ from ..models import User
 from ..repositories.system_config_repository import SystemConfigRepository
 from ..repositories.user_repository import UserRepository
 from ..schemas.user import AuthOptions, Token, UserCreate, UserInDB, UserRegistration
+from .quota_service import QuotaService
 
 
 # 向后兼容：内存缓存作为 Redis 不可用时的降级方案
@@ -112,7 +113,15 @@ class AuthService:
         )
         self.session.add(user)
         await self.session.commit()
+        await self._grant_signup_trial_safely(user.id)
         return user
+
+    async def _grant_signup_trial_safely(self, user_id: int) -> None:
+        """新账号注册礼（3 天创作者试用 + 体验积分）；失败仅记日志，绝不阻断注册/登录。"""
+        try:
+            await QuotaService(self.session).grant_signup_trial(user_id)
+        except Exception:
+            self._logger.warning("注册试用发放失败(不阻断): user_id=%s", user_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # 邮箱验证码逻辑
@@ -306,6 +315,7 @@ class AuthService:
             self.session.add(user)
             await self.session.commit()
             await self.session.refresh(user)
+            await self._grant_signup_trial_safely(user.id)
         if not user.is_active:
             raise HTTPException(status_code=403, detail="账号已被禁用")
         return await self.create_access_token(user)
@@ -406,6 +416,7 @@ class AuthService:
             self.session.add(user)
             await self.session.commit()
             await self.session.refresh(user)
+            await self._grant_signup_trial_safely(user.id)
         if not user.is_active:
             raise HTTPException(status_code=403, detail="账号已被禁用")
         return await self.create_access_token(user)
