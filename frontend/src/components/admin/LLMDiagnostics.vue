@@ -13,7 +13,8 @@
       </template>
       <n-spin :show="healthLoading">
         <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
-          对每个已配置通道发起一次真实最小调用，验证密钥/地址/模型可达及当前延迟。未配置的通道会标注「未配置」。
+          对每个<b>已配置</b>通道发起一次真实最小调用，验证密钥/地址/模型可达及当前延迟。
+          标注「未配置」的通道运行时根本不会被使用（详情里写明少了什么能力），不会拿默认通道冒名顶替。
         </n-alert>
         <n-data-table :columns="healthColumns" :data="health" :bordered="false" size="small" />
       </n-spin>
@@ -191,9 +192,14 @@ const statusTag = (s: string) =>
 const healthColumns: DataTableColumns<LLMHealthChannel> = [
   { title: '通道', key: 'channel', width: 80, render: (r) => channelLabel(r.channel) },
   {
+    // 三态：未配置（运行时不会走这条通道，压根没发测试请求）/ 可用 / 不可用。
+    // 把「未配置」画成灰色而非红叉，是因为可选通道不配是合法选择，但必须让管理员
+    // 看见——否则他会以为这个能力在工作（详情里写了少的是什么能力）。
     title: '状态', key: 'ok', width: 100,
     render: (r) =>
-      h(NTag, { type: r.ok ? 'success' : 'error', size: 'small' }, { default: () => (r.ok ? '✅ 可用' : '❌ 不可用') }),
+      r.configured === false
+        ? h(NTag, { size: 'small', bordered: false }, { default: () => '— 未配置' })
+        : h(NTag, { type: r.ok ? 'success' : 'error', size: 'small' }, { default: () => (r.ok ? '✅ 可用' : '❌ 不可用') }),
   },
   {
     title: '延迟', key: 'latency_ms', width: 90, align: 'right',
@@ -269,7 +275,14 @@ async function retestOne(channel: string) {
     const r = await AdminAPI.testLlmChannel(channel as any)
     const idx = health.value.findIndex((c) => c.channel === channel)
     if (idx >= 0) health.value[idx] = { channel: channel as any, ...r }
-    showAlert(r.ok ? `✅ ${channelLabel(channel)}可用（${r.latency_ms}ms）` : `❌ ${channelLabel(channel)}：${r.detail}`, r.ok ? 'success' : 'error')
+    if (r.configured === false) {
+      showAlert(`${channelLabel(channel)}未配置：${r.detail}`, 'info')
+    } else {
+      showAlert(
+        r.ok ? `✅ ${channelLabel(channel)}可用（${r.latency_ms}ms）` : `❌ ${channelLabel(channel)}：${r.detail}`,
+        r.ok ? 'success' : 'error'
+      )
+    }
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '测试失败', 'error')
   }

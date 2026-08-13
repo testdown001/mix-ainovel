@@ -235,6 +235,28 @@ def test_rerank_is_a_testable_admin_channel():
     assert "rerank" in _HEALTH_CHANNELS
 
 
+def test_disabled_switch_still_tests_but_reports_unconfigured():
+    """开关关闭时仍要真实发起调用（管理员的流程是「先测通再打开开关」），
+    但 configured 必须为 False——检索实际不会重排，后台不能显示成「可用」。"""
+    async def _fake_post(*_a, **_k):
+        return {"results": [{"index": 0, "relevance_score": 0.9}]}
+
+    values = {
+        "rerank.enabled": "false",
+        "rerank.api_url": "https://vendor.example/v1/rerank",
+        "rerank.api_key": "sk-r",
+        "rerank.model": "bge",
+    }
+    with _patch_system_configs(values), \
+            patch.object(ru.settings, "rag_reranker_enabled", False), \
+            patch.object(ru, "_post_rerank", _fake_post):
+        result = asyncio.run(ru.test_rerank_connection())
+
+    assert result["ok"] is True          # 地址密钥是通的
+    assert result["configured"] is False  # 但开关没开
+    assert "开关为关闭状态" in result["detail"]
+
+
 def test_llm_service_test_channel_delegates_to_rerank_utils():
     from app.services.llm_service import LLMService
 

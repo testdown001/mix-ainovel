@@ -14,18 +14,16 @@ export type ChannelType = 'default' | 'fallback' | 'polish' | 'search' | 'grader
 
 export interface TestChannelResult {
   ok: boolean
+  /** false = 该通道被判定为未启用，运行时根本不会走它（未发测试请求） */
+  configured: boolean
   model: string
   latency_ms: number
   detail: string
 }
 
 // —— LLM 通道诊断 ——
-export interface LLMHealthChannel {
+export interface LLMHealthChannel extends TestChannelResult {
   channel: ChannelType
-  ok: boolean
-  model: string
-  latency_ms: number
-  detail: string
 }
 
 export interface LLMCallSummaryChannel {

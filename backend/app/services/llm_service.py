@@ -71,6 +71,28 @@ def invalidate_llm_config_cache() -> None:
     _CONFIG_VALUE_CACHE.clear()
 
 
+def channel_explicitly_configured(*channel_values: Optional[str]) -> bool:
+    """可选通道（润色/搜索/评分）是否被显式配置：四个通道键(api_key/base_url/model/api_format)
+    任一非空即算启用——api_key 允许留空以继承 llm.*，只填 model 也是一种合法配置。
+
+    搜索/评分未显式配置时运行时**不会**回退默认通道，而是 503 / 静默跳过，所以后台
+    「测试通道」必须用同一判据。曾经不一致：test_channel 只看 api_key，一空就拿默认
+    通道的 key 去测，于是一条实际禁用的评分通道在后台显示「✅ 可用」，管理员看到全绿，
+    用户那边这个能力压根不存在。    判据只此一处，改这里即三处资源解析同时生效。
+    """
+    return any(v for v in channel_values)
+
+
+# 通道未启用时的后果说明——只说「未配置」没用，管理员需要知道少了什么能力
+_UNCONFIGURED_CHANNEL_DETAIL = {
+    "default": "未配置 API Key，任何生成请求都会直接失败",
+    "fallback": "未配置兜底通道，主通道终局失败时无处可退",
+    "polish": "未配置 API Key（默认通道也没有），润色会失败",
+    "search": "未配置搜索通道（llm_search.*），灵感模式「跨域找料」静默跳过、显式搜索接口 503",
+    "grader": "未配置评分通道（llm_grader.*），证据打分静默跳过（不影响生成成败）",
+}
+
+
 class LLMService:
     """封装与大模型交互的所有逻辑，包括配额控制与配置选择。"""
 
@@ -1460,8 +1482,7 @@ class LLMService:
                 opt_api_format = await self._get_config_value_for_session(session, "llm_optimize.api_format")
                 opt_reasoning = await self._get_config_value_for_session(session, "llm_optimize.reasoning_effort")
 
-                has_any = any(v for v in (opt_api_key, opt_base_url, opt_model, opt_api_format))
-                if not has_any:
+                if not channel_explicitly_configured(opt_api_key, opt_base_url, opt_model, opt_api_format):
                     api_key = await self._get_config_value_for_session(session, "llm.api_key")
                     base_url = self._normalize_base_url(await self._get_config_value_for_session(session, "llm.base_url"))
                     model = await self._get_config_value_for_session(session, "llm.model")
@@ -1525,8 +1546,7 @@ class LLMService:
                 grader_model = await self._get_config_value_for_session(session, "llm_grader.model")
                 grader_api_format = await self._get_config_value_for_session(session, "llm_grader.api_format")
 
-                has_any = any(v for v in (grader_api_key, grader_base_url, grader_model, grader_api_format))
-                if not has_any:
+                if not channel_explicitly_configured(grader_api_key, grader_base_url, grader_model, grader_api_format):
                     return None
 
                 api_key = grader_api_key or await self._get_config_value_for_session(session, "llm.api_key")
@@ -1549,8 +1569,7 @@ class LLMService:
                 search_model = await self._get_config_value_for_session(session, "llm_search.model")
                 search_api_format = await self._get_config_value_for_session(session, "llm_search.api_format")
 
-                has_any = any(v for v in (search_api_key, search_base_url, search_model, search_api_format))
-                if not has_any:
+                if not channel_explicitly_configured(search_api_key, search_base_url, search_model, search_api_format):
                     raise HTTPException(
                         status_code=503,
                         detail="未配置参考小说搜索模型（llm_search.*），已跳过网络搜索",
@@ -1649,8 +1668,11 @@ class LLMService:
         """真实检测某个已配置的 LLM / embedding 通道是否可用（管理后台「测试」按钮）。
 
         channel_type: default | fallback | polish | search | grader | embedding | rerank
-        返回: {ok: bool, model: str, latency_ms: int, detail: str}
-        - 真正发起一次最小调用（LLM 回 "ok" / embedding 取一条向量），验证密钥/地址/模型可达。
+        返回: {ok: bool, configured: bool, model: str, latency_ms: int, detail: str}
+        - configured=False 表示这条通道被判定为「未启用」，运行时根本不会走它（相关能力
+          静默跳过或直接失败）；此时不发测试请求，也不会拿别的通道的配置冒名顶替。
+        - configured=True 时才真正发起一次最小调用（LLM 回 "ok" / embedding 取一条向量），
+          ok 反映的是「配了但通不通」。
         - 任何异常都被捕获为 ok=False + detail，绝不抛出。
         """
         import time as _time
@@ -1666,10 +1688,11 @@ class LLMService:
         try:
             if channel_type == "rerank":
                 # 重排不是 LLM 通道（请求体/响应体都不同），实现留在 rerank_utils，
-                # 这里只做转发，保证后台仍是「一个测试入口」。
+                # 这里只做转发，保证后台仍是「一个测试入口」。configured 由 rerank_utils
+                # 自己给（它才知道 rerank.enabled 与回退来源）；缺省视为已配置。
                 from ..utils.rerank_utils import test_rerank_connection
 
-                return await test_rerank_connection()
+                return {"configured": True, **await test_rerank_connection()}
 
             if channel_type == "embedding":
                 model = (
@@ -1680,24 +1703,42 @@ class LLMService:
                 vec = await self.get_embedding("连接测试", user_id=None)
                 latency = int((_time.monotonic() - start) * 1000)
                 if vec:
-                    return {"ok": True, "model": model, "latency_ms": latency, "detail": f"返回向量维度 {len(vec)}"}
-                return {"ok": False, "model": model, "latency_ms": latency, "detail": "未返回向量，请检查 embedding 配置"}
+                    return {"ok": True, "configured": True, "model": model, "latency_ms": latency, "detail": f"返回向量维度 {len(vec)}"}
+                return {"ok": False, "configured": True, "model": model, "latency_ms": latency, "detail": "未返回向量，请检查 embedding 配置"}
 
             prefix = prefix_map.get(channel_type)
             if not prefix:
-                return {"ok": False, "model": "", "latency_ms": 0, "detail": f"未知通道类型: {channel_type}"}
+                return {"ok": False, "configured": False, "model": "", "latency_ms": 0, "detail": f"未知通道类型: {channel_type}"}
 
             api_key = await self._get_config_value(f"{prefix}.api_key")
             base_url = self._normalize_base_url(await self._get_config_value(f"{prefix}.base_url"))
             model = await self._get_config_value(f"{prefix}.model")
             api_format = await self._get_config_value(f"{prefix}.api_format")
 
-            # 润色/搜索/评分通道未单独配置时回退到默认 llm.*（与实际调用回退逻辑一致）
-            if channel_type in ("polish", "search", "grader") and not api_key:
+            # 搜索/评分：启用判据是「四键任一非空」，未启用时运行时直接 503 / 静默跳过，
+            # 不存在「回退默认通道」这回事。这里必须先按同一判据拦下，否则就会拿 llm.* 的
+            # key 去测一条实际禁用的通道，把它报成「可用」——正是后台假信心的来源。
+            if channel_type in ("search", "grader") and not channel_explicitly_configured(
+                api_key, base_url, model, api_format
+            ):
+                return {
+                    "ok": False, "configured": False, "model": "", "latency_ms": 0,
+                    "detail": _UNCONFIGURED_CHANNEL_DETAIL[channel_type],
+                }
+
+            # 润色未单独配置时确实会复用默认 llm.*（与 _resolve_optimize_llm_config 一致），
+            # 所以它算「已配置」，测的也正是运行时真会走的那套配置。
+            if channel_type == "polish" and not api_key:
                 api_key = await self._get_config_value("llm.api_key")
                 base_url = self._normalize_base_url(await self._get_config_value("llm.base_url"))
                 model = model or await self._get_config_value("llm.model")
                 api_format = api_format or await self._get_config_value("llm.api_format")
+
+            # 搜索/评分显式配置后，缺省字段同样回退 llm.*（与各自 resolver 一致）
+            if channel_type in ("search", "grader") and not api_key:
+                api_key = await self._get_config_value("llm.api_key")
+                base_url = base_url or self._normalize_base_url(await self._get_config_value("llm.base_url"))
+                model = model or await self._get_config_value("llm.model")
 
             # 兜底通道：api_key 必须独立配置（否则视为未启用），
             # base_url/model 缺省回退 llm.*（与 _resolve_fallback_llm_config 一致）
@@ -1706,7 +1747,10 @@ class LLMService:
                 model = model or await self._get_config_value("llm.model")
 
             if not api_key:
-                return {"ok": False, "model": model or "", "latency_ms": 0, "detail": "未配置 API Key"}
+                return {
+                    "ok": False, "configured": False, "model": model or "", "latency_ms": 0,
+                    "detail": _UNCONFIGURED_CHANNEL_DETAIL.get(channel_type, "未配置 API Key"),
+                }
 
             override = {"api_key": api_key, "base_url": base_url, "model": model, "api_format": api_format}
             resp = await self._stream_and_collect(
@@ -1723,11 +1767,11 @@ class LLMService:
             )
             latency = int((_time.monotonic() - start) * 1000)
             if resp and resp.strip():
-                return {"ok": True, "model": model or "", "latency_ms": latency, "detail": f"模型响应正常：{resp.strip()[:40]}"}
-            return {"ok": False, "model": model or "", "latency_ms": latency, "detail": "模型返回空响应"}
+                return {"ok": True, "configured": True, "model": model or "", "latency_ms": latency, "detail": f"模型响应正常：{resp.strip()[:40]}"}
+            return {"ok": False, "configured": True, "model": model or "", "latency_ms": latency, "detail": "模型返回空响应"}
         except Exception as exc:  # noqa: BLE001 - 测试不应抛出
             latency = int((_time.monotonic() - start) * 1000)
-            return {"ok": False, "model": "", "latency_ms": latency, "detail": str(exc)[:200]}
+            return {"ok": False, "configured": True, "model": "", "latency_ms": latency, "detail": str(exc)[:200]}
 
     async def get_embedding(
         self,

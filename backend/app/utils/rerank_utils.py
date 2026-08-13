@@ -210,18 +210,23 @@ async def _post_rerank(
 async def test_rerank_connection() -> Dict[str, Any]:
     """真实发起一次最小 rerank 调用，检测配置可用性（后台「测试连接」按钮）。
 
-    返回 ``{ok, model, latency_ms, detail}``，与 LLMService.test_channel 同构。
+    返回 ``{ok, configured, model, latency_ms, detail}``，与 LLMService.test_channel 同构。
+    ``configured`` 取 rerank.enabled：开关关闭时检索不会重排，后台须显示「未配置」而非「可用」。
+    但**照样发起真实调用**——管理员的自然流程是「填好地址密钥 → 测通 → 再打开开关」，
+    在开关关闭时拒测会把这个流程倒过来。
     任何异常都被捕获为 ok=False + detail，绝不抛出。
     成功时清除该地址的熄火计数——「管理员刚验证过」就是最可靠的恢复信号。
     """
     start = time.monotonic()
     status = await get_rerank_runtime_status()
     model = status["model"]
+    configured = bool(status["enabled"])
     api_url, api_key, _ = await _resolve_rerank_config()
 
     if not api_url or not api_key:
         return {
             "ok": False,
+            "configured": False,
             "model": model,
             "latency_ms": 0,
             "detail": "未配置 Reranker 地址或 API Key（也无可回退的 embedding 配置）",
@@ -241,15 +246,17 @@ async def test_rerank_connection() -> Dict[str, Any]:
         if not results:
             return {
                 "ok": False,
+                "configured": configured,
                 "model": model,
                 "latency_ms": latency,
                 "detail": f"接口可达但未返回 results 字段，响应片段：{str(data)[:120]}",
             }
         reset_rerank_failures(api_url)
         source = "专用配置" if status["config_source"] == "dedicated" else "回退 embedding 配置"
-        note = "" if status["enabled"] else "；⚠️ 当前开关为关闭状态，实际检索不会重排"
+        note = "" if configured else "；⚠️ 当前开关为关闭状态，实际检索不会重排"
         return {
             "ok": True,
+            "configured": configured,
             "model": model,
             "latency_ms": latency,
             "detail": f"重排正常，返回 {len(results)} 条（{source}：{api_url}）{note}",
@@ -258,6 +265,7 @@ async def test_rerank_connection() -> Dict[str, Any]:
         latency = int((time.monotonic() - start) * 1000)
         return {
             "ok": False,
+            "configured": configured,
             "model": model,
             "latency_ms": latency,
             "detail": f"{api_url} 调用失败：{str(exc)[:200]}",

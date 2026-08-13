@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..repositories.system_config_repository import SystemConfigRepository
+from .llm_service import channel_explicitly_configured
 
 LEVEL_ERROR = "error"
 LEVEL_WARN = "warn"
@@ -32,12 +33,16 @@ _LEVEL_ORDER = {LEVEL_ERROR: 0, LEVEL_WARN: 1, LEVEL_INFO: 2}
 # 会被 LLMService.get_embedding 判定为不可用并静默返回空向量。
 _EMBEDDING_CAPABLE_HOSTS = ("api.openai.com", "openai.azure.com")
 
+# 可选通道（润色/搜索/评分）的启用判据是「四键任一非空」，故四键都要取，
+# 只看 api_key 会把「只填了 model、api_key 留空继承 llm.*」的合法配置误报成未配置。
+_OPTIONAL_CHANNEL_SUFFIXES = ("api_key", "base_url", "model", "api_format")
+
 _AUDIT_KEYS = (
     "llm.api_key", "llm.base_url", "llm.model",
     "llm_fallback.api_key", "llm_fallback.base_url", "llm_fallback.model",
-    "llm_optimize.api_key",
-    "llm_search.api_key",
-    "llm_grader.api_key",
+    *(f"llm_optimize.{s}" for s in _OPTIONAL_CHANNEL_SUFFIXES),
+    *(f"llm_search.{s}" for s in _OPTIONAL_CHANNEL_SUFFIXES),
+    *(f"llm_grader.{s}" for s in _OPTIONAL_CHANNEL_SUFFIXES),
     "embedding.provider", "embedding.api_key", "embedding.base_url",
     "ollama.embedding_base_url",
     "rerank.enabled", "rerank.api_url",
@@ -53,6 +58,11 @@ def _same_endpoint(a: Optional[str], b: Optional[str]) -> bool:
 
 def _finding(level: str, code: str, title: str, detail: str, channels: List[str]) -> Dict[str, Any]:
     return {"level": level, "code": code, "title": title, "detail": detail, "channels": channels}
+
+
+def _optional_channel_enabled(v: Dict[str, Optional[str]], prefix: str) -> bool:
+    """与 LLMService 各 resolver 共用同一启用判据，避免体检与运行时各说各话。"""
+    return channel_explicitly_configured(*(v[f"{prefix}.{s}"] for s in _OPTIONAL_CHANNEL_SUFFIXES))
 
 
 async def _load_values(session: AsyncSession) -> Dict[str, Optional[str]]:
@@ -139,7 +149,7 @@ async def audit_llm_config(session: AsyncSession) -> List[Dict[str, Any]]:
     findings.extend(_audit_fallback(v))
     findings.extend(_audit_embedding(v))
 
-    if not v["llm_search.api_key"]:
+    if not _optional_channel_enabled(v, "llm_search"):
         findings.append(_finding(
             LEVEL_WARN, "search_unconfigured", "未配置联网搜索通道",
             "灵感模式的「跨域找料」会静默跳过（失败即返回空，用户无感知），"
@@ -147,14 +157,15 @@ async def audit_llm_config(session: AsyncSession) -> List[Dict[str, Any]]:
             ["search"],
         ))
 
-    if not v["llm_grader.api_key"]:
+    if not _optional_channel_enabled(v, "llm_grader"):
         findings.append(_finding(
             LEVEL_INFO, "grader_unconfigured", "未配置证据打分通道",
-            "证据打分按设计静默跳过，检索到的证据不做质量分级（不影响生成成败）。",
+            "证据打分按设计静默跳过，检索到的证据不做质量分级（不影响生成成败）。"
+            "注意：未配置时运行时不会回退默认通道，填任一 llm_grader.* 字段才算启用。",
             ["grader"],
         ))
 
-    if not v["llm_optimize.api_key"]:
+    if not _optional_channel_enabled(v, "llm_optimize"):
         findings.append(_finding(
             LEVEL_INFO, "polish_uses_default", "润色通道未单独配置",
             "润色会复用默认通道。注意润色是按积分收费的付费项：主通道故障时润色同样失败"
