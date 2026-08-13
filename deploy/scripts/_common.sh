@@ -69,7 +69,14 @@ compose_desc() {
 }
 
 # ---- .env 加载 ---------------------------------------------------------------
-# 允许回落到仓库根 .env；统一去掉 CRLF（Windows 编辑过的 .env 会带 \r，会污染变量值）。
+# 允许回落到仓库根 .env。
+#
+# 读入时清掉除 \t \n 之外的所有控制字符：
+#   · \r —— Windows 编辑过的 .env 会带，污染每个变量值；
+#   · \x08 等 —— 交互式录入 .env 时手抖留下的退格符。它会让 source 直接
+#     报 "$'\b': command not found"，把所有部署脚本卡死在第一步（线上真实踩过：
+#     ADMIN_DEFAULT_EMAIL 尾巴上带了一个退格符）。宁可读得宽松，也不要让
+#     一个不可见字符瘫痪整条运维链路。
 load_env() {
     if [ ! -f "$ENV_FILE" ] && [ -f "$PROJECT_ROOT/.env" ]; then
         ENV_FILE="$PROJECT_ROOT/.env"
@@ -77,7 +84,7 @@ load_env() {
     [ -f "$ENV_FILE" ] || die "未找到环境变量文件：$DEPLOY_DIR/.env（或 $PROJECT_ROOT/.env）"
     set -a
     # shellcheck disable=SC1090
-    . <(tr -d '\r' < "$ENV_FILE")
+    . <(tr -d '\000-\010\013-\037\177' < "$ENV_FILE")
     set +a
 }
 
