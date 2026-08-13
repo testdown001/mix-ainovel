@@ -1051,7 +1051,9 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _mark_stage("persist_versions", stage_started)
 
         stage_started = time.perf_counter()
-        _mark_stage("schedule_async_six_dimension", stage_started)
+        # 名字要如实：这里只是排队后续异步任务（stage-B 分析/记忆/入库），并不跑六维评审。
+        # 旧名 schedule_async_six_dimension 会让人把链内那次同步六维评审的耗时错记到别处。
+        _mark_stage("schedule_async_followups", stage_started)
 
         self.generation_finalize_service.schedule_followups(
             task_registry=self._background_tasks,
