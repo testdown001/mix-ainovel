@@ -35,7 +35,12 @@ from ...core.feature_gating import (
     ensure_generation_preset_allowed,
     ensure_model_allowed,
 )
-from ...services.generation_billing_service import charge_generation, refund_generation
+from ...services.generation_billing_service import (
+    charge_generation,
+    polish_undelivered,
+    refund_generation,
+    refund_polish_surcharge,
+)
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
 from ...models.writing_archive import WritingArchive
@@ -515,6 +520,22 @@ def _result_has_missing_scenes(result: Dict[str, Any]) -> bool:
     return False
 
 
+async def _refund_polish_safely(user_id: int, ref_key: Optional[str], chapters: int = 1) -> None:
+    """润色未兑现 → 退附加费。章节照常交付，只退没做到的那部分；
+    与整单退款互斥且幂等，失败仅记日志（退款问题不该影响已生成的内容返回）。"""
+    if not ref_key:
+        return
+    try:
+        async with AsyncSessionLocal() as refund_session:
+            await asyncio.shield(
+                refund_polish_surcharge(
+                    refund_session, user_id, ref_key=ref_key, chapters=chapters
+                )
+            )
+    except BaseException:  # noqa: BLE001
+        logger.warning("润色退款失败(已忽略): user=%s ref=%s", user_id, ref_key)
+
+
 @router.post("/advanced/generate", response_model=AdvancedGenerateResponse)
 async def advanced_generate_chapter(
     request: AdvancedGenerateRequest,
@@ -573,6 +594,9 @@ async def advanced_generate_chapter(
         # literary 残章（部分场景缺失）：付费必须交付完整章 → 全额退款、内容保留
         if billing_ref and _result_has_missing_scenes(result):
             await _refund_sync_generation_safely(current_user.id, billing_ref)
+        elif billing_ref and polish_undelivered(result):
+            # 章节交付了但润色没兑现（通道故障/空响应/非正文）→ 只退润色附加费
+            await _refund_polish_safely(current_user.id, billing_ref)
 
         flow_config = request.flow_config
         if flow_config.async_finalize and result.get("variants"):
@@ -726,6 +750,9 @@ async def advanced_generate_chapter_stream(
                 if billing_ref and _result_has_missing_scenes(result):
                     await _refund_sync_generation_safely(current_user.id, billing_ref)
                     result["degraded"] = True
+                elif billing_ref and polish_undelivered(result):
+                    # 章节交付了但润色没兑现 → 只退润色附加费
+                    await _refund_polish_safely(current_user.id, billing_ref)
 
                 flow_config = request.flow_config
                 if flow_config.async_finalize and result.get("variants"):
@@ -924,6 +951,16 @@ async def batch_generate_chapters(
                     )
             except Exception:
                 logger.warning("批量生成部分退款失败(已忽略): ref=%s", billing_ref)
+
+    # 成功章里润色没兑现的，按章退还润色附加费（整批一笔扣费，这里按未兑现章数计退）
+    if billing_ref and billed_polish:
+        unpolished = sum(
+            1
+            for r in results
+            if r.get("status") == "success" and polish_undelivered(r.get("result"))
+        )
+        if unpolished:
+            await _refund_polish_safely(current_user.id, billing_ref, chapters=unpolished)
 
     return BatchGenerateResponse(
         project_id=request.project_id,

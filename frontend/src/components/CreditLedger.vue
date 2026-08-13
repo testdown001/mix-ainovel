@@ -176,7 +176,9 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit)))
 const reasonLabelMap: Record<string, string> = {
   generate: '章节生成',
   polish: '润色加成',
-  refund: '失败退款',
+  // 退款不只发生在整单失败：润色等付费项没兑现时也会按项退回，标签保持中性，
+  // 具体原因由每行的 note 说明（「生成失败/取消退款」「润色未交付退款」）
+  refund: '退款',
   grant: '额度发放',
   topup: '积分充值',
   trial: '注册礼',

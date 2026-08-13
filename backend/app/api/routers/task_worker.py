@@ -30,7 +30,12 @@ from ...core.feature_gating import (
 from ...db.session import AsyncSessionLocal
 from ...models.novel import Chapter
 from ...services.blueprint_generation_service import generate_blueprint_for_project
-from ...services.generation_billing_service import charge_generation, refund_generation
+from ...services.generation_billing_service import (
+    charge_generation,
+    polish_undelivered,
+    refund_generation,
+    refund_polish_surcharge,
+)
 from ...services.novel_service import NovelService
 
 logger = logging.getLogger(__name__)
@@ -293,6 +298,23 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
             except Exception:
                 logger.warning("残章退款检查失败（不影响任务交付）", exc_info=True)
 
+        # 润色未兑现：章节交付了，但勾选并已计费的润色实际没生效（通道故障/空响应/
+        # 产出非正文/合并进 optimizer 而 optimizer 失败）→ 只退这笔附加费。
+        # 与上面的残章全额退款互斥（refund_polish_surcharge 内部已判定）。
+        elif req.task_type in ("chapter:generate", "chapter:batch_generate"):
+            try:
+                unpolished = _count_unpolished(req.task_type, result)
+                if unpolished:
+                    async with AsyncSessionLocal() as _refund_session:
+                        await asyncio.shield(
+                            refund_polish_surcharge(
+                                _refund_session, req.user_id,
+                                ref_key=req.task_id, chapters=unpolished,
+                            )
+                        )
+            except Exception:
+                logger.warning("润色退款检查失败（不影响任务交付）", exc_info=True)
+
         return WorkerTaskResponse(
             status="completed",
             result=result,
@@ -340,6 +362,22 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
 # ============================================================
 # 任务执行逻辑
 # ============================================================
+
+def _count_unpolished(task_type: str, result: Any) -> int:
+    """本次任务里「已计费但润色没兑现」的章数（单章 0/1，批量按章计）。"""
+    if not isinstance(result, dict):
+        return 0
+    if task_type == "chapter:generate":
+        return 1 if result.get("polish_undelivered") else 0
+    return sum(
+        1
+        for item in (result.get("results") or [])
+        if isinstance(item, dict)
+        and item.get("status") == "success"
+        and isinstance(item.get("result"), dict)
+        and item["result"].get("polish_undelivered")
+    )
+
 
 async def _execute_chapter_generate(
     req: WorkerTaskRequest,
@@ -410,6 +448,10 @@ async def _execute_chapter_generate(
         }
         if missing_scenes:
             payload["missing_scenes"] = missing_scenes
+        # 润色未兑现信号：与 missing_scenes 同理，管线的 review_summaries 不进 payload，
+        # 得在这里把结论带出去，供成功路径退还润色附加费
+        if flow_config.get("enable_polish") and polish_undelivered(result):
+            payload["polish_undelivered"] = True
         return payload
 
 

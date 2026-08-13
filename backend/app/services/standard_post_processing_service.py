@@ -212,10 +212,22 @@ class StandardPostProcessingService:
                     max_word_count=chapter_word_count_max,
                 )
                 review_summaries["optimizer"] = optimizer_report
+                # optimizer 失败会原样返回入参文本（applied=False），此时合并进去的润色/压缩
+                # 同样一个字都没改。这里必须如实反映：润色是勾选计费项，报成 applied=True
+                # 会让「未交付」看起来像已交付，用户的附加费就退不回去了。
+                merged_applied = (optimizer_report or {}).get("applied") is not False
                 if merge_polish:
-                    review_summaries["polish"] = {"applied": True, "merged_into_optimizer": True}
+                    review_summaries["polish"] = {
+                        "applied": merged_applied,
+                        "merged_into_optimizer": True,
+                    }
+                    if not merged_applied:
+                        review_summaries["polish"]["reason"] = "optimizer_failed"
                 if merge_density:
-                    review_summaries["density_compression"] = {"applied": True, "merged_into_optimizer": True}
+                    review_summaries["density_compression"] = {
+                        "applied": merged_applied,
+                        "merged_into_optimizer": True,
+                    }
                 # optimizer 跑完复检长度：它是「改写增益」不是「扩写」，产出低于下限时
                 # 全流程再无补救（density 只压不扩）。此时解除互斥，让 enrichment 兜底。
                 if (
