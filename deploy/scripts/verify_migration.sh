@@ -31,7 +31,9 @@ load_env
 info "compose 文件：$(compose_desc)"
 info "数据库提供方：${DB_PROVIDER:-sqlite}"
 
-if ! app_exec sh -c 'exit 0' >/dev/null 2>&1; then
+# 这些调用一律 </dev/null：docker exec 会接管 stdin，本脚本经 ssh 管道执行时
+# 会把调用者剩下的脚本吞掉（见 _common.sh 中 app_exec 的说明）。
+if ! app_exec sh -c 'exit 0' </dev/null >/dev/null 2>&1; then
     die "app 容器不可用。请先启动服务：cd $DEPLOY_DIR && ${DC[*]} up -d"
 fi
 
@@ -40,8 +42,8 @@ FAILED=0
 # ---- 1. Alembic 版本 ---------------------------------------------------------
 echo ""
 info "1. Alembic 版本"
-CURRENT="$(app_exec alembic current 2>/dev/null | grep -oE '^[0-9a-f]{6,}' | head -n 1 || true)"
-HEADS="$(app_exec alembic heads 2>/dev/null | grep -oE '^[0-9a-f]{6,}' || true)"
+CURRENT="$(app_exec alembic current </dev/null 2>/dev/null | grep -oE '^[0-9a-f]{6,}' | head -n 1 || true)"
+HEADS="$(app_exec alembic heads </dev/null 2>/dev/null | grep -oE '^[0-9a-f]{6,}' || true)"
 HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -c . || true)"
 
 if [ -z "$CURRENT" ]; then

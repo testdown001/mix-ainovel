@@ -59,6 +59,12 @@ dc() {
 }
 
 # app_exec <cmd...>：在 app 容器里执行命令（-T：无 TTY，可在 CI / ssh 管道里跑）
+#
+# ⚠ 调用方注意：docker compose exec 会接管 stdin。脚本本身经由管道执行时
+#（`ssh host bash -s <<EOF`、`curl … | bash`），它会把调用者脚本剩下的内容当作
+# 容器 stdin 吞掉，后面的命令就凭空消失了——实测在服务器上就这么把 ssh heredoc
+# 的后半段吃没了。所以：凡是不需要往容器里喂数据的调用，一律显式 `</dev/null`；
+# 需要喂数据的（python - <<PY、mysql < dump）才让 stdin 透传。
 app_exec() {
     dc exec -T "$APP_SERVICE" "$@"
 }

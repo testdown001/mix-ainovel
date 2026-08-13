@@ -157,7 +157,9 @@ ok "容器已启动"
 info "等待服务就绪（最多约 3 分钟）…"
 HEALTHY=false
 for _ in $(seq 1 90); do
-    if "${DC[@]}" exec -T app curl -fs http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+    # </dev/null 尤其关键：本脚本支持 `curl … | bash`，此时 stdin 就是脚本本身，
+    # docker exec 一旦接管 stdin 就会把后半段脚本吞掉。
+    if "${DC[@]}" exec -T app curl -fs http://127.0.0.1:8000/api/health </dev/null >/dev/null 2>&1; then
         HEALTHY=true
         break
     fi

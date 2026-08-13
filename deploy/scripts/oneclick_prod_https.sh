@@ -335,7 +335,8 @@ ok "容器已启动"
 info "等待应用就绪（MySQL 初始化 + app 启动，最多约 3 分钟）…"
 HEALTHY=false
 for i in $(seq 1 60); do
-  if (cd "$DEPLOY_DIR" && "${COMPOSE[@]}" exec -T app curl -fs http://127.0.0.1:8000/api/health >/dev/null 2>&1); then
+  # </dev/null：docker exec 接管 stdin，脚本若经管道执行会吞掉后半段。
+  if (cd "$DEPLOY_DIR" && "${COMPOSE[@]}" exec -T app curl -fs http://127.0.0.1:8000/api/health </dev/null >/dev/null 2>&1); then
     HEALTHY=true; break
   fi
   sleep 3

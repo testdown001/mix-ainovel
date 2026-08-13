@@ -99,7 +99,9 @@ echo ""
 info "等待服务就绪（最多约 2 分钟）…"
 HEALTHY=false
 for _ in $(seq 1 60); do
-    if dcp exec -T "$APP_SERVICE" curl -fs http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+    # </dev/null 必须有：本脚本会被 quick_deploy.sh 经 `ssh … bash -s` 管道执行，
+    # docker exec 接管 stdin 会把远端脚本剩余内容吞掉（见 _common.sh 说明）。
+    if dcp exec -T "$APP_SERVICE" curl -fs http://127.0.0.1:8000/api/health </dev/null >/dev/null 2>&1; then
         HEALTHY=true
         break
     fi

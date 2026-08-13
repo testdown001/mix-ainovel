@@ -39,7 +39,9 @@ info "compose 文件：$(compose_desc)"
 info "数据库提供方：${DB_PROVIDER:-sqlite}"
 
 # ---- 0. app 容器必须在跑（alembic 在容器内执行）-------------------------------
-if ! app_exec sh -c 'exit 0' >/dev/null 2>&1; then
+# 这些调用一律 </dev/null：docker exec 会接管 stdin，本脚本经 ssh 管道执行时
+# 会把调用者剩下的脚本吞掉（见 _common.sh 中 app_exec 的说明）。
+if ! app_exec sh -c 'exit 0' </dev/null >/dev/null 2>&1; then
     die "app 容器不可用。请先启动服务：cd $DEPLOY_DIR && ${DC[*]} up -d"
 fi
 ok "app 容器可用"
@@ -53,7 +55,7 @@ backup_mysql() {
     local file="$dir/backup_$(date +%Y%m%d_%H%M%S).sql"
     if dc exec -T "$svc" sh -c \
         'exec mysqldump --single-transaction -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-        > "$file" 2>/dev/null && [ -s "$file" ]; then
+        </dev/null > "$file" 2>/dev/null && [ -s "$file" ]; then
         ok "备份已保存：$file（$(du -h "$file" | cut -f1)）"
         return 0
     fi
@@ -119,17 +121,17 @@ esac
 # ---- 3. 执行迁移 -------------------------------------------------------------
 if [ "$SCHEMA_STATE" = "LEGACY" ]; then
     info "存量库由 init_db() create_all 建出、尚未纳入 Alembic；登记基线（stamp head）…"
-    app_exec alembic stamp head
+    app_exec alembic stamp head </dev/null
     ok "已登记为 head（本次不改结构；后续新增 revision 会走增量升级）"
 else
     info "执行 alembic upgrade head …"
-    app_exec alembic upgrade head
+    app_exec alembic upgrade head </dev/null
     ok "迁移完成"
 fi
 
 echo ""
 info "当前版本："
-app_exec alembic current || true
+app_exec alembic current </dev/null || true
 
 # ---- 4. 已归档的原始 SQL 路径（仅 LEGACY_SQL=1 时执行）------------------------
 # backend/db/migrations/*.sql 是 Alembic 之前的历史产物：这些表/列如今由

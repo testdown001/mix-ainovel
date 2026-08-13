@@ -72,7 +72,7 @@ info "备份当前数据库（回滚失败时的退路）…"
 SAFETY_BACKUP="$BACKUP_DIR/safety_backup_$(date +%Y%m%d_%H%M%S).sql"
 if dc exec -T "$MYSQL_SVC" sh -c \
     'exec mysqldump --single-transaction -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
-    > "$SAFETY_BACKUP" 2>/dev/null && [ -s "$SAFETY_BACKUP" ]; then
+    </dev/null > "$SAFETY_BACKUP" 2>/dev/null && [ -s "$SAFETY_BACKUP" ]; then
     ok "安全备份：$SAFETY_BACKUP"
 else
     rm -f "$SAFETY_BACKUP"
@@ -100,7 +100,8 @@ dc up -d
 info "等待服务就绪…"
 HEALTHY=false
 for _ in $(seq 1 60); do
-    if dc exec -T "$APP_SERVICE" curl -fs http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+    # </dev/null：docker exec 会接管 stdin，脚本经管道执行时会吞掉调用者剩余内容。
+    if dc exec -T "$APP_SERVICE" curl -fs http://127.0.0.1:8000/api/health </dev/null >/dev/null 2>&1; then
         HEALTHY=true
         break
     fi
