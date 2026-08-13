@@ -44,6 +44,16 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="LLM 请求格式：auto（自动识别）、openai（/v1/chat/completions）、anthropic（原生 /v1/messages，x-api-key 认证）、anyrouter（Claude Code 兼容代理，Bearer 认证）、gemini（Google Gemini 原生 API）、openai-responses（OpenAI Responses API /v1/responses）。",
     ),
     SystemConfigDefault(
+        key="llm.aux_reasoning_effort",
+        value_getter=lambda _: "low",
+        description=(
+            "辅助调用（结构化 JSON 输出：使命规划、一致性检查、摘要抽取等）的推理档："
+            "minimal/low/medium/high，填 off 关闭降档。正文创作不受此项影响，仍用通道或"
+            "模型目录配置的推理档。实测标准档一章约有四分之一时间花在这类调用的推理上，"
+            "降档是最直接的提速手段；若上游不接受该参数会自动去掉并记闩，不影响可用性。"
+        ),
+    ),
+    SystemConfigDefault(
         key="smtp.server",
         value_getter=lambda config: config.smtp_server,
         description="用于发送邮件验证码的 SMTP 服务器地址。",

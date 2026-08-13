@@ -185,7 +185,25 @@
       "Bash(rm -f /home/aikev/code/aikev/.claude/projects/-home-aikev-code-arboris-novel/memory/ratelimit-and-jwt-aud-pitfall.md)",
       "Bash(rmdir -p /home/aikev/code/aikev/.claude/projects/-home-aikev-code-arboris-novel/memory)",
       "Bash(awk 'NR>=2148 && NR<=2260 && \\(/ensure_project_owner|current_user|get_current_user/\\)' backend/app/api/routers/novels.py)",
-      "Bash(awk 'NR>=1719 && NR<=1860 && \\(/ensure_project_owner|current_user/\\)' backend/app/api/routers/novels.py)"
+      "Bash(awk 'NR>=1719 && NR<=1860 && \\(/ensure_project_owner|current_user/\\)' backend/app/api/routers/novels.py)",
+      "Bash(timeout 15 ssh -o ConnectTimeout=8 -o BatchMode=yes root@45.15.185.52 \"echo SSH_OK; hostname; docker ps --format '{{.Names}}\\\\t{{.Image}}\\\\t{{.Status}}' | head -20\")",
+      "Bash(curl -s -m 5 http://127.0.0.1:6333/collections)",
+      "Bash(timeout 90 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"docker exec deploy-app-4 python run_bench.py list\")",
+      "Bash(timeout 420 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"docker exec deploy-app-4 python run_bench.py run --scenarios demo_xuanhuan --configs standard --dry-run --cleanup 2>&1 | grep -viE 'INFO sqlalchemy|^ *\\\\[generated|^ *\\\\[cached' | tail -25\")",
+      "Bash(timeout 60 scp -o ControlPath=/tmp/arb-cm-%r-%p /tmp/probe_vec.py root@142.91.105.227:/tmp/probe_vec.py)",
+      "Bash(timeout 60 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"docker cp /tmp/probe_vec.py deploy-app-4:/app/probe_vec.py && docker exec deploy-app-4 python probe_vec.py\")",
+      "Bash(timeout 60 scp -o ControlPath=/tmp/arb-cm-%r-%p /tmp/probe_vec2.py root@142.91.105.227:/tmp/probe_vec2.py)",
+      "Bash(timeout 90 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"docker cp /tmp/probe_vec2.py deploy-app-4:/app/probe_vec2.py && docker exec deploy-app-4 python probe_vec2.py\")",
+      "Bash(timeout 60 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"docker exec -d deploy-app-4 sh -c 'python run_bench.py run --scenarios demo_xuanhuan --configs standard,premium,full --run-tag baseline-01 --yes > /app/storage/bench/baseline-01.log 2>&1'; sleep 20; docker exec deploy-app-4 sh -c 'grep -viE \\\\\"INFO sqlalchemy|^ *\\\\[generated|^ *\\\\[cached\\\\\" /app/storage/bench/baseline-01.log | head -20'\")",
+      "Bash(timeout 300 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"sleep 240; docker exec deploy-app-4 sh -c 'grep -viE \\\\\"INFO sqlalchemy|^ *\\\\[generated|^ *\\\\[cached|Rerank API\\\\|For more information\\\\\" /app/storage/bench/baseline-01.log | tail -12'\")",
+      "Bash(timeout 400 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"sleep 330; docker exec deploy-app-4 sh -c 'grep -E \\\\\"^\\\\[[0-9]/3\\\\]|样本 [0-9] 完成|完成：|报告：|失败\\\\\" /app/storage/bench/baseline-01.log | tail -10'\")",
+      "Bash(timeout 400 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"sleep 300; docker exec deploy-app-4 sh -c 'grep -E \\\\\"^\\\\[[0-9]/3\\\\]|样本 [0-9] 完成|^完成：|报告：\\\\\" /app/storage/bench/baseline-01.log | tail -8'\")",
+      "Bash(timeout 60 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 \"docker exec deploy-app-4 sh -c 'env | grep -E \\\\\"^OPENAI_API_KEY=|^MEM0|^RAG_RERANKER\\\\\" | sed -E \\\\\"s/\\(KEY=.{0,8}\\).*/\\\\1***/\\\\\"'\")",
+      "Bash(timeout 90 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 'docker exec deploy-app-4 printenv OPENAI_API_KEY')",
+      "Bash(timeout 90 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 'docker exec deploy-app-4 printenv RAG_RERANKER_ENABLED')",
+      "Bash(timeout 120 ssh -n -o ControlPath=/tmp/arb-cm-%r-%p root@142.91.105.227 'grep -E \"^\\\\[[0-9]/3\\\\]|样本 [0-9] 完成|^完成：|报告：\" /var/lib/docker/volumes/deploy_app-storage/_data/bench/baseline-01.log | tail -8')",
+      "Bash(timeout 30 ping -c 3 -W 5 142.91.105.227)",
+      "Bash(python -)"
     ]
   }
 }

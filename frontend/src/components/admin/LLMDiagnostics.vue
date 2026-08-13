@@ -150,7 +150,10 @@ const { showAlert } = useAlert()
 const CHANNEL_LABELS: Record<string, string> = {
   default: '默认', fallback: '兜底', polish: '润色', search: '搜索', grader: '评分', embedding: '向量', rerank: '重排',
 }
-const channelLabel = (c: string) => CHANNEL_LABELS[c] || c
+// 体检发现项还会标注非通道对象（如模型目录），它不是可筛选的调用通道，故不并入
+// CHANNEL_LABELS——否则调用流水的通道筛选里会多出一个永远查不到结果的选项。
+const AUDIT_ONLY_LABELS: Record<string, string> = { catalog: '模型目录' }
+const channelLabel = (c: string) => CHANNEL_LABELS[c] || AUDIT_ONLY_LABELS[c] || c
 
 const channelOptions = Object.entries(CHANNEL_LABELS).map(([value, label]) => ({ label, value }))
 const statusOptions = [

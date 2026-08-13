@@ -132,6 +132,7 @@ class StandardGenerationFlowService:
                 forbidden_characters=forbidden_characters,
                 allowed_new_characters=allowed_new_characters,
                 deadline=deadline,
+                mark_stage=mark_stage,
             )
             best_content = post_result["best_content"]
             review_summaries = post_result["review_summaries"]

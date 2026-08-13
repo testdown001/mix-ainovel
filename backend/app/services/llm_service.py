@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Type, TypeVar
 
 import httpx
@@ -465,6 +466,14 @@ class LLMService:
     _UNSUPPORTED_RESPONSE_FORMAT_TARGETS: set[str] = set()
     # 进程级缓存：记录不支持 stream_options.include_usage 的 provider 组合（避免每次先失败再重试）
     _UNSUPPORTED_STREAM_OPTIONS_TARGETS: set[str] = set()
+    # 进程级缓存：记录不接受 reasoning_effort 的 provider 组合（普通非推理模型会因未知参数 400）
+    _UNSUPPORTED_REASONING_EFFORT_TARGETS: set[str] = set()
+    # 辅助（结构化 JSON）调用的默认推理档。取 low 而非 minimal：low 被 o 系列与 gpt-5 同时接受，
+    # minimal 只有 gpt-5 认，配错值的代价是一次 400 往返。管理员可在后台改成 minimal/off。
+    _DEFAULT_AUX_REASONING_EFFORT = "low"
+    _AUX_EFFORT_TTL_SEC = 60.0
+    _aux_effort_cache: Optional[str] = None
+    _aux_effort_expires_at: float = 0.0
 
     @staticmethod
     def _normalize_base_url(base_url: Optional[str]) -> Optional[str]:
@@ -639,6 +648,33 @@ class LLMService:
         return "stream_options" in detail or "stream options" in detail
 
     @classmethod
+    def _is_reasoning_effort_unsupported_error(cls, exc: Exception) -> bool:
+        """判断 400 是否因 reasoning_effort/reasoning 参数不被接受。"""
+        return cls._detail_indicates_reasoning_unsupported(
+            cls._extract_provider_error_detail(exc) or ""
+        )
+
+    @staticmethod
+    def _detail_indicates_reasoning_unsupported(detail: str) -> bool:
+        """错误详情是否明确指向推理参数不被接受（同时服务 SDK 异常与 httpx 响应体两条路径）。
+
+        必须要求文本里明确提到该参数：不能像 response_format 那样把「空错误体」也算进来，
+        否则任何被网关吞掉详情的 400 都会误判成推理参数问题，把真实故障掩盖成一次静默降级。
+        """
+        detail = (detail or "").lower()
+        if "reasoning_effort" in detail or "reasoning effort" in detail:
+            return True
+        if "reasoning" not in detail:
+            return False
+        return any(
+            marker in detail
+            for marker in (
+                "unsupported", "not supported", "not support", "unknown",
+                "unrecognized", "invalid", "unexpected", "extra field",
+            )
+        )
+
+    @classmethod
     def _is_max_completion_tokens_error(cls, exc: Exception) -> bool:
         """判断 400 是否要求改用 max_completion_tokens（OpenAI o 系列官方接口）。"""
         detail = (cls._extract_provider_error_detail(exc) or "").lower()
@@ -677,6 +713,7 @@ class LLMService:
         model_name: Optional[str] = None,
         enable_usage: bool = False,
         use_max_completion_tokens: bool = False,
+        reasoning_effort_supported: bool = True,
     ) -> Dict[str, Any]:
         """按 provider 能力构建可透传的附加参数。"""
         extra_kwargs: Dict[str, Any] = {}
@@ -689,13 +726,18 @@ class LLMService:
         if disable_thinking and api_format == "anyrouter":
             extra_kwargs["disable_thinking"] = True
 
-        # reasoning_effort：仅 OpenAI 兼容 / Responses，且为推理模型(o系列/gpt-5)时透传，
-        # 否则普通模型会因未知参数 400。
+        # reasoning_effort：OpenAI 兼容 / Responses 格式下一律尝试透传，不再按模型名判断。
+        # 原先的门槛是「o 系列 or gpt-5」，用意是避免普通模型因未知参数 400；代价是
+        # DeepSeek / Grok / GLM 这类同样默认深度思考的模型永远收不到推理档——后台把
+        # llm.reasoning_effort 配成 minimal 也毫无作用，实测一次一致性检查为 2504 字的
+        # JSON 判定烧掉 8257 个推理 token(≈49s)，且界面上完全看不出开关是失效的。
+        # 改为「先试；被上游拒绝就按 base_url|model 记闩、去掉参数重试」，沿用
+        # stream_options / response_format 既有的自愈范式：最坏每个上游组合每进程多一次往返。
         effort = (reasoning_effort or "").strip().lower()
         if (
             effort in {"low", "medium", "high", "minimal"}
             and api_format in {"openai", "openai-responses"}
-            and (cls._is_openai_reasoning_model(model_name) or (model_name or "").strip().lower().startswith("gpt-5"))
+            and reasoning_effort_supported
         ):
             extra_kwargs["reasoning_effort"] = effort
 
@@ -892,6 +934,17 @@ class LLMService:
             _call_meta["host"] = config.get("base_url") or ""
 
         reasoning_effort = reasoning_effort_override or config.get("reasoning_effort")
+        # 辅助调用降档：请求 json_object 的调用是「给机器看的结构化判定」（使命规划、
+        # 一致性检查、摘要抽取…），深度思考在这里换不来正文质量，只换来等待——实测标准档
+        # 一章 203s 里有约 55s 花在这类调用的推理 token 上。正文创作（无 response_format）
+        # 不受影响，仍用通道/模型目录配的推理档，付费档位的差异化不被削弱。
+        # 调用方显式传 reasoning_effort_override 时以调用方为准，不做二次干预。
+        if response_format == "json_object" and not reasoning_effort_override:
+            aux_effort = await self._resolve_aux_reasoning_effort()
+            if aux_effort:
+                reasoning_effort = aux_effort
+        # response_format_target 就是「base_url|model」上游组合键，三个自愈闩共用同一个键
+        reasoning_effort_supported = response_format_target not in self._UNSUPPORTED_REASONING_EFFORT_TARGETS
         last_exc = None
         response_format_fallback_applied = False
         responses_endpoint_fallback_applied = False
@@ -920,6 +973,7 @@ class LLMService:
                     model_name=model_name,
                     enable_usage=stream_usage_enabled,
                     use_max_completion_tokens=use_max_completion_tokens,
+                    reasoning_effort_supported=reasoning_effort_supported,
                 )
                 async for part in client.stream_chat(
                     messages=chat_messages,
@@ -1051,6 +1105,23 @@ class LLMService:
                         "base_url=%s model=%s", config.get("base_url"), model_name,
                     )
                     continue
+                # reasoning_effort 必须排在 response_format 降级之前判定：后者把「空错误体的
+                # 400」也当成自己的信号，会抢先吞掉这个错误，导致推理参数的闩永远记不上，
+                # 每次调用都白费一次往返。
+                if (
+                    isinstance(exc, BadRequestError)
+                    and api_format in ("openai", "openai-responses")
+                    and reasoning_effort_supported
+                    and reasoning_effort
+                    and self._is_reasoning_effort_unsupported_error(exc)
+                ):
+                    self._UNSUPPORTED_REASONING_EFFORT_TARGETS.add(response_format_target)
+                    reasoning_effort_supported = False
+                    logger.warning(
+                        "provider 不接受 reasoning_effort，去掉该参数后自动重试并记闩: "
+                        "base_url=%s model=%s effort=%s", config.get("base_url"), model_name, reasoning_effort,
+                    )
+                    continue
                 if (
                     isinstance(exc, BadRequestError)
                     and api_format in ("openai", "openai-responses")
@@ -1130,6 +1201,23 @@ class LLMService:
                     logger.error("LLM auth error: base_url=%s model=%s detail=%s",
                                  config.get("base_url"), model_name, detail)
                     raise HTTPException(status_code=403, detail=detail) from exc
+
+                # 推理参数降级：同样必须排在下方 response_format 降级之前——那条分支对任何
+                # 400 都成立，会抢先把这个错误当成格式问题处理。
+                if (
+                    resp_status == 400
+                    and api_format == "openai-responses"
+                    and reasoning_effort_supported
+                    and reasoning_effort
+                    and self._detail_indicates_reasoning_unsupported(resp_body)
+                ):
+                    self._UNSUPPORTED_REASONING_EFFORT_TARGETS.add(response_format_target)
+                    reasoning_effort_supported = False
+                    logger.warning(
+                        "Responses 端点不接受 reasoning.effort，去掉该参数后自动重试并记闩: "
+                        "base_url=%s model=%s body=%s", config.get("base_url"), model_name, resp_body,
+                    )
+                    continue
 
                 # response_format 降级：httpx 客户端（OpenAI-Responses/Anthropic）的 400 错误
                 if (
@@ -1408,6 +1496,31 @@ class LLMService:
             return record.value
         env_key = key.upper().replace(".", "_")
         return os.getenv(env_key)
+
+    async def _resolve_aux_reasoning_effort(self) -> Optional[str]:
+        """辅助（结构化 JSON）调用的推理档，SystemConfig `llm.aux_reasoning_effort`。
+
+        带进程级 TTL 缓存：这个值每次 json 调用都要读，而它几乎不变；没有缓存就等于给
+        每次结构化调用加一次 DB 往返。设成 `off` 或空即关闭降档（回到用通道自身的推理档）。
+        """
+        now = time.monotonic()
+        if self._aux_effort_cache is not None and now < self._aux_effort_expires_at:
+            return self._aux_effort_cache or None
+        try:
+            async with self._db_access_lock:
+                async with AsyncSessionLocal() as session:
+                    raw = await self._get_config_value_for_session(session, "llm.aux_reasoning_effort")
+        except Exception as exc:  # 读配置失败不应影响生成，退回「不降档」
+            logger.debug("读取 llm.aux_reasoning_effort 失败(已忽略): %s", exc)
+            return None
+        value = (raw or "").strip().lower()
+        if value in {"off", "none", "disabled"}:
+            value = ""
+        elif value not in {"minimal", "low", "medium", "high"}:
+            value = self._DEFAULT_AUX_REASONING_EFFORT
+        self._aux_effort_cache = value
+        self._aux_effort_expires_at = now + self._AUX_EFFORT_TTL_SEC
+        return value or None
 
     async def _resolve_config_by_model_code(self, code: Optional[str]) -> Optional[Dict[str, Optional[str]]]:
         """按「模型目录」code 解析整套通道配置（通道五键留空则回退 llm.*）。

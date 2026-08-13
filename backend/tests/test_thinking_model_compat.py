@@ -70,13 +70,21 @@ def test_max_completion_tokens_and_stream_options_error_detection():
 
 def test_build_extra_kwargs_gating():
     b = LLMService._build_stream_extra_kwargs
-    # reasoning_effort 仅推理模型 + openai/responses
+    # reasoning_effort 仅 openai/responses 格式
     assert b("openai", thinking_budget=None, disable_thinking=False,
              reasoning_effort="high", model_name="o3-mini", enable_usage=True) == {
         "reasoning_effort": "high", "enable_usage": True}
-    # 普通模型不带 reasoning_effort
-    assert "reasoning_effort" not in b("openai", thinking_budget=None, disable_thinking=False,
-                                       reasoning_effort="high", model_name="gpt-4o")
+    # 2026-08-14 起不再按模型名判断：门槛原本是「o 系列 or gpt-5」，用来避免普通模型
+    # 因未知参数 400；代价是 DeepSeek/Grok/GLM 这类同样默认深度思考的模型永远收不到
+    # 推理档，后台配了也无效（实测一章约四分之一时间耗在这些调用的推理 token 上）。
+    # 现在改为「先试，被上游拒绝就按 base_url|model 记闩并去掉重试」，普通模型的成本
+    # 是每进程每上游组合一次多余往返。判据见 reasoning_effort_supported 参数。
+    assert b("openai", thinking_budget=None, disable_thinking=False,
+             reasoning_effort="high", model_name="gpt-4o") == {"reasoning_effort": "high"}
+    assert "reasoning_effort" not in b(
+        "openai", thinking_budget=None, disable_thinking=False,
+        reasoning_effort="high", model_name="gpt-4o", reasoning_effort_supported=False,
+    )
     # gpt-5 走 responses 支持 effort
     assert b("openai-responses", thinking_budget=None, disable_thinking=False,
              reasoning_effort="medium", model_name="gpt-5") == {"reasoning_effort": "medium"}

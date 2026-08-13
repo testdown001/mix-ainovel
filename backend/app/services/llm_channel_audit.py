@@ -10,14 +10,20 @@
 2. **静默失效**：没配独立嵌入通道且主通道地址不是 OpenAI 官方地址时，
    get_embedding 直接返回空向量并跳过；RAG 检索与章节入库全程静默失灵，
    界面上一切正常。搜索/评分通道未配置时同样是静默跳过。
+3. **模型目录错配**：目录条目留空 base_url 时会继承默认通道的地址，若 real_model
+   与该地址的模型族不同（如目录写 gpt-5.4、默认通道是 api.deepseek.com），上游必然
+   拒绝，然后由兜底通道悄悄代写——用户按不同价位买了不同「模型」，拿到的其实是同一个
+   兜底模型。2026-08-13 线上三档全中此坑，实调用测通道一切正常，谁都看不出来。
 
 本模块只读配置、不发请求，把这些「看起来没事」的状态显式摆出来。
 """
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..repositories.system_config_repository import SystemConfigRepository
@@ -134,6 +140,66 @@ def _audit_embedding(v: Dict[str, Optional[str]]) -> List[Dict[str, Any]]:
     return []
 
 
+def _model_family(model: Optional[str]) -> str:
+    """取模型名的厂商族前缀：gpt-5.4→gpt、deepseek-v4-flash→deepseek、claude-opus-4→claude。
+
+    只做「族是否明显不同」的粗判：族相同不代表一定能服务，但族不同且共用同一地址时，
+    上游几乎必然拒绝——这足以把错配从「线上跑一次才知道」变成「保存配置就能看见」。
+    """
+    match = re.match(r"[a-z]+", (model or "").strip().lower())
+    return match.group(0) if match else ""
+
+
+async def _audit_model_catalog(session: AsyncSession, v: Dict[str, Optional[str]]) -> List[Dict[str, Any]]:
+    """检查「模型目录」条目能否被其解析出的通道真正服务。"""
+    try:
+        from ..models.model_catalog import ModelCatalog
+
+        rows = (await session.execute(select(ModelCatalog).where(ModelCatalog.is_active.is_(True)))).scalars().all()
+    except Exception:  # 表缺失/查询失败不应让整个体检失败
+        return []
+
+    findings: List[Dict[str, Any]] = []
+    default_base = v["llm.base_url"]
+    default_family = _model_family(v["llm.model"])
+    mismatched: List[str] = []
+    for row in rows:
+        # base_url 留空 = 继承默认通道地址；填了就由管理员自行负责，不在此判断
+        if row.base_url or not row.real_model:
+            continue
+        family = _model_family(row.real_model)
+        if family and default_family and family != default_family:
+            mismatched.append(f"{row.display_name}({row.code}) → {row.real_model}")
+
+    if mismatched:
+        findings.append(_finding(
+            LEVEL_ERROR, "catalog_model_endpoint_mismatch", "模型目录条目与默认通道不匹配",
+            f"以下条目没填 base_url，会继承默认通道地址 {default_base}（模型族 "
+            f"{default_family}），但它们的真实模型是另一个族：{'；'.join(mismatched)}。"
+            "上游会以「不支持该模型名」拒绝，随后兜底通道悄悄代写——用户按不同价位选的"
+            "「模型」实际上产出自同一个兜底模型，价格阶梯是假的，而实时健康检测一切正常。"
+            "请给这些条目填上各自的 base_url/api_key，或把 real_model 改成默认通道支持的模型。",
+            ["catalog"],
+        ))
+
+    # 不同价位落到同一 (地址, 模型) 上：付费阶梯没有实际差异
+    resolved: Dict[str, List[str]] = {}
+    for row in rows:
+        base = (row.base_url or default_base or "").strip().rstrip("/").lower()
+        model = (row.real_model or v["llm.model"] or "").strip().lower()
+        resolved.setdefault(f"{base}|{model}", []).append(f"{row.display_name}({row.credit_price}分)")
+    duplicated = [names for names in resolved.values() if len(names) > 1]
+    if duplicated:
+        findings.append(_finding(
+            LEVEL_WARN, "catalog_duplicate_target", "不同价位的模型指向同一上游",
+            "以下条目解析后的（地址, 模型）完全相同，用户付不同积分买到的是同一个模型："
+            + "；".join("、".join(names) for names in duplicated)
+            + "。若差异只靠 reasoning_effort，请确认上游确实接受该参数，否则档位之间没有实际区别。",
+            ["catalog"],
+        ))
+    return findings
+
+
 async def audit_llm_config(session: AsyncSession) -> List[Dict[str, Any]]:
     """只读配置体检，返回按严重程度排序的问题列表（无问题则为空）。"""
     v = await _load_values(session)
@@ -148,6 +214,7 @@ async def audit_llm_config(session: AsyncSession) -> List[Dict[str, Any]]:
 
     findings.extend(_audit_fallback(v))
     findings.extend(_audit_embedding(v))
+    findings.extend(await _audit_model_catalog(session, v))
 
     if not _optional_channel_enabled(v, "llm_search"):
         findings.append(_finding(
