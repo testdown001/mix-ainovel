@@ -718,6 +718,20 @@ async def llm_health(_: UserSchema = Depends(get_current_admin)) -> Dict[str, An
     return {"channels": list(channels)}
 
 
+@router.get("/llm-config-audit")
+async def llm_config_audit(
+    session: AsyncSession = Depends(get_session),
+    _: UserSchema = Depends(get_current_admin),
+) -> Dict[str, Any]:
+    """只读配置体检：查「实调用测不出」的两类问题——假冗余（兜底与主通道同上游，
+    单测都通、上游一挂全挂）与静默失效（嵌入/搜索/评分未配置时相关能力无声跳过）。
+    不发任何网络请求，与「通道实时健康」互补。"""
+    from ...services.llm_channel_audit import audit_llm_config
+
+    findings = await audit_llm_config(session)
+    return {"findings": findings}
+
+
 def _percentile(values: List[int], pct: float) -> int:
     if not values:
         return 0

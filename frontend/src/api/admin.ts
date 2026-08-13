@@ -43,6 +43,15 @@ export interface LLMCallSummaryChannel {
   last_error_http: number | null
 }
 
+/** 配置体检发现项（只读审计，不发真实请求，与实时健康互补） */
+export interface LLMConfigFinding {
+  level: 'error' | 'warn' | 'info'
+  code: string
+  title: string
+  detail: string
+  channels: string[]
+}
+
 export interface LLMCallRow {
   id: number
   created_at: string | null
@@ -450,6 +459,11 @@ export class AdminAPI {
   /** 主动并发检测全部 LLM/embedding 通道的实时可用性。 */
   static getLlmHealth(): Promise<{ channels: LLMHealthChannel[] }> {
     return this.request('/llm-health')
+  }
+
+  /** 通道配置体检：查假冗余（兜底与主通道同上游）与静默失效（嵌入/搜索未配置）等实调用测不出的问题。 */
+  static getLlmConfigAudit(): Promise<{ findings: LLMConfigFinding[] }> {
+    return this.request('/llm-config-audit')
   }
 
   /** 近期真实调用按通道聚合（错误率/延迟/最近错误）。window: 1h|6h|24h|7d */

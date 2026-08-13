@@ -1,4 +1,4 @@
-<!-- AIMETA P=LLM通道诊断_后台可观测性|R=通道实时健康+近期调用错误率延迟流水|NR=不含通道配置(在ApiManagement)|E=component:LLMDiagnostics|X=ui|A=管理后台组件|D=vue,naive-ui|S=net -->
+<!-- AIMETA P=LLM通道诊断_后台可观测性|R=通道实时健康+配置体检(假冗余/静默失效)+近期调用错误率延迟流水|NR=不含通道配置(在ApiManagement)|E=component:LLMDiagnostics|X=ui|A=管理后台组件|D=vue,naive-ui|S=net -->
 <template>
   <div class="llm-diagnostics">
     <!-- 上半：通道实时健康 -->
@@ -16,6 +16,47 @@
           对每个已配置通道发起一次真实最小调用，验证密钥/地址/模型可达及当前延迟。未配置的通道会标注「未配置」。
         </n-alert>
         <n-data-table :columns="healthColumns" :data="health" :bordered="false" size="small" />
+      </n-spin>
+    </n-card>
+
+    <!-- 中段：配置体检（只读审计，不发请求；与实时健康互补） -->
+    <n-card :bordered="false" style="margin-bottom: 16px">
+      <template #header>
+        <div class="card-header">
+          <span class="card-title">🔍 配置体检</span>
+          <n-button quaternary size="small" :loading="auditLoading" @click="loadAudit">刷新</n-button>
+        </div>
+      </template>
+      <n-spin :show="auditLoading">
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          实时健康测的是「现在通不通」，体检查的是它测不出的隐患：<b>假冗余</b>（兜底与主通道同一上游，
+          供应商整站故障时一起挂）与<b>静默失效</b>（嵌入/搜索未配置时相关能力无声跳过，界面看不出来）。
+        </n-alert>
+        <n-alert v-if="!auditLoading && findings.length === 0" type="success" :bordered="false">
+          未发现配置隐患。
+        </n-alert>
+        <div v-else class="audit-list">
+          <n-alert
+            v-for="f in findings"
+            :key="f.code"
+            :type="auditAlertType(f.level)"
+            :bordered="false"
+          >
+            <template #header>
+              <span class="audit-title">{{ f.title }}</span>
+              <n-tag
+                v-for="c in f.channels"
+                :key="c"
+                size="tiny"
+                :bordered="false"
+                style="margin-left: 8px"
+              >
+                {{ channelLabel(c) }}
+              </n-tag>
+            </template>
+            {{ f.detail }}
+          </n-alert>
+        </div>
       </n-spin>
     </n-card>
 
@@ -99,6 +140,7 @@ import {
   type LLMHealthChannel,
   type LLMCallSummaryChannel,
   type LLMCallRow,
+  type LLMConfigFinding,
 } from '@/api/admin'
 import { useAlert } from '@/composables/useAlert'
 
@@ -117,6 +159,8 @@ const statusOptions = [
 ]
 
 const health = ref<LLMHealthChannel[]>([])
+const findings = ref<LLMConfigFinding[]>([])
+const auditLoading = ref(false)
 const summary = ref<LLMCallSummaryChannel[]>([])
 const summaryTruncated = ref(false)
 const calls = ref<LLMCallRow[]>([])
@@ -193,6 +237,21 @@ const callColumns: DataTableColumns<LLMCallRow> = [
   },
 ]
 
+const auditAlertType = (level: LLMConfigFinding['level']) =>
+  level === 'error' ? 'error' : level === 'warn' ? 'warning' : 'info'
+
+async function loadAudit() {
+  auditLoading.value = true
+  try {
+    const r = await AdminAPI.getLlmConfigAudit()
+    findings.value = r.findings || []
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '配置体检失败', 'error')
+  } finally {
+    auditLoading.value = false
+  }
+}
+
 async function loadHealth() {
   healthLoading.value = true
   try {
@@ -252,6 +311,7 @@ function refreshAll() {
 
 onMounted(() => {
   loadHealth()
+  loadAudit()
   loadSummary()
   loadCalls()
 })
@@ -277,5 +337,13 @@ onMounted(() => {
 .filters-label {
   font-size: 13px;
   color: #888;
+}
+.audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.audit-title {
+  font-weight: 600;
 }
 </style>
