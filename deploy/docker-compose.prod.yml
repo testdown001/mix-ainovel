@@ -167,11 +167,11 @@ services:
 
 
   # MySQL 数据库
+  # 安全(2026-08-13):不再发布宿主端口——仅供 compose 内网访问(app 经 MYSQL_HOST=mysql)。
+  # 此前 3306 暴露公网可被爆破;远程管理请走 SSH 隧道(ssh -L 3306:127.0.0.1:3306 ...)。
   mysql:
     image: mysql:8.0
     container_name: arboris-mysql
-    ports:
-      - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请设置MySQL root密码}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-arboris}
@@ -186,11 +186,12 @@ services:
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
   # Redis 缓存和消息队列
+  # 安全(2026-08-13):不再发布宿主端口。此前 6379 无密码暴露公网,已发生真实劫持事件——
+  # 攻击者 REPLICAOF 把本实例置为其只读副本导致全站写入失败(已恢复)。Redis 仅供
+  # 内网访问(app 经 REDIS_URL=redis://redis:6379,gateway 经 GATEWAY_REDIS_ADDR=redis:6379)。
   redis:
     image: redis:7-alpine
     container_name: arboris-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis-data:/data
     restart: unless-stopped
@@ -204,11 +205,11 @@ services:
       retries: 3
 
   # Qdrant 向量数据库（Mem0）
+  # 安全(2026-08-13):不再发布宿主端口——Qdrant 无鉴权,暴露公网等于向量库公开可读写。
+  # 仅供内网访问(app 经 QDRANT_HOST=qdrant)。
   qdrant:
     image: qdrant/qdrant:latest
     container_name: arboris-qdrant
-    ports:
-      - "6333:6333"
     volumes:
       - qdrant-data:/qdrant/storage
     restart: unless-stopped
