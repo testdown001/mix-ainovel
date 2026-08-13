@@ -111,6 +111,19 @@ class AssignSubscriptionRequest(BaseModel):
     remark: Optional[str] = None
 
 
+class ExpiringUserItem(BaseModel):
+    user_id: int
+    username: str
+    email: Optional[str] = None
+    plan_tier: str
+    effective_tier: str
+    premium_expires_at: Optional[str] = None
+    days_left: int
+    credit_total: int
+    has_paid_order: bool
+    reminded: bool
+
+
 def _iso(value) -> Optional[str]:
     return value.isoformat() if value else None
 
@@ -239,6 +252,80 @@ async def create_user(
         raise HTTPException(status_code=400, detail=str(e))
     logger.info("管理员 %s 创建用户：%s", current_admin.username, user.id)
     return UserSchema.model_validate(user)
+
+
+@router.get("/users/expiring", response_model=List[ExpiringUserItem])
+async def list_expiring_users(
+    days: int = 7,
+    session: AsyncSession = Depends(get_session),
+    _: None = Depends(get_current_admin),
+) -> List[ExpiringUserItem]:
+    """即将到期的会员，按到期时间升序。
+
+    到期是订阅制唯一的自动流失点：三个渠道都是一次性支付，到期即静默回落 free。
+    自动邮件提醒已有（`subscription_reminder_service`），但运营此前无法主动捞人——
+    用户列表只能整表翻页，看不出谁快到期了。`has_paid_order` 区分「试用未转化」
+    与「付费用户续费」两类完全不同的触达对象；`reminded` 是自动提醒的发送状态，
+    避免人工重复打扰。
+
+    路由必须声明在 `/users/{user_id}` 之前，否则 expiring 会被当成 user_id 解析。
+    """
+    days = max(1, min(days, 90))
+    # 与 subscription_reminder_service 同口径用 naive UTC：premium_expires_at 落库是
+    # naive，混用 aware 会直接抛 TypeError
+    now = datetime.utcnow()
+    deadline = now + timedelta(days=days)
+
+    quota_result = await session.execute(
+        select(UserQuota)
+        .where(
+            UserQuota.is_premium.is_(True),
+            UserQuota.premium_expires_at.isnot(None),
+            UserQuota.premium_expires_at > now,
+            UserQuota.premium_expires_at <= deadline,
+        )
+        .order_by(UserQuota.premium_expires_at)
+    )
+    quotas = list(quota_result.scalars().all())
+    if not quotas:
+        return []
+
+    user_ids = [quota.user_id for quota in quotas]
+    user_result = await session.execute(select(User).where(User.id.in_(user_ids)))
+    user_by_id = {user.id: user for user in user_result.scalars().all()}
+
+    paid_result = await session.execute(
+        select(PaymentOrder.user_id)
+        .where(PaymentOrder.user_id.in_(user_ids), PaymentOrder.status == "paid")
+        .distinct()
+    )
+    paid_user_ids = {row[0] for row in paid_result.all()}
+
+    items: List[ExpiringUserItem] = []
+    for quota in quotas:
+        user = user_by_id.get(quota.user_id)
+        if not user:
+            continue
+        expires_at = quota.premium_expires_at
+        reference = expires_at.replace(tzinfo=None) if expires_at.tzinfo else expires_at
+        items.append(
+            ExpiringUserItem(
+                user_id=user.id,
+                username=user.username,
+                email=user.email,
+                plan_tier=quota.plan_tier or "free",
+                effective_tier=quota.effective_tier,
+                premium_expires_at=_iso(expires_at),
+                days_left=max(0, (reference - now).days),
+                credit_total=quota.credit_total,
+                has_paid_order=user.id in paid_user_ids,
+                reminded=quota.expiry_reminded_for is not None
+                and quota.expiry_reminded_for == quota.premium_expires_at,
+            )
+        )
+
+    logger.info("管理员请求即将到期用户列表：%s 天内共 %s 人", days, len(items))
+    return items
 
 
 @router.get("/users/{user_id}", response_model=UserSchema)

@@ -84,6 +84,7 @@ from ...services.platinum_writing_context import (
     build_hook_continuity_brief,
     build_platinum_rhythm_brief,
 )
+from ...utils.chapter_status import effective_chapter_status
 from ...utils.chapter_diagnostics import (
     analyze_chapter_text,
     extract_retrieval_metrics,
@@ -464,6 +465,28 @@ def _schedule_finalize_task(
     )
 
 
+async def _mark_chapter_interrupted_safely(project_id: str, chapter_number: int) -> None:
+    """客户端断开后把章节从 generating 落到 failed。
+
+    断流时 `_event_generator` 会 cancel 生产者任务，生成真的停了，不会有任何东西
+    再写这一章——不落状态它就永远停在「生成中」：前端画着转圈、每 10 秒轮询一次，
+    永远等不到变化。用户看到的是「卡死」，于是刷新、再点一次生成，我们这边则是
+    一次白跑的上游调用。用独立 session（生产者自己的 session 正随取消被拆掉）
+    + shield，失败只记日志，绝不遮蔽取消的传播。
+    """
+    try:
+        async with AsyncSessionLocal() as cleanup_session:
+            await asyncio.shield(
+                _set_chapter_failed_status(cleanup_session, project_id, chapter_number)
+            )
+    except BaseException:  # noqa: BLE001
+        logger.warning(
+            "断流后写回章节状态失败(已忽略): project=%s chapter=%s",
+            project_id,
+            chapter_number,
+        )
+
+
 async def _set_chapter_failed_status(
     session: AsyncSession,
     project_id: str,
@@ -614,6 +637,14 @@ async def advanced_generate_chapter(
                 )
 
         return AdvancedGenerateResponse(**result)
+    except asyncio.CancelledError:
+        # 客户端断开（关页面/切路由/网络中断）：CancelledError 不是 Exception 子类，
+        # 下面两个 except 都接不住，此前会带着「生成中」状态和已扣的积分静默离场
+        await _refund_sync_generation_safely(current_user.id, billing_ref)
+        await _mark_chapter_interrupted_safely(
+            request.project_id, request.chapter_number
+        )
+        raise
     except HTTPException as exc:
         await _refund_sync_generation_safely(current_user.id, billing_ref)
         logger.warning(
@@ -770,8 +801,12 @@ async def advanced_generate_chapter_stream(
 
                 await _push_event("completed", result)
             except asyncio.CancelledError:
-                # 客户端断开/生成被取消：已扣费但未交付 → 退款后继续传播取消
+                # 客户端断开/生成被取消：已扣费但未交付 → 退款、把章节从 generating
+                # 落到 failed（否则留下永久「生成中」幽灵），再继续传播取消
                 await _refund_sync_generation_safely(current_user.id, billing_ref)
+                await _mark_chapter_interrupted_safely(
+                    request.project_id, request.chapter_number
+                )
                 raise
             except HTTPException as exc:
                 await _refund_sync_generation_safely(current_user.id, billing_ref)
@@ -1983,7 +2018,9 @@ async def edit_chapter_content_fast(
     if chapter.evaluations:
         latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
         evaluation_text = latest.feedback or latest.decision
-    status_value = chapter.status or ChapterGenerationStatus.NOT_GENERATED.value
+    status_value = effective_chapter_status(
+        chapter.status, getattr(chapter, "updated_at", None)
+    )
 
     return ChapterSchema(
         chapter_number=request.chapter_number,

@@ -111,6 +111,20 @@ export interface AdminUser {
   premium_expires_at?: string | null
 }
 
+/** 即将到期的会员。has_paid_order 区分「试用未转化」与「付费用户续费」两类触达对象。 */
+export interface AdminExpiringUser {
+  user_id: number
+  username: string
+  email?: string | null
+  plan_tier: string
+  effective_tier: string
+  premium_expires_at?: string | null
+  days_left: number
+  credit_total: number
+  has_paid_order: boolean
+  reminded: boolean
+}
+
 export interface AdminUserQuotaSummary {
   is_premium: boolean
   plan_tier: string
@@ -286,6 +300,10 @@ export class AdminAPI {
 
   static getUser(id: number): Promise<AdminUser> {
     return this.request(`/users/${id}`)
+  }
+
+  static listExpiringUsers(days = 7): Promise<AdminExpiringUser[]> {
+    return this.request(`/users/expiring?days=${days}`)
   }
 
   static getUserSubscription(id: number): Promise<AdminUserSubscriptionDetail> {

@@ -178,6 +178,7 @@ from ..schemas.novel import (
 from ..services.cache_service import CacheService
 from ..services.chapter_ingest_service import ChapterIngestionService
 from ..services.llm_service import LLMService
+from ..utils.chapter_status import effective_chapter_status
 
 logger = logging.getLogger(__name__)
 
@@ -1631,7 +1632,10 @@ class NovelService:
         word_count = 0
 
         if chapter:
-            status_value = chapter.status or ChapterGenerationStatus.NOT_GENERATED.value
+            # 超过保鲜期的 generating 按失败呈现：进程在生成途中消失时没人会再改这一行
+            status_value = effective_chapter_status(
+                chapter.status, getattr(chapter, "updated_at", None)
+            )
             word_count = chapter.word_count or 0
 
             if chapter.versions:

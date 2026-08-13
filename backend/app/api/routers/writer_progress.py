@@ -5,14 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
-from ...db.session import AsyncSessionLocal
+from ...core.dependencies import get_current_user
+from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import NovelProject
+from ...schemas.user import UserInDB
 from ...services.writer_progress_service import progress_service
 
 logger = logging.getLogger(__name__)
@@ -95,12 +97,38 @@ async def writer_progress_websocket(
         await progress_service.unsubscribe(project_id, chapter_number, websocket)
 
 
+async def _ensure_project_owner(
+    project_id: str,
+    session: AsyncSession,
+    user: UserInDB,
+) -> None:
+    """校验项目归属，非本人项目一律 404（不泄露项目是否存在）。
+
+    这三个 REST 端点原先完全没有鉴权：`GET` 会返回 `last_output_preview`——正在
+    生成的**正文片段**，任何人拿到 project_id 就能读别人的稿子；pause/resume 则能
+    改写别人进度对象的状态并广播给其 WebSocket 订阅者（正文生成本身不读这个标志，
+    所以停不掉生成，但足以让作者的界面显示「已暂停」）。同侧的 WebSocket 端点一直
+    是校验 token + 归属的，只有 REST 三兄弟漏了。
+    """
+    owned = await session.execute(
+        select(NovelProject.id).where(
+            NovelProject.id == project_id,
+            NovelProject.user_id == user.id,
+        )
+    )
+    if owned.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+
 @router.get("/progress/{project_id}/{chapter_number}")
 async def get_writing_progress(
     project_id: str,
-    chapter_number: int
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> dict:
     """REST API：获取当前写作进度"""
+    await _ensure_project_owner(project_id, session, current_user)
     progress = await progress_service.get_progress(project_id, chapter_number)
     if progress:
         return progress.to_dict()
@@ -110,9 +138,12 @@ async def get_writing_progress(
 @router.post("/progress/{project_id}/{chapter_number}/pause")
 async def pause_writing(
     project_id: str,
-    chapter_number: int
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> dict:
     """暂停写作"""
+    await _ensure_project_owner(project_id, session, current_user)
     success = await progress_service.pause(project_id, chapter_number)
     return {"success": success}
 
@@ -120,8 +151,11 @@ async def pause_writing(
 @router.post("/progress/{project_id}/{chapter_number}/resume")
 async def resume_writing(
     project_id: str,
-    chapter_number: int
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
 ) -> dict:
     """恢复写作"""
+    await _ensure_project_owner(project_id, session, current_user)
     success = await progress_service.resume(project_id, chapter_number)
     return {"success": success}

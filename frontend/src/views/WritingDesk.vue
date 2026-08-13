@@ -476,6 +476,7 @@ import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
+import { isStreamInterruption } from '@/utils/streamInterruption'
 import PresetSelector from '@/components/shared/PresetSelector.vue'
 import MiddleProductViewer from '@/components/shared/MiddleProductViewer.vue'
 import DiagnosticPanel from '@/components/shared/DiagnosticPanel.vue'
@@ -809,6 +810,8 @@ function handleAgentStop() {
 
 const openPredictionTick = ref(0)
 const streamingChapterNumber = ref<number | null>(null)
+// 断线待对账的章节：catch 里记下、finally 拉到后端最新状态后再决定提示什么
+const interruptedChapter = ref<number | null>(null)
 const streamingDraftText = ref('')
 const streamingStage = ref<string | null>(null)
 const activeGenerationToken = ref(0)
@@ -1047,9 +1050,28 @@ const loadProject = async () => {
   try {
     await novelStore.loadProject(props.id)
     autoSelectNextChapter()
+    noticeBackgroundGeneration()
   } catch (error) {
     console.error('加载项目失败:', error)
   }
+}
+
+/**
+ * 刷新或重进页面后，后端可能还有章节在生成（异步任务路径不随页面关闭而停）。
+ * 此前这种情况只是画着一个转圈的章节、没有任何说明，用户无从判断是「还在跑」
+ * 还是「卡死了」。选中它同时让 WDWorkspace 的 10 秒轮询接管，完成即自动出现。
+ */
+const noticeBackgroundGeneration = () => {
+  const inFlight = project.value?.chapters?.find(
+    (ch) => ch.generation_status === 'generating',
+  )
+  if (!inFlight) return
+  selectChapter(inFlight.chapter_number)
+  globalAlert.showAlert(
+    `第 ${inFlight.chapter_number} 章正在服务端生成，完成后会自动出现，无需重新点击生成`,
+    'info',
+    '后台仍在生成',
+  )
 }
 
 const autoSelectNextChapter = () => {
@@ -1494,20 +1516,26 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     if (runningNode) runningNode.status = 'failed'
     isAgentRunning.value = false
 
-    // 错误状态的本地更新仍然是必要的，以立即反映UI
-    if (project.value?.chapters) {
+    const errMessage = error instanceof Error ? error.message : '未知错误'
+    // 连接中断而非生成失败：中断后由 finally 里的对账决定说法，这里既不本地标失败
+    // （否则会闪一下「生成失败」界面），也不弹红——含糊报失败会让用户以为积分白扣，
+    // 于是刷新 + 再点一次生成，我们白烧一次上游调用。
+    const interrupted = isStreamInterruption(error)
+    if (interrupted) {
+      interruptedChapter.value = chapterNumber
+    } else if (project.value?.chapters) {
+      // 错误状态的本地更新仍然是必要的，以立即反映UI
       const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
       if (chapter) {
         chapter.generation_status = 'failed'
       }
     }
 
-    const errMessage = error instanceof Error ? error.message : '未知错误'
-    const upgradeKind = detectUpgradeHint(errMessage)
+    const upgradeKind = interrupted ? null : detectUpgradeHint(errMessage)
     if (upgradeKind) {
       // 402 积分不足 / 403 档位不足：给升级动线而不是裸报错（卷级规划同款模式）
       upgradePrompt.value = { show: true, kind: upgradeKind, message: errMessage }
-    } else {
+    } else if (!interrupted) {
       globalAlert.showError(`生成章节失败: ${errMessage}`, '生成失败')
     }
   } finally {
@@ -1522,7 +1550,41 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     } catch {
       // 静默失败，不影响主流程
     }
+    if (interruptedChapter.value === chapterNumber) {
+      interruptedChapter.value = null
+      reconcileInterruptedChapter(chapterNumber)
+    }
   }
+}
+
+/**
+ * 断线后与后端真实状态对账，再决定告诉用户什么。三种真相三种说法：
+ * 已落库 → 交成果；仍在生成（异步任务路径断的是推送、任务还在跑）→ 说清楚并让既有
+ * 轮询接管；已终止（SSE 路径会连带取消生产者任务并退款）→ 明说可以重新生成。
+ */
+const reconcileInterruptedChapter = (chapterNumber: number) => {
+  const chapter = project.value?.chapters?.find((ch) => ch.chapter_number === chapterNumber)
+  const status = chapter?.generation_status
+  const hasVersions = (chapter?.versions?.length || 0) > 0
+
+  if (status === 'waiting_for_confirm' || status === 'successful' || hasVersions) {
+    selectChapter(chapterNumber)
+    globalAlert.showSuccess('连接中断，但这一章在服务端已经写完，已为你载入', '已恢复')
+    return
+  }
+
+  if (status === 'generating' || status === 'evaluating' || status === 'selecting') {
+    // 选中该章可让 WDWorkspace 里既有的 10 秒轮询接管，无需另造一套轮询
+    selectChapter(chapterNumber)
+    globalAlert.showAlert('连接中断，服务端仍在生成，进度会自动刷新', 'info', '连接已中断')
+    return
+  }
+
+  globalAlert.showAlert(
+    '连接中断，本次生成已终止、积分已退回，可直接重新生成',
+    'info',
+    '连接已中断',
+  )
 }
 
 const regenerateChapter = async () => {

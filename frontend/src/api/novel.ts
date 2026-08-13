@@ -1,6 +1,7 @@
 // AIMETA P=小说API客户端_小说和章节接口|R=小说CRUD_章节管理_生成|NR=不含UI逻辑|E=api:novel|X=internal|A=novelApi对象|D=axios|S=net|RD=./README.ai
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
+import { StreamInterruptedError } from '@/utils/streamInterruption'
 
 // API 配置
 // 开发环境使用相对路径，由 Vite 代理转发到后端（vite.config.ts 中配置）
@@ -822,7 +823,10 @@ export class NovelAPI {
     }
 
     if (!completedPayload) {
-      throw new Error('生成流已结束，但未收到 completed 事件')
+      // 流断在中途（网络抖动/代理超时/服务端被重启）。后端的生产者任务会随之被取消、
+      // 积分退回、章节状态回落 failed——所以这是「可以直接重试」，不是「生成失败」。
+      // 抛专用错误类型让调用方能区分，别再拿它当业务失败报红。
+      throw new StreamInterruptedError()
     }
     return completedPayload
   }

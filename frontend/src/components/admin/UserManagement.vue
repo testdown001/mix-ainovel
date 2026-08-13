@@ -13,10 +13,26 @@
             @update:value="handleSearch"
             class="search-input"
           />
+          <n-select
+            v-if="showExpiring"
+            v-model:value="expiringDays"
+            size="small"
+            class="days-select"
+            :options="expiringDayOptions"
+            @update:value="fetchExpiringUsers"
+          />
+          <n-button
+            size="small"
+            :type="showExpiring ? 'warning' : 'default'"
+            :secondary="showExpiring"
+            @click="toggleExpiring"
+          >
+            {{ showExpiring ? '返回全部用户' : '即将到期' }}
+          </n-button>
           <n-button type="primary" size="small" @click="handleAdd">
             新建用户
           </n-button>
-          <n-button quaternary size="small" @click="fetchUsers" :loading="loading">
+          <n-button quaternary size="small" @click="refreshCurrentView" :loading="loading || expiringLoading">
             刷新
           </n-button>
         </n-space>
@@ -28,7 +44,27 @@
         {{ error }}
       </n-alert>
 
-      <n-spin :show="loading">
+      <template v-if="showExpiring">
+        <n-alert type="info" :bordered="false" :show-icon="false">
+          到期即静默回落免费版，是订阅制唯一的自动流失点。「试用」一列区分未转化的注册赠期与已付费用户，
+          两者该说的话不一样；「已提醒」是自动到期邮件的发送状态，避免人工重复打扰。
+        </n-alert>
+        <n-spin :show="expiringLoading">
+          <n-empty v-if="!expiringUsers.length" :description="`未来 ${expiringDays} 天内没有会员到期`" />
+          <n-data-table
+            v-else
+            :columns="expiringColumns"
+            :data="expiringUsers"
+            :bordered="false"
+            :pagination="expiringPagination"
+            :row-key="expiringRowKey"
+            size="small"
+            class="user-table"
+          />
+        </n-spin>
+      </template>
+
+      <n-spin v-if="!showExpiring" :show="loading">
         <n-data-table
           :columns="columns"
           :data="filteredUsers"
@@ -221,6 +257,7 @@ import {
 
 import {
   AdminAPI,
+  type AdminExpiringUser,
   type AdminUser,
   type AdminUserSubscriptionDetail,
   type AdminUserSubscriptionHistoryItem,
@@ -283,6 +320,19 @@ const pagination = reactive({
   showSizePicker: true,
   pageSizes: [10, 20, 50]
 })
+
+// 即将到期视图：整表翻页看不出谁快到期，运营需要一份可直接触达的名单
+const showExpiring = ref(false)
+const expiringLoading = ref(false)
+const expiringUsers = ref<AdminExpiringUser[]>([])
+const expiringDays = ref(7)
+const expiringDayOptions = [
+  { label: '7 天内', value: 7 },
+  { label: '15 天内', value: 15 },
+  { label: '30 天内', value: 30 }
+]
+const expiringPagination = reactive({ page: 1, pageSize: 10 })
+const expiringRowKey = (row: AdminExpiringUser) => row.user_id
 
 const columns: DataTableColumns<AdminUser> = [
   {
@@ -408,6 +458,104 @@ const columns: DataTableColumns<AdminUser> = [
           )
         ]
       })
+    }
+  }
+]
+
+const expiringColumns: DataTableColumns<AdminExpiringUser> = [
+  {
+    title: '用户名',
+    key: 'username',
+    ellipsis: { tooltip: true }
+  },
+  {
+    title: '邮箱',
+    key: 'email',
+    ellipsis: { tooltip: true },
+    render(row) {
+      return row.email || '—'
+    }
+  },
+  {
+    title: '档位',
+    key: 'effective_tier',
+    width: 110,
+    render(row) {
+      return h(
+        NTag,
+        { type: 'success', bordered: false, size: 'small' },
+        { default: () => tierLabel(row.effective_tier) }
+      )
+    }
+  },
+  {
+    title: '到期时间',
+    key: 'premium_expires_at',
+    width: 170,
+    render(row) {
+      return formatDate(row.premium_expires_at)
+    }
+  },
+  {
+    title: '剩余',
+    key: 'days_left',
+    width: 90,
+    align: 'center',
+    sorter: (a, b) => a.days_left - b.days_left,
+    render(row) {
+      return h(
+        NTag,
+        {
+          type: row.days_left <= 1 ? 'error' : row.days_left <= 3 ? 'warning' : 'default',
+          bordered: false,
+          size: 'small'
+        },
+        { default: () => (row.days_left <= 0 ? '今天' : `${row.days_left} 天`) }
+      )
+    }
+  },
+  {
+    title: '来源',
+    key: 'has_paid_order',
+    width: 100,
+    align: 'center',
+    render(row) {
+      return h(
+        NTag,
+        { type: row.has_paid_order ? 'info' : 'warning', bordered: false, size: 'small' },
+        { default: () => (row.has_paid_order ? '已付费' : '试用') }
+      )
+    }
+  },
+  {
+    title: '余额',
+    key: 'credit_total',
+    width: 100,
+    align: 'right',
+    render(row) {
+      return `${row.credit_total} 分`
+    }
+  },
+  {
+    title: '已提醒',
+    key: 'reminded',
+    width: 90,
+    align: 'center',
+    render(row) {
+      return row.reminded ? '是' : '否'
+    }
+  },
+  {
+    title: '操作',
+    key: 'actions',
+    width: 90,
+    align: 'center',
+    render(row) {
+      return h(
+        NButton,
+        { size: 'small', secondary: true, onClick: () => openDetailById(row.user_id) },
+        { default: () => '详情' }
+      )
     }
   }
 ]
@@ -589,14 +737,41 @@ const loadUserSubscription = async (id: number) => {
   }
 }
 
-const handleViewDetail = async (row: AdminUser) => {
-  detailUserId.value = row.id
+const openDetailById = async (userId: number) => {
+  detailUserId.value = userId
   subscriptionDetail.value = null
   assignForm.plan_id = null
   assignForm.period = 'monthly'
   assignForm.remark = ''
   showDetailDrawer.value = true
-  await loadUserSubscription(row.id)
+  await loadUserSubscription(userId)
+}
+
+const handleViewDetail = async (row: AdminUser) => {
+  await openDetailById(row.id)
+}
+
+const fetchExpiringUsers = async () => {
+  expiringLoading.value = true
+  error.value = null
+  try {
+    expiringUsers.value = await AdminAPI.listExpiringUsers(expiringDays.value)
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : '获取即将到期用户失败'
+  } finally {
+    expiringLoading.value = false
+  }
+}
+
+const toggleExpiring = async () => {
+  showExpiring.value = !showExpiring.value
+  if (showExpiring.value && !expiringUsers.value.length) {
+    await fetchExpiringUsers()
+  }
+}
+
+const refreshCurrentView = async () => {
+  await (showExpiring.value ? fetchExpiringUsers() : fetchUsers())
 }
 
 const handleAssignSubscription = async () => {
@@ -692,6 +867,10 @@ onMounted(fetchUsers)
 
 .search-input {
   width: min(230px, 60vw);
+}
+
+.days-select {
+  width: 108px;
 }
 
 .detail-section {
