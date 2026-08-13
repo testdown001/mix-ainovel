@@ -421,6 +421,27 @@ class AuthService:
             raise HTTPException(status_code=403, detail="账号已被禁用")
         return await self.create_access_token(user)
 
+    async def send_html_email(self, to_email: str, subject: str, html_content: str) -> bool:
+        """通用 HTML 邮件发送（复用验证码邮件的通道解析与底层发送器）。
+
+        面向后台任务(如会员到期提醒):邮件未配置时返回 False 而非抛错,
+        底层发送异常向上抛出由调用方按用户逐一兜底。
+        """
+        if not to_email or "@" not in to_email:
+            return False
+        provider = await self._resolve_email_provider()
+        if provider == "resend":
+            config = await self._load_resend_config()
+            if not config:
+                return False
+            await self._send_via_resend(to_email, subject, html_content, config)
+        else:
+            config = await self._load_smtp_config()
+            if not config:
+                return False
+            await self._send_via_smtp(to_email, subject, html_content, config)
+        return True
+
     async def _resolve_email_provider(self) -> str:
         """解析当前生效的邮件发送通道（smtp / resend），默认 smtp。"""
         config = await self.system_config_repo.get_by_key("email.provider")

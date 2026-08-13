@@ -251,6 +251,7 @@ async def _ensure_schema_updates() -> None:
                     "monthly_credit_grant": "monthly_credit_grant INT NOT NULL DEFAULT 0",
                     "credit_carryover": "credit_carryover TINYINT(1) NOT NULL DEFAULT 0",
                     "credit_reset_at": "credit_reset_at DATETIME NULL",
+                    "expiry_reminded_for": "expiry_reminded_for DATETIME NULL",
                 },
             )
             _ensure_columns(

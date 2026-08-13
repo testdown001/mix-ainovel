@@ -46,6 +46,9 @@ class UserQuota(Base):
     # Premium 状态
     is_premium = Column(Boolean, default=False, nullable=False, comment="是否为 Premium 用户")
     premium_expires_at = Column(DateTime, nullable=True, comment="Premium 到期时间")
+    # 到期提醒幂等锚:记录已提醒过的那个到期时间。当前 premium_expires_at 与之不等即可再次提醒
+    # (续费后到期时间变化→重新可提醒);多副本用条件 UPDATE 认领,避免重复发信。
+    expiry_reminded_for = Column(DateTime, nullable=True, comment="已发送到期提醒对应的到期时间")
     # 订阅档位：free / creator / flagship（用于灵感模式等分档特性门控）
     plan_tier = Column(String(32), default="free", nullable=False, server_default="free", comment="订阅档位")
     

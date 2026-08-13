@@ -1,6 +1,7 @@
 # AIMETA P=FastAPI应用入口_装配路由依赖和生命周期管理|R=应用启动_路由注册_中间件配置|NR=不含业务逻辑实现|E=uvicorn_app.main:app|X=http|A=FastAPI_app实例|D=fastapi,uvicorn|S=net,db|RD=./README.ai
 """FastAPI 应用入口，负责装配路由、依赖与生命周期管理。"""
 
+import asyncio
 import logging
 from logging.config import dictConfig
 from logging.handlers import RotatingFileHandler
@@ -130,6 +131,34 @@ dictConfig(
 )
 
 
+async def _subscription_reminder_loop():
+    """会员到期提醒后台循环:启动后延迟一次,之后按配置间隔扫描临期会员发信。
+
+    多副本各自运行,由 subscription_reminder_service 的认领式 UPDATE 保证不重复发信。
+    间隔默认 12h(SystemConfig subscription.reminder_interval_hours 可覆写)。全程吞异常,
+    绝不影响主服务;邮件/开关未配置时 sweep 自身 no-op。
+    """
+    from .services.subscription_reminder_service import run_reminder_sweep
+    from .repositories.system_config_repository import SystemConfigRepository
+
+    await asyncio.sleep(120)  # 让启动/迁移/预热先完成
+    while True:
+        interval_hours = 12.0
+        try:
+            async with AsyncSessionLocal() as session:
+                rec = await SystemConfigRepository(session).get_by_key(
+                    "subscription.reminder_interval_hours"
+                )
+                if rec and rec.value:
+                    interval_hours = max(1.0, float(rec.value))
+                result = await run_reminder_sweep(session)
+            if result.get("sent"):
+                logger.info("会员到期提醒扫描: %s", result)
+        except Exception:
+            logger.warning("会员到期提醒扫描异常(已忽略)", exc_info=True)
+        await asyncio.sleep(interval_hours * 3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 应用启动时初始化数据库，并预热提示词缓存
@@ -147,7 +176,15 @@ async def lifespan(app: FastAPI):
         rerank_status["api_key_configured"],
         "chapter_generation_rag",
     )
-    yield
+    reminder_task = asyncio.create_task(_subscription_reminder_loop())
+    try:
+        yield
+    finally:
+        reminder_task.cancel()
+        try:
+            await reminder_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
 
 app = FastAPI(
