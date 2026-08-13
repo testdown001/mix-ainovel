@@ -1559,8 +1559,9 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
 
 /**
  * 断线后与后端真实状态对账，再决定告诉用户什么。三种真相三种说法：
- * 已落库 → 交成果；仍在生成（异步任务路径断的是推送、任务还在跑）→ 说清楚并让既有
- * 轮询接管；已终止（SSE 路径会连带取消生产者任务并退款）→ 明说可以重新生成。
+ * 已落库 → 把成果交出来（线上实测断线后生成会跑完，这是最常见的分支）；
+ * 仍在生成 → 说清楚并让既有轮询接管；确实终止（取消真的传到了后端，此时会退款并把
+ * 章节落到 failed）→ 明说可以重新生成。
  */
 const reconcileInterruptedChapter = (chapterNumber: number) => {
   const chapter = project.value?.chapters?.find((ch) => ch.chapter_number === chapterNumber)
