@@ -1,163 +1,126 @@
-#!/bin/bash
-# 回滚脚本
+#!/usr/bin/env bash
+# =============================================================================
+# 数据库回滚脚本
+#
+# 用法：
+#     bash deploy/scripts/rollback.sh [备份文件名]
+#     COMPOSE_FILE=docker-compose.prod.yml bash deploy/scripts/rollback.sh backup_20260813_120000.sql
+#
+# 不传文件名则列出 backups/ 下的备份并交互选择。
+#
+# 与旧版的区别：mysql 操作全部走 mysql 容器（宿主机不需要 mysql 客户端，
+# 生产栈也不再对外发布 3306）。因此回滚时只停应用容器、保留数据库容器在跑
+# —— 老脚本 `docker-compose down` 把数据库一起停了，之后的 restore 必然失败。
+# =============================================================================
 
-set -e
-
-echo "========================================="
-echo "AI-Novel 回滚脚本"
-echo "========================================="
-
-# 颜色定义
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="$DEPLOY_DIR/.env"
+# shellcheck source=deploy/scripts/_common.sh
+. "$SCRIPT_DIR/_common.sh"
 
-if [ ! -f "$ENV_FILE" ] && [ -f "$PROJECT_ROOT/.env" ]; then
-    ENV_FILE="$PROJECT_ROOT/.env"
-fi
+echo "========================================="
+echo " 数据库回滚"
+echo "========================================="
 
-# 检查部署目录
-if [ ! -f "$DEPLOY_DIR/docker-compose.yml" ]; then
-    echo -e "${RED}错误：未找到部署配置文件 $DEPLOY_DIR/docker-compose.yml${NC}"
-    exit 1
-fi
+require_docker
+load_env
 
-# 检查备份目录
+[ "${DB_PROVIDER:-sqlite}" = "mysql" ] || die "本脚本只处理 MySQL 回滚；SQLite 请直接还原 storage/ 数据卷"
+
+MYSQL_SVC="${MYSQL_SERVICE:-${MYSQL_HOST:-mysql}}"
 BACKUP_DIR="$PROJECT_ROOT/backups"
-if [ ! -d "$BACKUP_DIR" ]; then
-    echo -e "${RED}错误：未找到备份目录${NC}"
-    exit 1
+[ -d "$BACKUP_DIR" ] || die "未找到备份目录 $BACKUP_DIR"
+
+# ---- 选择备份文件 -------------------------------------------------------------
+BACKUP_NAME="${1:-}"
+if [ -z "$BACKUP_NAME" ]; then
+    echo ""
+    echo "可用备份："
+    ls -lh "$BACKUP_DIR"/*.sql 2>/dev/null || die "$BACKUP_DIR 下没有任何 .sql 备份"
+    echo ""
+    [ -t 0 ] || die "非交互环境请把备份文件名作为参数传入：bash $0 backup_YYYYmmdd_HHMMSS.sql"
+    echo -e "${YELLOW}请输入要恢复的备份文件名：${NC}"
+    read -r BACKUP_NAME
 fi
 
-# 列出可用的备份
+BACKUP_PATH="$BACKUP_DIR/$BACKUP_NAME"
+[ -f "$BACKUP_PATH" ] || die "备份文件不存在：$BACKUP_PATH"
+
+# ---- 确认 ---------------------------------------------------------------------
 echo ""
-echo "可用的数据库备份："
+warn "回滚将覆盖当前数据库！"
+echo "  备份文件：$BACKUP_PATH"
+echo "  文件大小：$(du -h "$BACKUP_PATH" | cut -f1)"
+echo "  创建时间：$(stat -c %y "$BACKUP_PATH" 2>/dev/null || stat -f %Sm "$BACKUP_PATH")"
+echo "  目标数据库：${MYSQL_DATABASE:-arboris}（容器服务 $MYSQL_SVC）"
 echo ""
-ls -lh $BACKUP_DIR/*.sql 2>/dev/null || {
-    echo -e "${RED}未找到任何备份文件${NC}"
-    exit 1
+if [ "${ASSUME_YES:-0}" != "1" ]; then
+    [ -t 0 ] || die "非交互环境需显式声明 ASSUME_YES=1 才会执行回滚"
+    echo -e "${YELLOW}确认执行回滚吗？(yes/no)${NC}"
+    read -r response
+    [ "$response" = "yes" ] || die "已取消"
+fi
+
+mysql_in_container() {
+    dc exec -T "$MYSQL_SVC" sh -c 'exec mysql -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
 }
 
+# ---- 先给当前状态留一份安全备份 -----------------------------------------------
 echo ""
-echo -e "${YELLOW}请输入要恢复的备份文件名（例如：backup_20260113_120000.sql）：${NC}"
-read -r backup_file
-
-BACKUP_PATH="$BACKUP_DIR/$backup_file"
-
-if [ ! -f "$BACKUP_PATH" ]; then
-    echo -e "${RED}错误：备份文件不存在: $BACKUP_PATH${NC}"
-    exit 1
-fi
-
-# 确认回滚
-echo ""
-echo -e "${RED}警告：回滚将覆盖当前数据库！${NC}"
-echo "备份文件: $BACKUP_PATH"
-echo "文件大小: $(du -h $BACKUP_PATH | cut -f1)"
-echo "创建时间: $(stat -c %y $BACKUP_PATH 2>/dev/null || stat -f %Sm $BACKUP_PATH)"
-echo ""
-echo -e "${YELLOW}确认要执行回滚吗？(yes/no)${NC}"
-read -r response
-
-if [ "$response" != "yes" ]; then
-    echo -e "${RED}回滚已取消${NC}"
-    exit 0
-fi
-
-# 加载环境变量
-if [ ! -f "$ENV_FILE" ]; then
-    echo -e "${RED}错误：未找到环境变量文件，请提供 $DEPLOY_DIR/.env 或 $PROJECT_ROOT/.env${NC}"
-    exit 1
-fi
-source <(tr -d '\r' < "$ENV_FILE")
-
-# 数据库连接信息
-DB_HOST="${MYSQL_HOST:-localhost}"
-DB_PORT="${MYSQL_PORT:-3306}"
-DB_USER="${MYSQL_USER:-arboris}"
-DB_PASSWORD="${MYSQL_PASSWORD}"
-DB_NAME="${MYSQL_DATABASE:-arboris}"
-
-if [ -z "$DB_PASSWORD" ]; then
-    echo -e "${RED}错误：未设置 MYSQL_PASSWORD 环境变量${NC}"
-    exit 1
-fi
-
-# 创建当前数据库的备份（以防回滚失败）
-echo ""
-echo "创建当前数据库的安全备份..."
+info "备份当前数据库（回滚失败时的退路）…"
 SAFETY_BACKUP="$BACKUP_DIR/safety_backup_$(date +%Y%m%d_%H%M%S).sql"
-mysqldump -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$SAFETY_BACKUP"
-echo -e "${GREEN}✓ 安全备份已保存到: $SAFETY_BACKUP${NC}"
-
-# 停止服务
-echo ""
-echo "停止服务..."
-cd "$DEPLOY_DIR"
-docker-compose down || true
-cd "$PROJECT_ROOT"
-echo -e "${GREEN}✓ 服务已停止${NC}"
-
-# 恢复数据库
-echo ""
-echo "恢复数据库..."
-mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" < "$BACKUP_PATH"
-echo -e "${GREEN}✓ 数据库已恢复${NC}"
-
-# 重启服务
-echo ""
-echo "重启服务..."
-cd "$DEPLOY_DIR"
-DB_PROVIDER="${DB_PROVIDER:-sqlite}"
-if [ "$DB_PROVIDER" = "mysql" ]; then
-    docker-compose --profile mysql up -d
+if dc exec -T "$MYSQL_SVC" sh -c \
+    'exec mysqldump --single-transaction -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' \
+    > "$SAFETY_BACKUP" 2>/dev/null && [ -s "$SAFETY_BACKUP" ]; then
+    ok "安全备份：$SAFETY_BACKUP"
 else
-    docker-compose up -d
+    rm -f "$SAFETY_BACKUP"
+    die "无法备份当前数据库（mysql 容器 $MYSQL_SVC 在跑吗？），拒绝在没有退路的情况下回滚"
 fi
-cd "$PROJECT_ROOT"
 
-# 等待服务启动
+# ---- 停应用（保留数据库容器，否则没法 restore）--------------------------------
 echo ""
-echo "等待服务启动..."
-sleep 10
+info "停止应用容器（数据库容器保持运行）…"
+dc stop "$APP_SERVICE" >/dev/null 2>&1 || true
+dc stop gateway >/dev/null 2>&1 || true
+ok "应用已停止"
 
-# 检查健康状态
+# ---- 恢复 ---------------------------------------------------------------------
 echo ""
-echo "检查服务健康状态..."
-MAX_RETRIES=30
-RETRY_COUNT=0
+info "恢复数据库…"
+mysql_in_container < "$BACKUP_PATH"
+ok "数据已恢复"
 
-while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if curl -f http://127.0.0.1:${APP_PORT:-80}/api/health > /dev/null 2>&1; then
-        echo -e "${GREEN}✓ 服务健康检查通过${NC}"
+# ---- 重启并检查 ---------------------------------------------------------------
+echo ""
+info "重启服务…"
+dc up -d
+
+info "等待服务就绪…"
+HEALTHY=false
+for _ in $(seq 1 60); do
+    if dc exec -T "$APP_SERVICE" curl -fs http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+        HEALTHY=true
         break
-    else
-        RETRY_COUNT=$((RETRY_COUNT + 1))
-        echo "等待服务启动... ($RETRY_COUNT/$MAX_RETRIES)"
-        sleep 2
     fi
+    sleep 2
 done
 
-if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-    echo -e "${RED}✗ 服务健康检查失败${NC}"
-    echo "尝试恢复到安全备份..."
-    mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" < "$SAFETY_BACKUP"
-    echo "请检查日志："
-    cd deploy && docker-compose logs --tail=50 app
-    exit 1
+if [ "$HEALTHY" != true ]; then
+    warn "健康检查失败，回滚到安全备份…"
+    mysql_in_container < "$SAFETY_BACKUP" || warn "安全备份恢复也失败了，请人工介入：$SAFETY_BACKUP"
+    dc up -d || true
+    warn "最近日志："
+    dc logs --tail=50 "$APP_SERVICE" || true
+    die "回滚后服务未能就绪，已尝试还原到回滚前状态"
 fi
 
 echo ""
 echo "========================================="
-echo -e "${GREEN}回滚成功！${NC}"
+ok "回滚成功"
 echo "========================================="
 echo ""
-echo "已恢复到备份: $backup_file"
-echo "安全备份保存在: $SAFETY_BACKUP"
+echo "  已恢复：$BACKUP_NAME"
+echo "  回滚前状态存于：$SAFETY_BACKUP"
 echo ""

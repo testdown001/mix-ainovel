@@ -19,8 +19,9 @@
 # 前置条件（脚本会检查/提示，但无法替你完成）：
 #   1) 域名 A 记录已解析到本机公网 IP（certbot 签证书要靠这个验证）。
 #   2) 云安全组 / 防火墙已放行 80 与 443。
-#   3) 代码已在服务器上（私有仓库 git@github.com:leanb525/mix-ainovel.git，
-#      git clone 需先在服务器配好 GitHub deploy key；或从本地 rsync 上来）。
+#   3) 代码已在服务器上：私有仓库需先在服务器配好 GitHub deploy key 再 git clone
+#      （或从本地 rsync 上来）。首次开机也可用 deploy/scripts/server_deploy.sh
+#      的 REPO_URL 引导克隆。仓库地址不写死在脚本里。
 #
 # 本脚本做了什么（关键）：
 #   · 装 Docker(含 compose 插件) + certbot；

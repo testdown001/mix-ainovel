@@ -1,141 +1,134 @@
-#!/bin/bash
-# 数据库迁移验证脚本
+#!/usr/bin/env bash
+# =============================================================================
+# 数据库结构校验脚本
+#
+# 校验两件事（都在 app 容器内执行，复用应用自己的数据库配置）：
+#   1) Alembic 版本是否落在 head 上；
+#   2) ORM 元数据（Base.metadata）与实际库结构有无漂移——缺表、缺列。
+#
+# 比对模型元数据而不是硬编码一串历史表名：加了新模型/新列忘记迁移，这里会直接报出来，
+# 不需要有人记得回来更新校验清单。
+#
+# 用法：
+#     bash deploy/scripts/verify_migration.sh
+#     COMPOSE_FILE=docker-compose.prod.yml bash deploy/scripts/verify_migration.sh
+#
+# 退出码：0 = 无漂移且版本在 head；1 = 存在问题（详见输出）。
+# =============================================================================
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="$DEPLOY_DIR/.env"
-
-if [ ! -f "$ENV_FILE" ] && [ -f "$PROJECT_ROOT/.env" ]; then
-    ENV_FILE="$PROJECT_ROOT/.env"
-fi
+# shellcheck source=deploy/scripts/_common.sh
+. "$SCRIPT_DIR/_common.sh"
 
 echo "========================================="
-echo "数据库迁移验证脚本"
+echo " 数据库结构校验"
 echo "========================================="
 
-# 加载环境变量
-if [ -f "$ENV_FILE" ]; then
-    source <(tr -d '\r' < "$ENV_FILE")
+require_docker
+load_env
+info "compose 文件：$(compose_desc)"
+info "数据库提供方：${DB_PROVIDER:-sqlite}"
+
+if ! app_exec sh -c 'exit 0' >/dev/null 2>&1; then
+    die "app 容器不可用。请先启动服务：cd $DEPLOY_DIR && ${DC[*]} up -d"
+fi
+
+FAILED=0
+
+# ---- 1. Alembic 版本 ---------------------------------------------------------
+echo ""
+info "1. Alembic 版本"
+CURRENT="$(app_exec alembic current 2>/dev/null | grep -oE '^[0-9a-f]{6,}' | head -n 1 || true)"
+HEADS="$(app_exec alembic heads 2>/dev/null | grep -oE '^[0-9a-f]{6,}' || true)"
+HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -c . || true)"
+
+if [ -z "$CURRENT" ]; then
+    warn "   库里没有 alembic_version（尚未纳管）→ 先跑 bash deploy/scripts/run_migrations.sh"
+    FAILED=1
+elif [ "$HEAD_COUNT" -gt 1 ]; then
+    warn "   检测到多个 head，upgrade 会失败，需要先 merge："
+    printf '     %s\n' $HEADS
+    FAILED=1
+elif [ "$CURRENT" = "$HEADS" ]; then
+    ok "   当前版本 $CURRENT（= head）"
 else
-    echo "错误：未找到环境变量文件，请提供 $DEPLOY_DIR/.env 或 $PROJECT_ROOT/.env"
-    exit 1
+    warn "   当前 $CURRENT ≠ head $HEADS → 有未应用的迁移"
+    FAILED=1
 fi
 
-# 数据库连接信息
-DB_HOST="${MYSQL_HOST:-localhost}"
-DB_PORT="${MYSQL_PORT:-3306}"
-DB_USER="${MYSQL_USER:-arboris}"
-DB_PASSWORD="${MYSQL_PASSWORD}"
-DB_NAME="${MYSQL_DATABASE:-arboris}"
-
-if [ -z "$DB_PASSWORD" ]; then
-    echo "错误：未设置 MYSQL_PASSWORD 环境变量"
-    exit 1
-fi
-
-echo "数据库连接信息："
-echo "  主机: $DB_HOST"
-echo "  端口: $DB_PORT"
-echo "  用户: $DB_USER"
-echo "  数据库: $DB_NAME"
+# ---- 2. ORM 元数据 vs 实际库结构 ---------------------------------------------
 echo ""
+info "2. 模型与库结构漂移"
+if app_exec python - <<'PY'
+import asyncio
+import sys
 
-# 检查 MySQL 连接
-echo "1. 检查 MySQL 连接..."
-if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
-    echo "   ✓ MySQL 连接成功"
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import create_async_engine
+
+import app.models  # noqa: F401  触发全部模型注册
+from app.core.config import settings
+from app.db.base import Base
+
+
+def collect(conn):
+    insp = inspect(conn)
+    tables = set(insp.get_table_names())
+    columns = {t: {c["name"] for c in insp.get_columns(t)} for t in tables}
+    return tables, columns
+
+
+async def main() -> int:
+    engine = create_async_engine(settings.sqlalchemy_database_uri)
+    try:
+        async with engine.connect() as conn:
+            db_tables, db_columns = await conn.run_sync(collect)
+    finally:
+        await engine.dispose()
+
+    missing_tables = []
+    missing_columns = []
+    for name, table in sorted(Base.metadata.tables.items()):
+        if name not in db_tables:
+            missing_tables.append(name)
+            continue
+        for column in table.columns:
+            if column.name not in db_columns[name]:
+                missing_columns.append(f"{name}.{column.name}")
+
+    if missing_tables:
+        print(f"   缺表 {len(missing_tables)} 张：")
+        for name in missing_tables:
+            print(f"     - {name}")
+    if missing_columns:
+        print(f"   缺列 {len(missing_columns)} 个：")
+        for item in missing_columns:
+            print(f"     - {item}")
+    if not missing_tables and not missing_columns:
+        print(f"   模型 {len(Base.metadata.tables)} 张表全部就位，无缺表缺列")
+        return 0
+    return 1
+
+
+sys.exit(asyncio.run(main()))
+PY
+then
+    ok "   无漂移"
 else
-    echo "   ✗ MySQL 连接失败"
-    exit 1
+    warn "   存在漂移：库结构落后于模型定义"
+    warn "   处理：确认 backend/migrations/ 里有对应 revision，然后 bash deploy/scripts/run_migrations.sh"
+    warn "   （应用启动时的 init_db() create_all + _ensure_columns 也会补一部分，可先重启 app 观察）"
+    FAILED=1
 fi
-
-# 检查数据库是否存在
-echo ""
-echo "2. 检查数据库 $DB_NAME 是否存在..."
-if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" -e "USE $DB_NAME;" > /dev/null 2>&1; then
-    echo "   ✓ 数据库存在"
-else
-    echo "   ✗ 数据库不存在"
-    exit 1
-fi
-
-# 检查 Novel-Kit 功能表
-echo ""
-echo "3. 检查 Novel-Kit 功能表..."
-NOVEL_KIT_TABLES=(
-    "constitutions"
-    "writer_personas"
-    "factions"
-    "faction_members"
-    "faction_relationships"
-    "faction_relationship_history"
-)
-
-for table in "${NOVEL_KIT_TABLES[@]}"; do
-    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "DESCRIBE $table;" > /dev/null 2>&1; then
-        echo "   ✓ 表 $table 存在"
-    else
-        echo "   ✗ 表 $table 不存在"
-        echo "     请执行迁移脚本: backend/db/migrations/add_novel_kit_features.sql"
-    fi
-done
-
-# 检查深度优化功能表
-echo ""
-echo "4. 检查深度优化功能表..."
-OPTIMIZATION_TABLES=(
-    "character_states"
-    "timeline_events"
-    "causal_chains"
-    "story_time_trackers"
-    "periodic_reviews"
-    "reader_feedbacks"
-    "critique_records"
-    "revision_histories"
-    "emotion_curve_configs"
-)
-
-for table in "${OPTIMIZATION_TABLES[@]}"; do
-    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "DESCRIBE $table;" > /dev/null 2>&1; then
-        echo "   ✓ 表 $table 存在"
-    else
-        echo "   ✗ 表 $table 不存在"
-        echo "     请执行迁移脚本: backend/db/migrations/add_deep_optimization_features.sql"
-    fi
-done
-
-# 检查 chapter_outlines 表的 metadata 字段
-echo ""
-echo "5. 检查 chapter_outlines 表的 metadata 字段..."
-if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "DESCRIBE chapter_outlines metadata;" > /dev/null 2>&1; then
-    echo "   ✓ chapter_outlines.metadata 字段存在"
-else
-    echo "   ✗ chapter_outlines.metadata 字段不存在"
-    echo "     请执行: ALTER TABLE chapter_outlines ADD COLUMN metadata JSON NULL;"
-fi
-
-# 检查 foreshadowings 表的扩展字段
-echo ""
-echo "6. 检查 foreshadowings 表的扩展字段..."
-FORESHADOWING_FIELDS=(
-    "status"
-    "planted_chapter"
-    "revealed_chapter"
-    "planned_reveal_chapter"
-)
-
-for field in "${FORESHADOWING_FIELDS[@]}"; do
-    if mysql -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "DESCRIBE foreshadowings $field;" > /dev/null 2>&1; then
-        echo "   ✓ foreshadowings.$field 字段存在"
-    else
-        echo "   ✗ foreshadowings.$field 字段不存在"
-    fi
-done
 
 echo ""
 echo "========================================="
-echo "验证完成"
+if [ "$FAILED" = 0 ]; then
+    ok "校验通过"
+else
+    warn "校验发现问题（见上）"
+fi
 echo "========================================="
+exit "$FAILED"

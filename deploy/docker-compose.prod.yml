@@ -98,6 +98,9 @@ services:
 
       # 数据库配置
       DB_PROVIDER: ${DB_PROVIDER:-mysql}
+      # 生产栈默认走 MySQL；万一切到 sqlite，库也必须落在挂载卷 app-storage(/app/storage)，
+      # 否则应用默认的 ./arboris.db 在容器可写层，重建容器即丢数据。
+      SQLITE_PATH: ${SQLITE_PATH:-storage/arboris.db}
       MYSQL_HOST: ${MYSQL_HOST:-mysql}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
       MYSQL_USER: ${MYSQL_USER:-arboris}
@@ -136,8 +139,7 @@ services:
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-${OPENAI_API_KEY}}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-large}
 
-      # 向量数据库配置
-      VECTOR_DB_URL: ${VECTOR_DB_URL:-file:/app/storage/rag_vectors.db}
+      # 向量数据库配置（实际后端是下方的 Qdrant；libsql 时代的 VECTOR_DB_URL 已无读取方，移除）
       VECTOR_TOP_K_CHUNKS: ${VECTOR_TOP_K_CHUNKS:-5}
       VECTOR_TOP_K_SUMMARIES: ${VECTOR_TOP_K_SUMMARIES:-3}
 

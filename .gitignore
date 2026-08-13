@@ -23,6 +23,9 @@
 # 保留 .env.example
 !.env.example
 
+# 部署目标（服务器地址/仓库/分支等本机默认值，见 deploy/scripts/quick_deploy.sh）
+deploy/.deploy-target
+
 __pycache__/
 *.py[cod]
 *$py.class

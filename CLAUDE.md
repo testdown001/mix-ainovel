@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Arboris-Novel is a commercial AI-assisted long-form Chinese fiction writing platform. It combines a FastAPI (Python 3.11) backend, a Vue 3 + TypeScript frontend, and an optional Go gateway for production traffic, WebSocket progress, reverse proxying, and task dispatch. The creative workflow is: concept dialogue (灵感模式) → blueprint generation → chapter outline → context planning and retrieval → AI chapter generation → review/selection → memory and vector persistence for future context. The commercial layer adds membership tiers (`free` / `creator` / `flagship`), multi-channel login, and Alipay/WeChat/Stripe payments — all runtime-configured through the admin panel (SystemConfig table), not env vars.
+Arboris-Novel is a commercial AI-assisted long-form Chinese fiction writing platform. It combines a FastAPI (Python 3.12) backend, a Vue 3 + TypeScript frontend, and an optional Go gateway for production traffic, WebSocket progress, reverse proxying, and task dispatch. The creative workflow is: concept dialogue (灵感模式) → blueprint generation → chapter outline → context planning and retrieval → AI chapter generation → review/selection → memory and vector persistence for future context. The commercial layer adds membership tiers (`free` / `creator` / `flagship`), multi-channel login, and Alipay/WeChat/Stripe payments — all runtime-configured through the admin panel (SystemConfig table), not env vars.
 
 ## Common Commands
 
@@ -50,19 +50,25 @@ alembic revision --autogenerate -m "describe change"
 alembic upgrade head
 # existing DBs created by create_all: alembic stamp head
 ```
-Baseline revision: `migrations/versions/3d0894d473c4_baseline_schema.py`. Startup still runs `init_db()` `create_all` + repair helpers; Alembic is the versioned-migration path going forward. (`deploy/scripts/run_migrations.sh` is a separate legacy raw-SQL path using `backend/db/migrations/*.sql` — do not confuse the two.)
+Baseline revision: `migrations/versions/3d0894d473c4_baseline_schema.py`. Startup still runs `init_db()` `create_all` + repair helpers; Alembic is the versioned-migration path going forward. Revision chain (single head): `3d0894d473c4` → `b1c2d3e4f5a6` → `c7f8a9b0d1e2` → `d8e9f0a1b2c3`.
+
+On servers, migrations run **inside the app container** via `deploy/scripts/run_migrations.sh` (reworked 2026-08-13): it reuses the app's own `sqlalchemy_database_uri`, so no host mysql client and no published DB port are needed (prod deliberately publishes neither). The script probes schema state first — a DB built by `create_all` with no `alembic_version` gets `alembic stamp head` (registering the status quo as baseline) rather than a doomed `upgrade` against existing tables; an already-managed DB gets `alembic upgrade head`. `backend/db/migrations/*.sql` is the archived pre-Alembic path, now only reachable with `LEGACY_SQL=1`. Companion `verify_migration.sh` checks revision == head and diffs `Base.metadata` against the live schema (reports missing tables/columns) instead of asserting a hardcoded 2025-era table list.
 
 ### Docker Deployment
 ```bash
 cd deploy && cp .env.example .env  # template lives at deploy/.env.example
 docker compose up -d               # app (single container :80) + qdrant
 ```
-`SECRET_KEY` and `MYSQL_PASSWORD` are mandatory `${VAR:?}` interpolations in `deploy/docker-compose.yml` — they must be set in `deploy/.env` even when running `DB_PROVIDER=sqlite`. `docker-compose.prod.yml` is the horizontal-scale stack (nginx + 2×Go gateway + 3×app + mysql + redis + qdrant).
+`SECRET_KEY` and `MYSQL_PASSWORD` are mandatory `${VAR:?}` interpolations in `deploy/docker-compose.yml` — they must be set in `deploy/.env` even when running `DB_PROVIDER=sqlite`. `docker-compose.prod.yml` is the horizontal-scale stack (nginx + 2×Go gateway + 3×app + mysql + redis + qdrant), and it deliberately publishes no ports for mysql/redis/qdrant.
+
+Scripted paths (all in `deploy/scripts/`, all env-var driven — see "Known Pitfalls"): `server_deploy.sh` = first-boot bootstrap for the single-container stack (`curl | bash`-able, generates `deploy/.env` with a **random** admin password); `oneclick_prod_https.sh` = prod stack + Let's Encrypt HTTPS; `deploy_docker.sh` = build/up/health-check on the current host (`NO_CACHE=1`, `RUN_MIGRATIONS=1`); `quick_deploy.sh` = drive `deploy_docker.sh` on a remote host over ssh; `run_migrations.sh` / `verify_migration.sh` = Alembic + schema-drift check; `rollback.sh` = restore a `backups/*.sql` dump.
 
 Health check: `GET /api/health`
 
 ### CI (`.github/workflows/ci.yml`)
 Three jobs: backend = `pytest tests/ -q --cov=app` on Python 3.12 (sqlite); gateway = `go build ./...` + `go vet ./...`; frontend = Node 22 type-check + `test:unit` + build.
+
+**Version matrix invariant**: CI must test the runtime that actually ships. `deploy/Dockerfile` is pinned to `python:3.12-slim` + `node:22-slim` to match this workflow (it was 3.11/20 until 2026-08-13, so a green CI said nothing about the image); the gateway takes its Go version from `gateway/go.mod` in both CI (`go-version-file`) and `gateway/Dockerfile` (`golang:1.25-alpine`). Change one side and you must change the other — both files carry a comment saying so.
 
 ### Logs
 Application logs are written to `backend/logs/`:
@@ -152,7 +158,7 @@ Vue 3 + TypeScript + Naive UI + TailwindCSS 4 + Pinia
 ### Database
 
 - **MySQL 8.0+** (default): production-ready, async via `asyncmy`
-- **SQLite**: zero config alternative, file at `storage/arboris.db` (set `DB_PROVIDER=sqlite`)
+- **SQLite**: zero config alternative (set `DB_PROVIDER=sqlite`). The app default `SQLITE_PATH` is `./arboris.db` — relative to CWD, so local dev writes `backend/arboris.db`. Both compose files override it to `storage/arboris.db` so the file lands inside the mounted `app-storage` volume (see the pitfall below)
 - `DATABASE_URL` (env) overrides `DB_PROVIDER` entirely; postgres URLs are normalized to asyncpg (asyncpg is in requirements), though the `DB_PROVIDER` validator itself only accepts mysql|sqlite
 - **Qdrant** (optional): vector DB for RAG, stores `rag_chunks` (text embeddings) and `rag_summaries` (chapter summary embeddings); also used by Mem0 for long-term memory
 - All DB access is async (aiosqlite / asyncmy). Session factory: `db/session.py` → `AsyncSessionLocal` (SQLite connections enable `PRAGMA foreign_keys=ON`)
@@ -253,7 +259,8 @@ Gateway: `TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET` (accepts `GATEWAY_` prefix a
 - **2026-07-26 深度审计与五阶段整改**：`docs/generation-quality-audit-2026-07.md` 是当日 ~60 项问题的完整清单与修复状态（阶段 0-4 全部交付）。阅读旧报告/记忆时注意：六维评审、卷/书摘要注入、CharacterState(standard)、temporal_state、polish 计费、蓝图两段+异步等的"修复前"描述均已过时。
 
 - **Preset names**: only `fast`/`standard`/`premium` are real; legacy names (`basic`/`enhanced`→standard, `ultimate`/`platinum`/`literary`→premium) and unknown names (→fast) are normalized at entry by `core/feature_gating.normalize_preset` — the single alias table shared by config resolution and the tier gate. Don't reintroduce a separate mapping; the Go gateway's submit default is also `fast` (`taskdispatcher/handler.go`). (A 2026-06-07 regression made the alias branch recurse infinitely and let aliases/unknown names bypass the tier gate; fixed 2026-06-10, locked by `tests/test_preset_gating.py` + `tests/test_pipeline_config_resolution.py`.) Request-side `versions` is capped at 5 in `writer_shared.resolve_version_count`.
-- **`deploy/scripts/`** are environment-specific (hardcoded server IP / repo URL), not a generic deploy flow; `run_migrations.sh` uses the legacy raw-SQL migration dir, not Alembic.
+- **SQLite path vs the mounted volume (fixed 2026-08-13)**: `settings.sqlite_path` defaults to `./arboris.db`, i.e. `/app/arboris.db` in the container — *outside* the `app-storage:/app/storage` volume. Two bugs fell out of that and both are now fixed; don't reintroduce either. (1) `docker compose up -d --build` recreated the container and took the whole SQLite database with it, so every deploy silently wiped user data in `DB_PROVIDER=sqlite` mode (the mode `server_deploy.sh` writes by default) — both compose files now pin `SQLITE_PATH=${SQLITE_PATH:-storage/arboris.db}`. (2) `backend/arboris.db` was not in `.dockerignore` and the Dockerfile's cleanup only wiped `/app/storage`, so a developer's local database (users, projects, chapters, and an `alembic_version` stamped at baseline) was baked into the image; a fresh deploy booted on that stale data, and because a `users` row already existed, `ADMIN_DEFAULT_PASSWORD` never took effect — exactly what that cleanup line was written to guarantee. `.dockerignore` now excludes `backend/*.db` and the Dockerfile also removes `/app/*.db`. Upgrade note: an existing `DB_PROVIDER=sqlite` deployment keeps its data at `/app/arboris.db` in the old container's writable layer, so copy it into the volume before recreating (`docker compose cp app:/app/arboris.db ./arboris.db` then into `/app/storage/`); MySQL deployments are unaffected.
+- **`deploy/scripts/`** were parameterized 2026-08-13 — no server IP / repo URL is hardcoded any more. Targets come from env vars or an untracked `deploy/.deploy-target` (`SERVER_IP`/`SERVER_USER`/`SSH_PORT`/`PROJECT_DIR`/`REPO_URL`/`GIT_BRANCH`/`COMPOSE_FILE`); `quick_deploy.sh` refuses to run without `SERVER_IP`. Shared helpers live in `deploy/scripts/_common.sh` (compose v1/v2 resolution, `.env` loading, `app_exec`) — except `server_deploy.sh`, which stays self-contained because it is the `curl | bash` bootstrap that runs before the repo exists. Multi-file stacks use docker's native `COMPOSE_FILE` (colon-separated) rather than custom flags. Fixed in the same pass: `quick_deploy.sh` interpolated `$ENV_FILE` inside a quoted heredoc so the remote check was always `[ ! -f "" ]` → every run aborted at step 3; `deploy_docker.sh`/`rollback.sh` called the v1-only `docker-compose` binary on hosts that only have the v2 plugin; `rollback.sh` took the whole stack down (DB included) before trying to restore into it.
 - Multiple agent docs coexist (`AGENTS.md`, `GEMINI.md`, `replit.md`); `AGENTS.md` overlaps this file heavily — when updating architecture facts here, check whether `AGENTS.md` repeats the stale claim.
 - Celery was fully removed 2026-06-10 (router `tasks.py`, `app/tasks/`, `app/config/`, requirements, prod-compose worker blocks); if you see Celery references in older docs/reports they are historical.
 
