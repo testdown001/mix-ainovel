@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ReferenceNovel, User
-from ..schemas.reference_novel import MemoryCard
+from ..schemas.reference_novel import BeatLibrary, MemoryCard
 from ..utils.json_utils import (
     remove_think_tags,
     repair_json,
@@ -132,33 +132,48 @@ class ReferenceNovelLibraryService:
         await self.session.refresh(novel)
 
         try:
-            search_result = await self.search_service._search_single_novel(novel_name=novel.title)
-            search_context = search_result.get("result", "")
+            # 多维度检索：每路抽取吃自己需要的维度，而不是全部吃同一段百科式摘要。
+            # 单维度失败降级（combine_dimension_texts 会回退到可用维度），全失败才抛。
+            dimension_results = await self.search_service.search_novel_dimensions(novel_name=novel.title)
+            combine = self.search_service.combine_dimension_texts
+            outline_context = combine(dimension_results, "plot", "characters")
+            style_context = combine(dimension_results, "craft", "plot")
+            memory_card_context = combine(dimension_results, "pacing", "craft", "plot")
+            beats_context = combine(dimension_results, "beats", "pacing", "plot")
+
             outline_prompt = await self.prompt_service.get_prompt("reference_outline_extraction")
             style_prompt = await self.prompt_service.get_prompt("reference_style_extraction")
             memory_card_prompt = await self.prompt_service.get_prompt("reference_memory_card_extraction")
+            beats_prompt = await self.prompt_service.get_prompt("reference_beat_extraction")
             search_llm_config = await self.llm_service._resolve_search_llm_config()
 
-            outline, style, memory_card = await asyncio.gather(
+            outline, style, memory_card, beat_library = await asyncio.gather(
                 self._extract_outline(
                     novel.title,
-                    search_context,
+                    outline_context,
                     user_id,
                     prompt_template=outline_prompt,
                     llm_config=search_llm_config,
                 ),
                 self._extract_style(
                     novel.title,
-                    search_context,
+                    style_context,
                     user_id,
                     prompt_template=style_prompt,
                     llm_config=search_llm_config,
                 ),
                 self._extract_memory_card(
                     novel.title,
-                    search_context,
+                    memory_card_context,
                     user_id,
                     prompt_template=memory_card_prompt,
+                    llm_config=search_llm_config,
+                ),
+                self._extract_beat_library(
+                    novel.title,
+                    beats_context,
+                    user_id,
+                    prompt_template=beats_prompt,
                     llm_config=search_llm_config,
                 ),
             )
@@ -166,6 +181,7 @@ class ReferenceNovelLibraryService:
             novel.outline_content = outline
             novel.style_samples_content = style
             novel.memory_card = memory_card
+            novel.beat_library = beat_library
             novel.status = self._STATUS_READY
             novel.error_message = None
             await self.session.commit()
@@ -272,6 +288,53 @@ class ReferenceNovelLibraryService:
         if memory_card is None:
             logger.warning("记忆卡 JSON 缺少有效字段，已忽略: %s", payload[:200])
         return memory_card
+
+    async def _extract_beat_library(
+        self,
+        novel_title: str,
+        search_results: str,
+        user_id: int,
+        *,
+        prompt_template: Optional[str] = None,
+        llm_config: Optional[Dict[str, Optional[str]]] = None,
+    ) -> Optional[dict]:
+        """抽取桥段库：情境→手法的可检索条目 + 全书级结构手法。
+
+        软失败：桥段是增量能力，抽不出来不应让整次分析失败（老三样照旧可用），
+        但要记日志——静默的空库和「分析成功」看起来一样，排查时得知道是这里没料。
+        """
+        prompt = prompt_template or await self.prompt_service.get_prompt("reference_beat_extraction")
+        if not prompt:
+            logger.warning("缺失 reference_beat_extraction 提示词，跳过桥段库抽取")
+            return None
+        filled = self.prompt_service.render_prompt(
+            prompt,
+            novel_title=novel_title,
+            search_results=search_results,
+        )
+
+        async def _search_channel_responder(p: str, system_prompt: str) -> str:
+            return await self.llm_service.get_search_llm_response(
+                system_prompt=system_prompt,
+                conversation_history=[{"role": "user", "content": p}],
+                temperature=0.3,
+                max_tokens=3200,
+                config_override=llm_config,
+            )
+
+        library = await self.llm_service.generate_structured(
+            prompt=filled,
+            schema=BeatLibrary,
+            user_id=user_id,
+            responder=_search_channel_responder,
+            default=BeatLibrary(),
+        )
+        beats = [beat for beat in library.beats if beat.situation.strip()]
+        if not beats:
+            logger.warning("参考小说《%s》桥段库抽取为空（资料不足或解析失败）", novel_title)
+            structure = library.structure.model_dump(exclude_defaults=True)
+            return {"beats": [], "structure": structure} if structure else None
+        return BeatLibrary(beats=beats, structure=library.structure).model_dump()
 
     @staticmethod
     def _normalize_memory_card_key(key: str) -> str:
@@ -434,10 +497,38 @@ class ReferenceNovelLibraryService:
                 samples.append(f"=== {novel.title} ===\n{content[: self._PROMPT_STYLE_SAMPLE_CHARS]}")
         return "\n\n".join(samples)
 
+    # 记忆卡注入的字段优先级：剧情思考类在前（冲突模版/爽点/伏笔/悬念），
+    # 其后是节奏与写法。此前是整段 JSON dump 再拦腰截 800 字——缩进和引号吃掉
+    # 大半预算，截断点落在哪个字段全凭运气，排前面的 genre/target_audience
+    # 这类低价值字段反而永远活着。
+    _MEMORY_CARD_PROMPT_FIELDS: List[tuple[str, str]] = [
+        ("main_conflict_pattern", "主线冲突模版"),
+        ("cool_point_patterns", "爽点模式"),
+        ("foreshadowing_techniques", "伏笔技法"),
+        ("suspense_techniques", "悬念技法"),
+        ("pacing_traits", "节奏特点"),
+        ("emotion_control_pattern", "情绪控制"),
+        ("narrative_pov", "叙述视角"),
+        ("dialogue_style", "对话风格"),
+        ("takeaways", "可复用要点"),
+        ("risks", "风险提醒"),
+    ]
+
     def format_memory_card_for_prompt(self, novels: List[ReferenceNovel]) -> str:
         cards: List[str] = []
         for novel in novels:
             data = novel.memory_card or {}
-            json_dump = json.dumps(data, ensure_ascii=False, indent=2)
-            cards.append(f"参考小说：{novel.title}\n{json_dump[: self._PROMPT_MEMORY_CARD_CHARS]}")
+            lines: List[str] = []
+            for key, label in self._MEMORY_CARD_PROMPT_FIELDS:
+                value = data.get(key)
+                if isinstance(value, list):
+                    items = [str(v).strip() for v in value if str(v).strip()]
+                    if items:
+                        lines.append(f"- {label}：{'；'.join(items[:4])}")
+                elif isinstance(value, str) and value.strip():
+                    lines.append(f"- {label}：{value.strip()}")
+            if not lines:
+                continue
+            block = f"参考小说：{novel.title}\n" + "\n".join(lines)
+            cards.append(block[: self._PROMPT_MEMORY_CARD_CHARS])
         return "\n\n".join(cards)

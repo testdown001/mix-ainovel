@@ -28,6 +28,43 @@ class MemoryCard(BaseModel):
     risks: List[str] = Field(default_factory=list)
 
 
+class ReferenceBeat(BaseModel):
+    """单条桥段：一个「情境 → 手法」的可复用映射。
+
+    这是「剧情思考」的最小单元。MemoryCard 只有全书级形容词（节奏快、爽点密），
+    写到具体章节时给不出任何可操作的东西；桥段回答的是：什么局面、怎么铺垫、
+    靠什么转折、情绪在哪兑现、照搬会怎么翻车。situation 是检索键——生成第 N 章时
+    按本章情境找最相似的桥段注入。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(default="", description="桥段名，如「当众打脸·实力悬殊反转」")
+    situation: str = Field(default="", description="适用情境（检索键）：什么局面下用")
+    tags: List[str] = Field(default_factory=list, description="情境标签，如 打脸/逆袭/公开场合")
+    setup: str = Field(default="", description="铺垫怎么做：前置章节埋了什么")
+    turn: str = Field(default="", description="转折靠什么触发：伏笔回收/信息差/外力")
+    payoff: str = Field(default="", description="情绪兑现点在哪、读者情绪曲线")
+    pitfalls: str = Field(default="", description="照搬的翻车点")
+
+
+class BeatStructure(BaseModel):
+    """全书级结构手法：给蓝图章纲阶段用的「排章思路」。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    volume_rhythm: str = Field(default="", description="分卷节奏：每卷怎么排大小高潮")
+    conflict_escalation: str = Field(default="", description="冲突升级路径")
+    hook_pattern: str = Field(default="", description="章末钩子的常用形态")
+
+
+class BeatLibrary(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    beats: List[ReferenceBeat] = Field(default_factory=list)
+    structure: BeatStructure = Field(default_factory=BeatStructure)
+
+
 class ReferenceNovelBase(BaseModel):
     title: str
     outline_content: Optional[str] = None
@@ -48,6 +85,7 @@ class ReferenceNovelUpdate(BaseModel):
     outline_content: Optional[str] = None
     style_samples_content: Optional[str] = None
     memory_card: Optional[MemoryCard] = None
+    beat_library: Optional[BeatLibrary] = None
     genre: Optional[str] = None
     author: Optional[str] = None
     source_url: Optional[str] = None
@@ -71,6 +109,7 @@ class ReferenceNovelDetail(ReferenceNovelSummary):
     outline_content: Optional[str] = None
     style_samples_content: Optional[str] = None
     memory_card: Optional[MemoryCard] = None
+    beat_library: Optional[BeatLibrary] = None
     source_url: Optional[str] = None
     error_message: Optional[str] = None
 

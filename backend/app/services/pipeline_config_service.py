@@ -50,6 +50,9 @@ class PipelineConfig:
     enable_prose_sculpting: bool = False
     enable_golden_paragraph: bool = False
     enable_reference_prose: bool = False
+    # 参考桥段：按本章情境从绑定参考小说的桥段库选取注入（standard+ 默认开；
+    # 未绑定参考小说时自然 no-op，故默认开不产生额外成本）
+    enable_reference_beats: bool = False
     enable_voice_samples: bool = False
     enable_narrative_variety: bool = False
     use_slim_prompt: bool = False
@@ -170,6 +173,7 @@ class PipelineConfigService:
             config.enable_prose_sculpting = False
             config.enable_golden_paragraph = False
             config.enable_reference_prose = False
+            config.enable_reference_beats = False
             config.enable_voice_samples = False
             config.enable_narrative_variety = False
             config.use_slim_prompt = False
@@ -199,6 +203,7 @@ class PipelineConfigService:
             config.enable_state_tracking = True
             config.enable_six_dimension = True
             config.enable_enrichment = True
+            config.enable_reference_beats = True
             # enable_polish 不再随 preset 默认开启：润色是勾选计费项（每章额外扣积分），
             # 仅当用户勾选经 flow_config 覆写打开（FLOW_OVERRIDE_SWITCHES creator+ 门控）
             config.rag_mode = settings.rag_default_mode
@@ -223,6 +228,7 @@ class PipelineConfigService:
             config.enable_reader_sim = True
             config.enable_consistency = True
             config.enable_enrichment = True
+            config.enable_reference_beats = True
             # enable_polish 同 standard：勾选计费项，不随 preset 默认开启（optimizer 照跑，
             # 仅在用户勾选时才「合并润色」语义生效，见 standard_post_processing merge_polish）
             config.enable_optimizer = True
@@ -261,6 +267,7 @@ class PipelineConfigService:
             config.enable_mission_brief = False
             config.enable_narrative_variety = False
             config.enable_reference_prose = False
+            config.enable_reference_beats = False
             config.enable_voice_samples = False
             config.enable_prose_sculpting = False
             config.enable_golden_paragraph = False
@@ -295,6 +302,7 @@ class PipelineConfigService:
             "enable_prose_sculpting",
             "enable_golden_paragraph",
             "enable_reference_prose",
+            "enable_reference_beats",
             "enable_voice_samples",
             "enable_narrative_variety",
             "use_slim_prompt",

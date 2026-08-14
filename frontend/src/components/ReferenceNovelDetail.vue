@@ -44,10 +44,45 @@
         <label>记忆卡（JSON）</label>
         <textarea v-model="memoryCardJson" rows="8" />
       </div>
+
+      <!-- 桥段库：情境→手法的可检索条目，生成章节时按本章情境选取注入。
+           只读展示（编辑走重新分析）；老数据没有桥段库时给补齐入口。 -->
+      <div class="detail-section">
+        <label>桥段库（{{ beats.length }} 条，按章节情境检索注入正文生成）</label>
+        <div v-if="beats.length" class="beat-list">
+          <details v-for="(beat, index) in beats" :key="index" class="beat-item">
+            <summary>
+              <span class="beat-name">{{ beat.name || '未命名桥段' }}</span>
+              <span class="beat-tags" v-if="beat.tags?.length">{{ beat.tags.join(' / ') }}</span>
+            </summary>
+            <dl class="beat-fields">
+              <template v-if="beat.situation"><dt>适用局面</dt><dd>{{ beat.situation }}</dd></template>
+              <template v-if="beat.setup"><dt>铺垫</dt><dd>{{ beat.setup }}</dd></template>
+              <template v-if="beat.turn"><dt>转折</dt><dd>{{ beat.turn }}</dd></template>
+              <template v-if="beat.payoff"><dt>兑现</dt><dd>{{ beat.payoff }}</dd></template>
+              <template v-if="beat.pitfalls"><dt>勿踩</dt><dd>{{ beat.pitfalls }}</dd></template>
+            </dl>
+          </details>
+        </div>
+        <div v-else-if="novel.status === 'ready'" class="beat-empty">
+          该书是在桥段库功能上线前分析的，点「重新分析」补齐（会重新联网检索并覆盖现有档案）。
+        </div>
+        <div v-if="beatStructureText" class="beat-structure">
+          <label>全书结构手法（蓝图排章纲时参考）</label>
+          <p>{{ beatStructureText }}</p>
+        </div>
+      </div>
+
       <div class="detail-footer">
         <n-button size="small" type="primary" @click="save" :loading="saving">保存</n-button>
         <n-button size="small" type="default" @click="refresh" :disabled="loading">刷新</n-button>
-        <n-button v-if="novel.status === 'failed'" size="small" type="warning" @click="retryAnalyze" :loading="retrying">重新分析</n-button>
+        <n-button
+          v-if="novel.status === 'failed' || novel.status === 'ready'"
+          size="small"
+          type="warning"
+          @click="retryAnalyze"
+          :loading="retrying"
+        >重新分析</n-button>
         <span v-if="message" class="detail-message">{{ message }}</span>
       </div>
     </div>
@@ -78,6 +113,18 @@ const saving = ref(false)
 const retrying = ref(false)
 const message = ref('')
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+const beats = computed(() => novel.value?.beat_library?.beats || [])
+
+const beatStructureText = computed(() => {
+  const structure = novel.value?.beat_library?.structure
+  if (!structure) return ''
+  const parts: string[] = []
+  if (structure.volume_rhythm) parts.push(`分卷节奏：${structure.volume_rhythm}`)
+  if (structure.conflict_escalation) parts.push(`冲突升级：${structure.conflict_escalation}`)
+  if (structure.hook_pattern) parts.push(`章末钩子：${structure.hook_pattern}`)
+  return parts.join('　')
+})
 
 const statusType = computed(() => {
   if (!novel.value) return 'info'
@@ -325,6 +372,65 @@ const save = async () => {
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+.beat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.beat-item {
+  border: 1px solid #d1d5db;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+}
+.beat-item summary {
+  cursor: pointer;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.beat-name {
+  font-weight: 600;
+}
+.beat-tags {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+.beat-fields {
+  margin: 0.5rem 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.6rem;
+}
+.beat-fields dt {
+  color: #6b7280;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.beat-fields dd {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.beat-empty {
+  font-size: 0.82rem;
+  color: #92400e;
+  padding: 0.4rem 0.6rem;
+  background: #fffbeb;
+  border-radius: 0.4rem;
+}
+.beat-structure {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.beat-structure p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.6;
 }
 .detail-message {
   color: #2563eb;

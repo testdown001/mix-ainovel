@@ -21,9 +21,11 @@ def test_pipeline_orchestrator_init_wires_dependencies_in_safe_order(monkeypatch
             assert prompt_assembly_service is not None
 
     class _GenerationPromptStage:
-        def __init__(self, *, prompt_assembly_service, prompt_compiler, prompt_service, enhanced_context_service):
+        def __init__(self, *, prompt_assembly_service, prompt_compiler, prompt_service, enhanced_context_service, llm_service=None):
             assert prompt_assembly_service is not None
             assert prompt_compiler is not None
+            # 参考桥段按情境选取需要嵌入，编排器必须把 llm_service 接进来
+            assert llm_service is not None
 
     class _GenerationContextResolution:
         def __init__(self, *, evidence_router, generation_policy_service, llm_service, session):

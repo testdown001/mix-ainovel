@@ -51,6 +51,22 @@ def _ensure_prompt(prompt: Optional[str], name: str) -> str:
     return prompt
 
 
+async def _build_structure_reference(session: AsyncSession, project) -> str:
+    """参考小说桥段库里的全书级结构手法；任何失败返回空串（参考是增益不是依赖）。"""
+    try:
+        from ..services.generation_support_service import GenerationSupportService
+        from ..services.reference_beat_service import ReferenceBeatService
+
+        reference_service = ReferenceNovelLibraryService(session)
+        novels = await GenerationSupportService(session).load_project_reference_novels(
+            project, reference_service
+        )
+        return ReferenceBeatService.format_structure_for_blueprint(novels)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("蓝图章纲结构参考注入失败(已忽略): %s", exc)
+        return ""
+
+
 def _parse_stage_json(raw: str, project_id: str, stage_label: str) -> Any:
     """既有 repair_json 清洗链路：think 标签 → md 围栏 → sanitize → repair → loads。"""
     cleaned = remove_think_tags(raw or "")
@@ -387,6 +403,16 @@ async def generate_blueprint_for_project(
     outline_prompt = _ensure_prompt(
         await prompt_service.get_prompt("screenwriting_outline"), "screenwriting_outline"
     )
+    # 章纲段注入参考小说的结构手法（分卷节奏/冲突升级/章末钩子）。
+    # 此前参考只进设定段（fusion_dna），排章纲这个最需要「剧情思考」的环节反而零参考。
+    structure_reference = await _build_structure_reference(session, project)
+    if structure_reference:
+        outline_prompt = (
+            f"{outline_prompt}\n\n"
+            "以下为参考小说的全书级结构手法，排章纲时参考其节奏思路（大小高潮怎么排、"
+            "冲突量级怎么抬、章末钩子怎么留），但情节必须原创：\n\n"
+            f"{structure_reference}"
+        )
     settings_summary = _build_settings_summary(settings_data, volumes, promised)
     outline_conversation: List[Dict[str, str]] = [{"role": "user", "content": settings_summary}]
 

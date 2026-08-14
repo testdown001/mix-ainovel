@@ -154,6 +154,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             prompt_compiler=self.prompt_compiler,
             prompt_service=self.prompt_service,
             enhanced_context_service=self.enhanced_context_service,
+            llm_service=self.llm_service,
         )
 
         self.generation_background_task_service = GenerationBackgroundTaskService()

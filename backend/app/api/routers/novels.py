@@ -42,6 +42,7 @@ from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
 from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
+from ...services.reference_beat_service import ReferenceBeatService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
 from ...services.inspiration_spark import pick_spark, build_spark_injection
 from ...services.muse_material_service import MuseMaterialService
@@ -474,6 +475,11 @@ async def converse_with_concept(
         memory_card_text = reference_service.format_memory_card_for_prompt(selected_library_novels)
         if memory_card_text:
             library_parts.append(memory_card_text)
+        # 桥段索引：让构思阶段能点名引用具体手法（「参考《X》的当众打脸·信息差反转」），
+        # 而不是只拿到「节奏快、爽点密」这类形容词
+        beat_index = ReferenceBeatService.format_beat_index_for_concept(selected_library_novels)
+        if beat_index:
+            library_parts.append(f"参考小说桥段索引（构思时可点名借鉴其手法，禁止照搬情节）：\n{beat_index}")
         library_context = "\n\n".join(part for part in library_parts if part).strip()
         if library_context:
             reference_context = library_context

@@ -93,6 +93,7 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "情绪表达去模板化约束": SectionBudget(priority=3, max_tokens=400),
     "模式差异化约束": SectionBudget(priority=3, max_tokens=400),
     "风格参考": SectionBudget(priority=3, max_tokens=800),
+    "参考桥段": SectionBudget(priority=3, max_tokens=600),
     "叙事差异化约束": SectionBudget(priority=3, max_tokens=500),
 
     # Enhanced flow sections

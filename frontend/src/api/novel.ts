@@ -241,10 +241,31 @@ export interface ReferenceNovelSummary {
   updated_at: string
 }
 
+/** 桥段：参考小说在某类局面下的处理手法（情境→铺垫→转折→兑现）。 */
+export interface ReferenceBeat {
+  name?: string
+  situation?: string
+  tags?: string[]
+  setup?: string
+  turn?: string
+  payoff?: string
+  pitfalls?: string
+}
+
+export interface BeatLibrary {
+  beats?: ReferenceBeat[]
+  structure?: {
+    volume_rhythm?: string
+    conflict_escalation?: string
+    hook_pattern?: string
+  }
+}
+
 export interface ReferenceNovelDetail extends ReferenceNovelSummary {
   outline_content?: string
   style_samples_content?: string
   memory_card?: MemoryCard
+  beat_library?: BeatLibrary
   source_url?: string
   error_message?: string
 }

@@ -25,6 +25,10 @@ class ReferenceNovel(Base):
     outline_content: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
     style_samples_content: Mapped[Optional[str]] = mapped_column(LONG_TEXT_TYPE)
     memory_card: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    # 桥段库：{"beats": [...], "structure": {...}}，schema 见 schemas.reference_novel.BeatLibrary。
+    # 与 memory_card（全书级形容词）互补：桥段是「情境→手法」的可检索条目，
+    # 生成第 N 章时按本章情境选取最相似的几条注入
+    beat_library: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     genre: Mapped[Optional[str]] = mapped_column(String(128))
     author: Mapped[Optional[str]] = mapped_column(String(128))

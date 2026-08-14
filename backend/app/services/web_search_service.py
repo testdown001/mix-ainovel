@@ -88,6 +88,139 @@ class WebSearchService:
         await self._set_cached_context(cache_key, context)
         return context
 
+    # ------------------------------------------------------------------
+    # 多维度检索：参考小说分析的输入侧
+    # ------------------------------------------------------------------
+    # 此前分析一本书只发一次检索（_search_single_novel，一段百科式摘要），几百万字的书
+    # 压进 2400 token，三路抽取全吃同一段——「剧情思考不深」的根源在输入就没有料。
+    # 现在按维度分别检索：每个维度有自己的检索意图与追问重点，抽取端各吃对应维度。
+    # 单维度失败降级（少一路素材而已），全部失败才算检索失败。
+    _SEARCH_DIMENSIONS: Dict[str, Dict[str, str]] = {
+        "plot": {
+            "query": "剧情 主线 分卷 结局 走向 剧情梳理",
+            "focus": (
+                "主线剧情的完整走向：开篇钩子、各卷/各阶段的核心目标与结局、"
+                "关键转折点发生在故事的什么位置、结局怎么收。"
+            ),
+        },
+        "characters": {
+            "query": "角色 人物设定 人物关系 人物弧光",
+            "focus": (
+                "主要角色的身份、内在驱动、成长弧光；核心人物关系网络及其演变；"
+                "反派的塑造方式与主角的对位关系。"
+            ),
+        },
+        "beats": {
+            "query": "名场面 经典桥段 高光情节 印象最深 高潮章节",
+            "focus": (
+                "这本书公认的名场面和经典桥段：每个桥段发生在什么局面下、"
+                "前面怎么铺垫的、转折靠什么触发、读者的情绪在哪一刻兑现。"
+                "尽量具体到情节细节，不要只给名字。"
+            ),
+        },
+        "pacing": {
+            "query": "爽点 节奏 追读 书评 分析",
+            "focus": (
+                "爽点的类型与分布密度、章节节奏（多少章一个小高潮、卷末怎么爆）、"
+                "断章钩子的用法、读者对节奏的正负面评价。"
+            ),
+        },
+        "craft": {
+            "query": "文笔 写作手法 叙事视角 对白 书评",
+            "focus": (
+                "叙事视角与人称、句式与段落节奏、对白风格、描写密度、"
+                "书评人对其写法的具体分析（优点与被诟病的点都要）。"
+            ),
+        },
+    }
+
+    async def search_novel_dimensions(
+        self,
+        *,
+        novel_name: str,
+        dimensions: Optional[List[str]] = None,
+    ) -> Dict[str, str]:
+        """按维度并行检索一本书，返回 {维度: 检索结果文本}（仅含成功的维度）。
+
+        全部维度失败时抛 HTTPException 502；部分失败只记日志。
+        每个维度的结果独立缓存 24h（重新分析时不必重付全部检索成本）。
+        """
+        wanted = [d for d in (dimensions or list(self._SEARCH_DIMENSIONS)) if d in self._SEARCH_DIMENSIONS]
+        if not wanted:
+            return {}
+
+        # 预校验搜索通道配置：未配置时立刻 503，而不是 5 路各自失败
+        await self.llm_service._resolve_search_llm_config()
+
+        async def _one(dim: str) -> tuple[str, str]:
+            cache_key = self._build_dimension_cache_key(novel_name=novel_name, dimension=dim)
+            cached = await self.cache_service.get(cache_key)
+            if isinstance(cached, dict) and isinstance(cached.get("result"), str) and cached["result"].strip():
+                return dim, cached["result"]
+            spec = self._SEARCH_DIMENSIONS[dim]
+            query = f"起点中文网 番茄小说 {novel_name} {spec['query']}"
+            system_prompt = (
+                "你是小说资料检索助手。你必须优先使用联网搜索能力，聚焦起点中文网、番茄小说与中文书评社区。"
+                "如果目标站点信息不足，可补充其他中文站点。"
+                "输出要求：用中文；只写可验证的公开信息，不要编造；"
+                "信息不足的点明确说「资料未提及」，不要用泛泛之谈填充。"
+            )
+            user_prompt = (
+                f"请围绕一个明确的维度搜索并总结这本小说：{novel_name}\n"
+                f"推荐查询：{query}\n"
+                f"本次只关注：{spec['focus']}"
+            )
+            result = await self.llm_service.get_search_llm_response(
+                system_prompt=system_prompt,
+                conversation_history=[{"role": "user", "content": user_prompt}],
+                temperature=0.3,
+                timeout=180.0,
+                max_tokens=2000,
+            )
+            text = result.strip()
+            if text:
+                await self.cache_service.set(cache_key, {"result": text}, expire=self._CACHE_TTL_SECONDS)
+            return dim, text
+
+        results = await asyncio.gather(*(_one(dim) for dim in wanted), return_exceptions=True)
+
+        collected: Dict[str, str] = {}
+        for index, item in enumerate(results):
+            if isinstance(item, Exception):
+                logger.warning(
+                    "参考小说维度检索失败(降级): novel=%s dimension=%s error=%s",
+                    novel_name, wanted[index], item,
+                )
+                continue
+            dim, text = item
+            if text:
+                collected[dim] = text
+
+        if not collected:
+            raise HTTPException(status_code=502, detail="参考小说检索失败，请检查搜索模型配置或稍后重试")
+        return collected
+
+    @staticmethod
+    def _build_dimension_cache_key(*, novel_name: str, dimension: str) -> str:
+        digest = hashlib.sha1(novel_name.encode("utf-8")).hexdigest()  # noqa: S324 - non-security hash
+        return f"reference_dim_search:{digest}:{dimension}"
+
+    @staticmethod
+    def combine_dimension_texts(dimension_results: Dict[str, str], *keys: str) -> str:
+        """把若干维度的检索结果拼成一段抽取输入；请求的维度都缺失时回退全部可用维度。
+
+        抽取端按需组合：大纲吃 plot+characters、桥段吃 beats+pacing+plot——
+        而不是所有抽取路吃同一段大杂烩。
+        """
+        labels = {
+            "plot": "主线剧情", "characters": "人物与关系", "beats": "名场面与桥段",
+            "pacing": "节奏与爽点", "craft": "写法与文风",
+        }
+        picked = [(k, dimension_results[k]) for k in keys if dimension_results.get(k)]
+        if not picked:
+            picked = list(dimension_results.items())
+        return "\n\n".join(f"【{labels.get(k, k)}】\n{text}" for k, text in picked)
+
     async def _search_single_novel(self, *, novel_name: str) -> Dict[str, str]:
         query = f"起点中文网 番茄小说 {novel_name} 剧情 架构 大纲 角色 设定"
         system_prompt = (

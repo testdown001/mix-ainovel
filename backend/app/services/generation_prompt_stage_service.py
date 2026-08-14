@@ -31,11 +31,14 @@ class GenerationPromptStageService:
         prompt_compiler,
         prompt_service,
         enhanced_context_service,
+        llm_service=None,
     ):
         self.prompt_assembly_service = prompt_assembly_service
         self.prompt_compiler = prompt_compiler
         self.prompt_service = prompt_service
         self.enhanced_context_service = enhanced_context_service
+        # 参考桥段按情境选取需要嵌入打分；为 None 时桥段注入自动跳过（老调用方不受影响）
+        self.llm_service = llm_service
 
     async def build_prompt_stage(
         self,
@@ -144,6 +147,33 @@ class GenerationPromptStageService:
                             prompt_sections.append(("[参考小说创作指导]", memory_card_text))
             except Exception as exc:
                 logger.warning("范文注入失败（不影响生成）: %s", exc)
+
+        # 参考桥段：按本章情境（大纲摘要 + 使命要点）从绑定参考小说的桥段库里选最相似的
+        # 几条注入。这是「参考到小说」在正文层的兑现——fusion_dna 只有全书级形容词，
+        # 写具体章节时给不出「这类局面别人怎么处理」。桥段库缺失（老数据）自然为空跳过。
+        if getattr(config, "enable_reference_beats", False) and project_reference_novels and self.llm_service:
+            try:
+                from .reference_beat_service import ReferenceBeatService
+
+                beat_query_parts = [outline_title or "", outline_summary or ""]
+                if isinstance(chapter_mission, dict):
+                    for key in ("goal", "conflict", "emotional_arc", "plot_points"):
+                        value = chapter_mission.get(key)
+                        if isinstance(value, str) and value.strip():
+                            beat_query_parts.append(value.strip())
+                        elif isinstance(value, list):
+                            beat_query_parts.extend(str(v) for v in value[:4])
+                beat_service = ReferenceBeatService(self.llm_service)
+                selected_beats = await beat_service.select_beats_for_chapter(
+                    project_reference_novels,
+                    query_text="\n".join(part for part in beat_query_parts if part)[:600],
+                    top_k=3,
+                )
+                beats_text = beat_service.format_beats_for_prompt(selected_beats)
+                if beats_text:
+                    prompt_sections.append(("[参考桥段]", beats_text))
+            except Exception as exc:  # noqa: BLE001 - 参考是增益不是依赖
+                logger.warning("参考桥段注入失败（不影响生成）: %s", exc)
 
         fusion_dna_text = ""
         if hasattr(project, "fusion_dna") and project.fusion_dna:

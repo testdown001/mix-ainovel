@@ -270,8 +270,11 @@ def test_reference_material_formatting_truncated():
     style = svc.format_style_samples_for_prompt([novel])
     assert style.count("样") == 600
 
+    # 字段级注入后整块（含标题行）截到 800；超长的单字段不再吃掉整个预算之外的空间
     card = svc.format_memory_card_for_prompt([novel])
-    assert len(card.split("\n", 1)[1]) == 800
+    assert len(card) == 800
+    assert card.startswith("参考小说：超长参考")
+    assert "可复用要点" in card
 
 
 def test_reference_material_formatting_short_content_unchanged():
@@ -285,5 +288,34 @@ def test_reference_material_formatting_short_content_unchanged():
     svc = _format_service()
     assert "短纲要" in svc.format_for_concept_prompt([novel])
     assert svc.format_style_samples_for_prompt([novel]) == ""
-    # memory_card 为空时退回空对象 dump，不报错
-    assert "短参考" in svc.format_memory_card_for_prompt([novel])
+    # memory_card 为空时不再注入空 JSON 占位块——没有内容就一个字都不占
+    assert svc.format_memory_card_for_prompt([novel]) == ""
+
+
+def test_memory_card_prompt_prioritizes_plot_thinking_fields():
+    """字段级注入：剧情思考类（冲突模版/爽点/伏笔）在前，且不再是 JSON dump。
+
+    旧实现整段 json.dumps 再拦腰截 800 字：缩进和引号吃掉大半预算，截断点落在
+    哪个字段全凭运气，排前面的 genre/target_audience 这类低价值字段反而永远活着。
+    """
+    novel = SimpleNamespace(
+        title="参考A",
+        author=None,
+        outline_content=None,
+        style_samples_content=None,
+        memory_card={
+            "genre": "都市异能",
+            "target_audience": "男频",
+            "main_conflict_pattern": "以弱抗强的资源争夺",
+            "cool_point_patterns": ["当众打脸", "扮猪吃虎"],
+            "foreshadowing_techniques": ["三章一收的短伏笔"],
+        },
+    )
+    svc = _format_service()
+    card = svc.format_memory_card_for_prompt([novel])
+    assert "主线冲突模版：以弱抗强的资源争夺" in card
+    assert "爽点模式：当众打脸；扮猪吃虎" in card
+    assert "伏笔技法：三章一收的短伏笔" in card
+    # 非注入字段与 JSON 语法不该出现
+    assert "genre" not in card
+    assert "{" not in card

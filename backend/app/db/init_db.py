@@ -237,6 +237,12 @@ async def _ensure_schema_updates() -> None:
                 },
             )
             _ensure_columns(
+                "reference_novels",
+                {
+                    "beat_library": "beat_library JSON",
+                },
+            )
+            _ensure_columns(
                 "project_memories",
                 {
                     "book_summary": "book_summary LONGTEXT NULL",
