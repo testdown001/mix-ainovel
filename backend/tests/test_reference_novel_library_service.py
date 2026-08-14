@@ -103,7 +103,8 @@ search_results: {search_results}
                     '```'
                 )
             if "风格分析师" in system_prompt:
-                return "<think>draft</think>风格分析"
+                # 真实样本形态（清洗器会剔除含元话语的段，泛化占位文本会被误清）
+                return "<think>draft</think>夜风掠过井口，他数着心跳没有回头。"
             return "<think>draft</think>大纲分析"
 
         async def generate_structured(self, *, prompt, schema, user_id=None, responder=None, default=None, **_kw):
@@ -127,7 +128,7 @@ search_results: {search_results}
     assert novel.status == service._STATUS_READY
     assert novel.error_message is None
     assert novel.outline_content == "大纲分析"
-    assert novel.style_samples_content == "风格分析"
+    assert novel.style_samples_content == "夜风掠过井口，他数着心跳没有回头。"
     assert novel.memory_card == {
         "genre": "都市异能",
         "core_selling_point": "强者回归",

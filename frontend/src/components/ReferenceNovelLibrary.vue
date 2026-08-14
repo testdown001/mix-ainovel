@@ -8,7 +8,9 @@
           <!-- Header -->
           <div class="modal-header">
             <div class="modal-title">
-              <span class="modal-icon">📚</span>
+              <svg class="modal-icon" fill="none" stroke="#FFE500" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
               参考小说库
             </div>
             <button class="modal-close" @click="visible = false">
@@ -330,7 +332,7 @@ const statusLabel = (status: string) => {
 
 .modal-card {
   width: 100%;
-  max-width: 900px;
+  max-width: 1080px;
   max-height: 88vh;
   background: #141414;
   border: 1px solid #2A2A2A;
@@ -361,7 +363,7 @@ const statusLabel = (status: string) => {
   color: #FFFFFF;
 }
 
-.modal-icon { font-size: 18px; }
+.modal-icon { width: 18px; height: 18px; flex-shrink: 0; }
 
 .modal-close {
   display: flex;
@@ -380,9 +382,10 @@ const statusLabel = (status: string) => {
 .modal-close:hover { color: #fff; border-color: #444; }
 
 /* ──────── Body ──────── */
+/* 左列表定宽、右档案区吃剩余空间：档案内容（大纲/样本/写法基准）远比列表需要宽度 */
 .modal-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 340px 1fr;
   gap: 0;
   flex: 1;
   overflow: hidden;
@@ -685,7 +688,7 @@ const statusLabel = (status: string) => {
 /* ──────── Right Detail Panel ──────── */
 .detail-panel {
   overflow-y: auto;
-  padding: 16px;
+  padding: 18px 22px;
 }
 
 .detail-panel::-webkit-scrollbar { width: 4px; }
@@ -718,6 +721,10 @@ const statusLabel = (status: string) => {
 .modal-fade-leave-to .modal-card { transform: translateY(6px); opacity: 0; }
 
 /* ──────── Responsive ──────── */
+@media (max-width: 880px) {
+  .modal-body { grid-template-columns: 300px 1fr; }
+}
+
 @media (max-width: 640px) {
   .modal-body { grid-template-columns: 1fr; }
   .detail-panel { display: none; }

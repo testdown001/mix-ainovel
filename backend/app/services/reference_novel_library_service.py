@@ -187,7 +187,9 @@ class ReferenceNovelLibraryService:
             )
 
             novel.outline_content = outline
-            novel.style_samples_content = style
+            # 风格样本可能因「任务复述」被整份清洗掉（返回空串）——保留旧档案，
+            # 不用空值/垃圾覆盖；首次分析没有旧值时保持为空，界面会给提示
+            novel.style_samples_content = style or novel.style_samples_content
             novel.memory_card = memory_card
             novel.beat_library = beat_library
             novel.style_guide = style_guide
@@ -230,6 +232,36 @@ class ReferenceNovelLibraryService:
         )
         return remove_think_tags(generated)
 
+    # 元话语标记：命中任一即判定该段不是样本正文，而是任务复述/说明
+    _STYLE_META_MARKERS = (
+        "分析请求", "分析师", "风格样本", "风格分析",
+        "任务：", "任务:", "输入：", "输入:", "输出：", "输出:",
+        "要求：", "要求:", "以下是", "样本如下", "如下所示",
+    )
+
+    @classmethod
+    def _clean_style_samples(cls, raw: str) -> str:
+        """剔除 LLM 的任务复述/元说明，只保留样本正文段。
+
+        线上实测（2026-08-14）：搜索通道模型偶尔不给样本，而是把任务要求复述一遍
+        （「分析请求：角色：小说风格分析师。任务：模仿……」）。这类输出一旦入库，
+        既在档案页展示垃圾，也会被 format_style_samples_for_prompt 原样注入正文
+        生成。按段切分（--- 或空行），丢弃含元话语/markdown 标题头的段；
+        全部被丢弃则返回空串，由调用方决定重问或保留旧值。
+        """
+        if not raw or not raw.strip():
+            return ""
+        segments = [seg.strip() for seg in re.split(r"\n\s*-{3,}\s*\n|\n\s*\n", raw.strip()) if seg.strip()]
+        clean: List[str] = []
+        for seg in segments:
+            if any(marker in seg for marker in cls._STYLE_META_MARKERS):
+                continue
+            # markdown 标题/编号加粗头（「### xx」「1. **xx**」）是结构说明，不是样本
+            if re.match(r"^\s*(#{1,6}\s|\d+\s*[.、]\s*\*\*)", seg):
+                continue
+            clean.append(seg)
+        return "\n\n---\n\n".join(clean)
+
     async def _extract_style(
         self,
         novel_title: str,
@@ -254,7 +286,32 @@ class ReferenceNovelLibraryService:
             max_tokens=1200,
             config_override=llm_config,
         )
-        return remove_think_tags(generated)
+        cleaned = self._clean_style_samples(remove_think_tags(generated))
+        if cleaned:
+            return cleaned
+
+        # 整份输出都是任务复述 → 一次矫正重问（与蓝图章纲补齐同款模式），仍不行则
+        # 返回空串（analyze() 会保留旧档案，不用垃圾覆盖）
+        logger.warning("风格样本输出疑似任务复述，矫正重问一次: %s", novel_title)
+        retry = await self.llm_service.get_search_llm_response(
+            system_prompt="你是专业的小说风格分析师，擅长从搜索结果中提取和模仿小说的写作风格。",
+            conversation_history=[
+                {"role": "user", "content": filled},
+                {"role": "assistant", "content": remove_think_tags(generated)[:500]},
+                {
+                    "role": "user",
+                    "content": (
+                        "你刚才把任务要求复述了一遍，没有给出样本。重新输出：\n"
+                        "禁止出现「分析请求 / 任务 / 输入 / 输出 / 要求 / 以下是」等元话语，"
+                        "禁止标题与编号；第一行就必须是第一段样本的正文第一个字，段间用 --- 分隔。"
+                    ),
+                },
+            ],
+            temperature=0.4,
+            max_tokens=1200,
+            config_override=llm_config,
+        )
+        return self._clean_style_samples(remove_think_tags(retry))
 
     async def _extract_memory_card(
         self,
