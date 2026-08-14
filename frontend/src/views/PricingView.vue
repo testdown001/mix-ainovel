@@ -1,12 +1,12 @@
 <!-- AIMETA P=订阅套餐_定价页|R=套餐展示_升级引导|NR=不含支付逻辑|E=route:/pricing#component:PricingView|X=ui|A=定价页|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="min-h-screen" style="background:#0A0A0A; color:#FFFFFF; font-family:'Inter',sans-serif;">
+  <div class="min-h-screen" style="background:var(--md-background); color:#FFFFFF; font-family:'Inter',sans-serif;">
 
     <!-- Nav -->
-    <header class="sticky top-0 z-40 border-b" style="background:rgba(20,20,20,0.9); backdrop-filter:blur(12px); border-color:#2A2A2A;">
+    <header class="sticky top-0 z-40 border-b" style="background:rgba(20,20,20,0.9); backdrop-filter:blur(12px); border-color:var(--md-outline);">
       <div class="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:#FFE500;">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:var(--md-primary);">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#000;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
             </svg>
@@ -14,18 +14,18 @@
           <span class="text-xl font-bold tracking-tight" style="font-family:'Space Grotesk',sans-serif;">Octopus AI Novel</span>
         </div>
         <nav class="hidden md:flex items-center gap-6 text-sm">
-          <router-link to="/inspiration" style="color:#888888;"
+          <router-link to="/inspiration" style="color:var(--md-on-surface-variant);"
             @mouseenter="($event.target as HTMLElement).style.color='#fff'"
-            @mouseleave="($event.target as HTMLElement).style.color='#888888'">灵感模式</router-link>
-          <router-link to="/workspace" style="color:#888888;"
+            @mouseleave="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'">灵感模式</router-link>
+          <router-link to="/workspace" style="color:var(--md-on-surface-variant);"
             @mouseenter="($event.target as HTMLElement).style.color='#fff'"
-            @mouseleave="($event.target as HTMLElement).style.color='#888888'">我的小说</router-link>
-          <router-link to="/settings" style="color:#888888;"
+            @mouseleave="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'">我的小说</router-link>
+          <router-link to="/settings" style="color:var(--md-on-surface-variant);"
             @mouseenter="($event.target as HTMLElement).style.color='#fff'"
-            @mouseleave="($event.target as HTMLElement).style.color='#888888'">设置</router-link>
+            @mouseleave="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'">设置</router-link>
         </nav>
         <router-link to="/" class="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors"
-          style="border-color:#2A2A2A; color:#888888;">
+          style="border-color:var(--md-outline); color:var(--md-on-surface-variant);">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19 12H5M12 19l-7-7 7-7"/>
           </svg>
@@ -35,18 +35,18 @@
     </header>
 
     <!-- Trial banner -->
-    <div class="border-b" style="background:linear-gradient(90deg,#1A1600,#141414,#1A1600); border-color:#2A2A2A;">
+    <div class="border-b" style="background:linear-gradient(90deg,#1A1600,var(--md-surface),#1A1600); border-color:var(--md-outline);">
       <div class="max-w-6xl mx-auto px-6 py-3 flex items-center justify-center gap-3">
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#FFE500;">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--md-primary);">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
         <span class="text-sm">
-          <span class="font-semibold" style="color:#FFE500;">新用户专享：</span>
+          <span class="font-semibold" style="color:var(--md-primary);">新用户专享：</span>
           <span style="color:#CCCCCC;"> 注册即激活创作者版 </span>
           <span class="font-bold text-white">3天完整试用</span>
-          <span style="color:#888888;">，无需绑卡，到期自动降为免费版</span>
+          <span style="color:var(--md-on-surface-variant);">，无需绑卡，到期自动降为免费版</span>
         </span>
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#FFE500;">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--md-primary);">
           <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
         </svg>
       </div>
@@ -57,21 +57,21 @@
       <!-- Page header -->
       <div class="text-center mb-10">
         <h1 class="text-4xl font-bold mb-3" style="font-family:'Space Grotesk',sans-serif;">选择你的创作套餐</h1>
-        <p class="text-lg mb-8" style="color:#888888;">从灵感开局到长篇稳定连载，把 AI 变成可控的创作工作流</p>
+        <p class="text-lg mb-8" style="color:var(--md-on-surface-variant);">从灵感开局到长篇稳定连载，把 AI 变成可控的创作工作流</p>
 
         <!-- Annual toggle（仅当后台配置了年付套餐时展示） -->
-        <div v-if="hasYearlyPlans" class="inline-flex items-center gap-3 px-4 py-2 rounded-full border" style="background:#141414; border-color:#2A2A2A;">
-          <span class="text-sm font-medium" :style="!annual ? 'color:#fff; font-weight:600;' : 'color:#888888;'">按月付费</span>
+        <div v-if="hasYearlyPlans" class="inline-flex items-center gap-3 px-4 py-2 rounded-full border" style="background:var(--md-surface); border-color:var(--md-outline);">
+          <span class="text-sm font-medium" :style="!annual ? 'color:#fff; font-weight:600;' : 'color:var(--md-on-surface-variant);'">按月付费</span>
           <button @click="annual = !annual"
             class="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
-            :style="annual ? 'background:#FFE500;' : 'background:#2A2A2A;'">
+            :style="annual ? 'background:var(--md-primary);' : 'background:var(--md-outline);'">
             <span class="absolute top-0.5 w-4 h-4 rounded-full transition-all"
-              :style="{ left: annual ? 'calc(100% - 18px)' : '2px', background: annual ? '#000' : '#888' }"></span>
+              :style="{ left: annual ? 'calc(100% - 18px)' : '2px', background: annual ? '#000' : 'var(--md-on-surface-variant)' }"></span>
           </button>
-          <span class="text-sm font-medium" :style="annual ? 'color:#fff; font-weight:600;' : 'color:#888888;'">
+          <span class="text-sm font-medium" :style="annual ? 'color:#fff; font-weight:600;' : 'color:var(--md-on-surface-variant);'">
             按年付费
             <span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-              style="background:rgba(255,229,0,0.15); color:#FFE500;">省20%</span>
+              style="background:rgba(255,229,0,0.15); color:var(--md-primary);">省20%</span>
           </span>
         </div>
       </div>
@@ -85,7 +85,7 @@
           <!-- Badge -->
           <div v-if="plan.badge" class="absolute -top-3.5 left-0 right-0 flex justify-center">
             <span class="text-xs font-bold px-4 py-1 rounded-full"
-              :style="plan.id === 'creator' ? 'background:#FFE500;color:#000;' : 'background:#7C3AED;color:#fff;'">
+              :style="plan.id === 'creator' ? 'background:var(--md-primary);color:#000;' : 'background:#7C3AED;color:#fff;'">
               {{ plan.badge }}
             </span>
           </div>
@@ -100,23 +100,23 @@
               </div>
               <div>
                 <div class="font-bold text-white">{{ plan.name }}</div>
-                <div class="text-xs" style="color:#888888;">{{ plan.desc }}</div>
+                <div class="text-xs" style="color:var(--md-on-surface-variant);">{{ plan.desc }}</div>
               </div>
             </div>
 
             <!-- Price -->
-            <div class="mb-6 pb-6 border-b" style="border-color:#2A2A2A;">
+            <div class="mb-6 pb-6 border-b" style="border-color:var(--md-outline);">
               <div class="flex items-baseline gap-1">
                 <span class="text-4xl font-bold" style="font-family:'Space Grotesk',sans-serif;"
-                  :style="plan.price === 0 ? 'color:#888888;' : 'color:#fff;'">
+                  :style="plan.price === 0 ? 'color:var(--md-on-surface-variant);' : 'color:#fff;'">
                   {{ displayPrice(plan) }}
                 </span>
-                <span v-if="plan.price > 0" class="text-sm" style="color:#888888;">
+                <span v-if="plan.price > 0" class="text-sm" style="color:var(--md-on-surface-variant);">
                   {{ annual ? '/ 月（年付）' : '/ 月' }}
                 </span>
               </div>
-              <div v-if="plan.price === 0" class="text-sm mt-1" style="color:#888888;">永久免费</div>
-              <div v-if="plan.price > 0 && annual" class="text-xs mt-1" style="color:#888888;">
+              <div v-if="plan.price === 0" class="text-sm mt-1" style="color:var(--md-on-surface-variant);">永久免费</div>
+              <div v-if="plan.price > 0 && annual" class="text-xs mt-1" style="color:var(--md-on-surface-variant);">
                 即 <span :style="`color:${plan.color};`">¥{{ Math.round(plan.price * 0.8 * 12) }}</span> / 年
                 <span class="ml-1 line-through opacity-50">¥{{ plan.price * 12 }}</span>
               </div>
@@ -138,7 +138,7 @@
                   </svg>
                 </div>
                 <div v-else class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0"
-                  style="background:#1C1C1C;">
+                  style="background:var(--md-surface-container);">
                   <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"
                     style="color:#444444;">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -187,16 +187,16 @@
       <!-- Feature comparison -->
       <div class="mb-14">
         <h2 class="text-xl font-bold text-white mb-5 text-center" style="font-family:'Space Grotesk',sans-serif;">详细功能对比</h2>
-        <div class="rounded-xl border overflow-hidden" style="border-color:#2A2A2A;">
-          <div class="grid grid-cols-4 border-b text-xs font-semibold" style="background:#141414; border-color:#2A2A2A;">
-            <div class="p-4" style="color:#888888;">功能</div>
+        <div class="rounded-xl border overflow-hidden" style="border-color:var(--md-outline);">
+          <div class="grid grid-cols-4 border-b text-xs font-semibold" style="background:var(--md-surface); border-color:var(--md-outline);">
+            <div class="p-4" style="color:var(--md-on-surface-variant);">功能</div>
             <div v-for="plan in displayPlans" :key="plan.id" class="p-4 text-center"
               :style="`color:${plan.color === '#888888' ? '#aaa' : plan.color};`">{{ plan.name }}</div>
           </div>
           <div v-for="(row, i) in comparisonRows" :key="i"
             class="grid grid-cols-4 border-b last:border-0 text-xs"
-            :style="i % 2 === 0 ? 'background:#0A0A0A;border-color:#1C1C1C;' : 'background:#141414;border-color:#1C1C1C;'">
-            <div class="p-3.5 flex items-center" style="color:#888888;">{{ row.label }}</div>
+            :style="i % 2 === 0 ? 'background:var(--md-background);border-color:var(--md-surface-container);' : 'background:var(--md-surface);border-color:var(--md-surface-container);'">
+            <div class="p-3.5 flex items-center" style="color:var(--md-on-surface-variant);">{{ row.label }}</div>
             <div v-for="(v, j) in row.vals" :key="j" class="p-3.5 flex items-center justify-center">
               <svg v-if="v === true" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#2ED573;">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
@@ -214,20 +214,20 @@
       <div class="max-w-2xl mx-auto mb-14">
         <h2 class="text-xl font-bold text-white mb-6 text-center" style="font-family:'Space Grotesk',sans-serif;">常见问题</h2>
         <div class="space-y-3">
-          <div v-for="(faq, i) in faqs" :key="i" class="rounded-xl border overflow-hidden" style="border-color:#2A2A2A;">
+          <div v-for="(faq, i) in faqs" :key="i" class="rounded-xl border overflow-hidden" style="border-color:var(--md-outline);">
             <button @click="openFaq = openFaq === i ? null : i"
               class="w-full flex items-center justify-between gap-4 p-5 text-left transition-colors"
-              style="background:#141414;"
+              style="background:var(--md-surface);"
               @mouseenter="($event.currentTarget as HTMLElement).style.backgroundColor='#1A1A1A'"
-              @mouseleave="($event.currentTarget as HTMLElement).style.backgroundColor='#141414'">
+              @mouseleave="($event.currentTarget as HTMLElement).style.backgroundColor='var(--md-surface)'">
               <span class="text-sm font-medium text-white">{{ faq.q }}</span>
               <svg class="w-4 h-4 flex-shrink-0 transition-transform" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
-                style="color:#888888;" :style="openFaq === i ? 'transform:rotate(180deg);' : ''">
+                style="color:var(--md-on-surface-variant);" :style="openFaq === i ? 'transform:rotate(180deg);' : ''">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
               </svg>
             </button>
-            <div v-if="openFaq === i" class="px-5 pb-5 border-t" style="background:#141414; border-color:#2A2A2A;">
-              <p class="text-sm leading-relaxed pt-4" style="color:#888888;">{{ faq.a }}</p>
+            <div v-if="openFaq === i" class="px-5 pb-5 border-t" style="background:var(--md-surface); border-color:var(--md-outline);">
+              <p class="text-sm leading-relaxed pt-4" style="color:var(--md-on-surface-variant);">{{ faq.a }}</p>
             </div>
           </div>
         </div>
@@ -235,9 +235,9 @@
 
       <!-- Bottom CTA -->
       <div class="text-center py-12 px-8 rounded-2xl border"
-        style="background:linear-gradient(135deg,#1A1600 0%,#0A0A0A 50%,#1A1600 100%); border-color:#2A2A2A;">
+        style="background:linear-gradient(135deg,#1A1600 0%,var(--md-background) 50%,#1A1600 100%); border-color:var(--md-outline);">
         <div class="inline-flex items-center gap-2 text-xs font-semibold tracking-widest uppercase mb-4 px-3 py-1.5 rounded-full border"
-          style="color:#FFE500; border-color:rgba(255,229,0,0.2); background:rgba(255,229,0,0.05);">
+          style="color:var(--md-primary); border-color:rgba(255,229,0,0.2); background:rgba(255,229,0,0.05);">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
           </svg>
@@ -246,10 +246,10 @@
         <h3 class="text-2xl font-bold text-white mb-2" style="font-family:'Space Grotesk',sans-serif;">
           现在注册，立享3天创作者版体验
         </h3>
-        <p class="mb-8 max-w-md mx-auto text-sm" style="color:#888888;">无需信用卡 · 到期自动降级 · 数据永久保留</p>
+        <p class="mb-8 max-w-md mx-auto text-sm" style="color:var(--md-on-surface-variant);">无需信用卡 · 到期自动降级 · 数据永久保留</p>
         <router-link to="/register"
           class="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-sm transition-colors"
-          style="background:#FFE500; color:#000;">
+          style="background:var(--md-primary); color:#000;">
           免费开始创作
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
@@ -262,9 +262,9 @@
     <div v-if="showCheckout" class="fixed inset-0 z-50 flex items-center justify-center"
       style="background:rgba(0,0,0,0.7);" @click.self="closeCheckout">
       <div class="rounded-2xl border p-8 max-w-sm w-full mx-4 text-center"
-        style="background:#141414; border-color:#2A2A2A;">
+        style="background:var(--md-surface); border-color:var(--md-outline);">
         <div class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style="background:rgba(255,229,0,0.1);">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#FFE500;">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--md-primary);">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
           </svg>
         </div>
@@ -275,32 +275,32 @@
           <button v-for="ch in channelOptions" :key="ch.value" @click="switchChannel(ch.value)"
             class="px-3 py-1 rounded-full text-xs transition-colors"
             :style="selectedChannel === ch.value
-              ? 'background:#FFE500;color:#000;font-weight:600;'
-              : 'background:#1A1A1A;border:1px solid #2A2A2A;color:#888;'">
+              ? 'background:var(--md-primary);color:#000;font-weight:600;'
+              : 'background:#1A1A1A;border:1px solid var(--md-outline);color:var(--md-on-surface-variant);'">
             {{ ch.label }}
           </button>
         </div>
         <template v-if="checkoutLoading">
           <div class="flex justify-center my-4">
             <div class="w-6 h-6 border-2 rounded-full animate-spin"
-              style="border-color:#FFE500; border-top-color:transparent;"></div>
+              style="border-color:var(--md-primary); border-top-color:transparent;"></div>
           </div>
-          <p class="text-sm mb-4" style="color:#888888;">正在创建订单...</p>
+          <p class="text-sm mb-4" style="color:var(--md-on-surface-variant);">正在创建订单...</p>
         </template>
         <template v-else-if="checkoutError">
           <p class="text-sm mb-4" style="color:#FF6B6B;">{{ checkoutError }}</p>
         </template>
         <template v-else-if="checkoutUrl">
-          <p class="text-sm mb-4" style="color:#888888;">已在新窗口打开支付页；如未自动打开，请点击下方按钮。</p>
+          <p class="text-sm mb-4" style="color:var(--md-on-surface-variant);">已在新窗口打开支付页；如未自动打开，请点击下方按钮。</p>
           <a :href="checkoutUrl" target="_blank"
             class="block w-full py-2.5 rounded-lg font-semibold text-sm text-center mb-2.5"
-            style="background:#FFE500;color:#000;">
+            style="background:var(--md-primary);color:#000;">
             前往支付
           </a>
         </template>
         <button @click="closeCheckout"
           class="w-full py-2.5 rounded-lg font-semibold text-sm"
-          style="background:transparent;border:1px solid #2A2A2A;color:#888888;">
+          style="background:transparent;border:1px solid var(--md-outline);color:var(--md-on-surface-variant);">
           关闭
         </button>
       </div>
@@ -462,14 +462,14 @@ const displayPrice = (plan: typeof plans[0]) => {
 }
 
 const getPlanCardStyle = (plan: typeof plans[0]) => {
-  if (plan.id === 'creator') return 'background:linear-gradient(160deg,#1C1A00 0%,#141414 60%);border:1px solid #FFE500;box-shadow:0 0 40px rgba(255,229,0,0.1);'
-  if (plan.id === 'pro') return 'background:linear-gradient(160deg,#1A0E2E 0%,#141414 60%);border:1px solid #3D2A5E;box-shadow:0 0 40px rgba(192,132,252,0.08);'
-  return 'background:#141414;border:1px solid #2A2A2A;'
+  if (plan.id === 'creator') return 'background:linear-gradient(160deg,#1C1A00 0%,var(--md-surface) 60%);border:1px solid var(--md-primary);box-shadow:0 0 40px rgba(255,229,0,0.1);'
+  if (plan.id === 'pro') return 'background:linear-gradient(160deg,#1A0E2E 0%,var(--md-surface) 60%);border:1px solid #3D2A5E;box-shadow:0 0 40px rgba(192,132,252,0.08);'
+  return 'background:var(--md-surface);border:1px solid var(--md-outline);'
 }
 
 const getCtaStyle = (plan: typeof plans[0]) => {
-  if (plan.id === 'free') return 'background:transparent;border:1px solid #2A2A2A;color:#888888;cursor:default;'
-  if (plan.id === 'creator') return 'background:#FFE500;color:#000;'
+  if (plan.id === 'free') return 'background:transparent;border:1px solid var(--md-outline);color:var(--md-on-surface-variant);cursor:default;'
+  if (plan.id === 'creator') return 'background:var(--md-primary);color:#000;'
   return 'background:linear-gradient(135deg,#7C3AED,#4F46E5);color:#fff;box-shadow:0 4px 16px rgba(124,58,237,0.3);'
 }
 

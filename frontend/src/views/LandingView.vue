@@ -141,14 +141,14 @@ const stats = [
 </script>
 
 <template>
-  <div class="min-h-screen" style="background:#0A0A0A; color:#FFFFFF; font-family:'Inter',sans-serif; overflow-x:hidden;">
+  <div class="min-h-screen" style="background:var(--md-background); color:#FFFFFF; font-family:'Inter',sans-serif; overflow-x:hidden;">
 
     <!-- ───── NAVBAR ───── -->
     <header class="sticky top-0 z-50 border-b" style="background:rgba(10,10,10,0.88); backdrop-filter:blur(16px); border-color:#1E1E1E;">
       <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
         <!-- Logo -->
         <div class="flex items-center gap-2.5 cursor-pointer" @click="router.push('/')">
-          <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:#FFE500;">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:var(--md-primary);">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#000;">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
             </svg>
@@ -157,35 +157,35 @@ const stats = [
         </div>
 
         <!-- Desktop Nav -->
-        <nav class="hidden md:flex items-center gap-7 text-sm" style="color:#888888;">
-          <a href="#features" style="color:#888888;" class="hover-white transition-colors">功能特性</a>
-          <a href="#how" style="color:#888888;" class="hover-white transition-colors">工作原理</a>
-          <a href="#pricing" style="color:#888888;" class="hover-white transition-colors">套餐价格</a>
+        <nav class="hidden md:flex items-center gap-7 text-sm" style="color:var(--md-on-surface-variant);">
+          <a href="#features" style="color:var(--md-on-surface-variant);" class="hover-white transition-colors">功能特性</a>
+          <a href="#how" style="color:var(--md-on-surface-variant);" class="hover-white transition-colors">工作原理</a>
+          <a href="#pricing" style="color:var(--md-on-surface-variant);" class="hover-white transition-colors">套餐价格</a>
         </nav>
 
         <!-- CTA Buttons -->
         <div class="hidden md:flex items-center gap-3">
           <router-link v-if="auth.isAuthenticated" to="/home"
             class="text-sm px-4 py-2 rounded-lg font-semibold transition-all"
-            style="background:#FFE500; color:#000;">
+            style="background:var(--md-primary); color:#000;">
             进入工作台
           </router-link>
           <template v-else>
             <router-link to="/login" class="text-sm px-4 py-2 rounded-lg border transition-all"
-              style="border-color:#2A2A2A; color:#CCCCCC;"
+              style="border-color:var(--md-outline); color:#CCCCCC;"
               @mouseenter="($event.target as HTMLElement).style.borderColor='#555'"
-              @mouseleave="($event.target as HTMLElement).style.borderColor='#2A2A2A'">
+              @mouseleave="($event.target as HTMLElement).style.borderColor='var(--md-outline)'">
               登录
             </router-link>
             <router-link to="/register" class="text-sm px-4 py-2 rounded-lg font-semibold transition-all"
-              style="background:#FFE500; color:#000;">
+              style="background:var(--md-primary); color:#000;">
               免费开始
             </router-link>
           </template>
         </div>
 
         <!-- Mobile menu button -->
-        <button class="md:hidden p-2 rounded-lg" style="color:#888;" @click="mobileMenuOpen = !mobileMenuOpen">
+        <button class="md:hidden p-2 rounded-lg" style="color:var(--md-on-surface-variant);" @click="mobileMenuOpen = !mobileMenuOpen">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path v-if="!mobileMenuOpen" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             <path v-else stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -198,10 +198,10 @@ const stats = [
         <a href="#how" @click="mobileMenuOpen=false" class="block text-sm py-2" style="color:#CCCCCC;">工作原理</a>
         <a href="#pricing" @click="mobileMenuOpen=false" class="block text-sm py-2" style="color:#CCCCCC;">套餐价格</a>
         <div class="flex gap-3 pt-2">
-          <router-link v-if="auth.isAuthenticated" to="/home" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:#FFE500; color:#000;">进入工作台</router-link>
+          <router-link v-if="auth.isAuthenticated" to="/home" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:var(--md-primary); color:#000;">进入工作台</router-link>
           <template v-else>
-            <router-link to="/login" class="flex-1 text-center text-sm py-2 rounded-lg border" style="border-color:#2A2A2A; color:#CCC;">登录</router-link>
-            <router-link to="/register" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:#FFE500; color:#000;">免费开始</router-link>
+            <router-link to="/login" class="flex-1 text-center text-sm py-2 rounded-lg border" style="border-color:var(--md-outline); color:#CCC;">登录</router-link>
+            <router-link to="/register" class="flex-1 text-center text-sm py-2 rounded-lg font-semibold" style="background:var(--md-primary); color:#000;">免费开始</router-link>
           </template>
         </div>
       </div>
@@ -210,11 +210,11 @@ const stats = [
     <!-- ───── TRIAL BANNER ───── -->
     <div style="background:linear-gradient(90deg,#130F00,#0F0F0F,#130F00); border-bottom:1px solid #1E1E1E;">
       <div class="max-w-7xl mx-auto px-6 py-2.5 flex items-center justify-center gap-3 text-sm">
-        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#FFE500;"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-        <span style="color:#888888;">新用户注册即享</span>
-        <span class="font-bold" style="color:#FFE500;">创作者版 3 天完整体验</span>
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--md-primary);"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <span style="color:var(--md-on-surface-variant);">新用户注册即享</span>
+        <span class="font-bold" style="color:var(--md-primary);">创作者版 3 天完整体验</span>
         <span style="color:#555;">·</span>
-        <span style="color:#888888;">无需绑卡，到期自动降为免费版</span>
+        <span style="color:var(--md-on-surface-variant);">无需绑卡，到期自动降为免费版</span>
       </div>
     </div>
 
@@ -228,19 +228,19 @@ const stats = [
       <div class="relative max-w-4xl mx-auto text-center">
         <!-- Tag -->
         <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-8 text-xs font-medium"
-          style="background:#141400; border-color:#FFE50030; color:#FFE500;">
-          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:#FFE500;"></span>
+          style="background:#141400; border-color:#FFE50030; color:var(--md-primary);">
+          <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:var(--md-primary);"></span>
           自创先进多 Agent 架构 · AI 驱动的中国网络小说创作平台
         </div>
 
         <!-- Headline -->
         <h1 class="font-extrabold mb-6 leading-tight" style="font-family:'Space Grotesk',sans-serif; font-size:clamp(2.5rem,6vw,4.5rem); letter-spacing:-0.02em;">
           让每一位创作者<br>
-          <span style="color:#FFE500;">都有百万字长篇</span>的能力
+          <span style="color:var(--md-primary);">都有百万字长篇</span>的能力
         </h1>
 
         <!-- Subheadline -->
-        <p class="text-lg mb-10 max-w-2xl mx-auto" style="color:#888888; line-height:1.7;">
+        <p class="text-lg mb-10 max-w-2xl mx-auto" style="color:var(--md-on-surface-variant); line-height:1.7;">
           Octopus AI Novel 用我们自创的先进多 Agent 架构，帮你突破创作瓶颈——
           从灵感到定稿，全流程 AI 加持，让日更 5000 字成为常态。
         </p>
@@ -249,16 +249,16 @@ const stats = [
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button @click="goStart"
             class="flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-sm transition-all"
-            style="background:#FFE500; color:#000;"
+            style="background:var(--md-primary); color:#000;"
             @mouseenter="($event.currentTarget as HTMLElement).style.background='#FFF000'"
-            @mouseleave="($event.currentTarget as HTMLElement).style.background='#FFE500'">
+            @mouseleave="($event.currentTarget as HTMLElement).style.background='var(--md-primary)'">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
             {{ auth.isAuthenticated ? '进入工作台' : '免费开始创作' }}
           </button>
           <a href="#how" class="flex items-center gap-2 px-8 py-3.5 rounded-xl font-semibold text-sm border transition-all"
-            style="border-color:#2A2A2A; color:#CCCCCC;"
+            style="border-color:var(--md-outline); color:#CCCCCC;"
             @mouseenter="($event.currentTarget as HTMLElement).style.borderColor='#444'"
-            @mouseleave="($event.currentTarget as HTMLElement).style.borderColor='#2A2A2A'">
+            @mouseleave="($event.currentTarget as HTMLElement).style.borderColor='var(--md-outline)'">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             了解工作原理
           </a>
@@ -267,15 +267,15 @@ const stats = [
         <!-- Trust signals -->
         <div class="mt-12 flex flex-wrap items-center justify-center gap-6" style="color:#555; font-size:0.8rem;">
           <span class="flex items-center gap-1.5">
-            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:#FFE500;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:var(--md-primary);"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
             无需绑定信用卡
           </span>
           <span class="flex items-center gap-1.5">
-            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:#FFE500;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:var(--md-primary);"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
             注册即享创作者版 3 天试用
           </span>
           <span class="flex items-center gap-1.5">
-            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:#FFE500;"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+            <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20" style="color:var(--md-primary);"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
             随时取消，无锁定期
           </span>
         </div>
@@ -286,7 +286,7 @@ const stats = [
     <section style="border-top:1px solid #1A1A1A; border-bottom:1px solid #1A1A1A; background:#0D0D0D; padding:48px 24px;">
       <div class="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
         <div v-for="s in stats" :key="s.label">
-          <div class="text-3xl font-bold mb-1" style="font-family:'Space Grotesk',sans-serif; color:#FFE500;">{{ s.value }}</div>
+          <div class="text-3xl font-bold mb-1" style="font-family:'Space Grotesk',sans-serif; color:var(--md-primary);">{{ s.value }}</div>
           <div class="text-sm" style="color:#666;">{{ s.label }}</div>
         </div>
       </div>
@@ -297,11 +297,11 @@ const stats = [
       <div class="max-w-7xl mx-auto">
         <div class="text-center mb-16">
           <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-5"
-            style="background:#1A1A1A; border:1px solid #2A2A2A; color:#888;">
+            style="background:#1A1A1A; border:1px solid var(--md-outline); color:var(--md-on-surface-variant);">
             核心功能
           </div>
           <h2 class="text-3xl md:text-4xl font-bold mb-4" style="font-family:'Space Grotesk',sans-serif;">
-            为中国网络小说而生的<br><span style="color:#FFE500;">全套创作工具链</span>
+            为中国网络小说而生的<br><span style="color:var(--md-primary);">全套创作工具链</span>
           </h2>
           <p class="text-base max-w-xl mx-auto" style="color:#666;">
             不是简单的 AI 写作工具，而是一套完整的智能创作工作流，覆盖你从构思到完稿的每一个环节。
@@ -312,7 +312,7 @@ const stats = [
           <div v-for="f in features" :key="f.title"
             class="rounded-2xl border p-6 transition-all group"
             style="background:#0D0D0D; border-color:#1E1E1E;"
-            @mouseenter="($event.currentTarget as HTMLElement).style.borderColor='#2A2A2A'"
+            @mouseenter="($event.currentTarget as HTMLElement).style.borderColor='var(--md-outline)'"
             @mouseleave="($event.currentTarget as HTMLElement).style.borderColor='#1E1E1E'">
             <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
               :style="`background:${f.color}12; border:1px solid ${f.color}25;`">
@@ -332,11 +332,11 @@ const stats = [
       <div class="max-w-6xl mx-auto">
         <div class="text-center mb-16">
           <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-5"
-            style="background:#1A1A1A; border:1px solid #2A2A2A; color:#888;">
+            style="background:#1A1A1A; border:1px solid var(--md-outline); color:var(--md-on-surface-variant);">
             工作流程
           </div>
           <h2 class="text-3xl md:text-4xl font-bold mb-4" style="font-family:'Space Grotesk',sans-serif;">
-            四步开启你的<span style="color:#FFE500;">高效创作之旅</span>
+            四步开启你的<span style="color:var(--md-primary);">高效创作之旅</span>
           </h2>
           <p class="text-base max-w-xl mx-auto" style="color:#666;">
             从零开始，到每日稳定产出，只需四个简单步骤。
@@ -346,11 +346,11 @@ const stats = [
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div v-for="(step, i) in steps" :key="step.num" class="relative">
             <!-- Connector line -->
-            <div v-if="i < steps.length - 1" class="hidden lg:block absolute top-8 left-1/2 w-full h-px" style="background:linear-gradient(90deg,#2A2A2A,transparent); transform:translateX(50%); z-index:0;"></div>
+            <div v-if="i < steps.length - 1" class="hidden lg:block absolute top-8 left-1/2 w-full h-px" style="background:linear-gradient(90deg,var(--md-outline),transparent); transform:translateX(50%); z-index:0;"></div>
             <div class="relative z-10 rounded-2xl border p-6" style="background:#0D0D0D; border-color:#1E1E1E;">
               <div class="text-5xl font-black mb-4" style="font-family:'Space Grotesk',sans-serif; color:#1A1A1A; line-height:1;">{{ step.num }}</div>
               <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4" style="background:#FFE50012; border:1px solid #FFE50025;">
-                <svg class="w-4.5 h-4.5 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:#FFE500;" v-html="step.icon"></svg>
+                <svg class="w-4.5 h-4.5 w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--md-primary);" v-html="step.icon"></svg>
               </div>
               <div class="font-semibold text-white mb-2 text-sm">{{ step.title }}</div>
               <p class="text-xs leading-relaxed" style="color:#666;">{{ step.desc }}</p>
@@ -362,9 +362,9 @@ const stats = [
         <div class="mt-14 text-center">
           <button @click="goStart"
             class="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl font-bold text-sm transition-all"
-            style="background:#FFE500; color:#000;"
+            style="background:var(--md-primary); color:#000;"
             @mouseenter="($event.currentTarget as HTMLElement).style.background='#FFF000'"
-            @mouseleave="($event.currentTarget as HTMLElement).style.background='#FFE500'">
+            @mouseleave="($event.currentTarget as HTMLElement).style.background='var(--md-primary)'">
             {{ auth.isAuthenticated ? '返回工作台' : '立即免费体验' }}
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
           </button>
@@ -377,11 +377,11 @@ const stats = [
       <div class="max-w-6xl mx-auto">
         <div class="text-center mb-12">
           <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium mb-5"
-            style="background:#1A1A1A; border:1px solid #2A2A2A; color:#888;">
+            style="background:#1A1A1A; border:1px solid var(--md-outline); color:var(--md-on-surface-variant);">
             套餐价格
           </div>
           <h2 class="text-3xl md:text-4xl font-bold mb-4" style="font-family:'Space Grotesk',sans-serif;">
-            选择适合你的<span style="color:#FFE500;">创作套餐</span>
+            选择适合你的<span style="color:var(--md-primary);">创作套餐</span>
           </h2>
           <p class="text-base max-w-xl mx-auto mb-8" style="color:#666;">
             从免费版开始，随时升级；注册即享创作者版 3 天完整试用，积分不够可随时购买加油包。
@@ -389,18 +389,18 @@ const stats = [
 
           <!-- Billing toggle -->
           <div class="inline-flex items-center gap-3 px-4 py-2 rounded-full border text-sm"
-            style="background:#0D0D0D; border-color:#2A2A2A;">
+            style="background:#0D0D0D; border-color:var(--md-outline);">
             <span :style="!annual ? 'color:#fff; font-weight:600;' : 'color:#666;'" class="transition-colors">按月付费</span>
             <button @click="annual = !annual"
               class="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
-              :style="annual ? 'background:#FFE500;' : 'background:#2A2A2A;'">
+              :style="annual ? 'background:var(--md-primary);' : 'background:var(--md-outline);'">
               <span class="absolute top-0.5 w-4 h-4 rounded-full transition-all"
                 :style="{ left: annual ? 'calc(100% - 18px)' : '2px', background: annual ? '#000' : '#555' }"></span>
             </button>
             <span :style="annual ? 'color:#fff; font-weight:600;' : 'color:#666;'" class="transition-colors flex items-center gap-2">
               按年付费
               <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold"
-                style="background:rgba(255,229,0,0.15); color:#FFE500;">省20%</span>
+                style="background:rgba(255,229,0,0.15); color:var(--md-primary);">省20%</span>
             </span>
           </div>
         </div>
@@ -420,7 +420,7 @@ const stats = [
 
             <!-- Recommended badge -->
             <div v-if="plan.is_recommended" class="absolute -top-3.5 left-0 right-0 flex justify-center">
-              <span class="text-xs font-bold px-4 py-1 rounded-full" style="background:#FFE500; color:#000;">
+              <span class="text-xs font-bold px-4 py-1 rounded-full" style="background:var(--md-primary); color:#000;">
                 ⭐ 最受欢迎
               </span>
             </div>
@@ -475,10 +475,10 @@ const stats = [
               <button @click="handleCta(plan)"
                 class="w-full py-3 rounded-xl font-semibold text-sm transition-all"
                 :style="plan.is_recommended
-                  ? 'background:#FFE500; color:#000;'
-                  : 'background:#1A1A1A; color:#CCCCCC; border:1px solid #2A2A2A;'"
+                  ? 'background:var(--md-primary); color:#000;'
+                  : 'background:#1A1A1A; color:#CCCCCC; border:1px solid var(--md-outline);'"
                 @mouseenter="(e) => { if(plan.is_recommended)(e.currentTarget as HTMLElement).style.background='#FFF000'; else (e.currentTarget as HTMLElement).style.borderColor='#444'; }"
-                @mouseleave="(e) => { if(plan.is_recommended)(e.currentTarget as HTMLElement).style.background='#FFE500'; else (e.currentTarget as HTMLElement).style.borderColor='#2A2A2A'; }">
+                @mouseleave="(e) => { if(plan.is_recommended)(e.currentTarget as HTMLElement).style.background='var(--md-primary)'; else (e.currentTarget as HTMLElement).style.borderColor='var(--md-outline)'; }">
                 {{ getCtaText(plan) }}
               </button>
               <p v-if="plan.price > 0" class="text-center text-[10px] mt-2" style="color:#444;">
@@ -493,7 +493,7 @@ const stats = [
           <div class="text-sm font-medium text-white mb-1">需要团队协作或企业定制方案？</div>
           <p class="text-xs mb-3" style="color:#555;">我们提供专属的企业版功能，包括多人协作、自定义模型部署和API接入。</p>
           <a href="mailto:hi@octopusainovel.com" class="inline-flex items-center gap-1.5 text-sm font-medium transition-colors"
-            style="color:#FFE500;"
+            style="color:var(--md-primary);"
             @mouseenter="($event.currentTarget as HTMLElement).style.opacity='0.8'"
             @mouseleave="($event.currentTarget as HTMLElement).style.opacity='1'">
             联系我们
@@ -532,8 +532,8 @@ const stats = [
     <section style="padding:80px 24px; background:#060606; border-top:1px solid #1A1A1A;">
       <div class="max-w-3xl mx-auto text-center">
         <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-medium mb-8"
-          style="background:#141400; border-color:#FFE50030; color:#FFE500;">
-          <span class="w-1.5 h-1.5 rounded-full" style="background:#FFE500;"></span>
+          style="background:#141400; border-color:#FFE50030; color:var(--md-primary);">
+          <span class="w-1.5 h-1.5 rounded-full" style="background:var(--md-primary);"></span>
           现在开始，3天完整体验
         </div>
         <h2 class="text-3xl md:text-4xl font-bold mb-5" style="font-family:'Space Grotesk',sans-serif;">
@@ -545,27 +545,27 @@ const stats = [
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button @click="goStart"
             class="flex items-center gap-2 px-10 py-4 rounded-xl font-bold transition-all"
-            style="background:#FFE500; color:#000; font-size:0.95rem;"
+            style="background:var(--md-primary); color:#000; font-size:0.95rem;"
             @mouseenter="($event.currentTarget as HTMLElement).style.background='#FFF000'"
-            @mouseleave="($event.currentTarget as HTMLElement).style.background='#FFE500'">
+            @mouseleave="($event.currentTarget as HTMLElement).style.background='var(--md-primary)'">
             {{ auth.isAuthenticated ? '返回工作台' : '免费注册，立即体验' }}
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
           </button>
           <router-link v-if="!auth.isAuthenticated" to="/login" class="text-sm" style="color:#555;">
-            已有账号？<span style="color:#888;">直接登录</span>
+            已有账号？<span style="color:var(--md-on-surface-variant);">直接登录</span>
           </router-link>
         </div>
       </div>
     </section>
 
     <!-- ───── FOOTER ───── -->
-    <footer style="border-top:1px solid #141414; padding:40px 24px; background:#060606;">
+    <footer style="border-top:1px solid var(--md-surface); padding:40px 24px; background:#060606;">
       <div class="max-w-6xl mx-auto">
         <div class="flex flex-col md:flex-row items-start justify-between gap-10 mb-10">
           <!-- Brand -->
           <div class="max-w-xs">
             <div class="flex items-center gap-2.5 mb-3">
-              <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:#FFE500;">
+              <div class="w-7 h-7 rounded-lg flex items-center justify-center" style="background:var(--md-primary);">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24" style="color:#000;"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
               </div>
               <span class="font-bold" style="font-family:'Space Grotesk',sans-serif;">Octopus AI Novel</span>
@@ -577,28 +577,28 @@ const stats = [
             <div>
               <div class="font-medium mb-3 text-xs tracking-widest" style="color:#666; text-transform:uppercase;">产品</div>
               <div class="space-y-2">
-                <a href="#features" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">功能特性</a>
-                <a href="#pricing" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">套餐价格</a>
-                <router-link to="/register" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">免费注册</router-link>
+                <a href="#features" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">功能特性</a>
+                <a href="#pricing" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">套餐价格</a>
+                <router-link to="/register" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">免费注册</router-link>
               </div>
             </div>
             <div>
               <div class="font-medium mb-3 text-xs tracking-widest" style="color:#666; text-transform:uppercase;">账户</div>
               <div class="space-y-2">
-                <router-link to="/login" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">登录</router-link>
-                <router-link to="/register" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">注册</router-link>
-                <router-link to="/pricing" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">升级套餐</router-link>
+                <router-link to="/login" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">登录</router-link>
+                <router-link to="/register" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">注册</router-link>
+                <router-link to="/pricing" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">升级套餐</router-link>
               </div>
             </div>
             <div>
               <div class="font-medium mb-3 text-xs tracking-widest" style="color:#666; text-transform:uppercase;">联系</div>
               <div class="space-y-2">
-                <a href="mailto:hi@octopusainovel.com" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='#888'" @mouseleave="($event.target as HTMLElement).style.color='#444'">邮件联系</a>
+                <a href="mailto:hi@octopusainovel.com" class="block transition-colors" style="color:#444;" @mouseenter="($event.target as HTMLElement).style.color='var(--md-on-surface-variant)'" @mouseleave="($event.target as HTMLElement).style.color='#444'">邮件联系</a>
               </div>
             </div>
           </div>
         </div>
-        <div class="flex flex-col md:flex-row items-center justify-between gap-3 pt-6" style="border-top:1px solid #141414;">
+        <div class="flex flex-col md:flex-row items-center justify-between gap-3 pt-6" style="border-top:1px solid var(--md-surface);">
           <p class="text-xs" style="color:#333;">© 2025 Octopus AI Novel. 保留所有权利。</p>
           <p class="text-xs" style="color:#333;">Powered by AI · 自创先进多 Agent 协作架构</p>
         </div>
