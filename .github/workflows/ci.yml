@@ -91,3 +91,8 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # 构建成功不代表样式还在：@import 位置写错会让整份组件样式被静默丢弃，
+      # 构建零报错、单测与 type-check 全绿，只有打开页面才发现整站没样式。
+      - name: Check CSS layers
+        run: npm run check:css

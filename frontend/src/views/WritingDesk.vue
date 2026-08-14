@@ -2156,43 +2156,12 @@ onUnmounted(() => {
 <style scoped>
 @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
 
+/* 写作台只改字体族，其余令牌一律继承 main.css 的 :root。
+   此前这里把整份调色板（35 个令牌）逐字复制了一遍——值完全相同，纯重复。
+   两份定义的代价是无声的：改了 :root 而漏改这里，写作台就停在旧值上，
+   而针对令牌的对比度检查只看得到 :root 那份，全绿却修不到实际页面。 */
 :global(body.m3-novel) {
   --md-font-family: 'Manrope', 'Noto Sans SC', 'Noto Sans', 'PingFang SC', sans-serif;
-  --md-primary: #ffe500;
-  --md-primary-light: #fff062;
-  --md-primary-dark: #e6ce00;
-  --md-on-primary: #000000;
-  --md-primary-container: #2a2600;
-  --md-on-primary-container: #ffe500;
-  --md-secondary: #888888;
-  --md-secondary-light: #aaaaaa;
-  --md-secondary-dark: #666666;
-  --md-on-secondary: #ffffff;
-  --md-secondary-container: #1c1c1c;
-  --md-on-secondary-container: #cccccc;
-  --md-surface: #141414;
-  --md-surface-dim: #0a0a0a;
-  --md-surface-container-lowest: #0a0a0a;
-  --md-surface-container-low: #141414;
-  --md-surface-container: #1c1c1c;
-  --md-surface-container-high: #242424;
-  --md-surface-container-highest: #2a2a2a;
-  --md-on-surface: #ffffff;
-  --md-on-surface-variant: #888888;
-  --md-outline: #2a2a2a;
-  --md-outline-variant: #1c1c1c;
-  --md-error: #ff4757;
-  --md-error-container: #3d0a0a;
-  --md-on-error: #ffffff;
-  --md-on-error-container: #ff9eb8;
-  --md-success: #2ed573;
-  --md-success-container: #0a2a1a;
-  --md-on-success: #000000;
-  --md-on-success-container: #2ed573;
-  --md-warning-container: #2a2600;
-  --md-on-warning-container: #ffe500;
-  --md-background: #0a0a0a;
-  --md-on-background: #ffffff;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
 }
