@@ -37,16 +37,16 @@ Recent git history shows the product surface has moved beyond pure generation in
 
 ## Repository Shape
 
-Current indexed repository shape at a glance:
+Approximate repository shape at a glance (magnitudes, not exact counts — they drift; use `ls | wc -l` when the precise number matters):
 
-- `backend/app/services/`: 119 Python service files
-- `backend/app/api/routers/`: 24 router files
-- `backend/app/models/`: 27 ORM model files
-- `backend/prompts/`: 37 prompt templates
-- `backend/tests/`: 78 `test_*.py` files
-- `frontend/src/views/`: 16 view files
-- `frontend/src/components/`: 77 component files
-- `gateway/`: 22 Go source files
+- `backend/app/services/`: 130+ Python service files
+- `backend/app/api/routers/`: 20+ router files
+- `backend/app/models/`: 30+ ORM model files
+- `backend/prompts/`: 40+ prompt templates
+- `backend/tests/`: 160+ `test_*.py` files
+- `frontend/src/views/`: ~17 view files
+- `frontend/src/components/`: 80+ component files
+- `gateway/`: ~25 Go source files
 
 Key top-level areas:
 
@@ -546,7 +546,7 @@ Membership feature gates should use the capability registry in `feature_gating.p
 
 ### Models
 
-The ORM layer includes 27 model files and covers:
+The ORM layer includes 30+ model files and covers:
 
 - projects, chapters, chapter versions, and chapter outlines
 - users, phone login, quotas, plans, payment orders, and API usage logs

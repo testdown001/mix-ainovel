@@ -1,3 +1,5 @@
+> **历史文档，已过时**：Celery 已于 2026-06-10 全量移除，异步生成走 Go 网关任务分发。本文仅作历史参考。
+
 # Celery 任务队列系统部署指南
 
 > ⚠️ 已废弃（2026-06-10）：Celery 已从本项目**整体移除**（含 `app/tasks/`、`celery_app.py`、`foreshadowing_tasks.py`、`/api/tasks/*` 路由、相关依赖与生产 compose worker 块）。本文仅作历史归档，**不代表当前运行代码**。当前章节异步生成由 Go Gateway task dispatcher + `backend/app/api/routers/task_worker.py` 承担。
