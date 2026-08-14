@@ -44,3 +44,4 @@ __pycache__/
 /gateway/bin/
 /gateway/logs/
 /backend/storage/bench/
+.arb-*.sh
