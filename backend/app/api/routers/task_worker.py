@@ -393,6 +393,24 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
 # 任务执行逻辑
 # ============================================================
 
+def _skipped_for_budget(result: Any) -> list:
+    """管线因时间预算跳过的后处理步骤名（没有就空列表）。
+
+    review_summaries 不进异步 payload，结论得在这里取出来带走——与 missing_scenes /
+    polish_undelivered 同一套做法。
+    """
+    if not isinstance(result, dict):
+        return []
+    for variant in result.get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        summaries = (variant.get("metadata") or {}).get("review_summaries") or {}
+        budget = summaries.get("time_budget") if isinstance(summaries, dict) else None
+        if isinstance(budget, dict) and budget.get("skipped"):
+            return list(budget["skipped"])
+    return []
+
+
 def _count_unpolished(task_type: str, result: Any) -> int:
     """本次任务里「已计费但润色没兑现」的章数（单章 0/1，批量按章计）。"""
     if not isinstance(result, dict):
@@ -478,6 +496,11 @@ async def _execute_chapter_generate(
         }
         if missing_scenes:
             payload["missing_scenes"] = missing_scenes
+        # 精修步骤被时间预算跳过：正文照常交付，但用户拿到的是没过质检的稿子。
+        # 上游慢的时候这会静默发生（实测上游变慢后标准档整条链全跳），必须带出去让前端说明。
+        skipped = _skipped_for_budget(result)
+        if skipped:
+            payload["skipped_for_budget"] = skipped
         # 润色未兑现信号：与 missing_scenes 同理，管线的 review_summaries 不进 payload，
         # 得在这里把结论带出去，供成功路径退还润色附加费
         if flow_config.get("enable_polish") and polish_undelivered(result):

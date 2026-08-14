@@ -481,6 +481,7 @@ import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
 import { isStreamInterruption } from '@/utils/streamInterruption'
 import { resolveStage } from '@/utils/generationStages'
+import { describeSkippedSteps, extractSkippedSteps } from '@/utils/budgetSkip'
 import {
   useGenerationProgress,
   type GenerationProgressView,
@@ -1451,9 +1452,10 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     }
 
     // 根据模式选择生成方式
+    let skippedSteps: string[] = []
     if (useAsyncMode.value) {
       // 异步任务模式（通过 Go Gateway Task Dispatcher）
-      await asyncGen.submitGeneration(
+      const task = await asyncGen.submitGeneration(
         project.value.id,
         chapterNumber,
         {
@@ -1478,9 +1480,10 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
           }
         },
       )
+      skippedSteps = extractSkippedSteps(task?.result)
     } else {
       // SSE 流式模式（直连 FastAPI）
-      await NovelAPI.generateChapterStream(
+      const streamResult = await NovelAPI.generateChapterStream(
         project.value.id,
         chapterNumber,
         writingNotes,
@@ -1532,6 +1535,14 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
         },
         agentFlowConfigOverrides.value,
       )
+      skippedSteps = extractSkippedSteps(streamResult)
+    }
+
+    // 上游慢时管线会跳过精修步骤保按时交付——这事此前完全静默，用户按标准档付了钱、
+    // 拿到的却是没过质检的初稿，界面上一点痕迹都没有
+    const skipNotice = describeSkippedSteps(skippedSteps)
+    if (skipNotice) {
+      globalAlert.showAlert(skipNotice, 'info', '部分精修被跳过')
     }
 
     // store 中的 project 已经被更新，所以我们不需要手动修改本地状态
