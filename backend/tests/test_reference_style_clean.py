@@ -85,6 +85,28 @@ def test_bullet_structure_dropped_single_bullet_kept():
     assert clean(prose) != ""
 
 
+# ── 2026-08-14 线上第三变体：写作过程叙述（thinking 模型把打磨过程写进答案） ──
+
+SELF_EDIT_NOTES = """开始撰写10段样本：
+
+---
+
+调整一下第7段，让它更符合“古代背景+现代语感”的吐槽。
+“这老道士真不靠谱，说好的神丹妙药，结果就是颗糖豆？” -> 4句。符合。
+
+---
+
+更声过了三巡，他把灯笼压低，影子贴着墙根走。"""
+
+
+def test_self_edit_narration_dropped_prose_kept():
+    result = clean(SELF_EDIT_NOTES)
+    assert "撰写" not in result
+    assert "调整一下" not in result
+    assert "->" not in result
+    assert "灯笼" in result
+
+
 def test_outline_task_echo_detection():
     echo_head = ReferenceNovelLibraryService._looks_like_task_echo
     assert echo_head("1.  **理解任务需求**：\n    *   角色：经验丰富的小说策划编辑。")

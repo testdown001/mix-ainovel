@@ -258,11 +258,13 @@ class ReferenceNovelLibraryService:
         retry_cleaned = remove_think_tags(retry)
         return "" if self._looks_like_task_echo(retry_cleaned) else retry_cleaned
 
-    # 元话语标记：命中任一即判定该段不是样本正文，而是任务复述/分析笔记
+    # 元话语标记：命中任一即判定该段不是样本正文，而是任务复述/分析笔记/写作过程叙述。
+    # 「样本/撰写」对虚构正文属罕见词，宁可错杀（10 段里留 3-4 段干净的就够用），
+    # 也不能把元话语注入正文生成。
     _STYLE_META_MARKERS = (
-        "分析请求", "分析师", "风格样本", "风格分析", "解构",
+        "分析请求", "分析师", "风格样本", "风格分析", "解构", "样本", "撰写",
         "任务：", "任务:", "输入：", "输入:", "输出：", "输出:",
-        "要求：", "要求:", "以下是", "样本如下", "如下所示",
+        "要求：", "要求:", "以下是", "如下所示",
     )
 
     # 大纲任务复述标记：出现在开头即判定整份输出是任务复述而非大纲内容
@@ -304,8 +306,9 @@ class ReferenceNovelLibraryService:
             # markdown 标题头或编号开头（提示词明确禁止样本带序号 → 带序号的是计划/说明）
             if re.match(r"^\s*(#{1,6}\s|\d+\s*[.、])", seg):
                 continue
-            # 「段1：xxx」式的分段计划
-            if re.search(r"段\s*\d+\s*[:：]", seg):
+            # 段落编号引用（「段1：」「第7段」）与修订箭头：写作过程叙述
+            # （thinking 模型把打磨过程写进答案，2026-08-14 线上第三变体）
+            if re.search(r"第?\s*\d+\s*段|->|→", seg):
                 continue
             # bullet 列表结构（≥2 行以 * - · 开头）是分析笔记，不是叙事正文
             bullet_lines = sum(1 for line in seg.splitlines() if re.match(r"^\s*[*\-·•]\s+", line))
