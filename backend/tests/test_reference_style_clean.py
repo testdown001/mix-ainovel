@@ -53,3 +53,40 @@ def test_markdown_headers_dropped():
 def test_empty_and_blank():
     assert clean("") == ""
     assert clean("   \n  ") == ""
+
+
+# ── 2026-08-14 线上第二变体：分析笔记/写作计划（非任务复述但同样是垃圾） ──
+
+ANALYSIS_NOTES = """2. 解构《大奉打更人》风格：
+    * 句式：短句为主，短段落。动作+对话驱动。
+    * 节奏：快，信息密度低，推进快。
+
+3. 构建10段样本（结合剧情元素，不提现实信息）：
+    段1：开局破案/内心吐槽，许七安着卷宗。
+    段2：打更人衙门日常/对话，与同僚插科打诨。"""
+
+
+def test_analysis_notes_variant_cleared():
+    assert clean(ANALYSIS_NOTES) == ""
+
+
+def test_numbered_segment_dropped():
+    mixed = "1. 先看叙事视角与节奏\n\n" + "更声过了三巡，他把灯笼压低，影子贴着墙根走。"
+    result = clean(mixed)
+    assert "叙事视角" not in result
+    assert "灯笼" in result
+
+
+def test_bullet_structure_dropped_single_bullet_kept():
+    # ≥2 行 bullet 是分析笔记；正文里偶然一行破折号式开头不误伤
+    notes = "* 句式：短句\n* 节奏：快"
+    assert clean(notes) == ""
+    prose = "夜风扫过长街。\n- 更声，三下。\n他数完才敢迈步。"
+    assert clean(prose) != ""
+
+
+def test_outline_task_echo_detection():
+    echo_head = ReferenceNovelLibraryService._looks_like_task_echo
+    assert echo_head("1.  **理解任务需求**：\n    *   角色：经验丰富的小说策划编辑。")
+    assert echo_head("分析请求：抽取《某书》核心大纲")
+    assert not echo_head("### 剧情大纲\n\n1. **第一阶段：税银案**\n许七安卷入税银失窃案……")

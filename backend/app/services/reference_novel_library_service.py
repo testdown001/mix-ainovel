@@ -186,9 +186,9 @@ class ReferenceNovelLibraryService:
                 ),
             )
 
-            novel.outline_content = outline
-            # 风格样本可能因「任务复述」被整份清洗掉（返回空串）——保留旧档案，
+            # 大纲/风格样本都可能因「任务复述」被整份判废（返回空串）——保留旧档案，
             # 不用空值/垃圾覆盖；首次分析没有旧值时保持为空，界面会给提示
+            novel.outline_content = outline or novel.outline_content
             novel.style_samples_content = style or novel.style_samples_content
             novel.memory_card = memory_card
             novel.beat_library = beat_library
@@ -230,23 +230,68 @@ class ReferenceNovelLibraryService:
             max_tokens=1600,
             config_override=llm_config,
         )
-        return remove_think_tags(generated)
+        cleaned = remove_think_tags(generated)
+        if not self._looks_like_task_echo(cleaned):
+            return cleaned
 
-    # 元话语标记：命中任一即判定该段不是样本正文，而是任务复述/说明
+        # 输出是任务复述（「理解任务需求：角色：经验丰富的小说策划编辑…」）
+        # → 一次矫正重问，仍复述则返回空串（analyze() 保留旧档案）
+        logger.warning("大纲输出疑似任务复述，矫正重问一次: %s", novel_title)
+        retry = await self.llm_service.get_search_llm_response(
+            system_prompt="你是专业的小说分析助手，擅长从搜索结果中提取和整理小说大纲与人物档案。",
+            conversation_history=[
+                {"role": "user", "content": filled},
+                {"role": "assistant", "content": cleaned[:500]},
+                {
+                    "role": "user",
+                    "content": (
+                        "你刚才把任务要求复述了一遍，没有给出大纲。重新输出：\n"
+                        "禁止出现「理解任务需求 / 分析请求 / 输出格式要求 / 任务 / 角色定位」等元话语，"
+                        "第一行就必须是剧情大纲的内容本身。"
+                    ),
+                },
+            ],
+            temperature=0.4,
+            max_tokens=1600,
+            config_override=llm_config,
+        )
+        retry_cleaned = remove_think_tags(retry)
+        return "" if self._looks_like_task_echo(retry_cleaned) else retry_cleaned
+
+    # 元话语标记：命中任一即判定该段不是样本正文，而是任务复述/分析笔记
     _STYLE_META_MARKERS = (
-        "分析请求", "分析师", "风格样本", "风格分析",
+        "分析请求", "分析师", "风格样本", "风格分析", "解构",
         "任务：", "任务:", "输入：", "输入:", "输出：", "输出:",
         "要求：", "要求:", "以下是", "样本如下", "如下所示",
     )
 
+    # 大纲任务复述标记：出现在开头即判定整份输出是任务复述而非大纲内容
+    _OUTLINE_ECHO_MARKERS = (
+        "理解任务需求", "分析请求", "输出格式要求", "任务需求",
+        "角色：小说", "角色：经验丰富", "策划编辑", "任务：", "任务:",
+    )
+
+    @classmethod
+    def _looks_like_task_echo(cls, text: str) -> bool:
+        """大纲输出是否是任务复述（「理解任务需求：角色：经验丰富的小说策划编辑…」）。
+
+        大纲的合法形态本来就是结构化 markdown，没法像样本那样按段过滤，
+        只看开头 300 字符内是否出现任务复述标记（高置信、低误伤）。
+        """
+        head = (text or "")[:300]
+        return any(marker in head for marker in cls._OUTLINE_ECHO_MARKERS)
+
     @classmethod
     def _clean_style_samples(cls, raw: str) -> str:
-        """剔除 LLM 的任务复述/元说明，只保留样本正文段。
+        """剔除 LLM 的任务复述/分析笔记，只保留样本正文段。
 
-        线上实测（2026-08-14）：搜索通道模型偶尔不给样本，而是把任务要求复述一遍
-        （「分析请求：角色：小说风格分析师。任务：模仿……」）。这类输出一旦入库，
+        线上实测（2026-08-14，两个变体）：搜索通道模型有时不给样本，而是
+        ①复述任务（「分析请求：角色：小说风格分析师。任务：模仿……」），
+        ②输出分析笔记/写作计划（「2. 解构《大奉打更人》风格：* 句式：短句为主…」
+        「3. 构建10段样本：段1：开局破案/内心吐槽…」）。这类输出一旦入库，
         既在档案页展示垃圾，也会被 format_style_samples_for_prompt 原样注入正文
-        生成。按段切分（--- 或空行），丢弃含元话语/markdown 标题头的段；
+        生成。按段切分（--- 或空行）后丢弃：含元话语标记的段、markdown 标题/编号
+        开头的段（提示词禁止样本带序号）、bullet 列表结构的段、含「段N：」计划的段；
         全部被丢弃则返回空串，由调用方决定重问或保留旧值。
         """
         if not raw or not raw.strip():
@@ -256,8 +301,15 @@ class ReferenceNovelLibraryService:
         for seg in segments:
             if any(marker in seg for marker in cls._STYLE_META_MARKERS):
                 continue
-            # markdown 标题/编号加粗头（「### xx」「1. **xx**」）是结构说明，不是样本
-            if re.match(r"^\s*(#{1,6}\s|\d+\s*[.、]\s*\*\*)", seg):
+            # markdown 标题头或编号开头（提示词明确禁止样本带序号 → 带序号的是计划/说明）
+            if re.match(r"^\s*(#{1,6}\s|\d+\s*[.、])", seg):
+                continue
+            # 「段1：xxx」式的分段计划
+            if re.search(r"段\s*\d+\s*[:：]", seg):
+                continue
+            # bullet 列表结构（≥2 行以 * - · 开头）是分析笔记，不是叙事正文
+            bullet_lines = sum(1 for line in seg.splitlines() if re.match(r"^\s*[*\-·•]\s+", line))
+            if bullet_lines >= 2:
                 continue
             clean.append(seg)
         return "\n\n---\n\n".join(clean)
