@@ -40,6 +40,7 @@ from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
+from ...services.share_service import ShareService
 from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
 from ...services.reference_beat_service import ReferenceBeatService
@@ -380,6 +381,52 @@ async def set_novel_completed(
     await novel_service.set_completed(project_id, current_user.id, is_completed)
     logger.info("用户 %s 设置项目 %s 完结状态为 %s", current_user.id, project_id, is_completed)
     return {"status": "success", "is_completed": is_completed}
+
+
+# ---------------------------------------------------------------------------
+# 作品公开分享开关（owner 侧；免登录只读端点在 public_share.py）
+# 归属校验走 ShareService.ensure_share_owner：非属主与不存在统一 404（不泄露存在性），
+# 与本文件其余端点的 403 口径有意不同——理由见 service 内注释。
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/share")
+async def get_share_status(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """当前分享状态。"""
+    share_service = ShareService(session)
+    project = await share_service.ensure_share_owner(project_id, current_user.id)
+    return {"enabled": bool(project.share_token), "share_token": project.share_token}
+
+
+@router.post("/{project_id}/share")
+async def enable_share(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """开启分享：无 token 生成，已有幂等返回现有。"""
+    share_service = ShareService(session)
+    project = await share_service.ensure_share_owner(project_id, current_user.id)
+    token = await share_service.enable_share(project)
+    logger.info("用户 %s 开启项目 %s 的公开分享", current_user.id, project_id)
+    return {"share_token": token, "share_url_path": f"/share/{token}"}
+
+
+@router.delete("/{project_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+async def disable_share(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> None:
+    """关闭分享：置 NULL，旧链接立刻失效。"""
+    share_service = ShareService(session)
+    project = await share_service.ensure_share_owner(project_id, current_user.id)
+    await share_service.disable_share(project)
+    logger.info("用户 %s 关闭项目 %s 的公开分享", current_user.id, project_id)
 
 
 @router.get("/{project_id}/sections/{section}", response_model=NovelSectionResponse)

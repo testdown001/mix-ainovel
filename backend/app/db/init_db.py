@@ -226,6 +226,9 @@ async def _ensure_schema_updates() -> None:
                     "reference_novel_ids": "reference_novel_ids JSON",
                     "fusion_dna": "fusion_dna JSON",
                     "is_completed": "is_completed TINYINT(1) NOT NULL DEFAULT 0",
+                    # 唯一索引不在这里补（_ensure_index 不支持 UNIQUE）——由守卫式迁移
+                    # a7b8c9d0e1f2 补建；token 由 secrets.token_urlsafe 生成，碰撞概率可忽略
+                    "share_token": "share_token VARCHAR(64) NULL",
                 },
             )
 

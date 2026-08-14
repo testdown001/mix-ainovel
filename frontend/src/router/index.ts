@@ -98,6 +98,13 @@ const router = createRouter({
       component: () => import('../views/PrivacyView.vue'),
     },
     {
+      // 作品公开分享阅读页：免登录（无 requiresAuth），分享链接主要在手机端打开
+      path: '/share/:token',
+      name: 'shared-novel',
+      component: () => import('../views/SharedNovelView.vue'),
+      props: true,
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('../views/NotFound.vue'),

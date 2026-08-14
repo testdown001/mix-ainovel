@@ -38,6 +38,9 @@ class NovelProject(Base):
     initial_prompt: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="draft")
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
+    # 公开分享令牌：NULL = 未分享；非空 = 凭 /share/{token} 免登录可读已完稿章节。
+    # 关闭分享置 NULL、再开启生成新 token——旧链接即作废，无需单独的「重新生成」入口。
+    share_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

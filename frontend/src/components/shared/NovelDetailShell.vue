@@ -136,7 +136,18 @@
           </button>
         </div>
 
-        <div v-if="!isAdmin" class="flex-shrink-0 pb-2">
+        <div v-if="!isAdmin" class="flex-shrink-0 pb-2 flex items-center gap-2">
+          <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all border hover:opacity-90"
+            :style="shareEnabled
+              ? 'border-color: #FFE500; color: #FFE500; background: rgba(255,229,0,0.08);'
+              : 'border-color: #2A2A2A; color: #fff; background: transparent;'"
+            :disabled="shareBusy"
+            @click="handleShareClick">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+            </svg>
+            {{ shareBusy ? '处理中...' : '分享' }}
+          </button>
           <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
             style="background: #FFE500; color: #000;" @click="goToWritingDesk">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -201,6 +212,45 @@
       @save="handleSave"
     />
 
+    <!-- ==================== Share Panel Modal ==================== -->
+    <transition
+      enter-active-class="transition-all duration-200"
+      leave-active-class="transition-all duration-200"
+      enter-from-class="opacity-0"
+      leave-to-class="opacity-0"
+    >
+      <div v-if="isSharePanelOpen && !isAdmin" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.6);">
+        <div class="absolute inset-0" @click="isSharePanelOpen = false"></div>
+        <div class="relative w-full max-w-lg mx-4 rounded-2xl border" style="background: #141414; border-color: #2A2A2A;" @click.stop>
+          <div class="px-6 py-5 border-b" style="border-color: #2A2A2A;">
+            <h3 class="text-lg font-semibold text-white">公开分享</h3>
+            <p class="text-xs mt-1.5 leading-5" style="color: #888;">任何人凭此链接可免登录阅读已完稿章节；关闭分享后链接立刻失效。</p>
+          </div>
+          <div class="px-6 py-5 space-y-4">
+            <div class="flex items-center gap-2">
+              <input :value="shareUrl" type="text" readonly
+                class="flex-1 min-w-0 px-4 py-2.5 rounded-xl text-sm outline-none"
+                style="background: #1C1C1C; border: 1px solid #2A2A2A; color: #fff;"
+                @focus="($event.target as HTMLInputElement).select()">
+              <button type="button" class="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90"
+                style="background: #FFE500; color: #000;" @click="copyShareUrl">
+                {{ shareCopied ? '已复制' : '复制链接' }}
+              </button>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-6 py-4 border-t" style="border-color: #2A2A2A;">
+            <button type="button" class="px-4 py-2 rounded-lg text-sm transition-colors"
+              style="color: #FF4757; border: 1px solid rgba(255,71,87,0.4);"
+              :disabled="shareBusy" @click="disableShare">
+              关闭分享
+            </button>
+            <button type="button" class="px-4 py-2 rounded-lg text-sm transition-colors" style="color: #888; border: 1px solid #2A2A2A;"
+              @click="isSharePanelOpen = false">完成</button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- ==================== Add Chapter Modal ==================== -->
     <transition
       enter-active-class="transition-all duration-200"
@@ -249,6 +299,7 @@ import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
 import { NovelAPI } from '@/api/novel'
 import { AdminAPI } from '@/api/admin'
+import { shareApi } from '@/api/share'
 import { getProjectAnalysis, type ProjectAnalysis } from '@/api/gatekeeperReview'
 import type { NovelProject, NovelSectionResponse, NovelSectionType, AllSectionType } from '@/api/novel'
 import { formatDateTime } from '@/utils/date'
@@ -355,6 +406,77 @@ const modalField = ref('')
 const isAddChapterModalOpen = ref(false)
 const newChapterTitle = ref('')
 const newChapterSummary = ref('')
+
+// ==================== 公开分享 ====================
+
+const shareEnabled = ref(false)
+const shareToken = ref<string | null>(null)
+const shareBusy = ref(false)
+const isSharePanelOpen = ref(false)
+const shareCopied = ref(false)
+
+const shareUrl = computed(() =>
+  shareToken.value ? `${window.location.origin}/share/${shareToken.value}` : ''
+)
+
+const loadShareStatus = async () => {
+  if (props.isAdmin || !projectId) return
+  try {
+    const status = await shareApi.getStatus(projectId)
+    shareEnabled.value = status.enabled
+    shareToken.value = status.share_token
+  } catch {
+    // 分享状态取不到不影响详情页主体，按钮保持「未开启」形态即可
+  }
+}
+
+const copyShareUrl = async () => {
+  if (!shareUrl.value) return
+  try {
+    await navigator.clipboard.writeText(shareUrl.value)
+    shareCopied.value = true
+    setTimeout(() => (shareCopied.value = false), 2000)
+  } catch {
+    // 剪贴板不可用（如非 https）：面板里展示着链接，可手动全选复制
+  }
+}
+
+const handleShareClick = async () => {
+  if (shareBusy.value) return
+  if (shareEnabled.value) {
+    isSharePanelOpen.value = true
+    return
+  }
+  shareBusy.value = true
+  try {
+    const result = await shareApi.enable(projectId)
+    shareEnabled.value = true
+    shareToken.value = result.share_token
+    isSharePanelOpen.value = true
+    await copyShareUrl()
+  } catch (error) {
+    console.error('开启分享失败:', error)
+    alert(error instanceof Error ? error.message : '开启分享失败')
+  } finally {
+    shareBusy.value = false
+  }
+}
+
+const disableShare = async () => {
+  if (shareBusy.value) return
+  shareBusy.value = true
+  try {
+    await shareApi.disable(projectId)
+    shareEnabled.value = false
+    shareToken.value = null
+    isSharePanelOpen.value = false
+  } catch (error) {
+    console.error('关闭分享失败:', error)
+    alert(error instanceof Error ? error.message : '关闭分享失败')
+  } finally {
+    shareBusy.value = false
+  }
+}
 
 const novel = computed(() => !props.isAdmin ? novelStore.currentProject as NovelProject | null : null)
 const sectionRef = ref<any>(null)
@@ -762,6 +884,7 @@ onMounted(async () => {
   loadSection('characters')
   loadSection('chapter_outline')
   loadSection('world_setting')
+  loadShareStatus()
   powerSystems.value = await fetchPowerSystems()
 })
 
