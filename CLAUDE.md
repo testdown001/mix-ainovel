@@ -52,6 +52,8 @@ alembic upgrade head
 ```
 Baseline revision: `migrations/versions/3d0894d473c4_baseline_schema.py`. Startup still runs `init_db()` `create_all` + repair helpers; Alembic is the versioned-migration path going forward. Revision chain (single head): `3d0894d473c4` → `b1c2d3e4f5a6` → `c7f8a9b0d1e2` → `d8e9f0a1b2c3` → `e5a6b7c8d9f0`.
 
+**New-column migrations must be existence-guarded** (check `sa.inspect(op.get_bind()).get_columns(...)` before `add_column`): deploy order is always "new container starts (startup `_ensure_columns` repair runs) → then migrations", so an unguarded ADD COLUMN on a managed DB hits `Duplicate column` every time — `e5a6b7c8d9f0` hit exactly this on first rollout. With the guard, the migration's real job is just advancing `alembic_version`.
+
 On servers, migrations run **inside the app container** via `deploy/scripts/run_migrations.sh` (reworked 2026-08-13): it reuses the app's own `sqlalchemy_database_uri`, so no host mysql client and no published DB port are needed (prod deliberately publishes neither). The script probes schema state first — a DB built by `create_all` with no `alembic_version` gets `alembic stamp head` (registering the status quo as baseline) rather than a doomed `upgrade` against existing tables; an already-managed DB gets `alembic upgrade head`. `backend/db/migrations/*.sql` is the archived pre-Alembic path, now only reachable with `LEGACY_SQL=1`. Companion `verify_migration.sh` checks revision == head and diffs `Base.metadata` against the live schema (reports missing tables/columns) instead of asserting a hardcoded 2025-era table list.
 
 ### Docker Deployment
