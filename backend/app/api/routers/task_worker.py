@@ -30,6 +30,7 @@ from ...core.feature_gating import (
 from ...db.session import AsyncSessionLocal
 from ...models.novel import Chapter
 from ...services.blueprint_generation_service import generate_blueprint_for_project
+from ...services.cache_service import CacheService
 from ...services.generation_billing_service import (
     charge_generation,
     polish_undelivered,
@@ -441,6 +442,9 @@ async def _execute_chapter_generate(
         chapter = await novel_service.get_or_create_chapter(req.project_id, req.chapter_number)
         chapter.status = "generating"
         await session.commit()
+        # 项目详情缓存里存着章节状态，直接改 ORM 不会让它失效（30 分钟 TTL 内前端
+        # 刷新看到的仍是旧状态，既不提示后台在跑也不拦重复点击）
+        await CacheService.invalidate_project_schema_safely(req.project_id)
 
         await reporter.report(10, "context_assembly", "正在收集上下文...")
         await reporter.report(20, "llm_generation", "正在生成章节...")

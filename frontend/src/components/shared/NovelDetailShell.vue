@@ -113,26 +113,30 @@
       </p>
       <div v-else-if="!isAdmin" class="mb-6"></div>
 
-      <!-- ==================== Tab Bar ==================== -->
-      <div class="flex items-end gap-1 border-b overflow-x-auto scrollbar-hide" style="border-color: #2A2A2A;" :class="isAdmin ? 'mt-6' : ''">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          type="button"
-          @click="switchSection(tab.key)"
-          class="px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap -mb-px flex-shrink-0"
-          :class="activeSection === tab.key
-            ? 'border-b-2'
-            : 'hover:text-white'"
-          :style="activeSection === tab.key
-            ? 'color: #FFE500; border-color: #FFE500;'
-            : 'color: #888;'"
-        >
-          {{ tab.label }}
-        </button>
+      <!-- ==================== Tab Bar ====================
+           标签条横向滚动，但主操作必须留在滚动容器外：此前「开始创作」用 ml-auto 挂在
+           标签条末尾，390px 屏上它在 x=840 处，用户得把标签条一路划到底才能看见整个页面
+           最主要的按钮。 -->
+      <div class="flex items-end gap-3 border-b" style="border-color: #2A2A2A;" :class="isAdmin ? 'mt-6' : ''">
+        <div class="flex items-end gap-1 overflow-x-auto scrollbar-hide flex-1 min-w-0">
+          <button
+            v-for="tab in tabs"
+            :key="tab.key"
+            type="button"
+            @click="switchSection(tab.key)"
+            class="px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap -mb-px flex-shrink-0"
+            :class="activeSection === tab.key
+              ? 'border-b-2'
+              : 'hover:text-white'"
+            :style="activeSection === tab.key
+              ? 'color: #FFE500; border-color: #FFE500;'
+              : 'color: #888;'"
+          >
+            {{ tab.label }}
+          </button>
+        </div>
 
-        <!-- Spacer + Action Button -->
-        <div v-if="!isAdmin" class="ml-auto flex-shrink-0 pb-2 pl-4">
+        <div v-if="!isAdmin" class="flex-shrink-0 pb-2">
           <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
             style="background: #FFE500; color: #000;" @click="goToWritingDesk">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">

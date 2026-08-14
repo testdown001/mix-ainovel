@@ -501,6 +501,8 @@ async def _set_chapter_failed_status(
     if chapter:
         chapter.status = ChapterGenerationStatus.FAILED.value
         await session.commit()
+        # 与置 generating 同理：不作废缓存，前端在 TTL 内仍会看到「生成中」的旧快照
+        await CacheService.invalidate_project_schema_safely(project_id)
 
 
 # 档位门控（含 preset 别名归一化）统一在 core/feature_gating.ensure_generation_preset_allowed，

@@ -262,6 +262,21 @@ class CacheService:
         key = self._make_key(self.PREFIX_PROJECT_SCHEMA, project_id)
         return await self.delete(key)
 
+    @staticmethod
+    async def invalidate_project_schema_safely(project_id: str) -> None:
+        """章节状态变更后作废项目详情缓存；失败只记日志。
+
+        章节状态是这份缓存里最易变的字段，而生成路径大多直接改 ORM 对象、不经过
+        NovelService 的写路径，缓存因此不会自己失效：GET /api/novels/{id} 会在 30 分钟
+        TTL 内一直把正在生成的章节报成「未生成」。前端刷新后据此判断「没在生成」，
+        既不会提示后台仍在跑，也不拦重复点击——重复生成、重复扣费。缓存是加速手段，
+        作废失败绝不能影响生成本身，所以这里吞掉所有异常。
+        """
+        try:
+            await CacheService().invalidate_project_schema(project_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("项目详情缓存失效失败(已忽略): project=%s error=%s", project_id, exc)
+
     async def invalidate_user_projects(self, user_id: int) -> int:
         """失效用户所有项目缓存"""
         pattern = f"{self.PREFIX_PROJECT}:{user_id}:*"

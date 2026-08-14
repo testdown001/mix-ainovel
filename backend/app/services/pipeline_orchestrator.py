@@ -20,6 +20,7 @@ from ..db.session import AsyncSessionLocal
 from ..models.novel import Chapter, ChapterVersion
 from ..services.chapter_guardrails import default_guardrails
 from ..services.llm_service import LLMService
+from ..services.cache_service import CacheService
 from ..services.novel_service import NovelService
 from ..services.preview_generation_service import PreviewGenerationService
 from ..services.reference_novel_library_service import ReferenceNovelLibraryService
@@ -302,6 +303,11 @@ class PipelineOrchestrator(PipelineReviewMixin):
         # 保证生成中途失败（LLM 报错/超时/护栏拒绝）不会毁掉已完稿章节的摘要与选中版本
         chapter.status = "generating"
         await self.session.commit()
+        # 章节状态变了，项目详情缓存必须作废：GET /api/novels/{id} 走 30 分钟 TTL 的
+        # 序列化缓存，而这里是直接改 ORM 对象、没经过 NovelService 的写路径，缓存不会自己
+        # 失效。后果是刷新页面拿到的仍是「未生成」——「后台仍在生成」的提示永远不会出现，
+        # 用户还可能对同一章再点一次生成（重复跑、重复扣费）。实测线上确实如此。
+        await CacheService.invalidate_project_schema_safely(project_id)
         # onupdate=func.now() 使 updated_at 在 UPDATE 后过期；重生成时该章已在
         # project.chapters 里，后续 _serialize_project 的同步 getattr 会触发
         # 异步 IO 报 MissingGreenlet，这里显式回填避免过期访问

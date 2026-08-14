@@ -4,8 +4,10 @@
     <div class="md-card md-card-elevated h-full flex flex-col" style="border-radius: var(--md-radius-xl);">
       <!-- 章节工作区头部 -->
       <div v-if="selectedChapterNumber" class="md-card-header flex-shrink-0">
-        <div class="flex items-center justify-between">
-          <div>
+        <!-- flex-wrap 是移动端必需：卡片是 overflow-x:hidden，不换行时右侧按钮组会被
+             直接裁掉且无法滚动到（390px 下「设定典」「重新生成」整个消失） -->
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
             <div class="flex items-center gap-3 mb-2">
               <h2 class="md-title-large font-semibold">第{{ selectedChapterNumber }}章</h2>
               <span
@@ -54,7 +56,7 @@
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <!-- 写作模板按钮 -->
             <button
               @click="showTemplateSelector = true"
