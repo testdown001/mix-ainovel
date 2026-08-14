@@ -44,6 +44,7 @@
         <WritingPreferences v-if="activeTab === 'writing'" />
         <SubscriptionPanel v-else-if="activeTab === 'subscription'" />
         <CreditLedger v-else-if="activeTab === 'credits'" />
+        <ReferralPanel v-else-if="activeTab === 'referral'" />
         <div v-else-if="activeTab === 'admin'" class="flex flex-col items-center justify-center py-16 gap-4">
           <div class="w-14 h-14 rounded-2xl flex items-center justify-center" style="background: rgba(255,229,0,0.1);">
             <svg class="w-7 h-7" style="color:#FFE500;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -65,6 +66,7 @@ import { useAuthStore } from '@/stores/auth'
 import WritingPreferences from '@/components/WritingPreferences.vue'
 import SubscriptionPanel from '@/components/SubscriptionPanel.vue'
 import CreditLedger from '@/components/CreditLedger.vue'
+import ReferralPanel from '@/components/ReferralPanel.vue'
 import AppTopNav from '@/components/shared/AppTopNav.vue'
 
 const authStore = useAuthStore()
@@ -75,10 +77,10 @@ const userInitial = computed(() => {
   return name.charAt(0).toUpperCase() || 'U'
 })
 
-type TabId = 'writing' | 'subscription' | 'credits' | 'admin'
+type TabId = 'writing' | 'subscription' | 'credits' | 'referral' | 'admin'
 
 // 支持 /settings?tab=subscription 直达（升级引导/定价页跳转的落点）
-const VALID_QUERY_TABS: TabId[] = ['writing', 'subscription', 'credits']
+const VALID_QUERY_TABS: TabId[] = ['writing', 'subscription', 'credits', 'referral']
 const tabFromQuery = (): TabId | null => {
   const t = String(route.query.tab || '')
   return (VALID_QUERY_TABS as string[]).includes(t) ? (t as TabId) : null
@@ -117,6 +119,11 @@ const baseTabs: Array<{ id: TabId; label: string; icon: string }> = [
     id: 'credits',
     label: '积分明细',
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M14.5 9.5a2.5 2.5 0 00-2.5-1.5c-1.4 0-2.5.9-2.5 2s1.1 2 2.5 2 2.5.9 2.5 2-1.1 2-2.5 2a2.5 2.5 0 01-2.5-1.5M12 6.5v11"/></svg>',
+  },
+  {
+    id: 'referral',
+    label: '邀请返积分',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M18 9v6m3-3h-6M15 7a4 4 0 11-8 0 4 4 0 018 0zM3 20a7 7 0 0113-3.7"/></svg>',
   },
 ]
 

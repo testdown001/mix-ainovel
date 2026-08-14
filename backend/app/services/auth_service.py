@@ -114,6 +114,7 @@ class AuthService:
         self.session.add(user)
         await self.session.commit()
         await self._grant_signup_trial_safely(user.id)
+        await self._grant_referral_safely(user.id, payload.invite_code)
         return user
 
     async def _grant_signup_trial_safely(self, user_id: int) -> None:
@@ -122,6 +123,17 @@ class AuthService:
             await QuotaService(self.session).grant_signup_trial(user_id)
         except Exception:
             self._logger.warning("注册试用发放失败(不阻断): user_id=%s", user_id, exc_info=True)
+
+    async def _grant_referral_safely(self, user_id: int, invite_code: Optional[str]) -> None:
+        """邀请返积分（双方各得，永久池，幂等）；失败仅记日志，绝不阻断注册。"""
+        if not invite_code:
+            return
+        try:
+            from .referral_service import grant_referral_rewards
+
+            await grant_referral_rewards(self.session, new_user_id=user_id, invite_code=invite_code)
+        except Exception:
+            self._logger.warning("邀请奖励发放失败(不阻断): user_id=%s", user_id, exc_info=True)
 
     # ------------------------------------------------------------------
     # 邮箱验证码逻辑

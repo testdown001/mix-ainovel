@@ -105,6 +105,19 @@
               @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'" />
           </div>
 
+          <!-- Invite code (optional; prefilled from ?invite=) -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:#888;">
+              邀请码 <span style="color:#555;">（选填，注册双方各得积分）</span>
+            </label>
+            <input v-model="inviteCode" type="text"
+              class="w-full px-4 py-3 rounded-xl text-sm transition-all outline-none"
+              style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
+              placeholder="朋友分享的邀请码"
+              @focus="($event.target as HTMLInputElement).style.borderColor='#FFE500'"
+              @blur="($event.target as HTMLInputElement).style.borderColor='#2A2A2A'" />
+          </div>
+
           <!-- Error message -->
           <div v-if="error" class="flex items-center gap-2 px-4 py-3 rounded-xl text-sm"
             style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.2); color:#F87171;">
@@ -174,7 +187,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 declare global {
@@ -199,7 +212,10 @@ const captchaToken = ref('');
 const turnstileRef = ref<HTMLElement | null>(null);
 const turnstileWidgetId = ref<string | null>(null);
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
+// 邀请链接形如 /register?invite=CODE：预填但可编辑（用户也可能手输朋友发来的码）
+const inviteCode = ref(typeof route.query.invite === 'string' ? route.query.invite : '');
 const allowRegistration = computed(() => authStore.allowRegistration);
 const captchaEnabled = computed(() => authStore.captchaEnabled);
 const captchaSiteKey = computed(() => authStore.captchaSiteKey);
@@ -311,6 +327,9 @@ const handleRegister = async () => {
     };
     if (captchaToken.value) {
       body.captcha_token = captchaToken.value;
+    }
+    if (inviteCode.value.trim()) {
+      body.invite_code = inviteCode.value.trim();
     }
     const res = await fetch('/api/auth/users', {
       method: 'POST',

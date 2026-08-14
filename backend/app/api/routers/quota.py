@@ -38,6 +38,17 @@ async def get_my_quota(
     return await quota_service.get_quota_info(current_user.id)
 
 
+@router.get("/me/referral", response_model=Dict)
+async def get_my_referral(
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict:
+    """「邀请返积分」面板：我的邀请码、奖励规则、已邀请人数与已得积分。"""
+    from ...services.referral_service import get_referral_info
+
+    return await get_referral_info(session, current_user.id)
+
+
 @router.get("/me/credit-logs", response_model=Dict)
 async def get_my_credit_logs(
     limit: int = 20,

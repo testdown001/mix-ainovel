@@ -99,6 +99,26 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="是否允许用户自助注册。",
     ),
     SystemConfigDefault(
+        key="referral.enabled",
+        value_getter=lambda _: "true",
+        description="是否启用邀请返积分：新用户填邀请码注册，双方各得积分（入永久池，不随月度重置清零）。",
+    ),
+    SystemConfigDefault(
+        key="referral.inviter_credits",
+        value_getter=lambda _: "30",
+        description="每成功邀请一位新用户，邀请人获得的积分（受 referral.max_invites 上限约束）。",
+    ),
+    SystemConfigDefault(
+        key="referral.invitee_credits",
+        value_getter=lambda _: "20",
+        description="通过邀请码注册的新用户获得的积分（在注册试用积分之外额外发放）。",
+    ),
+    SystemConfigDefault(
+        key="referral.max_invites",
+        value_getter=lambda _: "50",
+        description="单个邀请人最多可获奖励的邀请次数（防刷）；超限后受邀人照常得积分，邀请人不再得。",
+    ),
+    SystemConfigDefault(
         key="auth.linuxdo_enabled",
         value_getter=lambda config: _bool_to_text(config.enable_linuxdo_login),
         description="是否启用 Linux.do OAuth 登录。",

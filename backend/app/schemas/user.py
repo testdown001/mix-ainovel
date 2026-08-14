@@ -77,6 +77,7 @@ class UserRegistration(UserCreate):
 
     verification_code: str = Field(..., min_length=4, max_length=10, description="邮箱验证码")
     captcha_token: Optional[str] = Field(None, description="Turnstile 人机验证 token")
+    invite_code: Optional[str] = Field(None, max_length=32, description="邀请码（选填，注册双方各得积分）")
 
 
 class PasswordChangeRequest(BaseModel):
