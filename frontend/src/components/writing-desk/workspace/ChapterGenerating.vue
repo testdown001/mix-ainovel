@@ -28,7 +28,7 @@
         <!-- 时间信息栏 -->
         <div class="flex justify-between items-center mb-3 px-1">
           <span class="md-body-small md-on-surface-variant">
-            已用时 {{ elapsedFormatted }}
+            {{ isDetached ? `已等待 ${elapsedFormatted}` : `已用时 ${elapsedFormatted}` }}
           </span>
           <span class="md-body-small" style="color: var(--md-primary);">
             {{ estimatedRemainingText }}
@@ -38,15 +38,20 @@
         <!-- 当前阶段 + 进度通道降级告知 -->
         <div class="flex items-center justify-between gap-3 mb-2 px-1">
           <span class="md-label-large">{{ currentStageLabel }}</span>
-          <span class="md-body-small md-on-surface-variant">{{ progressPercent }}%</span>
+          <span v-if="!isDetached" class="md-body-small md-on-surface-variant">{{ progressPercent }}%</span>
         </div>
         <p v-if="degradedReason" class="md-body-small mb-2 px-1" style="color: var(--md-tertiary, #7a5900);">
           {{ degradedReason }}
         </p>
 
-        <!-- 进度条 -->
+        <!-- 进度条：接管别人的生成（刷新/换设备）时没有阶段来源，用不定量条，
+             而不是画一个不动的百分比假装知道进度 -->
         <div class="gen-progress-track mb-4">
-          <div class="gen-progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          <div
+            v-if="isDetached"
+            class="gen-progress-fill gen-progress-indeterminate"
+          ></div>
+          <div v-else class="gen-progress-fill" :style="{ width: progressPercent + '%' }"></div>
         </div>
 
         <!-- 滚动阶段日志 -->
@@ -70,7 +75,9 @@
           </div>
           <div v-if="stageLogs.length === 0" class="log-entry log-entry-current">
             <span class="log-icon log-icon-active">▶</span>
-            <span class="log-message">等待开始...</span>
+            <span class="log-message">{{
+              isDetached ? '这一章在你打开本页前就开始了，看不到之前的阶段' : '等待开始...'
+            }}</span>
           </div>
         </div>
 
@@ -165,9 +172,17 @@ const stageLogs = computed<StageLogEntry[]>(() => {
   return localStageLogs.value
 })
 
-const currentStageLabel = computed(
-  () => props.generationProgress?.label || props.streamingStage || '处理中',
-)
+/**
+ * 「接管态」：本页没有这次生成的进度来源（刷新页面、换设备、别处发起的生成）。
+ * 此时只知道「它在跑」，不知道跑到哪一步——就别装作知道。
+ */
+const isDetached = computed(() => !props.generationProgress && !props.streamingStage)
+
+const currentStageLabel = computed(() => {
+  if (props.generationProgress?.label) return props.generationProgress.label
+  if (props.streamingStage) return props.streamingStage
+  return '服务端生成中，状态每 10 秒刷新'
+})
 
 const degradedReason = computed(() =>
   props.generationProgress?.degraded ? props.generationProgress.degradedReason : '',
@@ -224,6 +239,8 @@ const progressPercent = computed(() => props.generationProgress?.percent ?? 5)
 
 // 预估剩余时间
 const estimatedRemainingText = computed(() => {
+  // 接管态下已用时是从打开本页算的，不是生成真正的起点，据此推算剩余时间等于编数字
+  if (isDetached.value) return '完成后自动出现'
   const progress = progressPercent.value
   const elapsed = elapsedSeconds.value
 
@@ -322,6 +339,17 @@ function handleComplete(progress: WritingProgressType) {
   background: var(--md-primary, #1976d2);
   border-radius: 3px;
   transition: width 0.6s ease;
+}
+
+/* 不定量进度：只表示「在跑」，不表示进度到了几成 */
+.gen-progress-indeterminate {
+  width: 35%;
+  animation: gen-progress-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes gen-progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
 }
 
 /* 日志条目 */
