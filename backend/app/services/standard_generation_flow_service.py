@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..db.session import AsyncSessionLocal
 
@@ -65,6 +65,7 @@ class StandardGenerationFlowService:
         mark_stage: Optional[Callable[[str, float], None]] = None,
         deadline: Optional[float] = None,
         emit_text_delta: Optional[Callable[[str], Any]] = None,
+        emit_stage: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ) -> StandardGenerationFlowResult:
         version_count = config.version_count
 
@@ -133,6 +134,7 @@ class StandardGenerationFlowService:
                 allowed_new_characters=allowed_new_characters,
                 deadline=deadline,
                 mark_stage=mark_stage,
+                emit_stage=emit_stage,
             )
             best_content = post_result["best_content"]
             review_summaries = post_result["review_summaries"]

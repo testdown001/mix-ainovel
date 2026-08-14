@@ -113,6 +113,9 @@
               :streaming-stage="
                 selectedChapterNumber === streamingChapterNumber ? streamingStage : null
               "
+              :generation-progress="
+                selectedChapterNumber === streamingChapterNumber ? generationProgressView : null
+              "
               @regenerate-chapter="regenerateChapter"
               @evaluate-chapter="evaluateChapter"
               @hide-version-selector="hideVersionSelector"
@@ -477,6 +480,11 @@ import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
 import { isStreamInterruption } from '@/utils/streamInterruption'
+import { resolveStage } from '@/utils/generationStages'
+import {
+  useGenerationProgress,
+  type GenerationProgressView,
+} from '@/composables/useGenerationProgress'
 import PresetSelector from '@/components/shared/PresetSelector.vue'
 import MiddleProductViewer from '@/components/shared/MiddleProductViewer.vue'
 import DiagnosticPanel from '@/components/shared/DiagnosticPanel.vue'
@@ -819,14 +827,29 @@ const activeGenerationToken = ref(0)
 // 异步任务生成（Go Gateway 模式）
 const asyncGen = useAsyncGeneration()
 const useAsyncMode = ref(false) // 是否启用异步任务模式
+// 网关不可用而降级到 SSE 直连：影响「能否关页面」，必须让用户知道
+const gatewayUnavailable = ref(false)
+
+// 生成进度状态机：SSE / 异步任务两条来源都喂它，阶段名与进度只在这里解释一次
+const genProgress = useGenerationProgress()
+const generationProgressView = computed<GenerationProgressView>(() => ({
+  label: genProgress.label.value,
+  percent: genProgress.percent.value,
+  logs: genProgress.logs.value,
+  degraded: genProgress.degraded.value,
+  degradedReason: genProgress.degradedReason.value,
+  sourceLabel: genProgress.sourceLabel.value,
+}))
 
 // 检测 Go Gateway 是否可用
 const detectAsyncMode = async () => {
   try {
     await TaskAPI.getStats()
     useAsyncMode.value = true
+    gatewayUnavailable.value = false
   } catch {
     useAsyncMode.value = false
+    gatewayUnavailable.value = true
   }
 }
 
@@ -1379,7 +1402,12 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     selectedChapterNumber.value = chapterNumber
     streamingChapterNumber.value = chapterNumber
     streamingDraftText.value = ''
-    streamingStage.value = '准备生成...'
+    streamingStage.value = '准备生成'
+    genProgress.start(chapterNumber, useAsyncMode.value ? 'async' : 'stream')
+    if (gatewayUnavailable.value) {
+      // 直连模式下关掉页面这次生成就没人推进度了（后端仍会写完），说清楚比让用户猜好
+      genProgress.markDegraded('实时任务通道不可用，已切换为直连生成')
+    }
     currentContextPlanData.value = null
     currentEvidenceSummaryData.value = null
     currentPromptCompileSummaryData.value = null
@@ -1436,9 +1464,15 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
         },
         (state) => {
           if (activeGenerationToken.value !== generationToken) return
-          // 优先用中文 message(如"多版本生成中")：阶段日志可读、且进度条按中文关键词映射；
-          // state.stage 是机器名(generate_versions)，留给 agent 可视化用。
-          streamingStage.value = state.message || state.stage || '处理中...'
+          genProgress.applyStage({
+            stage: state.stage,
+            message: state.message,
+            percent: state.progress,
+          })
+          streamingStage.value = genProgress.label.value
+          if (state.degradedReason) {
+            genProgress.markDegraded(state.degradedReason)
+          }
           if (state.stage) {
             updateAgentByStage(state.stage, state.message)
           }
@@ -1456,11 +1490,8 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
             if (activeGenerationToken.value !== generationToken) {
               return
             }
-            if (typeof payload?.message === 'string' && payload.message.trim()) {
-              streamingStage.value = payload.message.trim()
-            } else if (typeof payload?.stage === 'string' && payload.stage.trim()) {
-              streamingStage.value = payload.stage.trim()
-            }
+            genProgress.applyStage({ stage: payload?.stage, message: payload?.message })
+            streamingStage.value = genProgress.label.value
             // 将 stage 事件映射到 Agent 节点状态更新
             if (payload?.stage) {
               updateAgentByStage(payload.stage, payload?.message)
@@ -1543,6 +1574,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     streamingStage.value = null
     streamingDraftText.value = ''
     streamingChapterNumber.value = null
+    genProgress.reset()
     // 无论成功或失败，都重新加载项目以确保 UI 与后端同步
     // 防止轮询竞态条件：在生成期间的最后一次轮询可能返回过期数据并覆盖新状态
     try {
@@ -1932,7 +1964,9 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
           ...(agentFlowConfigOverrides.value || {}),
         },
         (state) => {
-          streamingStage.value = state.stage || state.message || '处理中...'
+          // 这里原先优先取 state.stage，也就是把 generate_versions / batch_generating
+          // 这类机器名直接显示给用户
+          streamingStage.value = resolveStage(state.stage, state.message).label
           // 根据进度更新 batchProgress
           const progressChapter = Math.ceil((state.progress / 100) * targetChapters.length)
           batchProgress.value = {

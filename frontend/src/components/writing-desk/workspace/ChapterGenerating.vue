@@ -35,6 +35,15 @@
           </span>
         </div>
 
+        <!-- 当前阶段 + 进度通道降级告知 -->
+        <div class="flex items-center justify-between gap-3 mb-2 px-1">
+          <span class="md-label-large">{{ currentStageLabel }}</span>
+          <span class="md-body-small md-on-surface-variant">{{ progressPercent }}%</span>
+        </div>
+        <p v-if="degradedReason" class="md-body-small mb-2 px-1" style="color: var(--md-tertiary, #7a5900);">
+          {{ degradedReason }}
+        </p>
+
         <!-- 进度条 -->
         <div class="gen-progress-track mb-4">
           <div class="gen-progress-fill" :style="{ width: progressPercent + '%' }"></div>
@@ -89,6 +98,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { Chapter } from '@/api/novel'
+import type { GenerationProgressView } from '@/composables/useGenerationProgress'
 import WritingProgressBoard from '@/components/writing-desk/WritingProgressBoard.vue'
 import { getWritingProgress, type WritingProgress as WritingProgressType } from '@/api/writingProgress'
 
@@ -98,6 +108,11 @@ interface Props {
   streamingDraftText?: string
   streamingStage?: string | null
   projectId?: string
+  /**
+   * 统一进度状态（WritingDesk 的状态机产出）。缺省时退回只看 streamingStage 的老行为
+   * ——刷新页面后由轮询接管的场景没有状态机，此时只知道「在生成」。
+   */
+  generationProgress?: GenerationProgressView | null
 }
 
 const props = defineProps<Props>()
@@ -135,29 +150,49 @@ interface StageLogEntry {
   message: string
 }
 
-const stageLogs = ref<StageLogEntry[]>([])
+const localStageLogs = ref<StageLogEntry[]>([])
 const logContainerRef = ref<HTMLElement | null>(null)
 const startTime = ref(Date.now())
 const elapsedSeconds = ref(0)
 let timer: ReturnType<typeof setInterval> | null = null
 
-// 监听 streamingStage 变化，累积日志
+// 有状态机就用它的日志，没有（刷新后由轮询接管）才自己按 streamingStage 累积
+const stageLogs = computed<StageLogEntry[]>(() => {
+  const shared = props.generationProgress?.logs
+  if (shared?.length) {
+    return shared.map((entry) => ({ timestamp: entry.at, message: entry.label }))
+  }
+  return localStageLogs.value
+})
+
+const currentStageLabel = computed(
+  () => props.generationProgress?.label || props.streamingStage || '处理中',
+)
+
+const degradedReason = computed(() =>
+  props.generationProgress?.degraded ? props.generationProgress.degradedReason : '',
+)
+
 watch(() => props.streamingStage, (newStage, oldStage) => {
   if (newStage && newStage !== oldStage) {
-    const last = stageLogs.value[stageLogs.value.length - 1]
+    const last = localStageLogs.value[localStageLogs.value.length - 1]
     if (!last || last.message !== newStage) {
-      stageLogs.value.push({
+      localStageLogs.value.push({
         timestamp: new Date(),
         message: newStage
-      })
-      nextTick(() => {
-        if (logContainerRef.value) {
-          logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
-        }
       })
     }
   }
 }, { immediate: true })
+
+// 日志滚到底：两种来源都要跟随
+watch(() => stageLogs.value.length, () => {
+  nextTick(() => {
+    if (logContainerRef.value) {
+      logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
+    }
+  })
+})
 
 // 计时器
 onMounted(() => {
@@ -181,33 +216,11 @@ const elapsedFormatted = computed(() => {
   return `${mins}:${String(secs).padStart(2, '0')}`
 })
 
-// 进度估算（基于阶段关键词）
-const STAGE_PROGRESS_MAP: Array<{ keywords: string[]; progress: number }> = [
-  { keywords: ['准备', '开始'], progress: 5 },
-  { keywords: ['解析', '需求', '分拣'], progress: 10 },
-  { keywords: ['计划', '规划', '策略'], progress: 15 },
-  { keywords: ['加载', '设定', '世界观'], progress: 18 },
-  { keywords: ['检索', 'RAG', '证据'], progress: 22 },
-  { keywords: ['组装', '上下文'], progress: 28 },
-  { keywords: ['写作', '生成正文', '快速模式', '多版本', '场景'], progress: 45 },
-  { keywords: ['版本', '第1版', '第2版', '第3版'], progress: 55 },
-  { keywords: ['审核', '评审', '质量'], progress: 70 },
-  { keywords: ['写入', '持久', '保存'], progress: 85 },
-  { keywords: ['完成'], progress: 95 },
-]
-
-const progressPercent = computed(() => {
-  if (stageLogs.value.length === 0) return 2
-  let maxProgress = 3
-  for (const log of stageLogs.value) {
-    for (const entry of STAGE_PROGRESS_MAP) {
-      if (entry.keywords.some(kw => log.message.includes(kw))) {
-        maxProgress = Math.max(maxProgress, entry.progress)
-      }
-    }
-  }
-  return maxProgress
-})
+// 进度百分比由状态机给（阶段 key → 百分比只在 utils/generationStages 解释一次）。
+// 这里原先另有一张中文关键词表，和后端 task_worker 那张各写各的：阶段文案一改就失准，
+// 后处理链那四成时长更是全程匹配不到任何关键词、进度条一动不动。
+// 没有状态机（刷新后轮询接管）时不装懂：给一个不动的低值，由「已用时」说明还在跑。
+const progressPercent = computed(() => props.generationProgress?.percent ?? 5)
 
 // 预估剩余时间
 const estimatedRemainingText = computed(() => {

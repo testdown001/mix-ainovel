@@ -1034,6 +1034,9 @@ class PipelineOrchestrator(PipelineReviewMixin):
             mark_stage=_mark_stage,
             deadline=postproc_deadline,
             emit_text_delta=_stream_standard_text_delta if stream_handler else None,
+            # 后处理链逐步播报：这条链约占一章四成时长，此前对前端完全静默，
+            # 阶段停在「多版本生成中」不动，用户只能理解为卡死
+            emit_stage=_emit_stage if stream_handler else None,
         )
         version_count = config.version_count
         versions = standard_result.versions

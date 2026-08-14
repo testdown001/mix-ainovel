@@ -252,6 +252,7 @@
 import { computed, nextTick, ref, watch, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction } from '@/api/novel'
+import type { GenerationProgressView } from '@/composables/useGenerationProgress'
 import TemplateSelector from './TemplateSelector.vue'
 
 const beatColorMap: Record<string, string> = {
@@ -283,6 +284,7 @@ interface Props {
   isSelectingVersion?: boolean
   streamingDraftText?: string
   streamingStage?: string | null
+  generationProgress?: GenerationProgressView | null
 }
 
 const props = defineProps<Props>()
@@ -599,6 +601,7 @@ const currentComponentProps = computed(() => {
       status: status,
       streamingDraftText: props.streamingDraftText || '',
       streamingStage: props.streamingStage || null,
+      generationProgress: props.generationProgress || null,
       projectId: props.project?.id
     }
   }

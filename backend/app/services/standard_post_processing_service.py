@@ -4,11 +4,27 @@ import json
 import logging
 import asyncio
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 from .writer_shared import rewrite_with_guardrails as _shared_rewrite_with_guardrails
 
 logger = logging.getLogger(__name__)
+
+# 后处理各步的用户可读名。前端按 stage key 映射自己的文案，这里的中文是兜底：
+# 老前端、批量任务日志、以及任何直接看 task 进度的地方都靠它。
+POST_STAGE_LABELS: Dict[str, str] = {
+    "post_combined_revision": "按评审意见修订",
+    "post_consistency": "一致性校对",
+    "post_humanization": "打磨行文",
+    "post_optimizer": "精修文字",
+    "post_polish": "润色",
+    "post_enrichment": "补充细节",
+    "post_density_compression": "压缩冗余",
+    "post_six_dimension": "六维质量评审",
+    "post_auto_refine": "按评分补写",
+    "post_six_dimension_rescore": "复评",
+    "post_guardrail_rewrite": "底线校验",
+}
 
 
 class StandardPostProcessingService:
@@ -40,6 +56,7 @@ class StandardPostProcessingService:
         allowed_new_characters: list[str],
         deadline: Optional[float] = None,
         mark_stage: Optional[Callable[[str, float], None]] = None,
+        emit_stage: Optional[Callable[[str, str], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         orchestrator = self.orchestrator
         stage_timings_ms: Dict[str, int] = {}
@@ -53,6 +70,17 @@ class StandardPostProcessingService:
             stage_timings_ms[name] = int((time.perf_counter() - started) * 1000)
             if mark_stage:
                 mark_stage(name, started)
+
+        async def _begin(name: str) -> float:
+            """开工一步：发阶段事件 + 返回计时起点。
+
+            这条链占一章生成约四成时长，而在此之前它对前端**完全静默**——最后一条阶段
+            事件停在「多版本生成中」，用户盯着不动的进度条看一分多钟，只能理解为卡死。
+            事件必须在这一步开始时发（而不是结束时），否则显示的永远是上一步的名字。
+            """
+            if emit_stage:
+                await emit_stage(name, POST_STAGE_LABELS.get(name, "精修中"))
+            return time.perf_counter()
 
         # 关键路径软预算：deadline 为 perf_counter 时间戳（None=不限）。每个可选后处理步骤
         # 前检查，预算不足即跳过该步及后续可选步骤，带"当前最佳稿"继续，避免拖到硬超时全盘失败。
@@ -69,7 +97,7 @@ class StandardPostProcessingService:
             if _over_budget():
                 skipped_for_budget.append("combined_revision")
             else:
-                _started = time.perf_counter()
+                _started = await _begin("post_combined_revision")
                 best_content, combined_report = await orchestrator._run_combined_revision(
                     best_content,
                     critical_flaws=(ai_review_result.get("flaws") or []) if ai_review_result else [],
@@ -110,7 +138,7 @@ class StandardPostProcessingService:
                     logger.warning("人味化扫描失败（不影响生成）: %s", exc)
                     return None, None
 
-            _started = time.perf_counter()
+            _started = await _begin("post_consistency")
             (consistency_content, consistency_report), (h_service, h_report) = await asyncio.gather(
                 _do_consistency(),
                 _do_humanization_scan(),
@@ -129,7 +157,7 @@ class StandardPostProcessingService:
                     best_content = h_service.apply_rule_fixes(best_content)
                     h_report = h_service.scan(best_content)
                     if h_report.score < config.humanization_threshold:
-                        _started = time.perf_counter()
+                        _started = await _begin("post_humanization")
                         best_content = await h_service.humanize(best_content, h_report, user_id=user_id)
                         humanized = True
                         _step("post_humanization", _started)
@@ -144,7 +172,7 @@ class StandardPostProcessingService:
                     review_summaries["humanization"] = {"error": str(exc)}
         else:
             if consistency_enabled:
-                _started = time.perf_counter()
+                _started = await _begin("post_consistency")
                 best_content, consistency_report = await orchestrator._run_consistency_check(
                     project_id=project_id,
                     chapter_text=best_content,
@@ -164,7 +192,7 @@ class StandardPostProcessingService:
                     h_report = h_service.scan(best_content)
                     humanized = False
                     if h_report.score < config.humanization_threshold:
-                        _started = time.perf_counter()
+                        _started = await _begin("post_humanization")
                         best_content = await h_service.humanize(best_content, h_report, user_id=user_id)
                         humanized = True
                         _step("post_humanization", _started)
@@ -226,7 +254,7 @@ class StandardPostProcessingService:
                     and chapter_word_count_max
                     and len(best_content) >= chapter_word_count_max * 0.90
                 )
-                _started = time.perf_counter()
+                _started = await _begin("post_optimizer")
                 best_content, optimizer_report = await orchestrator._run_optimizer(
                     best_content,
                     user_id=user_id,
@@ -269,7 +297,7 @@ class StandardPostProcessingService:
         if polish_only:
             # 付费必交付：enable_polish 只可能来自用户勾选（preset 不再强开），
             # 已按 credits.price.polish 先扣费，不允许被时间预算跳过
-            _started = time.perf_counter()
+            _started = await _begin("post_polish")
             best_content, polish_report = await orchestrator._run_polish(
                 best_content,
                 user_id=user_id,
@@ -282,7 +310,7 @@ class StandardPostProcessingService:
             if _over_budget():
                 skipped_for_budget.append("enrichment")
             else:
-                _started = time.perf_counter()
+                _started = await _begin("post_enrichment")
                 best_content, enrichment_report = await orchestrator._run_enrichment(
                     best_content,
                     user_id=user_id,
@@ -306,7 +334,7 @@ class StandardPostProcessingService:
                 if chapter_word_count_max and current_len < chapter_word_count_max * 0.90:
                     review_summaries["density_compression"] = {"applied": False, "reason": "below_90pct_max"}
                 else:
-                    _started = time.perf_counter()
+                    _started = await _begin("post_density_compression")
                     best_content, density_report = await orchestrator._run_density_compression(
                         best_content,
                         user_id=user_id,
@@ -333,7 +361,7 @@ class StandardPostProcessingService:
                 writer_persona_service,
             )
             try:
-                _started = time.perf_counter()
+                _started = await _begin("post_six_dimension")
                 six_dim_result = await six_dim_service.review_chapter(
                     project_id=project_id,
                     chapter_number=chapter_number,
@@ -376,7 +404,7 @@ class StandardPostProcessingService:
                                 if parts:
                                     critical_flaws.append(f"[{dim}缺陷]: " + "；".join(parts))
                         if critical_flaws or suggestions:
-                            _started = time.perf_counter()
+                            _started = await _begin("post_auto_refine")
                             refined_content, revision_meta = await orchestrator._run_combined_revision(
                                 chapter_content=best_content,
                                 critical_flaws=critical_flaws,
@@ -403,7 +431,7 @@ class StandardPostProcessingService:
                                 else:
                                     new_score = None
                                     try:
-                                        _started = time.perf_counter()
+                                        _started = await _begin("post_six_dimension_rescore")
                                         rescore_result = await six_dim_service.review_chapter(
                                             project_id=project_id,
                                             chapter_number=chapter_number,
@@ -452,7 +480,7 @@ class StandardPostProcessingService:
                 )
                 if not recheck.passed and not _over_budget():
                     violations_text = orchestrator.guardrails.format_violations_for_rewrite(recheck)
-                    _started = time.perf_counter()
+                    _started = await _begin("post_guardrail_rewrite")
                     best_content = await _shared_rewrite_with_guardrails(
                         orchestrator.llm_service,
                         orchestrator.prompt_service,

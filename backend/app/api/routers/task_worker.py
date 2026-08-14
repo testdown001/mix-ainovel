@@ -126,7 +126,31 @@ class ProgressReporter:
             await self._client.aclose()
 
 
-# 生成阶段关键词 → 进度百分比（取最大匹配，单调不回退，封顶 79，留给后处理/收尾 80~100）
+# 生成阶段 key → 进度百分比。key 是管线发出的稳定标识（starting / generate_versions /
+# post_consistency…），前端 utils/generationStages.ts 用同一套词汇表映射显示文案。
+# 此前这里只有下面那张中文关键词表，靠在 message 正文里找「审核」「写入」这类词猜进度：
+# 谁改一句阶段文案，进度条就悄悄失准，而且和前端那张各写各的。
+_STAGE_PROGRESS: dict[str, int] = {
+    "starting": 22,
+    "build_generation_prompt": 40,
+    "generate_fast_version": 50,
+    "generate_versions": 50,
+    "generate_scene_by_scene": 50,
+    "post_combined_revision": 58,
+    "post_consistency": 62,
+    "post_humanization": 64,
+    "post_optimizer": 66,
+    "post_polish": 68,
+    "post_enrichment": 70,
+    "post_density_compression": 72,
+    "post_six_dimension": 74,
+    "post_auto_refine": 76,
+    "post_six_dimension_rescore": 77,
+    "post_guardrail_rewrite": 78,
+    "persist_versions": 79,
+}
+
+# 关键词兜底：agent:* 等没进上表的阶段仍按中文关键词估算，保持 Agent 模式的旧行为
 _STAGE_PROGRESS_KEYWORDS = [
     ("写入", 85), ("持久", 85), ("保存", 85),
     ("审核", 70), ("评审", 70), ("质量", 70),
@@ -155,11 +179,15 @@ def _build_stage_progress_forwarder(reporter: "ProgressReporter"):
             return
         stage = str(data.get("stage") or "")
         message = str(data.get("message") or stage) or "生成中..."
-        text = f"{stage}{message}"
         best = state["pct"]
-        for kw, pct in _STAGE_PROGRESS_KEYWORDS:
-            if kw in text and pct > best:
-                best = pct
+        mapped = _STAGE_PROGRESS.get(stage)
+        if mapped is not None:
+            best = max(best, mapped)
+        else:
+            text = f"{stage}{message}"
+            for kw, pct in _STAGE_PROGRESS_KEYWORDS:
+                if kw in text and pct > best:
+                    best = pct
         state["pct"] = min(79, best)
         await reporter.report(state["pct"], stage or "generating", message)
 

@@ -19,6 +19,11 @@ export interface AsyncGenerationState {
   stage: string
   message: string
   status: TaskStatus['status'] | null
+  /**
+   * 非空表示进度通道已降级（实时推送不可用 → 每 2 秒轮询）。
+   * 降级本身不影响生成，但会影响进度的实时性，用户有权知道自己在看哪一种。
+   */
+  degradedReason?: string
 }
 
 export function useAsyncGeneration() {
@@ -87,7 +92,7 @@ export function useAsyncGeneration() {
     }
 
     // 降级为轮询
-    return waitViaPolling(resp.task_id, onProgress)
+    return waitViaPolling(resp.task_id, onProgress, '实时进度推送未连接，已改为轮询获取进度')
   }
 
   /**
@@ -120,7 +125,7 @@ export function useAsyncGeneration() {
       return waitViaWebSocket(resp.task_id, onProgress)
     }
 
-    return waitViaPolling(resp.task_id, onProgress)
+    return waitViaPolling(resp.task_id, onProgress, '实时进度推送未连接，已改为轮询获取进度')
   }
 
   /**
@@ -184,7 +189,9 @@ export function useAsyncGeneration() {
       checkInterval = setInterval(() => {
         if (wsStatus.value !== 'connected') {
           cleanup()
-          waitViaPolling(taskId, onProgress).then(resolve).catch(reject)
+          waitViaPolling(taskId, onProgress, '实时进度推送已断开，已改为轮询获取进度')
+            .then(resolve)
+            .catch(reject)
         }
       }, 5000)
     })
@@ -196,8 +203,11 @@ export function useAsyncGeneration() {
   async function waitViaPolling(
     taskId: string,
     onProgress?: (s: AsyncGenerationState) => void,
+    degradedReason?: string,
   ): Promise<TaskStatus> {
-    state.value.message = '使用轮询模式...'
+    if (degradedReason) {
+      state.value.degradedReason = degradedReason
+    }
 
     return TaskAPI.pollUntilDone(
       taskId,
