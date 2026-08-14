@@ -45,3 +45,4 @@ __pycache__/
 /gateway/logs/
 /backend/storage/bench/
 .arb-*.sh
+.deploy-last.sh
