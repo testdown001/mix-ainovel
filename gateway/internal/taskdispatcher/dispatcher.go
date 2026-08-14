@@ -54,11 +54,12 @@ func (p Priority) QueueName() string {
 // TaskType 任务类型
 type TaskType string
 
+// 任务类型是封闭枚举：handler.SubmitTask 的 switch 只认这里列出的类型，
+// 新增类型必须同时注册 payload 构造与超时策略，否则提交直接 400。
+// （rag:retrieve / chapter:postprocess 曾在此声明但从未有 handler，2026-08-14 清除。）
 const (
 	TaskGenerateChapter   TaskType = "chapter:generate"
 	TaskBatchGenerate     TaskType = "chapter:batch_generate"
-	TaskRAGRetrieval      TaskType = "rag:retrieve"
-	TaskPostProcess       TaskType = "chapter:postprocess"
 	TaskBlueprintGenerate TaskType = "blueprint:generate"
 )
 

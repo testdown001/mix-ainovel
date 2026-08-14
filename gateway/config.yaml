@@ -22,26 +22,6 @@ redis:
   pool_size: 100
   min_idle: 20
 
-# 数据库配置（可选，启用后 Go API 服务直连 MySQL）
-database:
-  enabled: false             # 开发阶段默认关闭，启用后需要 MySQL
-  host: "localhost"
-  port: 3306
-  user: "root"
-  password: ""
-  name: "arboris"
-  read_hosts: []             # 读副本地址列表，空则不启用读写分离
-  writer_max_open: 50
-  writer_max_idle: 10
-  writer_max_lifetime: 5m
-  writer_max_idle_time: 3m
-  reader_max_open: 100
-  reader_max_idle: 20
-  reader_max_lifetime: 5m
-  reader_max_idle_time: 3m
-  slow_threshold: 200ms
-  log_level: "warn"          # silent | error | warn | info
-
 # 支付配置（启用后需要 Stripe 密钥）
 payment:
   enabled: false
