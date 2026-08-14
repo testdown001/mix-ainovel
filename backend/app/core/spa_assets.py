@@ -13,7 +13,7 @@ from __future__ import annotations
 SPA_ROUTE_PREFIXES = frozenset({
     "home", "workspace", "inspiration", "detail", "novel",
     "login", "register", "forgot-password", "admin",
-    "settings", "pricing", "terms", "privacy",
+    "settings", "pricing", "terms", "privacy", "share",
 })
 
 # Vite 的构建产物目录；该目录下文件名自带内容 hash

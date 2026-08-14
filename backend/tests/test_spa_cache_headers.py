@@ -61,6 +61,8 @@ def test_root_and_known_prefixes_are_spa_navigations():
     assert _is_spa_navigation_path("/settings")
     assert _is_spa_navigation_path("/admin")
     assert _is_spa_navigation_path("/detail/123")
+    # 公开分享阅读页：漏加白名单时游客拿到的是 404 JSON 而非页面（2026-08-14 上线时实发）
+    assert _is_spa_navigation_path("/share/hnbxWgoZTtOF3KOmlcETAw")
     assert not _is_spa_navigation_path("/dyplay")
 
 
