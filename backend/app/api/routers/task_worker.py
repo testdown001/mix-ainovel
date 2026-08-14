@@ -132,6 +132,8 @@ class ProgressReporter:
 # 谁改一句阶段文案，进度条就悄悄失准，而且和前端那张各写各的。
 _STAGE_PROGRESS: dict[str, int] = {
     "starting": 22,
+    "prepare_context": 28,
+    "generate_chapter_mission": 34,
     "build_generation_prompt": 40,
     "generate_fast_version": 50,
     "generate_versions": 50,

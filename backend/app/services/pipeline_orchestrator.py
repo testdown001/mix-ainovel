@@ -417,6 +417,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         # ========== Mission 生成 + 上下文准备（并行化：不依赖 Mission 的任务提前启动） ==========
 
+        # 这一段（检索 + 使命规划）实测约 40-50 秒，此前不发任何阶段事件：
+        # 前端从「开始生成章节」一路静默到写作开始，最长的一段沉默反而在最前面
+        await _emit_stage("prepare_context", "检索相关剧情与设定")
+
         pre_rag_context = pcc.rag_context
         pre_rag_stats = pcc.rag_stats
         prefetch_tasks = self.generation_prefetch_service.schedule_prefetch_tasks(
@@ -486,6 +490,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             _pacing_task = asyncio.create_task(_compute_pacing())
 
         # ========== Mission 生成（与 Pacing 并行） ==========
+        await _emit_stage("generate_chapter_mission", "规划本章任务")
         if config.enable_fast_path:
             # 优先尝试轻量LLM导演脚本，失败时回退到纯规则拼装
             chapter_mission = await self.mission_builder_service.build_lite_chapter_mission(

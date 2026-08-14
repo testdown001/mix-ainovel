@@ -28,6 +28,8 @@ const STAGE_TABLE: Record<string, ResolvedStage> = {
   task_started: { label: '开始生成', percent: 10 },
 
   // —— 上下文与写作 ——
+  prepare_context: { label: '检索相关剧情与设定', percent: 14 },
+  generate_chapter_mission: { label: '规划本章任务', percent: 22 },
   build_generation_prompt: { label: '整理设定与前情', percent: 30 },
   generate_fast_version: { label: '撰写正文', percent: 45 },
   generate_versions: { label: '撰写正文（多版本）', percent: 45 },

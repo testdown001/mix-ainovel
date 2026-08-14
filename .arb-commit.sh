@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 set -e
 cd /home/aikev/code/arboris-novel
-rm -f .arb-check.sh .arb-deploy.sh
-cat > /tmp/arb-msg6.txt <<'MSG'
-fix(deploy): SSE 直连 FastAPI——网关的 fasthttp 反代会缓冲整个响应体
+rm -f .arb-check.sh
+cat > /tmp/arb-msg7.txt <<'MSG'
+feat(progress): 补上写作前那段 40-50 秒的静默
 
-线上实测：直连 app 立刻收到 started/stage 事件，经 nginx→Go 网关的同一个请求 25 秒
-一个字节都没有。网关反代用的是 Fiber proxy.Do()（fasthttp 客户端），它把响应体整个
-读完才返回，没有流式转发能力——于是生产环境里 SSE 的逐字草稿与阶段进度全程不可见，
-要等生成结束才一次性吐出，用户看到的就是一个不动的转圈。上一批刚加的后处理链分步
-播报，在 SSE 这条路上同样会被它吃掉（异步任务路径走 Redis→WS，不受影响）。
-
-nginx 用精确匹配把这一个端点直连 FastAPI。丢掉的只是网关侧限流：该端点自身校验 JWT、
-走档位门控与积分扣费，FastAPI 也有自己的 RateLimitMiddleware。
+修好 SSE 转发后实测：事件序列是「开始生成章节」→ 沉默 48 秒 → 一堆中间产物。
+最长的一段沉默反而在最前面——检索与使命规划这一段一直没有阶段事件，只有 trace 里的
+span。补两条：prepare_context「检索相关剧情与设定」、generate_chapter_mission
+「规划本章任务」，前后端阶段表同步加行。
 MSG
 git add -A
-git commit -F /tmp/arb-msg6.txt
-rm -f /tmp/arb-msg6.txt
+git commit -F /tmp/arb-msg7.txt
+rm -f /tmp/arb-msg7.txt
 git push origin main 2>&1 | tail -1
 git log --oneline -1
