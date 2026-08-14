@@ -54,6 +54,15 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         ),
     ),
     SystemConfigDefault(
+        key="logging.llm_prompt_preview",
+        value_getter=lambda _: "digest",
+        description=(
+            "llm.log 正文预览模式：digest（默认，只记长度+sha1前8位+前80字符，足够对上 "
+            "trace 又不落创作全文）、full（明文前 2000 字符，排障期临时用）、off（完全不记正文）。"
+            "改动约 60 秒内生效（进程内缓存）。保留期即 llm.log 自身的 20MB×10 轮转。"
+        ),
+    ),
+    SystemConfigDefault(
         key="smtp.server",
         value_getter=lambda config: config.smtp_server,
         description="用于发送邮件验证码的 SMTP 服务器地址。",

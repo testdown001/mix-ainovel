@@ -2,9 +2,11 @@
 # AIMETA P=LLM工具_大模型调用辅助|R=请求构建_响应解析|NR=不含业务逻辑|E=LLMTool|X=internal|A=工具类|D=httpx|S=net|RD=./README.ai
 """OpenAI / Anthropic / Gemini / OpenAI Responses 兼容型 LLM 工具封装。"""
 
+import hashlib
 import json as _json
 import logging
 import os
+import time
 from dataclasses import asdict, dataclass
 from typing import AsyncGenerator, Dict, List, Optional
 
@@ -92,14 +94,76 @@ def _mask_headers(headers) -> Dict[str, str]:
     return masked
 
 
+# ── llm.log 正文预览脱敏 ──
+# 请求体里是用户的创作全文（prompt 含蓝图/前文/正文草稿），明文落盘属合规隐患。
+# 三档：digest（默认，长度+sha1前8位+前80字符——够对上 trace 又不落全文）、
+# full（明文前 N 字符，排障期用）、off（完全不记正文）。运行时值在 SystemConfig
+# `logging.llm_prompt_preview`（管理面板可改），env `LLM_LOG_PROMPT_PREVIEW` 兜底。
+# 热路径不能每次查库：与 llm_service._resolve_aux_reasoning_effort 同款 60s 进程内
+# TTL 缓存；读库失败（如测试环境无 DB）静默退 env/默认值，绝不影响调用本身。
+_PREVIEW_MODES = ("full", "digest", "off")
+_DEFAULT_PREVIEW_MODE = "digest"
+_PREVIEW_TTL_SEC = 60.0
+_preview_mode_cache: str = _DEFAULT_PREVIEW_MODE
+_preview_mode_expires_at: float = 0.0
+
+
+def _normalize_preview_mode(raw: Optional[str]) -> str:
+    value = (raw or "").strip().lower()
+    return value if value in _PREVIEW_MODES else _DEFAULT_PREVIEW_MODE
+
+
+def format_body_preview(text: str, mode: str, full_limit: int = 2000) -> str:
+    """按预览模式格式化正文日志片段。digest 的 sha1 前 8 位用于与 trace/上游对账。"""
+    if not text:
+        return ""
+    if mode == "off":
+        return f"<len={len(text)}>"
+    if mode == "full":
+        return text[:full_limit]
+    sha = hashlib.sha1(text.encode("utf-8", errors="replace")).hexdigest()[:8]
+    return f"<len={len(text)} sha1={sha} head={text[:80]}>"
+
+
+async def _resolve_prompt_preview_mode() -> str:
+    """解析当前预览模式（SystemConfig → env → 默认 digest），60s TTL 缓存。"""
+    global _preview_mode_cache, _preview_mode_expires_at
+    now = time.monotonic()
+    if now < _preview_mode_expires_at:
+        return _preview_mode_cache
+    raw: Optional[str] = None
+    try:
+        # 延迟导入：llm_tool 是底层工具模块，只在真的要读配置时才触碰 DB 层
+        from ..db.session import AsyncSessionLocal
+        from ..repositories.system_config_repository import SystemConfigRepository
+
+        async with AsyncSessionLocal() as session:
+            record = await SystemConfigRepository(session).get_by_key("logging.llm_prompt_preview")
+            if record is not None:
+                raw = record.value
+    except Exception as exc:
+        logger.debug("读取 logging.llm_prompt_preview 失败(已忽略): %s", exc)
+    if raw is None or not str(raw).strip():
+        raw = os.environ.get("LLM_LOG_PROMPT_PREVIEW", "")
+    _preview_mode_cache = _normalize_preview_mode(raw)
+    _preview_mode_expires_at = now + _PREVIEW_TTL_SEC
+    return _preview_mode_cache
+
+
+def _current_preview_mode() -> str:
+    """同步取缓存值（流结束 finally 日志用）：请求侧钩子刚刷新过，不值得再做一次 DB 往返。"""
+    return _preview_mode_cache
+
+
 def _make_logging_hooks() -> Dict:
     """创建 httpx event hooks，记录实际发出的 HTTP 请求和收到的响应。"""
 
     async def log_request(request: httpx.Request):
         body_preview = ""
         if request.content:
+            mode = await _resolve_prompt_preview_mode()
             try:
-                body_preview = request.content.decode("utf-8")[:2000]
+                body_preview = format_body_preview(request.content.decode("utf-8"), mode)
             except Exception:
                 body_preview = f"<binary {len(request.content)} bytes>"
         logger.info(
@@ -326,11 +390,13 @@ class LLMClient:
             total_content_len = len(collected_content) or len(collected_reasoning)
             logger.info(
                 "LLM响应(OpenAI) << base_url=%s model=%s finish_reason=%s "
-                "content_len=%d reasoning_len=%d chunks=%d preview=%.200s",
+                "content_len=%d reasoning_len=%d chunks=%d preview=%s",
                 self._base_url, payload.get("model"),
                 final_finish_reason, len(collected_content),
                 len(collected_reasoning), _chunk_count,
-                (collected_content or collected_reasoning)[:200],
+                format_body_preview(
+                    collected_content or collected_reasoning, _current_preview_mode(), 200,
+                ),
             )
 
     async def aclose(self):
@@ -625,12 +691,15 @@ class AnthropicLLMClient:
             total_content_len = len(collected_content) or len(_thinking_text) or len(_tool_use_input)
             logger.info(
                 "LLM响应(Anthropic) << url=%s model=%s finish_reason=%s "
-                "len=%d thinking_len=%d tool_use_len=%d total_sse_lines=%d events=%s blocks=%s preview=%.500s",
+                "len=%d thinking_len=%d tool_use_len=%d total_sse_lines=%d events=%s blocks=%s preview=%s",
                 url, payload.get("model"),
                 final_finish_reason, total_content_len,
                 _thinking_len, len(_tool_use_input), _total_lines, _event_counts,
                 _block_types_seen,
-                (collected_content or _thinking_text or _tool_use_input)[:500],
+                format_body_preview(
+                    collected_content or _thinking_text or _tool_use_input,
+                    _current_preview_mode(), 500,
+                ),
             )
             if not collected_content and not _thinking_text and not _tool_use_input and final_finish_reason:
                 logger.warning(
@@ -1176,11 +1245,13 @@ class GeminiLLMClient:
         finally:
             logger.info(
                 "LLM响应(Gemini) << url=%s model=%s finish_reason=%s "
-                "len=%d thinking_len=%d sse_lines=%d chunks=%d preview=%.500s",
+                "len=%d thinking_len=%d sse_lines=%d chunks=%d preview=%s",
                 url, model_name, final_finish_reason,
                 len(collected_content), len(collected_thinking),
                 _total_lines, _chunk_count,
-                (collected_content or collected_thinking)[:500],
+                format_body_preview(
+                    collected_content or collected_thinking, _current_preview_mode(), 500,
+                ),
             )
 
     async def aclose(self):
@@ -1450,12 +1521,14 @@ class OpenAIResponsesLLMClient:
         finally:
             logger.info(
                 "LLM响应(OpenAI-Responses) << url=%s model=%s strategy=%s finish_reason=%s "
-                "len=%d reasoning_len=%d sse_lines=%d events=%s preview=%.500s",
+                "len=%d reasoning_len=%d sse_lines=%d events=%s preview=%s",
                 url, payload.get("model"), successful_variant_name or "none",
                 final_finish_reason,
                 len(collected_content), len(collected_reasoning),
                 _total_lines, _event_counts,
-                (collected_content or collected_reasoning)[:500],
+                format_body_preview(
+                    collected_content or collected_reasoning, _current_preview_mode(), 500,
+                ),
             )
 
     async def aclose(self):
