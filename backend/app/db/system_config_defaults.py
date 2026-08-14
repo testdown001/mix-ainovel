@@ -54,6 +54,15 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         ),
     ),
     SystemConfigDefault(
+        key="pregen.mission_enabled",
+        value_getter=lambda _: "true",
+        description=(
+            "选定章节版本后，后台预生成下一章的章节使命（导演脚本），下次生成直接命中，"
+            "写作前等待从 ~2 分钟降到秒级。属内部预付成本（同异步后续任务），不向用户"
+            "计费；带写作指令的生成不消费预生成结果。填 false 关闭（60 秒内生效）。"
+        ),
+    ),
+    SystemConfigDefault(
         key="logging.llm_prompt_preview",
         value_getter=lambda _: "digest",
         description=(

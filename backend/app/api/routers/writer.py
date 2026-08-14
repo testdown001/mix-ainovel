@@ -72,6 +72,7 @@ from ...services.chapter_post_processor import ChapterPostProcessor
 from ...services.rag_rebuild_service import rebuild_project_rag
 from ...services.batch_generation_service import BatchGenerationService
 from ...services.llm_service import LLMService
+from ...services.mission_pregen_service import pregen_next_chapter_mission
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
 from ...services.writer_context_builder import default_context_builder
@@ -425,6 +426,12 @@ async def _finalize_chapter_async(
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
         chapter.word_count = len(selected_version.content or "")
         await session.commit()
+
+        # 本章落定 → 后台预生成下一章使命（内部预付成本，失败仅记日志）
+        safe_create_task(
+            pregen_next_chapter_mission(project_id, chapter_number, user_id),
+            name=f"pregen-mission-{project_id}-ch{chapter_number + 1}",
+        )
 
         _chapter_text = selected_version.content
 
@@ -1053,6 +1060,13 @@ async def finalize_chapter(
     chapter.word_count = len(selected_version.content or "")
     await session.commit()
 
+    # 本章落定 → 后台预生成下一章使命，下次点生成免掉 ~2 分钟的规划等待。
+    # 内部预付成本（同 async followups），不向用户计费；失败仅记日志
+    safe_create_task(
+        pregen_next_chapter_mission(request.project_id, chapter_number, current_user.id),
+        name=f"pregen-mission-{request.project_id}-ch{chapter_number + 1}",
+    )
+
     llm_service = LLMService(session)
 
     # FinalizeService 负责记忆/快照/剧情线，向量入库始终走 ChapterPostProcessor
@@ -1108,6 +1122,13 @@ async def select_chapter_version(
             mode="select",
         ),
         name=f"post-process-{project_id}-ch{request.chapter_number}",
+    )
+
+    # 选版即「本章落定」→ 后台预生成下一章使命（重选版本时指纹变化会自动重算）。
+    # 内部预付成本（同 async followups），不向用户计费；失败仅记日志
+    safe_create_task(
+        pregen_next_chapter_mission(project_id, request.chapter_number, current_user.id),
+        name=f"pregen-mission-{project_id}-ch{request.chapter_number + 1}",
     )
 
     await CacheService().invalidate_project_schema(project_id)

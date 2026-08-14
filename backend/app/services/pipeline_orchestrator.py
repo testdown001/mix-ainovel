@@ -54,6 +54,11 @@ from ..services.version_generation_service import VersionGenerationService
 from ..services.text_compression_service import TextCompressionService
 from ..services.scene_generation_service import SceneGenerationService
 from ..services.mission_builder_service import MissionBuilderService
+from ..services.mission_pregen_service import (
+    load_selected_version_id,
+    mission_fingerprint,
+    take_valid_pregen_mission,
+)
 from ..services.voice_sample_service import VoiceSampleService
 from ..services.single_version_generation_service import SingleVersionGenerationService
 from ..services.async_task_service import AsyncTaskService
@@ -344,6 +349,9 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         outline_title = outline.title or f"第{outline.chapter_number}章"
         outline_summary = outline.summary or "暂无摘要"
+        # 预生成使命消费判据：用户带了写作指令就不能用预生成结果（指令会改变使命），
+        # 必须在下面的默认值填充之前判定
+        has_writing_notes = bool((writing_notes or "").strip())
         writing_notes = writing_notes or "无额外写作指令"
         chapter_blueprint = await self.generation_support_service.load_chapter_blueprint(project_id, chapter_number)
         planner_flow_config = {
@@ -519,23 +527,47 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     chapter_blueprint=chapter_blueprint,
                 )
         else:
-            # Mission 生成（内部会查 DB 加载 prompt，必须串行）
-            chapter_mission = await _shared_generate_chapter_mission(
-                self.llm_service,
-                self.prompt_service,
-                blueprint_dict=blueprint_dict,
-                previous_summary=history_context["previous_summary"],
-                previous_tail=history_context["previous_tail"],
-                outline_title=outline_title,
-                outline_summary=outline_summary,
-                writing_notes=writing_notes,
-                introduced_characters=introduced_characters_for_mission,
-                all_characters=all_characters,
-                blueprint_constraints=blueprint_constraints,
-                user_id=user_id,
-                temperature=0.3,
-                pattern_constraint=pattern_constraint,
+            # 先查选版时后台预生成的使命（mission_pregen_service）：指纹匹配且本次
+            # 无写作指令 → 直接采用，免掉写作前最长的一次 LLM 等待（实测 ~120s）
+            expected_fingerprint = mission_fingerprint(
+                outline,
+                await load_selected_version_id(self.session, project_id, chapter_number - 1),
             )
+            chapter_mission, pregen_state = take_valid_pregen_mission(
+                outline, expected_fingerprint, has_writing_notes
+            )
+            if pregen_state in {"hit", "stale_discarded"}:
+                # 命中即清（一次性使用）/过期即弃都改了 outline.metadata_，立即落库：
+                # 后续生成失败回滚也不允许同一份 mission 再被消费
+                await self.session.commit()
+            if chapter_mission is not None:
+                logger.info(
+                    "预生成使命命中: project=%s 章=%s", project_id, chapter_number
+                )
+            else:
+                logger.info(
+                    "预生成使命未命中(%s): project=%s 章=%s",
+                    pregen_state,
+                    project_id,
+                    chapter_number,
+                )
+                # Mission 生成（内部会查 DB 加载 prompt，必须串行）
+                chapter_mission = await _shared_generate_chapter_mission(
+                    self.llm_service,
+                    self.prompt_service,
+                    blueprint_dict=blueprint_dict,
+                    previous_summary=history_context["previous_summary"],
+                    previous_tail=history_context["previous_tail"],
+                    outline_title=outline_title,
+                    outline_summary=outline_summary,
+                    writing_notes=writing_notes,
+                    introduced_characters=introduced_characters_for_mission,
+                    all_characters=all_characters,
+                    blueprint_constraints=blueprint_constraints,
+                    user_id=user_id,
+                    temperature=0.3,
+                    pattern_constraint=pattern_constraint,
+                )
         _mark_stage("generate_chapter_mission", stage_started)
 
         # 等待 Pacing 结果（与 Mission 并行计算完毕）并注入到 writing_notes
