@@ -182,6 +182,18 @@ class GenerationPromptStageService:
             except Exception as exc:  # noqa: BLE001 - 参考是增益不是依赖
                 logger.warning("参考桥段注入失败（不影响生成）: %s", exc)
 
+        # 写法基准：可执行的写法约束（视角/句式/对白占比/禁用手法），绑定参考小说即注入
+        # ——与 fusion_dna 同级的默认注入，不走 enable_reference_prose（那个开关管的是
+        # 大段范文样本）。约 300-500 token，跨章节不变，进稳定段吃 prompt cache。
+        if project_reference_novels:
+            try:
+                style_guide_text = reference_service.format_style_guide_for_prompt(project_reference_novels)
+                if style_guide_text:
+                    prompt_sections.append(("[写法基准]", style_guide_text))
+                    logger.info("写法基准注入: 章=%s 长度=%d", chapter_number, len(style_guide_text))
+            except Exception as exc:  # noqa: BLE001 - 参考是增益不是依赖
+                logger.warning("写法基准注入失败（不影响生成）: %s", exc)
+
         fusion_dna_text = ""
         if hasattr(project, "fusion_dna") and project.fusion_dna:
             fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)

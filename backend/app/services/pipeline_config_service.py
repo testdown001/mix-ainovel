@@ -229,6 +229,10 @@ class PipelineConfigService:
             config.enable_consistency = True
             config.enable_enrichment = True
             config.enable_reference_beats = True
+            # 范文式风格样本（[风格参考]/[库风格样本]）在精品档默认开：绑定了参考小说的
+            # 旗舰用户此前拿到的与不绑完全一样——「章节生成中复用风格」的承诺没兑现。
+            # 未绑定参考小说时回退内置范文库，同样是精品档该有的注入。
+            config.enable_reference_prose = True
             # enable_polish 同 standard：勾选计费项，不随 preset 默认开启（optimizer 照跑，
             # 仅在用户勾选时才「合并润色」语义生效，见 standard_post_processing merge_polish）
             config.enable_optimizer = True

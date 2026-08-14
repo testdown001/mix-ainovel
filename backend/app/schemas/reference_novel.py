@@ -65,6 +65,26 @@ class BeatLibrary(BaseModel):
     structure: BeatStructure = Field(default_factory=BeatStructure)
 
 
+class StyleGuide(BaseModel):
+    """可执行的写法基准：约束「怎么写」，不约束写什么。
+
+    与 memory_card 的写法字段（dialogue_style 等一句话形容词）的区别：这里的每个字段
+    要求量化、可检查——「对白占比约四成、单句 ≤20 字」模型会照做，「文风冷峻」不会。
+    资料不足的维度留空，空字段不注入。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    narrative_pov: str = Field(default="", description="叙事视角的硬约束，如：第三人称限制视角，全程贴主角")
+    sentence_rhythm: str = Field(default="", description="句式节奏：句长范围、长短句配比、动作场景的节拍")
+    dialogue_style: str = Field(default="", description="对白约束：占比、腔调、单句长度、是否带动作标签")
+    description_density: str = Field(default="", description="描写密度：环境/外貌描写的篇幅上限与位置")
+    paragraphing: str = Field(default="", description="分段习惯：每段句数、换行频率")
+    emotion_expression: str = Field(default="", description="情绪表达方式：外化手段 vs 直陈心理的取舍")
+    signature_devices: List[str] = Field(default_factory=list, description="标志性手法 2-4 条")
+    forbidden: List[str] = Field(default_factory=list, description="该作者明显不用/读者反感的写法")
+
+
 class ReferenceNovelBase(BaseModel):
     title: str
     outline_content: Optional[str] = None
@@ -86,6 +106,7 @@ class ReferenceNovelUpdate(BaseModel):
     style_samples_content: Optional[str] = None
     memory_card: Optional[MemoryCard] = None
     beat_library: Optional[BeatLibrary] = None
+    style_guide: Optional[StyleGuide] = None
     genre: Optional[str] = None
     author: Optional[str] = None
     source_url: Optional[str] = None
@@ -110,6 +131,7 @@ class ReferenceNovelDetail(ReferenceNovelSummary):
     style_samples_content: Optional[str] = None
     memory_card: Optional[MemoryCard] = None
     beat_library: Optional[BeatLibrary] = None
+    style_guide: Optional[StyleGuide] = None
     source_url: Optional[str] = None
     error_message: Optional[str] = None
 

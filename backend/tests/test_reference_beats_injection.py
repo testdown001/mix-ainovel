@@ -145,3 +145,80 @@ def test_old_data_without_beat_library_noop():
     novel = SimpleNamespace(id=2, title="老书", updated_at=None, beat_library=None)
     result = _run(_build_service(_LLM()), enable_beats=True, novels=[novel])
     assert "[参考桥段]" not in result.prompt_input
+
+
+def test_style_guide_injected_when_bound():
+    """[写法基准] 绑定即注入，不走 enable_reference_beats/enable_reference_prose 开关。"""
+    novel = _novel_with_beats()
+    novel.style_guide = {"narrative_pov": "第三人称限制视角", "sentence_rhythm": "短句为主"}
+
+    service = _build_service(_LLM())
+    # reference_service 需要真实的 format_style_guide_for_prompt 逻辑
+    from app.services.reference_novel_library_service import ReferenceNovelLibraryService
+
+    real_svc = ReferenceNovelLibraryService.__new__(ReferenceNovelLibraryService)
+    result = _run_with_reference_service(service, novels=[novel], reference_service_impl=real_svc)
+    assert "[写法基准]" in result.prompt_input
+    assert "叙事视角：第三人称限制视角" in result.prompt_input
+
+
+def test_style_guide_absent_for_old_data():
+    novel = _novel_with_beats()
+    novel.style_guide = None
+    from app.services.reference_novel_library_service import ReferenceNovelLibraryService
+
+    real_svc = ReferenceNovelLibraryService.__new__(ReferenceNovelLibraryService)
+    result = _run_with_reference_service(_build_service(_LLM()), novels=[novel], reference_service_impl=real_svc)
+    assert "[写法基准]" not in result.prompt_input
+
+
+def _run_with_reference_service(service, *, novels, reference_service_impl):
+    """与 _run 相同，但 reference_service 用真实实现（测格式化与注入的整条链）。"""
+    async def _main():
+        return await service.build_prompt_stage(
+            config=SimpleNamespace(
+                enable_reference_prose=False,
+                enable_reference_beats=False,
+                enable_narrative_variety=False,
+                use_slim_prompt=False,
+            ),
+            context_plan=SimpleNamespace(),
+            writer_prompt="BASE",
+            writer_blueprint={},
+            history_context={"previous_summary": "", "previous_tail": "", "story_skeleton": ""},
+            chapter_mission={},
+            mission_brief_text=None,
+            rag_context=None,
+            outline_title="第9章",
+            outline_summary="摘要",
+            writing_notes="",
+            forbidden_characters=[],
+            project_memory_text=None,
+            memory_context=None,
+            platinum_writing_brief=None,
+            platinum_rhythm_brief=None,
+            foreshadowing_urgency_brief=None,
+            hook_continuity_brief=None,
+            emotion_expression_brief=None,
+            genre_prompt_injection=None,
+            fingerprint_context=None,
+            prediction_text=None,
+            user_style_rules=None,
+            chapter_word_count_min=1000,
+            chapter_word_count_max=2000,
+            chapter_target_word_count=1500,
+            chapter_state_context=None,
+            coolpoint_rhythm_directive=None,
+            writing_strategy=SimpleNamespace(warnings=[]),
+            power_system_context=None,
+            relationship_context=None,
+            trajectory_context=None,
+            outline_revision_context=None,
+            project=SimpleNamespace(chapters=[], fusion_dna=None),
+            chapter_number=9,
+            project_reference_novels=novels,
+            reference_service=reference_service_impl,
+            enhanced_context={},
+        )
+
+    return asyncio.run(_main())

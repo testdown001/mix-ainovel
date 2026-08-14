@@ -94,6 +94,7 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "模式差异化约束": SectionBudget(priority=3, max_tokens=400),
     "风格参考": SectionBudget(priority=3, max_tokens=800),
     "参考桥段": SectionBudget(priority=3, max_tokens=600),
+    "写法基准": SectionBudget(priority=2, max_tokens=500),
     "叙事差异化约束": SectionBudget(priority=3, max_tokens=500),
 
     # Enhanced flow sections
@@ -248,6 +249,7 @@ class PromptBudgetManager:
             "白金写作准则",
             "语言风格硬约束",
             "用户写作风格",
+            "写法基准",
             "题材写作约束",
             "作者风格指纹",
             "世界蓝图",

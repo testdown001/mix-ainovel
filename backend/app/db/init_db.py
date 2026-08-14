@@ -240,6 +240,7 @@ async def _ensure_schema_updates() -> None:
                 "reference_novels",
                 {
                     "beat_library": "beat_library JSON",
+                    "style_guide": "style_guide JSON",
                 },
             )
             _ensure_columns(

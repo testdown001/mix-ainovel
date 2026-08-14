@@ -29,6 +29,9 @@ class ReferenceNovel(Base):
     # 与 memory_card（全书级形容词）互补：桥段是「情境→手法」的可检索条目，
     # 生成第 N 章时按本章情境选取最相似的几条注入
     beat_library: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    # 写法基准：可执行的写法约束（视角/句式/对白占比/描写密度/禁用手法），
+    # schema 见 schemas.reference_novel.StyleGuide。绑定项目后正文生成默认注入
+    style_guide: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     genre: Mapped[Optional[str]] = mapped_column(String(128))
     author: Mapped[Optional[str]] = mapped_column(String(128))

@@ -21,6 +21,7 @@ def test_analyze_prefetches_db_bound_dependencies_before_parallel_llm_calls():
         style_samples_content=None,
         memory_card=None,
         beat_library=None,
+        style_guide=None,
     )
     service.get_by_id = AsyncMock(return_value=novel)
     service.search_service = SimpleNamespace(
@@ -106,12 +107,14 @@ search_results: {search_results}
             return "<think>draft</think>大纲分析"
 
         async def generate_structured(self, *, prompt, schema, user_id=None, responder=None, default=None, **_kw):
-            return schema(
-                beats=[
-                    ReferenceBeat(name="当众打脸·信息差反转", situation="主角被公开羞辱", tags=["打脸"])
-                ],
-                structure=BeatStructure(volume_rhythm="每卷一大高潮"),
-            )
+            if schema.__name__ == "BeatLibrary":
+                return schema(
+                    beats=[
+                        ReferenceBeat(name="当众打脸·信息差反转", situation="主角被公开羞辱", tags=["打脸"])
+                    ],
+                    structure=BeatStructure(volume_rhythm="每卷一大高潮"),
+                )
+            return schema(narrative_pov="第三人称限制视角，全程贴主角")
 
     prompt_service = _GuardedPromptService()
     llm_service = _GuardedLLMService()
@@ -131,11 +134,13 @@ search_results: {search_results}
     }
     assert novel.beat_library["beats"][0]["name"] == "当众打脸·信息差反转"
     assert novel.beat_library["structure"]["volume_rhythm"] == "每卷一大高潮"
+    assert novel.style_guide["narrative_pov"] == "第三人称限制视角，全程贴主角"
     assert prompt_service.calls == [
         "reference_outline_extraction",
         "reference_style_extraction",
         "reference_memory_card_extraction",
         "reference_beat_extraction",
+        "reference_style_guide_extraction",
     ]
     assert llm_service.config_calls == 1
     assert len(llm_service.response_configs) == 3
@@ -183,7 +188,7 @@ def test_analyze_feeds_each_extractor_its_own_dimensions():
             return "大纲"
 
         async def generate_structured(self, *, prompt, schema, **_kw):
-            captured["beats"] = prompt
+            captured["beats" if schema.__name__ == "BeatLibrary" else "style_guide"] = prompt
             return schema()
 
     service.prompt_service = _PromptService()
@@ -197,6 +202,8 @@ def test_analyze_feeds_each_extractor_its_own_dimensions():
     assert "CRAFT" in captured["style"]
     # 桥段：beats+pacing+plot（pacing 缺失降级）
     assert "BEATS" in captured["beats"] and "CRAFT" not in captured["beats"]
+    # 写法基准：与风格同吃 craft 维度
+    assert "CRAFT" in captured["style_guide"] and "BEATS" not in captured["style_guide"]
 
 
 def test_analyze_beat_extraction_soft_fails_to_none():
@@ -237,6 +244,46 @@ def test_analyze_beat_extraction_soft_fails_to_none():
 
     assert novel.status == service._STATUS_READY
     assert novel.beat_library is None
+    assert novel.style_guide is None
+
+
+def test_format_style_guide_first_bound_novel_wins():
+    """多本参考时写法基准取第一本有基准的：两套句式节奏没法融合，绑定顺序即优先级。"""
+    svc = ReferenceNovelLibraryService.__new__(ReferenceNovelLibraryService)
+    no_guide = SimpleNamespace(title="无基准", style_guide=None)
+    first = SimpleNamespace(title="首选", style_guide={
+        "narrative_pov": "第三人称限制视角",
+        "sentence_rhythm": "短句为主，动作场景单句不超过15字",
+        "signature_devices": ["章末一句话反转"],
+        "forbidden": ["大段内心独白"],
+    })
+    second = SimpleNamespace(title="次选", style_guide={"narrative_pov": "第一人称"})
+
+    text = svc.format_style_guide_for_prompt([no_guide, first, second])
+    assert "《首选》" in text
+    assert "叙事视角：第三人称限制视角" in text
+    assert "标志性手法：章末一句话反转" in text
+    assert "禁用写法：大段内心独白" in text
+    assert "次选" not in text
+    # 只约束怎么写的免责声明必须在
+    assert "不约束写什么" in text
+
+
+def test_format_style_guide_empty_cases():
+    svc = ReferenceNovelLibraryService.__new__(ReferenceNovelLibraryService)
+    assert svc.format_style_guide_for_prompt([]) == ""
+    assert svc.format_style_guide_for_prompt([SimpleNamespace(title="旧", style_guide=None)]) == ""
+    # 全空字段的 guide 不产出空壳
+    assert svc.format_style_guide_for_prompt([SimpleNamespace(title="空", style_guide={})]) == ""
+
+
+def test_style_samples_labeled_as_imitation():
+    """风格样本必须标注为仿写——它们不是原文，标成原文会让下游把仿写误差当真实语感。"""
+    svc = ReferenceNovelLibraryService.__new__(ReferenceNovelLibraryService)
+    novel = SimpleNamespace(title="某书", style_samples_content="样本文本")
+    text = svc.format_style_samples_for_prompt([novel])
+    assert "AI 仿写" in text
+    assert "非原文摘录" in text
 
 
 def test_extract_memory_card_ignores_unknown_only_fields_to_avoid_empty_defaults():

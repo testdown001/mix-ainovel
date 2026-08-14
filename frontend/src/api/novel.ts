@@ -261,11 +261,24 @@ export interface BeatLibrary {
   }
 }
 
+/** 写法基准：可执行的写法约束（约束「怎么写」，不约束写什么）。 */
+export interface StyleGuide {
+  narrative_pov?: string
+  sentence_rhythm?: string
+  dialogue_style?: string
+  description_density?: string
+  paragraphing?: string
+  emotion_expression?: string
+  signature_devices?: string[]
+  forbidden?: string[]
+}
+
 export interface ReferenceNovelDetail extends ReferenceNovelSummary {
   outline_content?: string
   style_samples_content?: string
   memory_card?: MemoryCard
   beat_library?: BeatLibrary
+  style_guide?: StyleGuide
   source_url?: string
   error_message?: string
 }

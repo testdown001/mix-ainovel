@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ReferenceNovel, User
-from ..schemas.reference_novel import BeatLibrary, MemoryCard
+from ..schemas.reference_novel import BeatLibrary, MemoryCard, StyleGuide
 from ..utils.json_utils import (
     remove_think_tags,
     repair_json,
@@ -145,9 +145,10 @@ class ReferenceNovelLibraryService:
             style_prompt = await self.prompt_service.get_prompt("reference_style_extraction")
             memory_card_prompt = await self.prompt_service.get_prompt("reference_memory_card_extraction")
             beats_prompt = await self.prompt_service.get_prompt("reference_beat_extraction")
+            style_guide_prompt = await self.prompt_service.get_prompt("reference_style_guide_extraction")
             search_llm_config = await self.llm_service._resolve_search_llm_config()
 
-            outline, style, memory_card, beat_library = await asyncio.gather(
+            outline, style, memory_card, beat_library, style_guide = await asyncio.gather(
                 self._extract_outline(
                     novel.title,
                     outline_context,
@@ -176,12 +177,20 @@ class ReferenceNovelLibraryService:
                     prompt_template=beats_prompt,
                     llm_config=search_llm_config,
                 ),
+                self._extract_style_guide(
+                    novel.title,
+                    style_context,
+                    user_id,
+                    prompt_template=style_guide_prompt,
+                    llm_config=search_llm_config,
+                ),
             )
 
             novel.outline_content = outline
             novel.style_samples_content = style
             novel.memory_card = memory_card
             novel.beat_library = beat_library
+            novel.style_guide = style_guide
             novel.status = self._STATUS_READY
             novel.error_message = None
             await self.session.commit()
@@ -335,6 +344,48 @@ class ReferenceNovelLibraryService:
             structure = library.structure.model_dump(exclude_defaults=True)
             return {"beats": [], "structure": structure} if structure else None
         return BeatLibrary(beats=beats, structure=library.structure).model_dump()
+
+    async def _extract_style_guide(
+        self,
+        novel_title: str,
+        search_results: str,
+        user_id: int,
+        *,
+        prompt_template: Optional[str] = None,
+        llm_config: Optional[Dict[str, Optional[str]]] = None,
+    ) -> Optional[dict]:
+        """抽取写法基准（可执行约束）；与桥段库同款软失败——抽不出不拖垮分析。"""
+        prompt = prompt_template or await self.prompt_service.get_prompt("reference_style_guide_extraction")
+        if not prompt:
+            logger.warning("缺失 reference_style_guide_extraction 提示词，跳过写法基准抽取")
+            return None
+        filled = self.prompt_service.render_prompt(
+            prompt,
+            novel_title=novel_title,
+            search_results=search_results,
+        )
+
+        async def _search_channel_responder(p: str, system_prompt: str) -> str:
+            return await self.llm_service.get_search_llm_response(
+                system_prompt=system_prompt,
+                conversation_history=[{"role": "user", "content": p}],
+                temperature=0.3,
+                max_tokens=1600,
+                config_override=llm_config,
+            )
+
+        guide = await self.llm_service.generate_structured(
+            prompt=filled,
+            schema=StyleGuide,
+            user_id=user_id,
+            responder=_search_channel_responder,
+            default=StyleGuide(),
+        )
+        data = guide.model_dump(exclude_defaults=True)
+        if not data:
+            logger.warning("参考小说《%s》写法基准抽取为空（资料不足或解析失败）", novel_title)
+            return None
+        return guide.model_dump()
 
     @staticmethod
     def _normalize_memory_card_key(key: str) -> str:
@@ -494,8 +545,50 @@ class ReferenceNovelLibraryService:
         for novel in novels:
             content = novel.style_samples_content
             if content:
-                samples.append(f"=== {novel.title} ===\n{content[: self._PROMPT_STYLE_SAMPLE_CHARS]}")
+                # 诚实标注：这些样本是 LLM 根据检索印象仿写的，不是原文摘录——
+                # 标成「原文」会让下游把仿写误差当成该书的真实语感来学
+                samples.append(
+                    f"=== 《{novel.title}》语感示例（AI 仿写，非原文摘录）===\n"
+                    f"{content[: self._PROMPT_STYLE_SAMPLE_CHARS]}"
+                )
         return "\n\n".join(samples)
+
+    # 写法基准注入的字段顺序与中文标签（空字段不注入）
+    _STYLE_GUIDE_FIELDS: List[tuple[str, str]] = [
+        ("narrative_pov", "叙事视角"),
+        ("sentence_rhythm", "句式节奏"),
+        ("dialogue_style", "对白"),
+        ("description_density", "描写密度"),
+        ("paragraphing", "分段"),
+        ("emotion_expression", "情绪表达"),
+    ]
+
+    def format_style_guide_for_prompt(self, novels: List[ReferenceNovel]) -> str:
+        """写法基准 → 可注入文本。多本参考时取**第一本**有基准的（绑定顺序即优先级）：
+        可执行约束不能像 fusion_dna 那样「融合」——两套句式节奏拼在一起就都不成立了。
+        """
+        for novel in novels or []:
+            guide = getattr(novel, "style_guide", None)
+            if not isinstance(guide, dict):
+                continue
+            lines: List[str] = []
+            for key, label in self._STYLE_GUIDE_FIELDS:
+                value = guide.get(key)
+                if isinstance(value, str) and value.strip():
+                    lines.append(f"- {label}：{value.strip()}")
+            devices = [str(v).strip() for v in guide.get("signature_devices") or [] if str(v).strip()]
+            if devices:
+                lines.append(f"- 标志性手法：{'；'.join(devices[:4])}")
+            forbidden = [str(v).strip() for v in guide.get("forbidden") or [] if str(v).strip()]
+            if forbidden:
+                lines.append(f"- 禁用写法：{'；'.join(forbidden[:5])}")
+            if not lines:
+                continue
+            return (
+                f"以下写法基准提炼自《{novel.title}》的写法分析，只约束「怎么写」，"
+                "不约束写什么；与本书设定冲突时以本书为准：\n" + "\n".join(lines)
+            )
+        return ""
 
     # 记忆卡注入的字段优先级：剧情思考类在前（冲突模版/爽点/伏笔/悬念），
     # 其后是节奏与写法。此前是整段 JSON dump 再拦腰截 800 字——缩进和引号吃掉

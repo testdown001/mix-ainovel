@@ -71,7 +71,7 @@
           <div class="reference-panel-header">
             <div>
               <p class="reference-panel-title">参考小说</p>
-              <p class="reference-panel-subtitle">绑定后可在灵感模式与章节生成中复用风格/记忆卡</p>
+              <p class="reference-panel-subtitle">绑定后：构思引用桥段手法，正文按情境注入参考桥段与写法基准</p>
             </div>
             <div class="reference-panel-actions">
               <button class="reference-panel-link reference-panel-link--primary" type="button" @click="openReferenceLibrary">

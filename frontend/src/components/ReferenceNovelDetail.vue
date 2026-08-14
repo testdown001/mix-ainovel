@@ -37,8 +37,21 @@
         <textarea v-model="outline" rows="4" />
       </div>
       <div class="detail-section">
-        <label>风格样本（10 段）</label>
+        <label>风格样本（AI 仿写语感示例，非原文摘录）</label>
         <textarea v-model="styleSamples" rows="5" />
+      </div>
+
+      <!-- 写法基准：可执行的写法约束，绑定项目后正文生成默认注入 -->
+      <div class="detail-section">
+        <label>写法基准（正文生成默认注入，只约束「怎么写」）</label>
+        <dl v-if="styleGuideEntries.length" class="beat-fields style-guide">
+          <template v-for="entry in styleGuideEntries" :key="entry[0]">
+            <dt>{{ entry[0] }}</dt><dd>{{ entry[1] }}</dd>
+          </template>
+        </dl>
+        <div v-else-if="novel.status === 'ready'" class="beat-empty">
+          尚无写法基准（旧数据或资料不足），点「重新分析」提取。
+        </div>
       </div>
       <div class="detail-section">
         <label>记忆卡（JSON）</label>
@@ -115,6 +128,29 @@ const message = ref('')
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const beats = computed(() => novel.value?.beat_library?.beats || [])
+
+const STYLE_GUIDE_LABELS: Array<[keyof NonNullable<ReferenceNovelDetail['style_guide']>, string]> = [
+  ['narrative_pov', '叙事视角'],
+  ['sentence_rhythm', '句式节奏'],
+  ['dialogue_style', '对白'],
+  ['description_density', '描写密度'],
+  ['paragraphing', '分段'],
+  ['emotion_expression', '情绪表达'],
+  ['signature_devices', '标志性手法'],
+  ['forbidden', '禁用写法'],
+]
+
+const styleGuideEntries = computed<Array<[string, string]>>(() => {
+  const guide = novel.value?.style_guide
+  if (!guide) return []
+  const entries: Array<[string, string]> = []
+  for (const [key, label] of STYLE_GUIDE_LABELS) {
+    const value = guide[key]
+    if (Array.isArray(value) && value.length) entries.push([label, value.join('；')])
+    else if (typeof value === 'string' && value.trim()) entries.push([label, value])
+  }
+  return entries
+})
 
 const beatStructureText = computed(() => {
   const structure = novel.value?.beat_library?.structure
