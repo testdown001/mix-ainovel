@@ -1,4 +1,4 @@
-<!-- AIMETA P=灵感加载_加载动画组件|R=加载动画+模拟进度条(真实已等待秒数)|NR=不含业务逻辑|E=component:InspirationLoading|X=internal|A=加载组件|D=vue|S=dom|RD=./README.ai -->
+<!-- AIMETA P=灵感加载_加载动画组件|R=加载动画+模拟进度条(真实已等待秒数)_支持阶段文案覆写|NR=不含业务逻辑|E=component:InspirationLoading|X=internal|A=加载组件|D=vue|S=dom|RD=./README.ai -->
 <template>
   <div class="loading-root">
     <div class="loading-glow-wrap">
@@ -11,9 +11,9 @@
       <div class="loading-ring"></div>
     </div>
 
-    <h2 class="loading-title">正在为你准备灵感空间...</h2>
+    <h2 class="loading-title">{{ title }}</h2>
 
-    <!-- 进度条：concept/converse 是单次同步 LLM 调用，拿不到真实百分比，
+    <!-- 进度条：底层是单次同步调用（LLM/联网检索），拿不到真实百分比，
          故用渐近模拟进度（最多到 95%，真正完成时父组件卸载本组件），
          配合「已等待秒数」给出真实可信的反馈。 -->
     <div class="loading-progress">
@@ -21,23 +21,33 @@
         <div class="progress-fill" :style="{ width: progress + '%' }"></div>
       </div>
       <div class="progress-meta">
-        <span class="progress-phase">{{ phase }}</span>
+        <span class="progress-phase">{{ phaseText }}</span>
         <span class="progress-time">已等待 {{ elapsed }}s</span>
       </div>
     </div>
 
-    <p v-if="elapsed >= 15" class="loading-hint">
-      推理模型（如 gpt-5 系列）思考较慢，复杂构思可能需要 30–60 秒，请耐心等待…
-    </p>
+    <p v-if="hintText" class="loading-hint">{{ hintText }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+
+// 可覆写文案：灵感模式的「准备阶段」（建项目/联网检索参考小说）与「开场阶段」
+// （首次 converse）复用同一套视觉，只换标题/阶段/提示，用户全程有动态反馈
+const props = withDefaults(
+  defineProps<{
+    title?: string
+    /** 覆写阶段文案；空串则按已等待时长走内置文案 */
+    phaseOverride?: string
+    /** 覆写超时提示；空串则按内置推理模型提示（15s 后出现），覆写值 8s 后出现 */
+    hintOverride?: string
+  }>(),
+  { title: '正在为你准备灵感空间...', phaseOverride: '', hintOverride: '' }
+)
 
 const progress = ref(0) // 模拟进度 0-95
 const elapsed = ref(0)  // 真实已等待秒数
-const phase = ref('连接文思泉涌的 AI...')
 
 let timer: ReturnType<typeof setInterval> | null = null
 const startedAt = Date.now()
@@ -49,12 +59,22 @@ function pickPhase(sec: number): string {
   return '马上就好，正在打磨最终表达...'
 }
 
+const phaseText = computed(() => props.phaseOverride || pickPhase(elapsed.value))
+
+const hintText = computed(() => {
+  if (props.hintOverride) {
+    return elapsed.value >= 8 ? props.hintOverride : ''
+  }
+  return elapsed.value >= 15
+    ? '推理模型（如 gpt-5 系列）思考较慢，复杂构思可能需要 30–60 秒，请耐心等待…'
+    : ''
+})
+
 onMounted(() => {
   timer = setInterval(() => {
     elapsed.value = Math.floor((Date.now() - startedAt) / 1000)
     // 渐近逼近 95%：越接近越慢，绝不谎称 100%（真正完成由父组件卸载本组件）
     progress.value = Math.min(95, progress.value + (95 - progress.value) * 0.04)
-    phase.value = pickPhase(elapsed.value)
   }, 150)
 })
 

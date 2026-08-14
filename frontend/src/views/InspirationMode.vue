@@ -111,7 +111,7 @@
             class="start-btn"
             :class="{ disabled: novelStore.isLoading || isPreparingConversation }"
           >
-            {{ isPreparingConversation || novelStore.isLoading ? '正在准备...' : '开启灵感模式' }}
+            {{ startButtonText }}
           </button>
           <button @click="goBack" class="back-link">返回首页</button>
         </div>
@@ -168,8 +168,18 @@
     <!-- ──────────── RIGHT MAIN PANEL ──────────── -->
     <main class="chat-panel">
 
+      <!-- 准备阶段（建项目/联网检索参考小说）：此前只有按钮上一个静态「正在准备...」，
+           挂了参考小说时首次检索要 30-60 秒，用户不知道系统在干嘛。复用开场同款
+           加载视觉，按真实阶段换文案 + 已等待秒数 + 降级说明。 -->
+      <InspirationLoading
+        v-if="!conversationStarted && isPreparingConversation"
+        :title="preparingTitle"
+        :phase-override="preparingPhase"
+        :hint-override="preparingHint"
+      />
+
       <!-- Empty state before start -->
-      <div v-if="!conversationStarted" class="chat-empty">
+      <div v-else-if="!conversationStarted" class="chat-empty">
         <div class="empty-icon">✦</div>
         <p class="empty-title">从一句灵感，到完整蓝图</p>
         <p class="empty-sub">
@@ -196,7 +206,13 @@
         <div class="chat-scroll" ref="chatArea">
           <!-- Loading spinner for initial AI response -->
           <transition name="fade">
-            <InspirationLoading v-if="isInitialLoading" class="chat-loading" />
+            <InspirationLoading
+              v-if="isInitialLoading"
+              class="chat-loading"
+              :hint-override="museSearchEnabled
+                ? '已开启「开场跨界找素材」：文思会先联网找一批跨界灵感素材再开场，比普通开场慢 20-30 秒。'
+                : ''"
+            />
           </transition>
 
           <!-- Chat bubbles -->
@@ -321,6 +337,9 @@ const novelStore = useNovelStore()
 
 const conversationStarted = ref(false)
 const isPreparingConversation = ref(false)
+// 准备阶段细分：project=建项目（秒级）；reference=联网检索参考小说（首次 30-60s，
+// 是「正在准备」里真正耗时的一步，必须让用户看到在干什么）
+const preparingStage = ref<'idle' | 'project' | 'reference'>('idle')
 const isInitialLoading = ref(false)
 const showBlueprintConfirmation = ref(false)
 const showBlueprint = ref(false)
@@ -352,6 +371,32 @@ const isDiverging = ref(false)
 const canUsePersona = computed(() => featureAccess.value.muse_persona)
 const canUseMuseSearch = computed(() => featureAccess.value.muse_search)
 const canUseDivergence = computed(() => featureAccess.value.muse_divergence)
+const museSearchEnabled = computed(() => canUseMuseSearch.value && !disableMuseSearch.value)
+
+// ── 准备阶段的动态文案（按钮 + 右侧加载视图共用） ──
+const startButtonText = computed(() => {
+  if (preparingStage.value === 'reference') return '检索参考小说中...'
+  if (isPreparingConversation.value || novelStore.isLoading) return '正在准备...'
+  return '开启灵感模式'
+})
+
+const preparingTitle = computed(() =>
+  preparingStage.value === 'reference' ? '正在研读参考小说...' : '正在为你准备灵感空间...'
+)
+
+const preparingPhase = computed(() => {
+  if (preparingStage.value === 'project') return '正在创建项目...'
+  if (preparingStage.value === 'reference') {
+    return `正在联网检索《${normalizedReferenceNovels.value.join('》《')}》的题材与写法...`
+  }
+  return ''
+})
+
+const preparingHint = computed(() =>
+  preparingStage.value === 'reference'
+    ? '首次检索一本书约需 30-60 秒，结果会缓存、之后秒开；即使检索失败也会自动降级为普通灵感模式，不会卡住。'
+    : ''
+)
 
 const normalizedReferenceNovels = computed(() =>
   referenceNovels.value
@@ -475,13 +520,15 @@ const startConversation = async () => {
 
   resetInspirationMode({ keepReferenceNovels: true })
   isPreparingConversation.value = true
+  preparingStage.value = 'project'
 
   try {
     await novelStore.createProject('未命名灵感', '开始灵感模式')
 
     if (selectedReferenceNovels.length > 0) {
+      preparingStage.value = 'reference'
       referenceSearchStatus.value = 'searching'
-      referenceSearchMessage.value = `正在搜索 ${selectedReferenceNovels.length} 本参考小说...`
+      referenceSearchMessage.value = `正在联网检索 ${selectedReferenceNovels.length} 本参考小说（首次约 30-60 秒）...`
       try {
         const result = await novelStore.searchReferenceNovels(selectedReferenceNovels)
         referenceContext.value = result.reference_context || ''
@@ -514,6 +561,7 @@ const startConversation = async () => {
     resetInspirationMode({ keepReferenceNovels: true })
   } finally {
     isPreparingConversation.value = false
+    preparingStage.value = 'idle'
   }
 }
 
@@ -1141,6 +1189,9 @@ onMounted(() => {
 
 /* ──────────── Chat Panel ──────────── */
 .chat-panel {
+  /* relative：InspirationLoading 根节点是 absolute inset-0，
+     准备阶段直接挂在本容器下，需要以本容器为定位锚 */
+  position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
