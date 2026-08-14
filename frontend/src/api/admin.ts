@@ -379,6 +379,12 @@ export class AdminAPI {
     })
   }
 
+  static resetPromptToDefault(id: number): Promise<PromptItem> {
+    return this.request(`/prompts/${id}/reset-to-default`, {
+      method: 'POST'
+    })
+  }
+
   // Update logs
   static listUpdateLogs(): Promise<UpdateLog[]> {
     return this.request('/update-logs')

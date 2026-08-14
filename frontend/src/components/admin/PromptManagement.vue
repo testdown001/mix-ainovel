@@ -78,6 +78,9 @@
                   />
                 </n-form-item>
               </n-form>
+              <p class="editor-hint">
+                保存后约 1 分钟内在全部实例生效；修改过的模板不再跟随版本更新，可用「恢复默认」回到官方模板。
+              </p>
               <n-space justify="end">
                 <n-popconfirm
                   v-if="selectedPrompt"
@@ -93,6 +96,20 @@
                     </n-button>
                   </template>
                   确认删除该 Prompt？
+                </n-popconfirm>
+                <n-popconfirm
+                  v-if="selectedPrompt"
+                  placement="bottom"
+                  positive-text="恢复默认"
+                  negative-text="取消"
+                  @positive-click="resetPrompt"
+                >
+                  <template #trigger>
+                    <n-button quaternary :loading="resetting">
+                      恢复默认
+                    </n-button>
+                  </template>
+                  用官方模板文件覆盖当前内容？你的修改将丢失，且该模板此后重新跟随版本更新。
                 </n-popconfirm>
                 <n-button type="primary" :loading="saving" @click="savePrompt">
                   保存修改
@@ -167,6 +184,7 @@ const selectedPrompt = ref<PromptItem | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
+const resetting = ref(false)
 const creating = ref(false)
 const error = ref<string | null>(null)
 const editForm = reactive({
@@ -251,6 +269,24 @@ const savePrompt = async () => {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
   } finally {
     saving.value = false
+  }
+}
+
+const resetPrompt = async () => {
+  if (!selectedPrompt.value) return
+  resetting.value = true
+  try {
+    const updated = await AdminAPI.resetPromptToDefault(selectedPrompt.value.id)
+    selectPrompt(updated)
+    const index = prompts.value.findIndex((item) => item.id === updated.id)
+    if (index !== -1) {
+      prompts.value.splice(index, 1, updated)
+    }
+    showAlert('已恢复为官方默认模板', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '恢复默认失败', 'error')
+  } finally {
+    resetting.value = false
   }
 }
 
@@ -397,6 +433,12 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.editor-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--md-on-surface-variant, #9ca3af);
 }
 
 .prompt-textarea :deep(textarea) {

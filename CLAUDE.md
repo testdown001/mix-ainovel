@@ -39,6 +39,7 @@ npm run build        # type-check + production build
 npm run build-only   # skip type-check, just vite build
 npm run type-check   # vue-tsc type checking only
 npm run test:unit    # vitest run (config: vitest.config.ts; node env by default, use // @vitest-environment jsdom per-file for DOM)
+npm run test:e2e     # Playwright smoke (needs `npm run build-only` first; see playwright.config.ts)
 npm run format       # prettier formatting on src/
 ```
 Vite dev proxies: `/api` → FastAPI :8000; `/tasks` and `/ws` → Go gateway :3000. WebSocket progress and task dispatch in dev require the Go gateway running locally.
@@ -68,7 +69,9 @@ Scripted paths (all in `deploy/scripts/`, all env-var driven — see "Known Pitf
 Health check: `GET /api/health`
 
 ### CI (`.github/workflows/ci.yml`)
-Three jobs: backend = `pytest tests/ -q --cov=app` on Python 3.12 (sqlite); gateway = `go build ./...` + `go vet ./...`; frontend = Node 22 type-check + `test:unit` + build.
+Four jobs: backend = `pytest tests/ -q --cov=app` on Python 3.12 (sqlite); gateway = `go build ./...` + `go vet ./...`; frontend = Node 22 type-check + `test:unit` + build + `check:css`; e2e = Playwright smoke (chromium only, browsers cached at `~/.cache/ms-playwright`, failure uploads `frontend/test-results/` traces as artifact).
+
+**E2E smoke** (`frontend/e2e/smoke.spec.ts` + `playwright.config.ts`): 6 zero-LLM paths — landing render, password login → `/home`, API-create project → writing-desk shell render (no blueprint ≠ redirect), settings tab switching incl. ReferralPanel load, public pricing page, invalid share token → 「链接已失效」. The `webServer` is **uvicorn hosting API + built dist same-origin** (`frontend/e2e/start-backend.sh`: sqlite at `/tmp/arboris-e2e.db` wiped per run, `FRONTEND_DIST_DIR` pointing at `frontend/dist`, then `backend/scripts/seed_e2e_user.py` direct-inserts normal user `e2euser` — registration flow is bypassed on purpose: email codes/captcha, and admin is unusable because of the forced password change). Login is by **username** (not email); tests needing auth inject the token into `localStorage.token` via `addInitScript` instead of re-walking the login UI.
 
 **Version matrix invariant**: CI must test the runtime that actually ships. `deploy/Dockerfile` is pinned to `python:3.12-slim` + `node:22-slim` to match this workflow (it was 3.11/20 until 2026-08-13, so a green CI said nothing about the image); the gateway takes its Go version from `gateway/go.mod` in both CI (`go-version-file`) and `gateway/Dockerfile` (`golang:1.25-alpine`). Change one side and you must change the other — both files carry a comment saying so.
 
@@ -110,7 +113,7 @@ Layered architecture: **Routers → Services → Repositories → Models**
 - `schemas/` — Pydantic request/response schemas
 - `core/config.py` — `Settings` class (pydantic-settings), loads from `.env`. Key property: `sqlalchemy_database_uri` auto-builds connection string based on `DB_PROVIDER`
 - `core/feature_gating.py` — membership capability registry (see "Commercial Layer" below)
-- `prompts/` — 40+ Markdown prompt templates (concept, outline, chapter plan, writing variants, editor/review/evaluation, foreshadowing, optimization, reference extraction/fusion, mission/persona, outline_revision, screenwriting + screenwriting_outline for the two-stage blueprint, etc.), loaded into DB at startup by `PromptService.preload()`
+- `prompts/` — 40+ Markdown prompt templates (concept, outline, chapter plan, writing variants, editor/review/evaluation, foreshadowing, optimization, reference extraction/fusion, mission/persona, outline_revision, screenwriting + screenwriting_outline for the two-stage blueprint, etc.), loaded into DB at startup by `PromptService.preload()`. **Prompt cache is entry-level 60s TTL** (2026-08-14, `prompt_service._CACHE`): prod runs 3 app replicas and the old forever-cache meant an admin edit only wrote through the replica that served the request — TTL gives cluster-wide effect within 60s with zero cross-process signalling. **Startup sync semantics** (`init_db._ensure_default_prompts` + SystemConfig `prompt.checksum.{name}` = "content hash at last file sync"): checksum == DB hash → untouched, follows `.md` updates; checksum != DB hash → admin took over, `.md` **never** auto-overwrites (the pre-fix code rewrote checksum to the DB hash on the keep-DB branch, faking "synced" so the *second* restart clobbered admin edits — locked by `tests/test_prompt_checksum.py`). Explicit way back: `POST /api/admin/prompts/{id}/reset-to-default` (file content + checksum reset; 404 if no matching `.md`). `update_prompt` has a **placeholder guard**: content missing any `{identifier}` present in the file version → 400 listing them (admin-created templates without a file skip the check).
 
 ### LLM Layer (`services/llm_service.py`)
 

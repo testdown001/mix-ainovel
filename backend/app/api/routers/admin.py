@@ -586,6 +586,24 @@ async def update_prompt(
     return result
 
 
+@router.post("/prompts/{prompt_id}/reset-to-default", response_model=PromptRead)
+async def reset_prompt_to_default(
+    prompt_id: int,
+    service: PromptService = Depends(get_prompt_service),
+    _: None = Depends(get_current_admin),
+) -> PromptRead:
+    """用 prompts/{name}.md 的文件内容覆盖 DB，并让该模板重新跟随文件更新。
+
+    管理员在后台改过的模板会被启动同步视为「已接管」而永不自动覆盖，这是显式回头路。
+    """
+    result = await service.reset_prompt_to_default(prompt_id)
+    if not result:
+        logger.warning("提示词 %s 不存在或无对应默认模板文件，无法恢复默认", prompt_id)
+        raise HTTPException(status_code=404, detail="提示词不存在或没有对应的默认模板文件")
+    logger.info("管理员恢复提示词默认内容：%s", prompt_id)
+    return result
+
+
 @router.delete("/prompts/{prompt_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_prompt(
     prompt_id: int,

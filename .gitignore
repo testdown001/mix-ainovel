@@ -46,3 +46,7 @@ __pycache__/
 /backend/storage/bench/
 .arb-*.sh
 .deploy-last.sh
+
+# Playwright E2E 产物
+/frontend/test-results/
+/frontend/playwright-report/

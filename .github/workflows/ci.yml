@@ -96,3 +96,62 @@ jobs:
       # 构建零报错、单测与 type-check 全绿，只有打开页面才发现整站没样式。
       - name: Check CSS layers
         run: npm run check:css
+
+  e2e:
+    name: E2E Smoke (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 版本矩阵与 backend/frontend job 一致（= deploy/Dockerfile）
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend dist
+        working-directory: frontend
+        run: npm run build-only
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # 被测服务由 playwright.config.ts 的 webServer 拉起：
+      # uvicorn 同源托管 API + dist（sqlite 零外部依赖），seed 脚本播种普通用户。
+      - name: Run smoke tests
+        working-directory: frontend
+        run: npx playwright test
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 7

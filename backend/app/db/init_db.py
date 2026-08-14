@@ -350,8 +350,9 @@ async def _ensure_default_models(session: AsyncSession) -> None:
     logger.info("模型目录为空，已落库 %d 个占位模型（通道留空回退 llm.*）", len(DEFAULT_MODELS))
 
 
-async def _ensure_default_prompts(session: AsyncSession) -> None:
-    prompts_dir = Path(__file__).resolve().parents[2] / "prompts"
+async def _ensure_default_prompts(session: AsyncSession, prompts_dir: Path | None = None) -> None:
+    if prompts_dir is None:
+        prompts_dir = Path(__file__).resolve().parents[2] / "prompts"
     if not prompts_dir.is_dir():
         return
 
@@ -377,6 +378,12 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
         checksum = checksum_records.get(checksum_key)
         stored_hash = checksum.value if checksum and checksum.value else None
 
+        # checksum 语义：「上次与 .md 文件同步时的内容哈希」。
+        # stored == db 哈希 → DB 自同步后没人动过，可安全跟随文件更新；
+        # stored != db 哈希 → 管理员在后台接管了该模板，.md 永不自动覆盖，
+        # 直到显式「恢复默认」（PromptService.reset_prompt_to_default）。
+        # 历史 bug：「保留 DB」分支曾把 checksum 回写成 DB 内容哈希，伪造出
+        # 「已同步」状态，第二次重启就满足覆盖条件、把管理员改动抹掉。
         if not prompt:
             prompt = Prompt(name=name, content=content)
             session.add(prompt)
@@ -384,12 +391,18 @@ async def _ensure_default_prompts(session: AsyncSession) -> None:
             final_hash = file_hash
         else:
             db_hash = _sha256_text(prompt.content or "")
-            # 仅当 DB 内容仍与"上次同步版本"一致时，才安全覆盖为最新文件内容。
             if stored_hash and stored_hash == db_hash and db_hash != file_hash:
                 prompt.content = content
                 final_hash = file_hash
+            elif stored_hash:
+                # 已接管（stored != db）或已同步（db == file）：checksum 保持原值
+                continue
             else:
-                final_hash = db_hash
+                # 无 checksum 记录（旧库升级）：一律登记文件哈希。DB == 文件时即
+                # 正确的同步状态；DB != 文件时无法区分「旧文件版本」与「管理员改
+                # 动」，按接管处理（stored=file ≠ db，永不覆盖），宁可不自动升级
+                # 也不能吃掉管理员内容。
+                final_hash = file_hash
 
         if checksum:
             checksum.value = final_hash

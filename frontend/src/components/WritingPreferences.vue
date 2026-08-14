@@ -29,6 +29,9 @@
               : 'border-color:#2A2A2A; background:#141414;'">
             <div class="text-sm font-medium text-white">{{ preset.name }}</div>
             <div class="text-xs mt-1" style="color:#888888;">{{ preset.description }}</div>
+            <div v-if="FAST_INCOMPATIBLE_PRESETS.has(preset.key)" class="text-[11px] mt-1.5" style="color:#B8860B;">
+              快速档生成时不生效（该档位固定网文节奏）
+            </div>
           </div>
         </div>
       </div>
@@ -106,6 +109,10 @@ import {
   getPresets,
   type PresetInfo,
 } from '@/api/writingPreferences';
+
+// 与后端 core/writing_strategy.py DEFAULT_COMPATIBILITY 对齐：fast 档
+// incompatible_styles + on_conflict=ignore_style，即这两个预设在快速档静默失效
+const FAST_INCOMPATIBLE_PRESETS = new Set(['classic_elegant', 'minimal_concrete']);
 
 const loading = ref(true);
 const saving = ref(false);
