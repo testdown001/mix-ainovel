@@ -172,6 +172,13 @@ class GenerationPromptStageService:
                 beats_text = beat_service.format_beats_for_prompt(selected_beats)
                 if beats_text:
                     prompt_sections.append(("[参考桥段]", beats_text))
+                    # llm.log 的请求体预览只有 2000 字符，这段排在提示词尾部看不见；
+                    # 注入与否必须有自己的日志，否则「配了参考却没生效」类问题无从排查
+                    logger.info(
+                        "参考桥段注入: 章=%s 选中=%s",
+                        chapter_number,
+                        [beat.get("name") for beat in selected_beats],
+                    )
             except Exception as exc:  # noqa: BLE001 - 参考是增益不是依赖
                 logger.warning("参考桥段注入失败（不影响生成）: %s", exc)
 
