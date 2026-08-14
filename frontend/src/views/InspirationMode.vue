@@ -302,6 +302,7 @@ import BlueprintDisplay from '@/components/BlueprintDisplay.vue'
 import InspirationLoading from '@/components/InspirationLoading.vue'
 import ReferenceNovelInput from '@/components/ReferenceNovelInput.vue'
 import { globalAlert } from '@/composables/useAlert'
+import { humanizeGenerationError } from '@/utils/errorHumanize'
 
 interface ChatMessage {
   content: string
@@ -625,7 +626,12 @@ const handleGenerateBlueprint = async () => {
     await handleBlueprintGenerated(response)
   } catch (error) {
     console.error('生成蓝图失败:', error)
-    globalAlert.showError(`生成蓝图失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
+    // 蓝图生成不计费，billed:false 让文案不提「积分已退回」
+    const human = humanizeGenerationError(
+      error instanceof Error ? error.message : '未知错误',
+      { billed: false },
+    )
+    globalAlert.showError(human.message, human.title)
   }
 }
 

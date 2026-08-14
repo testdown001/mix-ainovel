@@ -143,6 +143,7 @@ import { ref, computed, onUnmounted, inject } from 'vue'
 import { marked } from 'marked'
 import { useNovelStore } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
+import { humanizeGenerationError } from '@/utils/errorHumanize'
 
 // 配置 marked
 marked.setOptions({
@@ -261,7 +262,12 @@ const generateBlueprint = async () => {
     clearTimers()
     isGenerating.value = false
     isDone.value = false
-    globalAlert.showError(`生成蓝图失败: ${error instanceof Error ? error.message : '未知错误'}`, '生成失败')
+    // 蓝图生成不计费，billed:false 让文案不提「积分已退回」
+    const human = humanizeGenerationError(
+      error instanceof Error ? error.message : '未知错误',
+      { billed: false },
+    )
+    globalAlert.showError(human.message, human.title)
   }
 }
 

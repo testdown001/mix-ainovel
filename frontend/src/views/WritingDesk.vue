@@ -480,6 +480,7 @@ import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
 import { isStreamInterruption } from '@/utils/streamInterruption'
+import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { resolveStage } from '@/utils/generationStages'
 import { describeSkippedSteps, extractSkippedSteps } from '@/utils/budgetSkip'
 import {
@@ -1578,7 +1579,10 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
       // 402 积分不足 / 403 档位不足：给升级动线而不是裸报错（卷级规划同款模式）
       upgradePrompt.value = { show: true, kind: upgradeKind, message: errMessage }
     } else if (!interrupted) {
-      globalAlert.showError(`生成章节失败: ${errMessage}`, '生成失败')
+      // 剩余错误转用户语言（502 正文校验/500 超时/503 搜索未配置/429 限流），
+      // 讲清「积分已退回、可再点一次」——不做自动重试，重试与否留给用户决定
+      const human = humanizeGenerationError(errMessage)
+      globalAlert.showError(human.message, human.title)
     }
   } finally {
     generatingChapter.value = null
