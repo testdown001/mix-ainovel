@@ -17,13 +17,20 @@ from app.services.web_search_service import WebSearchService
 
 
 class _FakeCache:
+    """签名必须与真 CacheService.set(key, value, ttl=None) 一致。
+
+    上一版假对象写成 expire=，测试全绿、线上五路检索全灭——TypeError 是真服务抛的。
+    假对象不镜像真实 API，测试守的就是一个不存在的世界。
+    """
+
     def __init__(self):
         self.store = {}
 
     async def get(self, key):
         return self.store.get(key)
 
-    async def set(self, key, value, expire=None):
+    async def set(self, key, value, ttl=None):
+        assert ttl is not None, "维度缓存必须带 TTL"
         self.store[key] = value
 
 

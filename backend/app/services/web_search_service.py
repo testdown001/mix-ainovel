@@ -179,7 +179,7 @@ class WebSearchService:
             )
             text = result.strip()
             if text:
-                await self.cache_service.set(cache_key, {"result": text}, expire=self._CACHE_TTL_SECONDS)
+                await self.cache_service.set(cache_key, {"result": text}, ttl=self._CACHE_TTL_SECONDS)
             return dim, text
 
         results = await asyncio.gather(*(_one(dim) for dim in wanted), return_exceptions=True)
@@ -325,8 +325,10 @@ class WebSearchService:
     async def _set_cached_context(self, cache_key: str, reference_context: str) -> None:
         if not reference_context:
             return
+        # 注意参数名是 ttl：此前误写 expire=，TypeError 一路抛回调用方——概念对话把它
+        # 当「搜索异常」吞掉，检索明明成功、结果却整个被丢弃，且 24h 缓存从未写成功过
         await self.cache_service.set(
             cache_key,
             {"reference_context": reference_context},
-            expire=self._CACHE_TTL_SECONDS,
+            ttl=self._CACHE_TTL_SECONDS,
         )
