@@ -237,6 +237,33 @@ async def test_patch_dossier_merges_nested(db_session, monkeypatch):
     assert state["dossier"]["core_selling_line"] == "旧卖点"
 
 
+def test_hoist_misplaced_stress_fields():
+    """2026-08-15 测试服实测：模型把 toxic_points/overall_verdict 误嵌进
+    golden_finger_collapse，顶层空报告——纠偏后上提到顶层。"""
+    from app.services.concept_dossier_service import _hoist_misplaced_stress_fields
+
+    drifted = PremiseStressReport.model_validate({
+        "toxic_points": [],
+        "overall_verdict": "",
+        "summary": "",
+        "golden_finger_collapse": {
+            "verdict": "有隐患",
+            "toxic_points": [{"issue": "对手全是纸片", "severity": "中危"}],
+            "overall_verdict": "建议修订",
+            "summary": "总评在这里",
+        },
+    })
+    fixed = _hoist_misplaced_stress_fields(drifted)
+    assert fixed.overall_verdict == "建议修订"
+    assert fixed.summary == "总评在这里"
+    assert [p.issue for p in fixed.toxic_points] == ["对手全是纸片"]
+    assert fixed.golden_finger_collapse.verdict == "有隐患"  # 子对象自身字段不动
+
+    # 顶层已有内容时不动
+    normal = PremiseStressReport(overall_verdict="可开工", toxic_points=[ToxicPoint(issue="a")])
+    assert _hoist_misplaced_stress_fields(normal) is normal
+
+
 @pytest.mark.asyncio
 async def test_apply_stress_fixes_requires_report(db_session):
     project = await _seed_project(db_session, with_history=False)

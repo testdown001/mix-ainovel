@@ -157,6 +157,40 @@ def format_dossier_for_prompt(dossier: Dict[str, Any]) -> str:
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
+def _hoist_misplaced_stress_fields(report: PremiseStressReport) -> PremiseStressReport:
+    """纠正推演报告的字段错嵌（2026-08-15 测试服实测变体）。
+
+    schema 全字段带默认值 + extra=allow 的组合下，思考型模型会把 toxic_points/
+    overall_verdict/summary 误嵌进 golden_finger_collapse 等子对象里——顶层校验
+    照样通过，但确认页读到的是空报告。顶层为空且子对象里有同名内容时上提。
+    """
+    data = report.model_dump()
+    changed = False
+    for container_key in ("golden_finger_collapse", "conflict_sustainability"):
+        container = data.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        nested_points = container.get("toxic_points")
+        if not data.get("toxic_points") and isinstance(nested_points, list) and nested_points:
+            data["toxic_points"] = container.pop("toxic_points")
+            changed = True
+        for scalar in ("overall_verdict", "summary"):
+            nested_value = container.get(scalar)
+            if (
+                not str(data.get(scalar) or "").strip()
+                and isinstance(nested_value, str)
+                and nested_value.strip()
+            ):
+                data[scalar] = container.pop(scalar)
+                changed = True
+    if not changed:
+        return report
+    try:
+        return PremiseStressReport.model_validate(data)
+    except Exception:  # noqa: BLE001 - 纠偏失败保留原报告
+        return report
+
+
 class ConceptDossierService:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -328,6 +362,7 @@ class ConceptDossierService:
                 max_tokens=_STRESS_MAX_TOKENS,
                 default=None,
             )
+            report = _hoist_misplaced_stress_fields(report)
 
             revised: Optional[ConceptDossier] = None
             high_risk = [p.model_dump() for p in report.high_risk_points()]
