@@ -198,7 +198,7 @@ export const useNovelStore = defineStore('novel', () => {
     projectReferenceNovels.value = []
   }
 
-  async function generateBlueprint(): Promise<BlueprintGenerationResponse> {
+  async function generateBlueprint(depth: 'fast' | 'deep' = 'deep'): Promise<BlueprintGenerationResponse> {
     // Generate blueprint from conversation history
     isLoading.value = true
     error.value = null
@@ -213,7 +213,7 @@ export const useNovelStore = defineStore('novel', () => {
       // 提交失败（dev 直连无网关 / 旧网关不认识该任务类型）时回退原同步端点。
       let taskId: string | null = null
       try {
-        const submitted = await TaskAPI.submitBlueprintGenerate(projectId)
+        const submitted = await TaskAPI.submitBlueprintGenerate(projectId, depth)
         taskId = submitted.task_id
       } catch (submitErr: any) {
         // 只在「网关不存在/不认识该任务类型」时回退同步端点（dev 直连、旧网关 400/404、
@@ -244,7 +244,7 @@ export const useNovelStore = defineStore('novel', () => {
         return result
       }
 
-      return await NovelAPI.generateBlueprint(projectId)
+      return await NovelAPI.generateBlueprint(projectId, depth)
     } catch (err) {
       error.value = err instanceof Error ? err.message : '生成蓝图失败'
       throw err

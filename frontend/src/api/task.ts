@@ -176,6 +176,7 @@ export class TaskAPI {
    */
   static async submitBlueprintGenerate(
     projectId: string,
+    depth: 'fast' | 'deep' = 'deep',
     priority: number = 1,
   ): Promise<TaskSubmitResponse> {
     const authStore = useAuthStore()
@@ -186,6 +187,7 @@ export class TaskAPI {
         project_id: projectId,
         user_id: authStore.user?.id || 0,
         priority,
+        config: { depth },
       }),
     })
   }

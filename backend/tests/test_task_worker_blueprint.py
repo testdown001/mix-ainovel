@@ -64,7 +64,7 @@ def test_execute_task_blueprint_success_skips_gate_and_billing(monkeypatch):
     assert resp.status == "completed"
     assert resp.result == fake_result
     assert resp.permanent is False
-    gen.assert_awaited_once_with(fake_session, "project-1", 12)
+    gen.assert_awaited_once_with(fake_session, "project-1", 12, depth="deep")
     gate.assert_not_awaited()
     charge.assert_not_awaited()
 

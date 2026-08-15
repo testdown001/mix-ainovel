@@ -35,6 +35,7 @@ from ...schemas.novel import (
 from ...schemas.reference_novel import ReferenceNovelSelectRequest, ReferenceNovelSummary
 from ...schemas.user import UserInDB
 from ...services.blueprint_generation_service import generate_blueprint_for_project
+from ...schemas.concept_dossier import BlueprintGenerateRequest
 from ...services.config_service import ConfigService
 from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
@@ -726,7 +727,10 @@ async def converse_with_concept(
         from ...core.safe_task import safe_create_task
         from ...services.concept_dossier_service import background_ensure_dossier
 
-        run_stress = tier_allows(user_tier, "premise_stress", min_tiers)
+        from ...services.blueprint_review_service import STRESS_ENABLED_KEY, read_blueprint_switch
+
+        stress_on = await read_blueprint_switch(session, STRESS_ENABLED_KEY, True)
+        run_stress = stress_on and tier_allows(user_tier, "premise_stress", min_tiers)
         safe_create_task(
             background_ensure_dossier(project_id, current_user.id, run_stress=run_stress),
             name=f"dossier:{project_id}",
@@ -761,7 +765,11 @@ async def get_concept_dossier(
 
     user_tier = await get_user_tier(session, current_user.id)
     min_tiers = await load_min_tiers(session)
-    run_stress = tier_allows(user_tier, "premise_stress", min_tiers)
+    from ...services.blueprint_review_service import STRESS_ENABLED_KEY, read_blueprint_switch
+
+    stress_on = await read_blueprint_switch(session, STRESS_ENABLED_KEY, True)
+    run_stress = stress_on and tier_allows(user_tier, "premise_stress", min_tiers)
+    deep_available = tier_allows(user_tier, "blueprint_deep", min_tiers)
 
     service = ConceptDossierService(session)
     state = service.get_state(project)
@@ -777,6 +785,7 @@ async def get_concept_dossier(
         dossier=state.get("dossier"),
         stress_report=state.get("stress_report"),
         stress_available=run_stress,
+        deep_available=deep_available,
         generated_at=state.get("generated_at"),
     ).model_dump()
 
@@ -1111,6 +1120,7 @@ async def search_reference_novels(
 @router.post("/{project_id}/blueprint/generate", response_model=BlueprintGenerationResponse)
 async def generate_blueprint(
     project_id: str,
+    payload: Optional[BlueprintGenerateRequest] = Body(None),
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> BlueprintGenerationResponse:
@@ -1119,8 +1129,12 @@ async def generate_blueprint(
     薄壳端点：生成核心（历史重整→两段式 LLM→解析→数量断言→落库）在
     services/blueprint_generation_service.generate_blueprint_for_project，
     便于后续异步任务化复用；响应契约不变。
+    可选 body `{"depth": "fast"|"deep"}`，缺省 deep（旧客户端兼容）。
     """
-    return await generate_blueprint_for_project(session, project_id, current_user.id)
+    depth = payload.depth if payload else "deep"
+    return await generate_blueprint_for_project(
+        session, project_id, current_user.id, depth=depth
+    )
 
 
 @router.post("/{project_id}/blueprint/save", response_model=NovelProjectSchema)

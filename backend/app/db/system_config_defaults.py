@@ -54,12 +54,37 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         ),
     ),
     SystemConfigDefault(
+        key="blueprint.review_enabled",
+        value_getter=lambda _: "true",
+        description=(
+            "蓝图审稿门总开关。false 时即使深度打磨也不跑审稿/修订（平台级成本熔断）。"
+            "与会员档位无关；用户侧深度选项仍按 blueprint_deep 能力展示。"
+        ),
+    ),
+    SystemConfigDefault(
+        key="blueprint.review_auto_revise",
+        value_getter=lambda _: "true",
+        description=(
+            "审稿总分低于 blueprint.review_min_score 时是否触发定向修订轮（只重写被点名的"
+            "设定块/章号区间）后复审。false = 只审不修（报告仍生成并透传）。"
+            "正式替代「把达标分调成 0 来关修订」的隐晦用法。"
+        ),
+    ),
+    SystemConfigDefault(
         key="blueprint.review_min_score",
         value_getter=lambda _: "70",
         description=(
-            "蓝图审稿门达标分（0-100）：商业量表总分低于该值触发一轮定向修订"
-            "（只重写被点名的设定块/章号区间）后复审；仍不达标照常落库并把审稿报告"
-            "透传给用户决策。填 0 相当于永不修订（报告仍生成）。"
+            "蓝图审稿门达标分（0-100，纯及格线）：商业量表总分低于该值且"
+            "blueprint.review_auto_revise=true 时触发一轮定向修订后复审；"
+            "仍不达标照常落库并把审稿报告透传给用户决策。"
+        ),
+    ),
+    SystemConfigDefault(
+        key="blueprint.stress_enabled",
+        value_getter=lambda _: "true",
+        description=(
+            "开书压力推演平台级熔断。false 时即使创作者+也不跑推演（与档位无关）。"
+            "推演本身仍按 premise_stress 能力门控；本键只做成本熔断。"
         ),
     ),
     SystemConfigDefault(

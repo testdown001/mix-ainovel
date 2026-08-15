@@ -55,11 +55,14 @@ CAPABILITIES: List[Capability] = [
                "加入自我批判、读者模拟和优化器，适合开篇、高潮、转折等高要求章节。", "flagship"),
 
     # 立项-规划质量层（2026-08-15 灵感模式质量机制重设计）
-    # 注：立项书蒸馏与蓝图审稿门是全档质量底线，不注册能力位（永不门控）
+    # 立项书蒸馏仍是全档质量底线（不注册能力位）。蓝图审稿门+定向修订改为
+    # creator+ 特权（blueprint_deep）；免费档仅快速成书。旗舰另有 rolling_review。
     Capability("premise_stress", "开书压力推演",
                "白金主编视角推演冲突可持续性与金手指崩坏点，扫描弃书级毒点并自动修订立项书。", "creator"),
     Capability("chapter_planning", "章级剧情规划",
                "章纲附带章节功能、章末钩子、爽点与伏笔操作规划，正文生成按规划执行节奏。", "creator"),
+    Capability("blueprint_deep", "蓝图深度打磨",
+               "蓝图生成后经总编审稿门，不达标则定向修订一轮再复审，减少开书即踩毒点。", "creator"),
     Capability("rolling_review", "续章滚动审稿",
                "写作台续排章纲同样过商业量表审稿门，长期连载 100 章后质量不掉档。", "flagship"),
 ]

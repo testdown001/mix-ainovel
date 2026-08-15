@@ -113,10 +113,15 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 			Extra:          getExtraConfig(req.Config),
 		}
 	case TaskBlueprintGenerate:
-		// 蓝图生成：仅需项目与用户身份，生成参数全部在后端服务内解析
+		// 蓝图生成：depth 从 submit config 读取，缺省 deep（旧客户端/忽略 config 时与现网一致）
+		depth := getStringConfig(req.Config, "depth", "deep")
+		if depth != "fast" && depth != "deep" {
+			depth = "deep"
+		}
 		payload = BlueprintGeneratePayload{
 			ProjectID: req.ProjectID,
 			UserID:    req.UserID,
+			Depth:     depth,
 		}
 	default:
 		return c.Status(400).JSON(fiber.Map{"error": "不支持的任务类型: " + req.Type})

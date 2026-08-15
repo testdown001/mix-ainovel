@@ -186,7 +186,17 @@ class DossierResponse(BaseModel):
     dossier: Optional[Dict[str, Any]] = None
     stress_report: Optional[Dict[str, Any]] = None
     stress_available: bool = Field(default=False, description="当前档位是否有压力推演能力（creator+）")
+    deep_available: bool = Field(
+        default=False,
+        description="当前档位是否可选蓝图深度打磨（creator+，capability=blueprint_deep）",
+    )
     generated_at: Optional[str] = None
+
+
+class BlueprintGenerateRequest(BaseModel):
+    """POST /blueprint/generate 可选请求体。缺省 / 旧客户端 = deep（与现网一致）。"""
+
+    depth: str = Field(default="deep", description="fast=跳过审稿打磨 / deep=审稿门+定向修订")
 
 
 class DossierPatchRequest(BaseModel):

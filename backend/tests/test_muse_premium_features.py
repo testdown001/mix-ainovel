@@ -20,6 +20,9 @@ def test_tier_rank_order():
 
 def test_feature_gating_matrix():
     assert not tier_allows("free", "muse_search")
+    assert not tier_allows("free", "blueprint_deep")
+    assert tier_allows("creator", "blueprint_deep")
+    assert tier_allows("flagship", "blueprint_deep")
     assert tier_allows("creator", "muse_search")
     assert tier_allows("creator", "muse_persona")
     assert not tier_allows("creator", "muse_divergence")
@@ -53,7 +56,7 @@ def test_capabilities_for_tier_and_registry():
     # 与 rolling_review（flagship）
     assert creator_keys == {
         "muse_persona", "muse_search", "preset_standard",
-        "premise_stress", "chapter_planning",
+        "premise_stress", "chapter_planning", "blueprint_deep",
     }
     flagship_keys = {c["key"] for c in capabilities_for_tier("flagship")}
     assert "muse_divergence" in flagship_keys

@@ -1,7 +1,9 @@
 # AIMETA P=蓝图审稿门|R=商业量表评审_定向修订重问_滚动章纲轻量审稿|NR=不含蓝图生成与落库|E=BlueprintReviewService|X=internal|A=蓝图质量门|D=llm_service,prompt_service|S=db|RD=./README.ai
 """蓝图审稿门：两段生成完成后、落库前，用商业网文量表审一遍蓝图+章纲。
 
-- 低于阈值（SystemConfig `blueprint.review_min_score`，默认 70）→ 定向修订重问：
+- 总开关 `blueprint.review_enabled`（默认 true）：关了则审稿/修订整段跳过。
+- 低于阈值（SystemConfig `blueprint.review_min_score`，默认 70）且
+  `blueprint.review_auto_revise`（默认 true）→ 定向修订重问：
   只重写被点名的设定块 / 章号区间，合并回原蓝图，最多 1 轮，随后复审一次更新分数。
 - 仍不达标不硬阻断：照常落库，审稿报告透传给前端让用户决策。
 - 全链路软失败：审稿/修订任何一步失败都跳过该步，绝不让蓝图生成挂掉。
@@ -21,8 +23,31 @@ logger = logging.getLogger(__name__)
 
 REVIEW_MIN_SCORE_KEY = "blueprint.review_min_score"
 REVIEW_MIN_SCORE_DEFAULT = 70
+REVIEW_ENABLED_KEY = "blueprint.review_enabled"
+REVIEW_AUTO_REVISE_KEY = "blueprint.review_auto_revise"
+STRESS_ENABLED_KEY = "blueprint.stress_enabled"
 _REVIEW_MAX_TOKENS = 4096
 _REVISION_MAX_TOKENS = 8192
+
+
+def parse_config_bool(value: Optional[str], default: bool = True) -> bool:
+    """SystemConfig 布尔值：缺省/空串回 default；识别 1/true/yes/on。"""
+    if value is None or not str(value).strip():
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+async def read_blueprint_switch(session: AsyncSession, key: str, default: bool = True) -> bool:
+    """读取蓝图相关布尔开关；配置缺失或读取失败回 default（质量优先）。"""
+    try:
+        from .config_service import ConfigService
+
+        record = await ConfigService(session).get_config(key)
+        if record is not None:
+            return parse_config_bool(record.value, default)
+    except Exception:  # noqa: BLE001 - 配置读取失败回默认
+        pass
+    return default
 
 # 定向修订允许改写的设定块白名单（与 blueprint_review.md 的 target 约定一致）
 _REVISABLE_SETTINGS_KEYS = {
@@ -101,6 +126,12 @@ class BlueprintReviewService:
             pass
         return REVIEW_MIN_SCORE_DEFAULT
 
+    async def is_review_enabled(self) -> bool:
+        return await read_blueprint_switch(self.session, REVIEW_ENABLED_KEY, True)
+
+    async def is_auto_revise_enabled(self) -> bool:
+        return await read_blueprint_switch(self.session, REVIEW_AUTO_REVISE_KEY, True)
+
     # ------------------------------------------------------------------
     # 评审
     # ------------------------------------------------------------------
@@ -113,8 +144,11 @@ class BlueprintReviewService:
         dossier: Optional[Dict[str, Any]],
         user_id: int,
     ) -> Optional[BlueprintReviewReport]:
-        """全量审稿（蓝图+章纲）。失败返回 None（跳过审稿门）。"""
+        """全量审稿（蓝图+章纲）。失败或总开关关闭返回 None（跳过审稿门）。"""
         try:
+            if not await self.is_review_enabled():
+                logger.info("蓝图审稿跳过：blueprint.review_enabled=false")
+                return None
             system_prompt = await self.prompt_service.get_prompt("blueprint_review")
             if not system_prompt:
                 logger.warning("蓝图审稿跳过：缺少 blueprint_review 提示词")

@@ -216,11 +216,14 @@ export interface StressReport {
   summary?: string
 }
 
+export type BlueprintDepth = 'fast' | 'deep'
+
 export interface DossierResponse {
   status: 'ready' | 'absent'
   dossier: ConceptDossier | null
   stress_report: StressReport | null
   stress_available: boolean
+  deep_available: boolean
   generated_at?: string | null
 }
 
@@ -768,12 +771,16 @@ export class NovelAPI {
     })
   }
 
-  static async generateBlueprint(projectId: string): Promise<BlueprintGenerationResponse> {
+  static async generateBlueprint(
+    projectId: string,
+    depth: BlueprintDepth = 'deep'
+  ): Promise<BlueprintGenerationResponse> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 2_100_000) // 35 分钟超时（thinking 模式下蓝图生成可能需要 20-30 分钟）
     try {
       return await request(`${NOVELS_BASE}/${projectId}/blueprint/generate`, {
         method: 'POST',
+        body: JSON.stringify({ depth }),
         signal: controller.signal,
       })
     } catch (err: any) {

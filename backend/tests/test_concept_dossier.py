@@ -164,6 +164,31 @@ async def test_ensure_dossier_distill_stress_revise_and_idempotent(db_session, m
 
 
 @pytest.mark.asyncio
+async def test_ensure_dossier_stress_platform_switch_off(db_session, monkeypatch):
+    """blueprint.stress_enabled=false 时即使 run_stress=True 也不推演。"""
+    from app.models.system_config import SystemConfig
+
+    await _seed_project(db_session)
+    _patch_prompts(monkeypatch)
+    db_session.add(SystemConfig(key="blueprint.stress_enabled", value="false"))
+    await db_session.commit()
+
+    calls = []
+
+    async def fake_generate_structured(self, *, prompt, schema, **kwargs):
+        calls.append(schema.__name__)
+        return ConceptDossier(core_selling_line="卖点句")
+
+    monkeypatch.setattr(LLMService, "generate_structured", fake_generate_structured)
+
+    state = await ConceptDossierService(db_session).ensure_dossier(
+        PROJECT_ID, 7, run_stress=True
+    )
+    assert calls == ["ConceptDossier"]
+    assert "stress_report" not in state
+
+
+@pytest.mark.asyncio
 async def test_ensure_dossier_free_tier_skips_stress(db_session, monkeypatch):
     await _seed_project(db_session)
     _patch_prompts(monkeypatch)

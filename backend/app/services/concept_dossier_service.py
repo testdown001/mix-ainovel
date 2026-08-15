@@ -235,6 +235,7 @@ class ConceptDossierService:
 
             if (
                 run_stress
+                and await self._stress_platform_enabled()
                 and isinstance(state.get("dossier"), dict)
                 and not isinstance(state.get("stress_report"), dict)
             ):
@@ -251,6 +252,12 @@ class ConceptDossierService:
                     await self.session.commit()
 
             return state
+
+    async def _stress_platform_enabled(self) -> bool:
+        """平台级推演熔断（blueprint.stress_enabled）；与档位无关。"""
+        from .blueprint_review_service import STRESS_ENABLED_KEY, read_blueprint_switch
+
+        return await read_blueprint_switch(self.session, STRESS_ENABLED_KEY, True)
 
     # ------------------------------------------------------------------
     # 分块编辑（确认页 PATCH）：浅合并顶层键，嵌套 dict 再合一层

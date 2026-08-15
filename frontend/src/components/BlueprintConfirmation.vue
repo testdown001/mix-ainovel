@@ -35,10 +35,10 @@
         <div class="loading-core">{{ genDone ? '✓' : '✎' }}</div>
       </div>
       <p class="loading-title">{{ genStageText }}</p>
-      <p class="loading-sub">已用时 {{ elapsedLabel(genElapsed) }} · 蓝图链路含审稿门与定向修订，约 3-6 分钟</p>
+      <p class="loading-sub">已用时 {{ elapsedLabel(genElapsed) }} · {{ genEtaHint }}</p>
       <ul class="loading-stages">
         <li
-          v-for="(stage, i) in GEN_STAGES"
+          v-for="(stage, i) in genStages"
           :key="i"
           :class="i < genStageIndex ? 'st-done' : i === genStageIndex ? 'st-active' : 'st-wait'"
         >
@@ -246,6 +246,44 @@
         </section>
       </div>
 
+      <!-- ═══ 生成档位 ═══ -->
+      <div class="depth-picker">
+        <p class="depth-picker-label">生成方式</p>
+        <div class="depth-options">
+          <button
+            type="button"
+            class="depth-opt"
+            :class="{
+              'depth-opt-active': selectedDepth === 'deep' && deepAvailable,
+              'depth-opt-locked': !deepAvailable
+            }"
+            @click="chooseDepth('deep')"
+          >
+            <span class="depth-opt-title">
+              深度打磨
+              <span v-if="deepAvailable" class="depth-rec">推荐</span>
+              <span v-else class="lock-hint">
+                <svg class="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="5" y="11" width="14" height="9" rx="2"/>
+                  <path stroke-linecap="round" d="M8 11V8a4 4 0 118 0v3"/>
+                </svg>
+                创作者档
+              </span>
+            </span>
+            <span class="depth-opt-desc">总编审稿 + 不达标定向修订，约 5-8 分钟</span>
+          </button>
+          <button
+            type="button"
+            class="depth-opt"
+            :class="{ 'depth-opt-active': selectedDepth === 'fast' }"
+            @click="chooseDepth('fast')"
+          >
+            <span class="depth-opt-title">快速成书</span>
+            <span class="depth-opt-desc">跳过审稿打磨，直接成书，约 2-3 分钟</span>
+          </button>
+        </div>
+      </div>
+
       <!-- ═══ 三动作 ═══ -->
       <div class="dossier-actions">
         <button class="act-btn act-secondary" @click="$emit('back')">返回对话</button>
@@ -262,15 +300,29 @@
         </button>
       </div>
     </template>
+
+    <UpgradePrompt
+      :show="showUpgrade"
+      kind="tier"
+      message="深度打磨（总编审稿 + 定向修订）为创作者档能力。升级后开书蓝图会先过商业量表，不达标再定向改一轮。"
+      @close="showUpgrade = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useNovelStore } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
-import { NovelAPI, type ConceptDossier, type DossierResponse, type StressReport } from '@/api/novel'
+import UpgradePrompt from '@/components/UpgradePrompt.vue'
+import {
+  NovelAPI,
+  type BlueprintDepth,
+  type ConceptDossier,
+  type DossierResponse,
+  type StressReport
+} from '@/api/novel'
 
 interface Props {
   aiMessage: string
@@ -292,6 +344,36 @@ const dossierLoading = ref(false)
 const dossierElapsed = ref(0)
 const dossier = computed<ConceptDossier | null>(() => dossierResp.value?.dossier ?? null)
 const stressReport = computed<StressReport | null>(() => dossierResp.value?.stress_report ?? null)
+const deepAvailable = computed(() => !!dossierResp.value?.deep_available)
+const selectedDepth = ref<BlueprintDepth>('fast')
+const showUpgrade = ref(false)
+
+const lastDepthKey = () => `arboris.blueprint_depth.${props.projectId}`
+
+const restoreLastDepth = () => {
+  let last: BlueprintDepth | null = null
+  try {
+    const raw = sessionStorage.getItem(lastDepthKey())
+    if (raw === 'fast' || raw === 'deep') last = raw
+  } catch {
+    /* sessionStorage 不可用时忽略 */
+  }
+  if (!deepAvailable.value) {
+    selectedDepth.value = 'fast'
+    return
+  }
+  selectedDepth.value = last || 'deep'
+}
+
+const chooseDepth = (depth: BlueprintDepth) => {
+  if (depth === 'deep' && !deepAvailable.value) {
+    showUpgrade.value = true
+    return
+  }
+  selectedDepth.value = depth
+}
+
+watch(deepAvailable, restoreLastDepth)
 
 const hasGoldenFinger = computed(() => !!(dossier.value?.golden_finger?.name || '').trim())
 const hasFixSuggestions = computed(() =>
@@ -337,8 +419,8 @@ const dossierStageIndex = computed(() => {
 })
 const dossierStageText = computed(() => `${DOSSIER_STAGES[dossierStageIndex.value]}…`)
 
-// ── 蓝图生成阶段 ──
-const GEN_STAGES = [
+// ── 蓝图生成阶段（按档位区分假进度文案）──
+const GEN_STAGES_DEEP = [
   '生成世界观与角色设定',
   '规划分卷与伏笔',
   '分批生成章纲与章级规划',
@@ -346,28 +428,45 @@ const GEN_STAGES = [
   '定向修订与复审',
   '落库与宪法播种'
 ]
-const GEN_STAGE_AT = [0, 30, 60, 150, 210, 280]
+const GEN_STAGES_FAST = [
+  '生成世界观与角色设定',
+  '规划分卷与伏笔',
+  '分批生成章纲',
+  '落库与宪法播种'
+]
+const GEN_STAGE_AT_DEEP = [0, 30, 60, 150, 210, 280]
+const GEN_STAGE_AT_FAST = [0, 25, 50, 120]
+const genStages = computed(() => (selectedDepth.value === 'deep' ? GEN_STAGES_DEEP : GEN_STAGES_FAST))
+const genStageAt = computed(() => (selectedDepth.value === 'deep' ? GEN_STAGE_AT_DEEP : GEN_STAGE_AT_FAST))
+const genEtaHint = computed(() =>
+  selectedDepth.value === 'deep'
+    ? '深度打磨含总编审稿与定向修订，约 5-8 分钟'
+    : '快速成书跳过审稿打磨，约 2-3 分钟'
+)
 const isGenerating = ref(false)
 const genDone = ref(false)
 const genElapsed = ref(0)
 const genStageIndex = computed(() => {
-  if (genDone.value) return GEN_STAGES.length
+  if (genDone.value) return genStages.value.length
   let idx = 0
-  for (let i = 0; i < GEN_STAGE_AT.length; i++) {
-    if (genElapsed.value >= GEN_STAGE_AT[i]) idx = i
+  for (let i = 0; i < genStageAt.value.length; i++) {
+    if (genElapsed.value >= genStageAt.value[i]) idx = i
   }
   return idx
 })
 const genStageText = computed(() => {
   if (genDone.value) return '生成完成！正在准备展示…'
-  if (genStageIndex.value >= GEN_STAGES.length - 1 && genElapsed.value > GEN_STAGE_AT[GEN_STAGE_AT.length - 1] + 60) {
-    return 'AI 正在深度打磨蓝图，复杂设定需要更多时间…'
+  const lastAt = genStageAt.value[genStageAt.value.length - 1]
+  if (genStageIndex.value >= genStages.value.length - 1 && genElapsed.value > lastAt + 60) {
+    return selectedDepth.value === 'deep'
+      ? 'AI 正在深度打磨蓝图，复杂设定需要更多时间…'
+      : '章纲还在收尾，请再稍候…'
   }
-  return `${GEN_STAGES[Math.min(genStageIndex.value, GEN_STAGES.length - 1)]}…`
+  return `${genStages.value[Math.min(genStageIndex.value, genStages.value.length - 1)]}…`
 })
 const genProgress = computed(() => {
   if (genDone.value) return 100
-  return Math.min(92, ((genStageIndex.value + 1) / GEN_STAGES.length) * 92)
+  return Math.min(92, ((genStageIndex.value + 1) / genStages.value.length) * 92)
 })
 
 let dossierTimer: ReturnType<typeof setInterval> | null = null
@@ -388,6 +487,7 @@ const loadDossier = async () => {
   }, 250)
   try {
     dossierResp.value = await NovelAPI.getConceptDossier(props.projectId)
+    restoreLastDepth()
   } catch (error) {
     console.error('拉取立项书失败:', error)
     dossierResp.value = null
@@ -483,7 +583,13 @@ const generateBlueprint = async () => {
     genElapsed.value = (Date.now() - start) / 1000
   }, 250)
   try {
-    const response = await novelStore.generateBlueprint()
+    const depth: BlueprintDepth = deepAvailable.value ? selectedDepth.value : 'fast'
+    try {
+      sessionStorage.setItem(lastDepthKey(), depth)
+    } catch {
+      /* ignore */
+    }
+    const response = await novelStore.generateBlueprint(depth)
     if (genTimer) {
       clearInterval(genTimer)
       genTimer = null
@@ -677,4 +783,27 @@ onUnmounted(() => {
 .act-fix:hover:not(:disabled) { background: rgba(255, 184, 0, 0.18); }
 .act-primary { color: #0a0a0a; background: linear-gradient(135deg, #ffe500, #ffb800); }
 .act-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255, 229, 0, 0.25); }
+
+/* ── 档位选择 ── */
+.depth-picker { margin-top: 22px; }
+.depth-picker-label { font-size: 12px; font-weight: 600; color: #888; letter-spacing: 0.06em; margin-bottom: 10px; text-align: center; }
+.depth-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.depth-opt {
+  text-align: left; background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 12px;
+  padding: 14px 16px; cursor: pointer; transition: all 0.2s; color: inherit;
+}
+.depth-opt:hover { border-color: #444; }
+.depth-opt-active { border-color: #ffe500; background: rgba(255, 229, 0, 0.06); }
+.depth-opt-locked { opacity: 0.72; }
+.depth-opt-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: #fff; }
+.depth-opt-desc { display: block; margin-top: 6px; font-size: 12px; color: #888; line-height: 1.55; }
+.depth-rec {
+  font-size: 10px; font-weight: 700; color: #0a0a0a; background: #ffe500;
+  border-radius: 999px; padding: 1px 7px;
+}
+.lock-hint { font-size: 11px; opacity: 0.75; display: inline-flex; align-items: center; gap: 3px; color: #9aa0a6; }
+.lock-ico { width: 10px; height: 10px; flex-shrink: 0; }
+@media (max-width: 560px) {
+  .depth-options { grid-template-columns: 1fr; }
+}
 </style>

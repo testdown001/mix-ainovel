@@ -7,9 +7,10 @@
 2. 章纲段（screenwriting_outline）：分批生成（每批 ≤25 章，批间携带前批尾部上下文），
    creator+ 档每章带章级规划字段（chapter_function/hook_type/coolpoint/
    foreshadowing_ops/must_not_include）；覆盖率断言 + 缺章补问保持原语义。
-3. 审稿门（blueprint_review_service）：商业量表评审蓝图+章纲；低于阈值触发一轮
-   定向修订（只重写被点名的设定块/章号区间）后复审；仍不达标照常落库，
-   审稿报告随蓝图透传（novel_blueprints.review_report）。
+3. 审稿门（blueprint_review_service，depth=deep 且 review_enabled）：商业量表评审
+   蓝图+章纲；低于阈值且 review_auto_revise 时触发一轮定向修订后复审；
+   仍不达标照常落库，审稿报告随蓝图透传（novel_blueprints.review_report）。
+   depth=fast 或档位不足（blueprint_deep）跳过审稿/修订。
 4. 落库（replace_blueprint，含 chapter_blueprints 章级规划同步）后自动播种小说宪法
    （幂等；毒点+禁区+题材禁忌进 forbidden_content）。
 
@@ -335,16 +336,31 @@ def _inject_blueprint_exclusions(prompt: str, exclusions: str) -> str:
     )
 
 
+def normalize_blueprint_depth(value: Optional[str]) -> str:
+    """只认 fast / deep；缺省与未知值一律 deep（旧客户端兼容）。"""
+    return "fast" if (value or "deep").strip().lower() == "fast" else "deep"
+
+
+def resolve_blueprint_depth(requested: Optional[str], *, deep_allowed: bool) -> str:
+    """用户请求深度 × 档位：deep 但档位不足时静默降为 fast（蓝图生成绝不因门控 403）。"""
+    depth = normalize_blueprint_depth(requested)
+    if depth == "deep" and not deep_allowed:
+        return "fast"
+    return depth
+
+
 async def generate_blueprint_for_project(
-    session: AsyncSession, project_id: str, user_id: int
+    session: AsyncSession, project_id: str, user_id: int, depth: str = "deep"
 ) -> BlueprintGenerationResponse:
-    """两段式蓝图生成主流程（所有权校验 → 重生成保护 → 设定段 → 章纲段+数量断言 → 落库）。"""
+    """两段式蓝图生成主流程（所有权校验 → 重生成保护 → 设定段 → 章纲段+数量断言 → 落库）。
+
+    depth: fast=跳过审稿门与修订轮；deep=审稿+可选定向修订。档位不足时静默降为 fast。
+    """
     novel_service = NovelService(session)
     prompt_service = PromptService(session)
     llm_service = LLMService(session)
 
     project = await novel_service.ensure_project_owner(project_id, user_id)
-    logger.info("项目 %s 开始生成蓝图（两段式）", project_id)
 
     # 重生成保护：replace_blueprint 落库会先清空全部章节大纲再从 1 重编号，
     # 项目一旦存在章节创作成果（草稿版本或定稿章），重编号会与已写章节错位、毁掉既有成果，
@@ -420,13 +436,20 @@ async def generate_blueprint_for_project(
     )
     exclusions = (project.exclusions or "").strip()
 
+    requested_depth = normalize_blueprint_depth(depth)
     try:
         user_tier = await get_user_tier(session, user_id)
         min_tiers = await load_min_tiers(session)
         planning_allowed = tier_allows(user_tier, "chapter_planning", min_tiers)
+        deep_allowed = tier_allows(user_tier, "blueprint_deep", min_tiers)
     except Exception as exc:  # noqa: BLE001 - 门控读取失败按放行处理（质量优先）
-        logger.warning("项目 %s 蓝图档位读取失败，按含章级规划处理: %s", project_id, exc)
+        logger.warning("项目 %s 蓝图档位读取失败，按含章级规划/深度打磨处理: %s", project_id, exc)
         planning_allowed = True
+        deep_allowed = True
+    effective_depth = resolve_blueprint_depth(requested_depth, deep_allowed=deep_allowed)
+    if requested_depth == "deep" and effective_depth == "fast":
+        logger.info("项目 %s 蓝图深度打磨档位不足，静默降级为快速成书", project_id)
+    logger.info("项目 %s 开始生成蓝图（两段式, depth=%s）", project_id, effective_depth)
 
     if dossier:
         dossier_text = format_dossier_for_prompt(dossier)
@@ -459,7 +482,7 @@ async def generate_blueprint_for_project(
 
     # 蓝图为结构化生成：显式降一档 reasoning_effort 提速（仅对 o系列/gpt-5 的 openai 格式
     # 生效，其它模型/格式无副作用），且不影响章节生成（章节不传该覆盖、仍用通道默认档）。
-    with span("blueprint_settings_stage", attributes={"project_id": project_id}):
+    with span("blueprint_settings_stage", attributes={"project_id": project_id, "depth": effective_depth}):
         settings_raw = await llm_service.get_llm_response(
             system_prompt=settings_prompt,
             conversation_history=formatted_history,
@@ -522,7 +545,12 @@ async def generate_blueprint_for_project(
     batch_total = math.ceil(promised / OUTLINE_BATCH_SIZE)
     with span(
         "blueprint_outline_stage",
-        attributes={"project_id": project_id, "promised": promised, "batches": batch_total},
+        attributes={
+            "project_id": project_id,
+            "promised": promised,
+            "batches": batch_total,
+            "depth": effective_depth,
+        },
     ):
         for batch_index in range(batch_total):
             batch_start = batch_index * OUTLINE_BATCH_SIZE + 1
@@ -626,62 +654,80 @@ async def generate_blueprint_for_project(
 
     # ------------------------------------------------------------------
     # 蓝图审稿门：商业量表评审 → 低于阈值定向修订一轮 → 复审
+    # fast / review_enabled=false 整段跳过；review_auto_revise=false 只审不修
     # 全程软失败：审稿/修订任何一步失败都跳过该步，绝不阻断落库
     # ------------------------------------------------------------------
     review_report_dict: Optional[Dict[str, Any]] = None
-    try:
-        from ..services.blueprint_review_service import BlueprintReviewService
+    if effective_depth != "deep":
+        logger.info("项目 %s 蓝图快速成书：跳过审稿门与定向修订", project_id)
+    else:
+        try:
+            from ..services.blueprint_review_service import BlueprintReviewService
 
-        reviewer = BlueprintReviewService(session)
-        with span("blueprint_review_gate", attributes={"project_id": project_id}) as review_span:
-            report = await reviewer.review(
-                settings_data=settings_data,
-                outline_items=outline_items,
-                stress_report=stress_report,
-                dossier=dossier,
-                user_id=user_id,
-            )
-            if report is not None:
-                min_score = await reviewer.get_min_score()
-                review_span.set("score", report.total_score)
-                if report.total_score < min_score and report.issues:
-                    logger.info(
-                        "项目 %s 蓝图审稿未达标（%d < %d），触发定向修订",
-                        project_id, report.total_score, min_score,
-                    )
-                    settings_data = await reviewer.revise_settings_blocks(
-                        settings_data=settings_data,
-                        report=report,
-                        user_id=user_id,
-                        exclusions=exclusions,
-                    )
-                    # 设定块可能被重写：volumes 重新清洗，摘要重建供章纲修订用
-                    volumes = _sanitize_volumes(settings_data.get("volumes"))
-                    settings_data["volumes"] = volumes
-                    settings_digest = _build_settings_summary(settings_data, volumes, promised=None)
-                    outline_items = await reviewer.revise_chapter_ranges(
-                        outline_items=outline_items,
-                        report=report,
-                        settings_summary=settings_digest,
-                        outline_system_prompt=outline_prompt,
-                        user_id=user_id,
-                        extract_items=_extract_outline_items,
-                    )
-                    second = await reviewer.review(
+            reviewer = BlueprintReviewService(session)
+            if not await reviewer.is_review_enabled():
+                logger.info("项目 %s 蓝图审稿门关闭（review_enabled=false）", project_id)
+            else:
+                with span(
+                    "blueprint_review_gate",
+                    attributes={"project_id": project_id, "depth": effective_depth},
+                ) as review_span:
+                    report = await reviewer.review(
                         settings_data=settings_data,
                         outline_items=outline_items,
                         stress_report=stress_report,
                         dossier=dossier,
                         user_id=user_id,
                     )
-                    if second is not None:
-                        report = second
-                    report.revised = True
-                    review_span.set("revised", True)
-                    review_span.set("final_score", report.total_score)
-                review_report_dict = report.model_dump()
-    except Exception as exc:  # noqa: BLE001 - 审稿门整体软失败
-        logger.warning("项目 %s 蓝图审稿门执行失败（跳过，不阻断落库）: %s", project_id, exc)
+                    if report is not None:
+                        min_score = await reviewer.get_min_score()
+                        auto_revise = await reviewer.is_auto_revise_enabled()
+                        review_span.set("score", report.total_score)
+                        review_span.set("auto_revise", auto_revise)
+                        if (
+                            auto_revise
+                            and report.total_score < min_score
+                            and report.issues
+                        ):
+                            logger.info(
+                                "项目 %s 蓝图审稿未达标（%d < %d），触发定向修订",
+                                project_id, report.total_score, min_score,
+                            )
+                            settings_data = await reviewer.revise_settings_blocks(
+                                settings_data=settings_data,
+                                report=report,
+                                user_id=user_id,
+                                exclusions=exclusions,
+                            )
+                            # 设定块可能被重写：volumes 重新清洗，摘要重建供章纲修订用
+                            volumes = _sanitize_volumes(settings_data.get("volumes"))
+                            settings_data["volumes"] = volumes
+                            settings_digest = _build_settings_summary(
+                                settings_data, volumes, promised=None
+                            )
+                            outline_items = await reviewer.revise_chapter_ranges(
+                                outline_items=outline_items,
+                                report=report,
+                                settings_summary=settings_digest,
+                                outline_system_prompt=outline_prompt,
+                                user_id=user_id,
+                                extract_items=_extract_outline_items,
+                            )
+                            second = await reviewer.review(
+                                settings_data=settings_data,
+                                outline_items=outline_items,
+                                stress_report=stress_report,
+                                dossier=dossier,
+                                user_id=user_id,
+                            )
+                            if second is not None:
+                                report = second
+                            report.revised = True
+                            review_span.set("revised", True)
+                            review_span.set("final_score", report.total_score)
+                        review_report_dict = report.model_dump()
+        except Exception as exc:  # noqa: BLE001 - 审稿门整体软失败
+            logger.warning("项目 %s 蓝图审稿门执行失败（跳过，不阻断落库）: %s", project_id, exc)
 
     # ------------------------------------------------------------------
     # 组装 + 校验 + 落库（保持原有错误契约）

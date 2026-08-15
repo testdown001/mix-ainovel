@@ -127,6 +127,7 @@ type BatchGeneratePayload struct {
 type BlueprintGeneratePayload struct {
 	ProjectID string `json:"project_id"`
 	UserID    int    `json:"user_id"`
+	Depth     string `json:"depth,omitempty"` // fast | deep；缺省 deep（旧网关/旧任务兼容）
 }
 
 // TaskResult 任务结果

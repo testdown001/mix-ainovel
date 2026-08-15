@@ -261,13 +261,21 @@ func (p *WorkerPool) executeBlueprintGenerate(ctx context.Context, worker *Worke
 		return nil, fmt.Errorf("解析任务载荷失败: %w", err)
 	}
 
+	depth := payload.Depth
+	if depth == "" {
+		depth = "deep" // 旧任务载荷无 depth 字段，行为与现网一致
+	}
+	configJSON, err := json.Marshal(map[string]string{"depth": depth})
+	if err != nil {
+		return nil, fmt.Errorf("序列化蓝图配置失败: %w", err)
+	}
+
 	workerReq := &WorkerTaskRequest{
 		TaskID:    task.ID,
 		TaskType:  string(task.Type),
 		ProjectID: payload.ProjectID,
 		UserID:    payload.UserID,
-		// 蓝图生成无额外配置；显式空对象避免 Go nil 序列化为 JSON null 被 Pydantic 拒收
-		Config:      json.RawMessage("{}"),
+		Config:      json.RawMessage(configJSON),
 		CallbackURL: fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
 	}
 

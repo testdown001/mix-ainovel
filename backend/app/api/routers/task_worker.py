@@ -53,6 +53,7 @@ class TaskConfig(BaseModel):
     use_agent_system: bool = False
     rag_mode: str = "simple"
     writing_notes: str = ""
+    depth: str = "deep"
     extra: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -576,7 +577,10 @@ async def _execute_blueprint_generate(
     重生成保护、落库与内部 commit），此处只做进度上报与结果包装。
     """
     async with AsyncSessionLocal() as session:
+        depth = (req.config.depth or "deep") if req.config else "deep"
         await reporter.report(10, "blueprint_generating", "正在生成蓝图（设定与章纲两段式）...")
-        response = await generate_blueprint_for_project(session, req.project_id, req.user_id)
+        response = await generate_blueprint_for_project(
+            session, req.project_id, req.user_id, depth=depth
+        )
         await reporter.report(100, "completed", "蓝图生成完成")
         return response.model_dump()
