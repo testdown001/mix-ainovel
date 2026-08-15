@@ -4,6 +4,7 @@ import json
 import logging
 import traceback
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, ValidationError
@@ -35,6 +36,12 @@ from ...schemas.novel import (
 from ...schemas.reference_novel import ReferenceNovelSelectRequest, ReferenceNovelSummary
 from ...schemas.user import UserInDB
 from ...services.blueprint_generation_service import generate_blueprint_for_project
+from ...services.generation_billing_service import (
+    blueprint_deep_price,
+    charge_blueprint_deep,
+    refund_blueprint_safely,
+    should_charge_blueprint_deep,
+)
 from ...schemas.concept_dossier import BlueprintGenerateRequest
 from ...services.config_service import ConfigService
 from ...services.import_service import ImportService
@@ -765,11 +772,17 @@ async def get_concept_dossier(
 
     user_tier = await get_user_tier(session, current_user.id)
     min_tiers = await load_min_tiers(session)
-    from ...services.blueprint_review_service import STRESS_ENABLED_KEY, read_blueprint_switch
+    from ...services.blueprint_review_service import (
+        REVIEW_ENABLED_KEY,
+        STRESS_ENABLED_KEY,
+        read_blueprint_switch,
+    )
 
     stress_on = await read_blueprint_switch(session, STRESS_ENABLED_KEY, True)
     run_stress = stress_on and tier_allows(user_tier, "premise_stress", min_tiers)
     deep_available = tier_allows(user_tier, "blueprint_deep", min_tiers)
+    review_on = await read_blueprint_switch(session, REVIEW_ENABLED_KEY, True)
+    deep_credit_price = await blueprint_deep_price(session) if review_on else 0
 
     service = ConceptDossierService(session)
     state = service.get_state(project)
@@ -786,6 +799,7 @@ async def get_concept_dossier(
         stress_report=state.get("stress_report"),
         stress_available=run_stress,
         deep_available=deep_available,
+        deep_credit_price=deep_credit_price,
         generated_at=state.get("generated_at"),
     ).model_dump()
 
@@ -1130,11 +1144,27 @@ async def generate_blueprint(
     services/blueprint_generation_service.generate_blueprint_for_project，
     便于后续异步任务化复用；响应契约不变。
     可选 body `{"depth": "fast"|"deep"}`，缺省 deep（旧客户端兼容）。
+    深度打磨在实际会跑审稿/修订时先扣后跑（credits.price.blueprint_deep）；
+    快速成书、档位降级、审稿门关闭均不扣费。失败/取消按 ref_key 幂等退回。
     """
     depth = payload.depth if payload else "deep"
-    return await generate_blueprint_for_project(
-        session, project_id, current_user.id, depth=depth
-    )
+    billing_ref: Optional[str] = None
+    if await should_charge_blueprint_deep(session, current_user.id, depth):
+        billing_ref = f"blueprint:{project_id}:{uuid4().hex}"
+        await charge_blueprint_deep(session, current_user.id, ref_key=billing_ref)
+    try:
+        return await generate_blueprint_for_project(
+            session, project_id, current_user.id, depth=depth, paid_deep=bool(billing_ref)
+        )
+    except asyncio.CancelledError:
+        await refund_blueprint_safely(current_user.id, billing_ref)
+        raise
+    except HTTPException:
+        await refund_blueprint_safely(current_user.id, billing_ref)
+        raise
+    except Exception:
+        await refund_blueprint_safely(current_user.id, billing_ref)
+        raise
 
 
 @router.post("/{project_id}/blueprint/save", response_model=NovelProjectSchema)

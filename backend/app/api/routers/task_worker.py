@@ -32,10 +32,12 @@ from ...models.novel import Chapter
 from ...services.blueprint_generation_service import generate_blueprint_for_project
 from ...services.cache_service import CacheService
 from ...services.generation_billing_service import (
+    charge_blueprint_deep,
     charge_generation,
     polish_undelivered,
     refund_generation,
     refund_polish_surcharge,
+    should_charge_blueprint_deep,
 )
 from ...services.novel_service import NovelService
 
@@ -291,13 +293,35 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         elif req.task_type == "chapter:batch_generate":
             result = await _execute_batch_generate(req, reporter)
         elif req.task_type == "blueprint:generate":
-            # 蓝图生成不走章节的档位门控/积分计费（上方 gate 块已按 task_type 跳过）
+            # 深度打磨先扣后跑（与章节路径同口径）；快速成书/降级/审稿门关闭不扣。
+            # 402 积分不足 → permanent，避免网关重试空烧。
+            depth = (req.config.depth or "deep") if req.config else "deep"
+            blueprint_paid = False
             try:
-                result = await _execute_blueprint_generate(req, reporter)
+                async with AsyncSessionLocal() as gate_session:
+                    if await should_charge_blueprint_deep(gate_session, req.user_id, depth):
+                        charged = await charge_blueprint_deep(
+                            gate_session, req.user_id, ref_key=req.task_id
+                        )
+                        blueprint_paid = charged > 0
+            except HTTPException as exc:
+                return WorkerTaskResponse(status="failed", error=str(exc.detail), permanent=True)
+            try:
+                result = await _execute_blueprint_generate(
+                    req, reporter, paid_deep=blueprint_paid
+                )
             except HTTPException as exc:
                 # 按状态码区分：4xx（403 非所有者/400 缺对话历史/409 已有章节成果）是
                 # 确定性失败，重试无意义 → permanent；500/502（LLM 坏 JSON/章纲不完整）
                 # 是概率性失败 → 走普通 failed 让 Go dispatcher 重试
+                # 本分支直接 return，进不了外层 except 的退款，这里补一次（未扣过 no-op）
+                try:
+                    async with AsyncSessionLocal() as _refund_session:
+                        await asyncio.shield(
+                            refund_generation(_refund_session, req.user_id, ref_key=req.task_id)
+                        )
+                except BaseException:  # noqa: BLE001
+                    pass
                 permanent = exc.status_code < 500
                 return WorkerTaskResponse(status="failed", error=str(exc.detail), permanent=permanent)
         else:
@@ -568,6 +592,8 @@ async def _execute_batch_generate(
 async def _execute_blueprint_generate(
     req: WorkerTaskRequest,
     reporter: ProgressReporter,
+    *,
+    paid_deep: bool = False,
 ) -> Dict[str, Any]:
     """执行蓝图生成（异步任务路径）。
 
@@ -575,12 +601,13 @@ async def _execute_blueprint_generate(
     （后端实际已成功落库但前端看到失败）。生成核心完全复用
     blueprint_generation_service.generate_blueprint_for_project（含所有权校验、
     重生成保护、落库与内部 commit），此处只做进度上报与结果包装。
+    paid_deep 由入口扣费结果传入：已扣费则审稿/修订付费必交付。
     """
     async with AsyncSessionLocal() as session:
         depth = (req.config.depth or "deep") if req.config else "deep"
         await reporter.report(10, "blueprint_generating", "正在生成蓝图（设定与章纲两段式）...")
         response = await generate_blueprint_for_project(
-            session, req.project_id, req.user_id, depth=depth
+            session, req.project_id, req.user_id, depth=depth, paid_deep=paid_deep
         )
         await reporter.report(100, "completed", "蓝图生成完成")
         return response.model_dump()

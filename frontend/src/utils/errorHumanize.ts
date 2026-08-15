@@ -21,8 +21,9 @@ export interface HumanizedError {
 
 export interface HumanizeOptions {
   /**
-   * 本次操作是否计费。章节生成先扣后跑、失败退款，文案要讲清「积分已退回」；
-   * 蓝图生成不计费（blueprint:generate 无积分账单），提退款反而制造困惑。
+   * 本次操作是否计费。章节生成 / 蓝图深度打磨先扣后跑、失败退款，文案要讲清「积分已退回」；
+   * 快速成书与未扣费的蓝图路径传 billed:false，避免提退款制造困惑。
+   * 402 积分不足从未开跑，调用方应走 detectUpgradeHint，不要进这里。
    */
   billed?: boolean
 }

@@ -14,10 +14,15 @@ describe('humanizeGenerationError（生成路径错误文案用户化）', () =>
     expect(out.title).toBe('AI 产出未达标')
   })
 
-  it('不计费操作（蓝图）不提积分退回', () => {
+  it('不计费操作（快速成书）不提积分退回', () => {
     const out = humanizeGenerationError('请求失败(502): 正文校验未通过', { billed: false })
     expect(out.message).not.toContain('积分')
     expect(out.action).toBe('retry')
+  })
+
+  it('已扣费的深度打磨失败仍提示积分已退回', () => {
+    const out = humanizeGenerationError('请求失败(500): 章纲生成不完整', { billed: true })
+    expect(out.message).toContain('积分已退回')
   })
 
   it('搜索通道未配置 503：指向管理员配置而非让用户重试', () => {

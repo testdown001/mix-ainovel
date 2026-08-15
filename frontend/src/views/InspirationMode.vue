@@ -303,6 +303,12 @@
       </template>
     </main>
 
+    <UpgradePrompt
+      :show="showUpgrade"
+      :kind="upgradeKind"
+      :message="upgradeMessage"
+      @close="showUpgrade = false"
+    />
   </div>
 </template>
 
@@ -320,6 +326,8 @@ import InspirationLoading from '@/components/InspirationLoading.vue'
 import ReferenceNovelInput from '@/components/ReferenceNovelInput.vue'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
+import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
+import UpgradePrompt from '@/components/UpgradePrompt.vue'
 
 interface ChatMessage {
   content: string
@@ -344,6 +352,9 @@ const preparingStage = ref<'idle' | 'project' | 'reference'>('idle')
 const isInitialLoading = ref(false)
 const showBlueprintConfirmation = ref(false)
 const showBlueprint = ref(false)
+const showUpgrade = ref(false)
+const upgradeKind = ref<UpgradeHintKind>('credits')
+const upgradeMessage = ref('')
 const chatMessages = ref<ChatMessage[]>([])
 const currentUIControl = ref<UIControl | null>(null)
 const currentTurn = ref(0)
@@ -675,11 +686,16 @@ const handleGenerateBlueprint = async () => {
     await handleBlueprintGenerated(response)
   } catch (error) {
     console.error('生成蓝图失败:', error)
-    // 蓝图生成不计费，billed:false 让文案不提「积分已退回」
-    const human = humanizeGenerationError(
-      error instanceof Error ? error.message : '未知错误',
-      { billed: false },
-    )
+    const errMessage = error instanceof Error ? error.message : '未知错误'
+    const hint = detectUpgradeHint(errMessage)
+    if (hint) {
+      upgradeKind.value = hint
+      upgradeMessage.value = errMessage
+      showUpgrade.value = true
+      return
+    }
+    // 此自动路径默认 deep，但免费档会降级为免费快速成书；不臆测已扣费
+    const human = humanizeGenerationError(errMessage, { billed: false })
     globalAlert.showError(human.message, human.title)
   }
 }

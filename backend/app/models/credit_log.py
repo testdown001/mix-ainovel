@@ -20,7 +20,7 @@ class CreditLog(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, nullable=False, index=True)
     delta = Column(Integer, nullable=False, comment="积分变动(扣减为负、退款/发放为正)")
-    reason = Column(String(32), nullable=False, comment="generate / polish / refund / grant / admin")
+    reason = Column(String(32), nullable=False, comment="generate / blueprint_deep / polish / refund / grant / admin")
     ref_key = Column(String(128), nullable=True, comment="幂等键，如 task_id / chapter ref")
     balance_after = Column(Integer, nullable=False, default=0, comment="本次操作后的余额快照")
     note = Column(String(255), nullable=True)

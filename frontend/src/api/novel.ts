@@ -224,6 +224,8 @@ export interface DossierResponse {
   stress_report: StressReport | null
   stress_available: boolean
   deep_available: boolean
+  /** 深度打磨积分单价；审稿门关闭时为 0 */
+  deep_credit_price: number
   generated_at?: string | null
 }
 

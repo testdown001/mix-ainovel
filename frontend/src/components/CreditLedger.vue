@@ -23,7 +23,7 @@
         </div>
       </div>
       <div class="text-[11px] mt-3" style="color:#666;">
-        锚点：1 篇标准章（章鱼2.0）= 10 积分；润色每章 +5。消费先扣月度池，再扣永久池。
+        锚点：1 篇标准章（章鱼2.0）= 10 积分；润色每章 +5；蓝图深度打磨默认 20（后台可改）。消费先扣月度池，再扣永久池。
       </div>
     </div>
 
@@ -175,6 +175,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / limit)))
 
 const reasonLabelMap: Record<string, string> = {
   generate: '章节生成',
+  blueprint_deep: '蓝图深度打磨',
   polish: '润色加成',
   // 退款不只发生在整单失败：润色等付费项没兑现时也会按项退回，标签保持中性，
   // 具体原因由每行的 note 说明（「生成失败/取消退款」「润色未交付退款」）
@@ -187,6 +188,7 @@ const reasonLabelMap: Record<string, string> = {
 const reasonLabel = (r: string) => reasonLabelMap[r] || r
 const reasonColorMap: Record<string, string> = {
   generate: '#C084FC',
+  blueprint_deep: '#60A5FA',
   polish: '#FFB020',
   refund: '#2ED573',
   grant: '#3B82F6',

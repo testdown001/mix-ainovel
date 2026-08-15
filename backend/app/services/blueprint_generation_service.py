@@ -349,12 +349,43 @@ def resolve_blueprint_depth(requested: Optional[str], *, deep_allowed: bool) -> 
     return depth
 
 
+async def will_run_deep_review(
+    session: AsyncSession, user_id: int, requested_depth: Optional[str]
+) -> bool:
+    """本次请求是否会真正跑审稿/修订（唯一计费条件）。
+
+    必须同时成立：用户要 deep、档位允许 blueprint_deep、blueprint.review_enabled=true。
+    任一项不成立 → 等价快速成书，不计费。与 generate_blueprint_for_project 的跳过口径一致。
+    """
+    if normalize_blueprint_depth(requested_depth) != "deep":
+        return False
+    try:
+        user_tier = await get_user_tier(session, user_id)
+        min_tiers = await load_min_tiers(session)
+        deep_allowed = tier_allows(user_tier, "blueprint_deep", min_tiers)
+    except Exception as exc:  # noqa: BLE001 - 与生成路径相同：门控读取失败按放行
+        logger.warning("蓝图深度档位读取失败，按允许深度打磨处理: user=%s err=%s", user_id, exc)
+        deep_allowed = True
+    if not deep_allowed:
+        return False
+    from .blueprint_review_service import REVIEW_ENABLED_KEY, read_blueprint_switch
+
+    return await read_blueprint_switch(session, REVIEW_ENABLED_KEY, True)
+
+
 async def generate_blueprint_for_project(
-    session: AsyncSession, project_id: str, user_id: int, depth: str = "deep"
+    session: AsyncSession,
+    project_id: str,
+    user_id: int,
+    depth: str = "deep",
+    *,
+    paid_deep: bool = False,
 ) -> BlueprintGenerationResponse:
     """两段式蓝图生成主流程（所有权校验 → 重生成保护 → 设定段 → 章纲段+数量断言 → 落库）。
 
     depth: fast=跳过审稿门与修订轮；deep=审稿+可选定向修订。档位不足时静默降为 fast。
+    paid_deep: 已扣深度打磨积分 → 付费必交付，不得因时间预算跳过审稿/修订；
+    平台 kill-switch（review_enabled）在扣费前判定，扣过之后不再用它跳过。
     """
     novel_service = NovelService(session)
     prompt_service = PromptService(session)
@@ -656,16 +687,23 @@ async def generate_blueprint_for_project(
     # 蓝图审稿门：商业量表评审 → 低于阈值定向修订一轮 → 复审
     # fast / review_enabled=false 整段跳过；review_auto_revise=false 只审不修
     # 全程软失败：审稿/修订任何一步失败都跳过该步，绝不阻断落库
+    # 已扣费的深度打磨（paid_deep）付费必交付：不再用 kill-switch / 时间预算跳过
     # ------------------------------------------------------------------
     review_report_dict: Optional[Dict[str, Any]] = None
-    if effective_depth != "deep":
-        logger.info("项目 %s 蓝图快速成书：跳过审稿门与定向修订", project_id)
+    run_review = paid_deep or (
+        effective_depth == "deep" and await will_run_deep_review(session, user_id, requested_depth)
+    )
+    if not run_review:
+        if effective_depth != "deep":
+            logger.info("项目 %s 蓝图快速成书：跳过审稿门与定向修订", project_id)
+        else:
+            logger.info("项目 %s 蓝图审稿门关闭（review_enabled=false）", project_id)
     else:
         try:
             from ..services.blueprint_review_service import BlueprintReviewService
 
             reviewer = BlueprintReviewService(session)
-            if not await reviewer.is_review_enabled():
+            if not paid_deep and not await reviewer.is_review_enabled():
                 logger.info("项目 %s 蓝图审稿门关闭（review_enabled=false）", project_id)
             else:
                 with span(

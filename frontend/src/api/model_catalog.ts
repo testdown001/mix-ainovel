@@ -14,7 +14,14 @@ export interface AvailableModel {
 
 export interface ModelAvailableResponse {
   tier: string
-  credit: { balance?: number; monthly_grant?: number; carryover?: boolean; reset_at?: string | null }
+  credit: {
+    balance?: number
+    purchased?: number
+    total?: number
+    monthly_grant?: number
+    carryover?: boolean
+    reset_at?: string | null
+  }
   polish_price: number
   models: AvailableModel[]
 }

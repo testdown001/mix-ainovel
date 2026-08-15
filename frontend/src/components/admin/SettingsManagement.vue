@@ -133,6 +133,40 @@
     <n-card :bordered="false">
       <template #header>
         <div class="card-header">
+          <span class="card-title">积分单价</span>
+          <n-button quaternary size="small" :loading="creditPriceLoading" @click="fetchCreditPrices">
+            刷新
+          </n-button>
+        </div>
+      </template>
+      <n-spin :show="creditPriceLoading">
+        <n-alert v-if="creditPriceError" type="error" closable @close="creditPriceError = null">
+          {{ creditPriceError }}
+        </n-alert>
+        <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
+          润色与蓝图深度打磨的积分单价，对应 SystemConfig
+          <code>credits.price.polish</code> /
+          <code>credits.price.blueprint_deep</code>。快速成书不扣费。
+        </n-alert>
+        <n-form label-placement="top" class="polish-form">
+          <n-form-item label="润色附加（每章）">
+            <n-input-number v-model:value="polishPrice" :min="0" :step="1" />
+          </n-form-item>
+          <n-form-item label="蓝图深度打磨">
+            <n-input-number v-model:value="blueprintDeepPrice" :min="0" :step="1" />
+          </n-form-item>
+          <n-space justify="end">
+            <n-button type="primary" :loading="creditPriceSaving" @click="saveCreditPrices">
+              保存单价
+            </n-button>
+          </n-space>
+        </n-form>
+      </n-spin>
+    </n-card>
+
+    <n-card :bordered="false">
+      <template #header>
+        <div class="card-header">
           <span class="card-title">系统配置</span>
           <n-button type="primary" size="small" @click="openCreateModal">
             新增配置
@@ -234,6 +268,53 @@ const configs = ref<SystemConfig[]>([])
 const configLoading = ref(false)
 const configSaving = ref(false)
 const configError = ref<string | null>(null)
+
+const creditPriceLoading = ref(false)
+const creditPriceSaving = ref(false)
+const creditPriceError = ref<string | null>(null)
+const polishPrice = ref<number>(5)
+const blueprintDeepPrice = ref<number>(20)
+
+const CREDIT_PRICE_KEYS = {
+  polish: 'credits.price.polish',
+  blueprintDeep: 'credits.price.blueprint_deep',
+}
+
+const fetchCreditPrices = async () => {
+  creditPriceLoading.value = true
+  creditPriceError.value = null
+  try {
+    const allConfigs = await AdminAPI.listSystemConfigs()
+    const map = new Map(allConfigs.map((c) => [c.key, c.value]))
+    const polish = Number(map.get(CREDIT_PRICE_KEYS.polish))
+    const deep = Number(map.get(CREDIT_PRICE_KEYS.blueprintDeep))
+    polishPrice.value = Number.isFinite(polish) ? polish : 5
+    blueprintDeepPrice.value = Number.isFinite(deep) ? deep : 20
+  } catch (err) {
+    creditPriceError.value = err instanceof Error ? err.message : '加载积分单价失败'
+  } finally {
+    creditPriceLoading.value = false
+  }
+}
+
+const saveCreditPrices = async () => {
+  creditPriceSaving.value = true
+  try {
+    await AdminAPI.upsertSystemConfig(CREDIT_PRICE_KEYS.polish, {
+      value: String(Math.max(0, Math.floor(polishPrice.value ?? 0))),
+      description: '润色(humanize/polish)附加积分单价，默认不勾选；勾选时每章额外扣此积分。',
+    })
+    await AdminAPI.upsertSystemConfig(CREDIT_PRICE_KEYS.blueprintDeep, {
+      value: String(Math.max(0, Math.floor(blueprintDeepPrice.value ?? 0))),
+      description: '蓝图深度打磨积分单价。仅实际跑审稿/修订时扣费；快速成书免费。',
+    })
+    showAlert('积分单价已保存', 'success')
+  } catch (err) {
+    showAlert(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    creditPriceSaving.value = false
+  }
+}
 
 // ---- 注册人机验证 (Turnstile) ----
 const captchaLoading = ref(false)
@@ -552,6 +633,7 @@ onMounted(() => {
   fetchNovelLimit()
   fetchAgentSetting()
   fetchCaptchaConfig()
+  fetchCreditPrices()
   fetchConfigs()
 })
 </script>

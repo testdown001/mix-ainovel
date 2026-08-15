@@ -40,7 +40,9 @@ const taskRequest = async (url: string, options: RequestInit = {}) => {
     } else {
       detail = await response.text().catch(() => '')
     }
-    throw new Error(detail || `请求失败(${response.status})`)
+    const err = new Error(detail || `请求失败(${response.status})`) as Error & { status?: number }
+    err.status = response.status
+    throw err
   }
 
   return response.json()

@@ -354,6 +354,14 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="润色(humanize/polish)附加积分单价，默认不勾选；勾选时每章额外扣此积分。",
     ),
     SystemConfigDefault(
+        key="credits.price.blueprint_deep",
+        value_getter=lambda _: "20",
+        description=(
+            "蓝图深度打磨积分单价。仅在用户选择深度、档位允许 blueprint_deep、"
+            "且 blueprint.review_enabled=true（实际会跑审稿/修订）时扣费；快速成书免费。"
+        ),
+    ),
+    SystemConfigDefault(
         key="credits.monthly.free",
         value_getter=lambda _: "60",
         description="free 档每月发放积分(无套餐用户兜底)，≈10 篇章鱼1.0。",

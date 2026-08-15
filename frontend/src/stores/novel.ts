@@ -217,16 +217,21 @@ export const useNovelStore = defineStore('novel', () => {
         taskId = submitted.task_id
       } catch (submitErr: any) {
         // 只在「网关不存在/不认识该任务类型」时回退同步端点（dev 直连、旧网关 400/404、
-        // 无响应的网络错误）；429 限流、5xx 等生产性错误直接抛出——回退同步会被网关
-        // write_timeout 掐断，后端却继续跑并落库，用户重试就是双跑 LLM。
-        const httpStatus = submitErr?.response?.status
+        // 无响应的网络错误）；402 积分不足、429 限流、5xx 等生产性错误直接抛出——
+        // 回退同步会被网关 write_timeout 掐断，后端却继续跑并落库，用户重试就是双跑。
+        const httpStatus = submitErr?.status ?? submitErr?.response?.status
+        const rawMessage = submitErr instanceof Error ? submitErr.message : ''
+        const isCreditShortage = httpStatus === 402 || /积分不足/.test(rawMessage)
+        if (isCreditShortage) {
+          throw submitErr instanceof Error ? submitErr : new Error(rawMessage || '积分不足')
+        }
         if (httpStatus === 400 || httpStatus === 404 || httpStatus === undefined) {
           taskId = null
         } else {
           throw new Error(
             httpStatus === 429
               ? '当前并发任务数已达上限，请等待其他任务完成后再生成蓝图'
-              : `蓝图任务提交失败(${httpStatus})，请稍后重试`,
+              : rawMessage || `蓝图任务提交失败(${httpStatus})，请稍后重试`,
           )
         }
       }

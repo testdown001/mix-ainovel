@@ -1,5 +1,7 @@
-# AIMETA P=生成计费服务_按模型+润色算积分并扣减退款|R=compute_generation_cost,charge_generation,refund_generation,refund_polish_surcharge|X=internal|A=服务函数|D=sqlalchemy|S=db
-"""章节生成的积分计费：成本 = 模型积分价 +(润色? 润色单价 :0)，× 章数。
+# AIMETA P=生成计费服务_按模型+润色+蓝图深度算积分并扣减退款|R=compute_generation_cost,charge_generation,charge_blueprint_deep,refund_generation,refund_polish_surcharge|X=internal|A=服务函数|D=sqlalchemy|S=db
+"""章节生成与蓝图深度打磨的积分计费。
+
+章节：成本 = 模型积分价 +(润色? 润色单价 :0)，× 章数。
 
 设计要点：
 - **向后兼容**：未指定 model_code（前端 Phase 4 才下发）→ 成本 0 → 不扣费、不阻断，
@@ -13,6 +15,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, Optional
@@ -29,6 +32,12 @@ logger = logging.getLogger(__name__)
 # 不依赖“退款时再查一次 credits.price.polish”：管理员改价后会退错金额。
 _POLISH_UNIT_MARKER = "polish_unit="
 _POLISH_UNIT_RE = re.compile(rf"{_POLISH_UNIT_MARKER}(\d+)")
+
+BLUEPRINT_DEEP_PRICE_KEY = "credits.price.blueprint_deep"
+DEFAULT_BLUEPRINT_DEEP_PRICE = 20
+_BLUEPRINT_DEEP_REASON = "blueprint_deep"
+_BLUEPRINT_DEEP_UNIT_MARKER = "blueprint_deep_unit="
+_CHARGE_REASONS = ("generate", _BLUEPRINT_DEEP_REASON)
 
 
 def _polish_unit_from_note(note: Optional[str]) -> int:
@@ -125,14 +134,74 @@ def polish_undelivered(result: Any) -> bool:
     return False
 
 
+async def blueprint_deep_price(session: AsyncSession) -> int:
+    """蓝图深度打磨单价。缺省/非法值回 20；管理员可改 credits.price.blueprint_deep。"""
+    from ..repositories.system_config_repository import SystemConfigRepository
+
+    rec = await SystemConfigRepository(session).get_by_key(BLUEPRINT_DEEP_PRICE_KEY)
+    try:
+        return max(0, int(rec.value)) if rec and rec.value is not None else DEFAULT_BLUEPRINT_DEEP_PRICE
+    except (TypeError, ValueError):
+        return DEFAULT_BLUEPRINT_DEEP_PRICE
+
+
+async def should_charge_blueprint_deep(
+    session: AsyncSession, user_id: int, requested_depth: Optional[str]
+) -> bool:
+    """是否应对本次蓝图请求扣深度打磨积分。
+
+    仅当「用户要 deep × 档位允许 × 审稿门开启（实际会跑审稿/修订）」全成立才扣。
+    快速成书、档位静默降级、平台关掉 review_enabled，都按免费（与生成路径同口径）。
+    """
+    from .blueprint_generation_service import will_run_deep_review
+
+    if not await will_run_deep_review(session, user_id, requested_depth):
+        return False
+    return await blueprint_deep_price(session) > 0
+
+
+async def charge_blueprint_deep(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    ref_key: Optional[str] = None,
+) -> int:
+    """先扣后跑：扣深度打磨积分，返回实扣额。余额不足由 consume_credits 抛 402。
+    单价 0 或未配置有效价 → 不扣。单价写入备注，退款不吃管理员事后改价。"""
+    price = await blueprint_deep_price(session)
+    if price <= 0:
+        return 0
+    note = f"蓝图深度打磨 {_BLUEPRINT_DEEP_UNIT_MARKER}{price}"
+    await QuotaService(session).consume_credits(
+        user_id, price, reason=_BLUEPRINT_DEEP_REASON, ref_key=ref_key, note=note
+    )
+    return price
+
+
 async def _charge_row(session: AsyncSession, ref_key: str) -> Optional[CreditLog]:
-    """该 ref_key 对应的扣费流水；没扣过或不是扣减则 None。"""
+    """该 ref_key 对应的扣费流水（章节 generate 或蓝图 blueprint_deep）；没扣过或不是扣减则 None。"""
     row = (
         await session.execute(
-            select(CreditLog).where(CreditLog.reason == "generate", CreditLog.ref_key == ref_key)
+            select(CreditLog).where(
+                CreditLog.reason.in_(_CHARGE_REASONS),
+                CreditLog.ref_key == ref_key,
+            )
         )
     ).scalar_one_or_none()
     return row if row is not None and row.delta < 0 else None
+
+
+async def refund_blueprint_safely(user_id: int, ref_key: Optional[str]) -> None:
+    """独立 session + shield 退蓝图/章节扣费（按 ref_key 幂等，未扣过 no-op）。失败只记日志。"""
+    if not ref_key:
+        return
+    try:
+        from ..db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as refund_session:
+            await asyncio.shield(refund_generation(refund_session, user_id, ref_key=ref_key))
+    except BaseException:  # noqa: BLE001
+        logger.warning("蓝图/生成退款失败(已忽略): user=%s ref=%s", user_id, ref_key)
 
 
 async def refund_generation(session: AsyncSession, user_id: int, *, ref_key: Optional[str]) -> int:

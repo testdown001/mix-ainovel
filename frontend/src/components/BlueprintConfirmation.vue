@@ -262,7 +262,8 @@
             <span class="depth-opt-title">
               深度打磨
               <span v-if="deepAvailable" class="depth-rec">推荐</span>
-              <span v-else class="lock-hint">
+              <span v-if="deepCreditPrice > 0" class="depth-price">{{ deepCreditPrice }} 积分</span>
+              <span v-if="!deepAvailable" class="lock-hint">
                 <svg class="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="5" y="11" width="14" height="9" rx="2"/>
                   <path stroke-linecap="round" d="M8 11V8a4 4 0 118 0v3"/>
@@ -278,10 +279,16 @@
             :class="{ 'depth-opt-active': selectedDepth === 'fast' }"
             @click="chooseDepth('fast')"
           >
-            <span class="depth-opt-title">快速成书</span>
+            <span class="depth-opt-title">
+              快速成书
+              <span class="depth-price depth-price-free">免费</span>
+            </span>
             <span class="depth-opt-desc">跳过审稿打磨，直接成书，约 2-3 分钟</span>
           </button>
         </div>
+        <p v-if="deepCreditShort" class="depth-credit-warn">
+          当前积分不足（需 {{ deepCreditPrice }}，剩余 {{ creditTotal ?? 0 }}）。可购买加油包或改选快速成书。
+        </p>
       </div>
 
       <!-- ═══ 三动作 ═══ -->
@@ -303,8 +310,8 @@
 
     <UpgradePrompt
       :show="showUpgrade"
-      kind="tier"
-      message="深度打磨（总编审稿 + 定向修订）为创作者档能力。升级后开书蓝图会先过商业量表，不达标再定向改一轮。"
+      :kind="upgradeKind"
+      :message="upgradeMessage"
       @close="showUpgrade = false"
     />
   </div>
@@ -315,7 +322,9 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useNovelStore } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
+import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
+import { ModelCatalogAPI } from '@/api/model_catalog'
 import {
   NovelAPI,
   type BlueprintDepth,
@@ -345,8 +354,23 @@ const dossierElapsed = ref(0)
 const dossier = computed<ConceptDossier | null>(() => dossierResp.value?.dossier ?? null)
 const stressReport = computed<StressReport | null>(() => dossierResp.value?.stress_report ?? null)
 const deepAvailable = computed(() => !!dossierResp.value?.deep_available)
+const deepCreditPrice = computed(() => Math.max(0, Number(dossierResp.value?.deep_credit_price || 0)))
+const creditTotal = ref<number | null>(null)
 const selectedDepth = ref<BlueprintDepth>('fast')
 const showUpgrade = ref(false)
+const upgradeKind = ref<UpgradeHintKind>('tier')
+const upgradeMessage = ref(
+  '深度打磨（总编审稿 + 定向修订）为创作者档能力。升级后开书蓝图会先过商业量表，不达标再定向改一轮。',
+)
+const deepWillBill = computed(
+  () => deepAvailable.value && selectedDepth.value === 'deep' && deepCreditPrice.value > 0,
+)
+const deepCreditShort = computed(
+  () =>
+    deepWillBill.value &&
+    creditTotal.value !== null &&
+    creditTotal.value < deepCreditPrice.value,
+)
 
 const lastDepthKey = () => `arboris.blueprint_depth.${props.projectId}`
 
@@ -367,6 +391,9 @@ const restoreLastDepth = () => {
 
 const chooseDepth = (depth: BlueprintDepth) => {
   if (depth === 'deep' && !deepAvailable.value) {
+    upgradeKind.value = 'tier'
+    upgradeMessage.value =
+      '深度打磨（总编审稿 + 定向修订）为创作者档能力。升级后开书蓝图会先过商业量表，不达标再定向改一轮。'
     showUpgrade.value = true
     return
   }
@@ -486,7 +513,16 @@ const loadDossier = async () => {
     dossierElapsed.value = (Date.now() - start) / 1000
   }, 250)
   try {
-    dossierResp.value = await NovelAPI.getConceptDossier(props.projectId)
+    const [dossier, available] = await Promise.all([
+      NovelAPI.getConceptDossier(props.projectId),
+      ModelCatalogAPI.getAvailable().catch(() => null),
+    ])
+    dossierResp.value = dossier
+    if (available?.credit) {
+      creditTotal.value =
+        available.credit.total ??
+        (available.credit.balance ?? 0) + (available.credit.purchased ?? 0)
+    }
     restoreLastDepth()
   } catch (error) {
     console.error('拉取立项书失败:', error)
@@ -607,11 +643,16 @@ const generateBlueprint = async () => {
     }
     isGenerating.value = false
     genDone.value = false
-    // 蓝图生成不计费，billed:false 让文案不提「积分已退回」
-    const human = humanizeGenerationError(
-      error instanceof Error ? error.message : '未知错误',
-      { billed: false }
-    )
+    const errMessage = error instanceof Error ? error.message : '未知错误'
+    const hint = detectUpgradeHint(errMessage)
+    if (hint) {
+      upgradeKind.value = hint
+      upgradeMessage.value = errMessage
+      showUpgrade.value = true
+      return
+    }
+    // 402 从未开跑，不提退款；已扣费的深度打磨失败才说「积分已退回」
+    const human = humanizeGenerationError(errMessage, { billed: deepWillBill.value })
     globalAlert.showError(human.message, human.title)
   }
 }
@@ -800,6 +841,14 @@ onUnmounted(() => {
 .depth-rec {
   font-size: 10px; font-weight: 700; color: #0a0a0a; background: #ffe500;
   border-radius: 999px; padding: 1px 7px;
+}
+.depth-price {
+  font-size: 11px; font-weight: 600; color: #ffe500;
+  background: rgba(255, 229, 0, 0.1); border-radius: 999px; padding: 1px 8px;
+}
+.depth-price-free { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.depth-credit-warn {
+  margin-top: 10px; text-align: center; font-size: 12px; color: #ffb800; line-height: 1.55;
 }
 .lock-hint { font-size: 11px; opacity: 0.75; display: inline-flex; align-items: center; gap: 3px; color: #9aa0a6; }
 .lock-ico { width: 10px; height: 10px; flex-shrink: 0; }

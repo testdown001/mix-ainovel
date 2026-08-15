@@ -190,6 +190,13 @@ class DossierResponse(BaseModel):
         default=False,
         description="当前档位是否可选蓝图深度打磨（creator+，capability=blueprint_deep）",
     )
+    deep_credit_price: int = Field(
+        default=0,
+        description=(
+            "深度打磨积分单价（credits.price.blueprint_deep）。"
+            "审稿门关闭或未配置时为 0，确认页据此展示「免费」/「N 积分」。"
+        ),
+    )
     generated_at: Optional[str] = None
 
 
