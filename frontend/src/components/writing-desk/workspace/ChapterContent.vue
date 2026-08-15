@@ -72,14 +72,20 @@
           class="whitespace-pre-wrap leading-relaxed"
           style="color: var(--md-on-surface);"
           @mouseup="onSelectText"
-        >{{ cleanVersionContent(selectedChapter.content || '') }}</div>
+        >
+          <template v-if="hasRange">
+            <span>{{ proseBefore }}</span><mark class="transform-mark">{{ proseSelected }}</mark><span>{{ proseAfter }}</span>
+          </template>
+          <template v-else>{{ chapterText }}</template>
+        </div>
         <div
-          v-if="selection"
+          v-if="hasRange && !previewText"
           class="transform-bar"
+          @mousedown.prevent
           :style="{ top: toolbarY + 'px', left: toolbarX + 'px' }"
         >
           <button class="md-btn md-btn-filled !px-2 !py-1 text-xs" :disabled="transforming" @click="runTransform('expand')">
-            扩写 +{{ prices.expand }}
+            {{ transforming ? '处理中…' : `扩写 +${prices.expand}` }}
           </button>
           <button class="md-btn md-btn-tonal !px-2 !py-1 text-xs" :disabled="transforming" @click="runTransform('rewrite')">
             改写 +{{ prices.rewrite }}
@@ -90,10 +96,21 @@
         </div>
       </div>
       <div v-if="previewText" class="mt-4 md-card md-card-outlined p-4" style="border-radius: var(--md-radius-lg);">
-        <h5 class="md-title-small mb-2">预览（未覆盖原文）</h5>
-        <p class="whitespace-pre-wrap md-body-medium mb-3">{{ previewText }}</p>
+        <h5 class="md-title-small mb-3">选区对照（尚未写入正文）</h5>
+        <div class="grid sm:grid-cols-2 gap-3 mb-3">
+          <div class="p-3 rounded-md" style="background: var(--md-surface-container);">
+            <p class="md-label-small md-on-surface-variant mb-1">原文</p>
+            <p class="whitespace-pre-wrap md-body-medium">{{ selection }}</p>
+          </div>
+          <div class="p-3 rounded-md" style="background: var(--md-primary-container);">
+            <p class="md-label-small mb-1" style="color: var(--md-on-primary-container);">改写后</p>
+            <p class="whitespace-pre-wrap md-body-medium">{{ previewText }}</p>
+          </div>
+        </div>
         <div class="flex gap-2">
-          <button class="md-btn md-btn-filled" :disabled="applyingTransform" @click="applyPreview">采用</button>
+          <button class="md-btn md-btn-filled" :disabled="applyingTransform" @click="applyPreview">
+            {{ applyingTransform ? '写入中…' : '采用改写' }}
+          </button>
           <button class="md-btn md-btn-outlined" @click="discardPreview">丢弃</button>
         </div>
       </div>
@@ -237,7 +254,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import { useNovelStore } from '@/stores/novel'
 import type { Chapter } from '@/api/novel'
@@ -257,12 +274,20 @@ defineEmits(['showVersionSelector', 'openSkillApply'])
 const novelStore = useNovelStore()
 const proseEl = ref<HTMLElement | null>(null)
 const selection = ref('')
+const selStart = ref(-1)
+const selEnd = ref(-1)
 const toolbarX = ref(0)
 const toolbarY = ref(0)
 const transforming = ref(false)
 const applyingTransform = ref(false)
 const previewText = ref('')
 const prices = ref({ expand: 3, rewrite: 3, de_ai: 2 })
+
+const chapterText = computed(() => cleanVersionContent(props.selectedChapter.content || ''))
+const hasRange = computed(() => selStart.value >= 0 && selEnd.value > selStart.value)
+const proseBefore = computed(() => chapterText.value.slice(0, selStart.value))
+const proseSelected = computed(() => chapterText.value.slice(selStart.value, selEnd.value))
+const proseAfter = computed(() => chapterText.value.slice(selEnd.value))
 
 onMounted(async () => {
   try {
@@ -273,23 +298,53 @@ onMounted(async () => {
   }
 })
 
+watch(
+  () => `${props.selectedChapter.chapter_number}\0${props.selectedChapter.content || ''}`,
+  () => discardPreview(),
+)
+
+function rangeOffsets(root: HTMLElement, range: Range): { start: number; end: number } {
+  const pre = range.cloneRange()
+  pre.selectNodeContents(root)
+  pre.setEnd(range.startContainer, range.startOffset)
+  const start = pre.toString().length
+  return { start, end: start + range.toString().length }
+}
+
 function onSelectText() {
   const sel = window.getSelection()
-  const text = sel?.toString().trim() || ''
-  if (!text || !proseEl.value || !sel || sel.rangeCount === 0) {
-    selection.value = ''
+  const text = sel?.toString() || ''
+  if (!text.trim() || !proseEl.value || !sel || sel.rangeCount === 0) {
+    if (!previewText.value) {
+      selection.value = ''
+      selStart.value = -1
+      selEnd.value = -1
+    }
     return
   }
   const range = sel.getRangeAt(0)
   if (!proseEl.value.contains(range.commonAncestorContainer)) {
-    selection.value = ''
     return
   }
-  selection.value = text
+  const { start, end } = rangeOffsets(proseEl.value, range)
+  selStart.value = start
+  selEnd.value = end
+  selection.value = chapterText.value.slice(start, end)
+  previewText.value = ''
   const rect = range.getBoundingClientRect()
   const host = proseEl.value.getBoundingClientRect()
-  toolbarX.value = Math.max(0, rect.left - host.left)
-  toolbarY.value = Math.max(0, rect.top - host.top - 40)
+  toolbarX.value = Math.min(Math.max(0, rect.left - host.left), Math.max(0, host.width - 220))
+  toolbarY.value = Math.max(0, rect.top - host.top - 44)
+}
+
+function resolveRange(original: string): { start: number; end: number } | null {
+  if (selStart.value >= 0 && original.slice(selStart.value, selEnd.value) === selection.value) {
+    return { start: selStart.value, end: selEnd.value }
+  }
+  const first = original.indexOf(selection.value)
+  if (first < 0) return null
+  if (original.indexOf(selection.value, first + 1) >= 0) return null
+  return { start: first, end: first + selection.value.length }
 }
 
 async function runTransform(action: 'expand' | 'rewrite' | 'de_ai') {
@@ -314,8 +369,13 @@ async function applyPreview() {
   if (!props.projectId || !selection.value || !previewText.value) return
   applyingTransform.value = true
   try {
-    const original = cleanVersionContent(props.selectedChapter.content || '')
-    const next = original.replace(selection.value, previewText.value)
+    const original = chapterText.value
+    const range = resolveRange(original)
+    if (!range) {
+      globalAlert.showError('选区已对不上原文（可能出现多次）。请重新划选后再采用。', '选区改写')
+      return
+    }
+    const next = original.slice(0, range.start) + previewText.value + original.slice(range.end)
     await NovelAPI.editChapterContent(props.projectId, props.selectedChapter.chapter_number, next)
     await novelStore.loadChapter(props.selectedChapter.chapter_number)
     discardPreview()
@@ -330,6 +390,8 @@ async function applyPreview() {
 function discardPreview() {
   previewText.value = ''
   selection.value = ''
+  selStart.value = -1
+  selEnd.value = -1
 }
 
 // 优化相关状态
@@ -527,5 +589,12 @@ const applyOptimization = async () => {
   background: var(--md-surface);
   box-shadow: var(--md-elevation-2);
   border: 1px solid var(--md-outline-variant);
+}
+
+.transform-mark {
+  background: rgba(255, 229, 0, 0.35);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
 }
 </style>

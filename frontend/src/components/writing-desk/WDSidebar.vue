@@ -277,8 +277,8 @@
                     <Tooltip :text="chapter.summary">
                       <p class="md-body-small md-on-surface-variant line-clamp-2 leading-relaxed">{{ chapter.summary }}</p>
                     </Tooltip>
-                    <p v-if="chapter.metadata?.revision_hint" class="mt-1 text-[11px] leading-4" style="color:#C9A227;">
-                      修订提示：{{ chapter.metadata.revision_hint }}
+                    <p v-if="revisionHintOf(chapter)" class="mt-1 text-[11px] leading-4" style="color:#C9A227;">
+                      修订提示：{{ revisionHintOf(chapter) }}
                     </p>
 
                     <!-- 章节状态 -->
@@ -540,6 +540,7 @@ import { computed, onMounted, ref, nextTick, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import { NovelAPI, type NovelProject, type ChapterOutline, type ChapterPrediction, type QualityLoopsResponse, type ReferenceNovelSummary } from '@/api/novel'
+import { formatRevisionHint } from '@/utils/revisionHint'
 import Tooltip from '@/components/Tooltip.vue'
 import { useNovelStore } from '@/stores/novel'
 import ReferenceNovelLibrary from '@/components/ReferenceNovelLibrary.vue'
@@ -615,6 +616,10 @@ const presetNameMap: Record<string, string> = {
   'style': '文笔',
   '爽点': '爽点',
   'platinum': '铂金'
+}
+
+function revisionHintOf(chapter: ChapterOutline): string {
+  return formatRevisionHint(chapter.metadata?.revision_hint)
 }
 
 function getPresetName(preset: string): string {

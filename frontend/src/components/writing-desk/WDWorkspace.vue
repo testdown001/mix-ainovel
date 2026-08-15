@@ -23,8 +23,8 @@
             </div>
             <h3 class="md-title-medium md-on-surface mb-1">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
             <p class="md-body-small md-on-surface-variant">{{ selectedChapterOutline?.summary || '暂无章节描述' }}</p>
-            <p v-if="selectedChapterOutline?.metadata?.revision_hint" class="mt-2 text-xs leading-5 px-2 py-1.5 rounded" style="background:rgba(201,162,39,0.12);color:#C9A227;">
-              修订提示：{{ selectedChapterOutline.metadata.revision_hint }}
+            <p v-if="revisionHintText" class="mt-2 text-xs leading-5 px-2 py-1.5 rounded" style="background:rgba(201,162,39,0.12);color:#C9A227;">
+              修订提示：{{ revisionHintText }}
             </p>
             <div v-if="outlineEditing" class="mt-3 space-y-2">
               <input v-model="outlineDraft.title" class="md-input w-full" placeholder="章标题" />
@@ -127,6 +127,22 @@
               手动编辑
             </button>
             <button
+              v-if="isChapterCompleted(selectedChapterNumber)"
+              @click="confirmRegenerateChapter"
+              :disabled="generatingChapter === selectedChapterNumber"
+              class="md-btn md-btn-outlined md-ripple flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
+              title="会覆盖本章现有正文。卡住一句请用选区改写。"
+            >
+              <svg v-if="generatingChapter === selectedChapterNumber" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+              </svg>
+              <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+              </svg>
+              {{ generatingChapter === selectedChapterNumber ? '起草中...' : '重新起草' }}
+            </button>
+            <button
+              v-else
               @click="confirmRegenerateChapter"
               :disabled="generatingChapter === selectedChapterNumber"
               class="md-btn md-btn-filled md-ripple flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
@@ -137,7 +153,7 @@
               <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingChapter === selectedChapterNumber ? '起草中...' : '重新起草' }}
+              {{ generatingChapter === selectedChapterNumber ? '起草中...' : '起草本章' }}
             </button>
           </div>
         </div>
@@ -294,6 +310,7 @@ import { globalAlert } from '@/composables/useAlert'
 import { useNovelStore } from '@/stores/novel'
 import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction, ChapterPlanning } from '@/api/novel'
 import type { GenerationProgressView } from '@/composables/useGenerationProgress'
+import { formatRevisionHint } from '@/utils/revisionHint'
 import TemplateSelector from './TemplateSelector.vue'
 
 const beatColorMap: Record<string, string> = {
@@ -418,7 +435,13 @@ async function saveChapterPlanning() {
 }
 
 const confirmRegenerateChapter = async () => {
-  const confirmed = await globalAlert.showConfirm('重新起草会覆盖当前章节的现有内容，确定继续吗？', '重新起草确认')
+  const completed = props.selectedChapterNumber != null && isChapterCompleted(props.selectedChapterNumber)
+  const confirmed = await globalAlert.showConfirm(
+    completed
+      ? '会覆盖本章现有正文，已改过的段落也会丢掉。卡住一句请先用选区改写。'
+      : '将按当前大纲起草本章。',
+    completed ? '重新起草确认' : '起草本章',
+  )
   if (confirmed) {
     emit('regenerateChapter')
   }
@@ -580,6 +603,8 @@ const selectedChapterOutline = computed(() => {
   if (!props.project?.blueprint?.chapter_outline || props.selectedChapterNumber === null) return null
   return props.project.blueprint.chapter_outline.find(ch => ch.chapter_number === props.selectedChapterNumber) || null
 })
+
+const revisionHintText = computed(() => formatRevisionHint(selectedChapterOutline.value?.metadata?.revision_hint))
 
 const isChapterCompleted = (chapterNumber: number) => {
   if (!props.project?.chapters) return false

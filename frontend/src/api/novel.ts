@@ -264,6 +264,15 @@ export interface ChapterPlanning {
   must_not_include?: string[]
 }
 
+export interface OutlineRevisionHint {
+  source_chapter?: number
+  severity?: string
+  reason?: string
+  suggestion?: string
+  status?: string
+  hint?: string
+}
+
 export interface ChapterOutline {
   chapter_number: number
   title: string
@@ -271,7 +280,7 @@ export interface ChapterOutline {
   metadata?: {
     prediction?: ChapterPrediction
     planning?: ChapterPlanning
-    revision_hint?: string
+    revision_hint?: string | OutlineRevisionHint
   } | null
 }
 
