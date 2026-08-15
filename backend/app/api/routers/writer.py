@@ -34,6 +34,9 @@ from ...core.feature_gating import (
     ensure_flow_overrides_allowed,
     ensure_generation_preset_allowed,
     ensure_model_allowed,
+    get_user_tier,
+    load_min_tiers,
+    tier_allows,
 )
 from ...services.generation_billing_service import (
     charge_generation,
@@ -1496,6 +1499,114 @@ async def generate_chapters_outline(
     return await _load_project_schema(novel_service, project_id, current_user.id)
 
 
+async def _run_rolling_outline_review(
+    *,
+    session: AsyncSession,
+    novel_service: NovelService,
+    project_id: str,
+    user_id: int,
+    new_records: Dict[int, Dict[str, Any]],
+    settings_digest: str,
+    blueprint_volumes: List[Any],
+    outline_system_prompt: str,
+) -> Optional[Dict[str, Any]]:
+    """续排章纲的滚动审稿门（旗舰档）：轻量审新排章 → 低分对点名区间定向修订一轮。
+
+    输入加伏笔账本快照（未回收伏笔）与卷级 replan（volume_retrospective/卷级发散产物），
+    保证 100+ 章后的续排质量不掉档。返回审稿报告 dict；审稿失败返回 None。
+    """
+    from ...models.foreshadowing import Foreshadowing
+    from ...services.blueprint_generation_service import _extract_outline_items
+    from ...services.blueprint_review_service import BlueprintReviewService, parse_chapter_range
+
+    new_items = [new_records[number] for number in sorted(new_records)]
+
+    # 伏笔账本快照：未回收的伏笔（planted/developing/partial）
+    ledger_result = await session.execute(
+        select(Foreshadowing)
+        .where(
+            Foreshadowing.project_id == project_id,
+            Foreshadowing.status.in_(("planted", "developing", "partial")),
+        )
+        .order_by(Foreshadowing.chapter_number.asc())
+        .limit(30)
+    )
+    ledger_lines: List[str] = []
+    for fs in ledger_result.scalars().all():
+        target = f"目标第{fs.target_reveal_chapter}章" if fs.target_reveal_chapter else "目标章未定"
+        ledger_lines.append(
+            f"-「{fs.name or '未命名伏笔'}」第{fs.chapter_number}章埋设，{target}，"
+            f"状态{fs.status}：{(fs.content or '')[:60]}"
+        )
+
+    # 卷级重规划（volumes[i].replan 存在时注入，新章纲必须服从）
+    replan_lines: List[str] = []
+    for volume in blueprint_volumes or []:
+        if not isinstance(volume, dict) or not volume.get("replan"):
+            continue
+        replan = volume["replan"]
+        replan_text = (
+            json.dumps(replan, ensure_ascii=False)
+            if isinstance(replan, (dict, list))
+            else str(replan)
+        )
+        replan_lines.append(
+            f"- {volume.get('name') or '未命名卷'}"
+            f"（第{volume.get('start_chapter')}-{volume.get('end_chapter')}章）：{replan_text[:400]}"
+        )
+
+    reviewer = BlueprintReviewService(session)
+    report = await reviewer.review_outline_range(
+        settings_digest=settings_digest,
+        new_items=new_items,
+        foreshadowing_ledger="\n".join(ledger_lines),
+        volume_replan="\n".join(replan_lines),
+        user_id=user_id,
+    )
+    if report is None:
+        return None
+
+    min_score = await reviewer.get_min_score()
+    chapter_issues = report.issues_for_chapters()
+    if report.total_score < min_score and chapter_issues:
+        target_numbers: set = set()
+        for issue in chapter_issues:
+            span_range = parse_chapter_range(issue.target or "")
+            if span_range:
+                target_numbers.update(range(span_range[0], span_range[1] + 1))
+        target_numbers &= set(new_records.keys())
+        if target_numbers:
+            revised_items = await reviewer.revise_chapter_ranges(
+                outline_items=new_items,
+                report=report,
+                settings_summary=settings_digest,
+                outline_system_prompt=outline_system_prompt,
+                user_id=user_id,
+                extract_items=_extract_outline_items,
+            )
+            revised_map = {item["chapter_number"]: item for item in revised_items}
+            persisted = 0
+            for number in sorted(target_numbers):
+                item = revised_map.get(number)
+                # revise_chapter_ranges 对未修订章返回原 dict 对象，identity 相同即跳过
+                if not item or item is new_records.get(number):
+                    continue
+                metadata = {"planning": item["planning"]} if item.get("planning") else None
+                await novel_service.update_or_create_outline(
+                    project_id, number, item.get("title") or f"第{number}章",
+                    item.get("summary") or "", metadata=metadata,
+                )
+                persisted += 1
+            if persisted:
+                await session.commit()
+                report.revised = True
+                logger.info(
+                    "滚动审稿门定向修订落库 %d 章: project=%s score=%d",
+                    persisted, project_id, report.total_score,
+                )
+    return report.model_dump()
+
+
 @router.post("/novels/{project_id}/chapters/regenerate-outlines", response_model=RegenerateOutlinesResponse)
 async def regenerate_chapter_outlines(
     project_id: str,
@@ -1536,6 +1647,7 @@ async def regenerate_chapter_outlines(
     # 2. 确定要重新生成的章节
     all_outline_numbers = {o.chapter_number for o in project.outlines}
     generate_fresh = False  # 标记是否生成全新后续大纲
+    rolling_review_report: Optional[Dict[str, Any]] = None  # 滚动审稿门产物（旗舰档续排路径）
 
     if request.total_chapters:
         # 明确指定了 total_chapters → 生成后续新大纲（不是重新生成）
@@ -1652,6 +1764,8 @@ async def regenerate_chapter_outlines(
         all_updated_numbers: List[int] = []
         # 前序批次滚动上下文：{章节号: (「第N章：标题——摘要前30字」, 「第N章 - 标题」)}
         rolling_map: Dict[int, tuple] = {}
+        # 本次新排章纲全量记录（含章级规划），供滚动审稿门（旗舰档）复审
+        new_outline_records: Dict[int, Dict[str, Any]] = {}
 
         def _parse_batch_chapters(raw: str) -> list:
             """解析批次 LLM 回包为 chapters 列表（复用既有 repair 链，不 brace-slice）。"""
@@ -1685,11 +1799,18 @@ async def regenerate_chapter_outlines(
                     continue
                 title = item.get("title", f"第{ch_num}章")
                 summary = item.get("summary", "")
+                planning_metadata = extract_outline_planning_metadata(item)
                 await novel_service.update_or_create_outline(
                     project_id, ch_num, title, summary,
-                    metadata=extract_outline_planning_metadata(item),
+                    metadata=planning_metadata,
                 )
                 applied.append(ch_num)
+                new_outline_records[ch_num] = {
+                    "chapter_number": ch_num,
+                    "title": str(title or ""),
+                    "summary": str(summary or ""),
+                    **({"planning": planning_metadata} if planning_metadata else {}),
+                }
                 snippet = " ".join(str(summary or "").split())[:30]
                 rolling_map[ch_num] = (
                     f"第{ch_num}章：{title}——{snippet}",
@@ -1830,6 +1951,33 @@ async def regenerate_chapter_outlines(
         total_target = total
         updated_numbers = all_updated_numbers
         logger.info("大纲分批生成全部完成: project=%s 共更新 %d/%d 章", project_id, len(updated_numbers), total_target)
+
+        # ── 滚动章纲轻量审稿门（旗舰档）：只审本次新排的章 ──
+        # 输入加伏笔账本快照 + 卷级 replan；低于阈值对点名章号区间做一轮定向修订。
+        # 全程软失败：审稿/修订任何一步失败都只记日志，绝不影响已落库的章纲。
+        if new_outline_records:
+            try:
+                user_tier = await get_user_tier(session, current_user.id)
+                min_tiers = await load_min_tiers(session)
+                if tier_allows(user_tier, "rolling_review", min_tiers):
+                    rolling_review_report = await _run_rolling_outline_review(
+                        session=session,
+                        novel_service=novel_service,
+                        project_id=project_id,
+                        user_id=current_user.id,
+                        new_records=new_outline_records,
+                        settings_digest="\n\n".join(
+                            part for part in [
+                                f"[小说体裁与风格] {style_desc}" if style_desc else "",
+                                f"[故事简介] {full_synopsis[:1500]}" if full_synopsis else "",
+                                f"[世界蓝图]\n{blueprint_text}",
+                            ] if part
+                        ),
+                        blueprint_volumes=blueprint_volumes,
+                        outline_system_prompt=outline_prompt,
+                    )
+            except Exception as exc:  # noqa: BLE001 - 审稿门软失败
+                logger.warning("滚动章纲审稿门执行失败（跳过）: project=%s error=%s", project_id, exc)
     else:
         target_list = ", ".join(str(n) for n in sorted(target_numbers))
         target_count = len(target_numbers)
@@ -1896,6 +2044,7 @@ async def regenerate_chapter_outlines(
         updated_chapters=sorted(updated_numbers),
         total_target=total_target,
         chapter_outline=project_schema.blueprint.chapter_outline if project_schema.blueprint else [],
+        review_report=rolling_review_report,
     )
 
 

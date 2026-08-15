@@ -350,6 +350,126 @@ const formattedBlueprint = computed(() => {
     return html || '<p class="text-gray-500 italic">暂无世界设定详细信息</p>'
   }
 
+  // ── 审稿报告（蓝图审稿门产物）──
+  const REVIEW_DIMENSION_LABELS: Record<string, string> = {
+    opening_strength: '开局强度',
+    first_coolpoint_timing: '首个爽点时机',
+    hook_chain: '章末钩子链',
+    volume_escalation: '卷结构升级',
+    foreshadowing_payoff: '伏笔兑现',
+    anticipation_delivery: '期待感兑现',
+    toxic_recheck: '毒点复查'
+  }
+
+  const severityStyle = (severity: string) => {
+    if ((severity || '').includes('高')) return { badge: 'bg-red-100 text-red-700', border: 'border-red-300 bg-red-50' }
+    if ((severity || '').includes('中')) return { badge: 'bg-amber-100 text-amber-700', border: 'border-amber-300 bg-amber-50' }
+    return { badge: 'bg-gray-100 text-gray-600', border: 'border-gray-200 bg-gray-50' }
+  }
+
+  const formatReviewReport = (report: any) => {
+    if (!report || typeof report !== 'object') return ''
+    const score = Number(report.total_score) || 0
+    const scoreColor = score >= 70 ? 'text-green-600' : score >= 55 ? 'text-amber-600' : 'text-red-600'
+    const dims = Object.entries(report.dimension_scores || {})
+      .filter(([, v]) => typeof v === 'number')
+      .map(([k, v]) => `
+        <div class="bg-white rounded-lg border border-gray-200 px-3 py-2 text-center">
+          <div class="text-xs text-gray-500">${REVIEW_DIMENSION_LABELS[k] || k}</div>
+          <div class="text-lg font-bold ${Number(v) >= 70 ? 'text-green-600' : Number(v) >= 55 ? 'text-amber-600' : 'text-red-600'}">${v}</div>
+        </div>
+      `).join('')
+    const issues = (report.issues || []).map((issue: any) => {
+      const style = severityStyle(issue.severity || '')
+      return `
+        <div class="border ${style.border} rounded-lg p-3 mb-2">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs font-bold px-2 py-0.5 rounded ${style.badge}">${issue.severity || '低'}</span>
+            <span class="text-xs text-gray-500">${issue.target || ''}</span>
+            <span class="text-xs text-gray-400">${issue.dimension || ''}</span>
+          </div>
+          <p class="text-sm text-gray-800 mt-1.5">${issue.problem || ''}</p>
+          ${issue.fix_hint ? `<p class="text-xs text-emerald-700 mt-1">修订方向：${issue.fix_hint}</p>` : ''}
+        </div>
+      `
+    }).join('')
+    const strengths = (report.strengths || []).length
+      ? `<div class="mt-3"><h4 class="font-semibold text-gray-800 text-sm mb-1.5">亮点</h4>${(report.strengths || []).map((s: string) => `<p class="text-sm text-emerald-700">· ${s}</p>`).join('')}</div>`
+      : ''
+    return `
+      <div class="flex items-center gap-4 mb-4">
+        <div class="text-center">
+          <div class="text-4xl font-extrabold ${scoreColor}">${score}</div>
+          <div class="text-xs text-gray-500 mt-0.5">商业量表总分</div>
+        </div>
+        <div class="flex-1">
+          ${report.revised ? '<span class="inline-block text-xs font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full mb-1.5">已经过一轮定向修订</span>' : ''}
+          <p class="text-sm text-gray-700">${report.verdict || ''}</p>
+        </div>
+      </div>
+      ${dims ? `<div class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-4">${dims}</div>` : ''}
+      ${issues ? `<h4 class="font-semibold text-gray-800 text-sm mb-2">待改进问题（${(report.issues || []).length}）</h4>${issues}` : '<p class="text-sm text-emerald-700">未发现待改进问题。</p>'}
+      ${strengths}
+    `
+  }
+
+  // ── 分卷规划 ──
+  const formatVolumes = (volumes: any[]) => {
+    if (!volumes || volumes.length === 0) return ''
+    return `
+      <div class="space-y-3">
+        ${volumes.map((vol: any, i: number) => `
+          <div class="bg-sky-50 border-l-4 border-sky-400 rounded-r-lg p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <h4 class="font-bold text-sky-900">第${i + 1}卷 ${vol.name || '未命名卷'}</h4>
+              <span class="text-xs text-sky-700 bg-white px-2 py-0.5 rounded-full">第 ${vol.start_chapter ?? '?'} - ${vol.end_chapter ?? '?'} 章</span>
+            </div>
+            ${vol.arc_goal ? `<p class="text-sm text-sky-800 mt-1.5"><span class="font-medium">卷目标：</span>${vol.arc_goal}</p>` : ''}
+            ${vol.climax_hint ? `<p class="text-sm text-sky-700 mt-1"><span class="font-medium">卷末高潮：</span>${vol.climax_hint}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `
+  }
+
+  // ── 金手指 ──
+  const formatGoldenFinger = (gf: any) => {
+    if (!gf || typeof gf !== 'object' || !(gf.name || '').toString().trim()) return ''
+    const rows = [
+      ['类型', gf.type],
+      ['机制', gf.description],
+      ['限制与代价', gf.limitations],
+      ['成长空间', gf.growth_potential]
+    ].filter(([, v]) => v && String(v).trim())
+      .map(([label, v]) => `<div class="text-sm mt-1.5"><span class="font-medium text-yellow-800">${label}：</span><span class="text-yellow-900">${v}</span></div>`)
+      .join('')
+    return `
+      <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-5">
+        <h4 class="font-bold text-yellow-900 text-lg">✨ ${gf.name}</h4>
+        ${rows}
+      </div>
+    `
+  }
+
+  // ── 伏笔清单 ──
+  const formatForeshadowings = (items: any[]) => {
+    if (!items || items.length === 0) return ''
+    return `
+      <div class="space-y-2">
+        ${items.map((fs: any) => `
+          <div class="bg-violet-50 border border-violet-200 rounded-lg p-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-semibold text-violet-900 text-sm">${fs.name || '未命名伏笔'}</span>
+              ${fs.tier ? `<span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">${fs.tier}</span>` : ''}
+              <span class="text-xs text-violet-600">第 ${fs.planted_chapter ?? '?'} 章埋设${fs.target_chapter ? ` → 第 ${fs.target_chapter} 章兑现` : ''}</span>
+            </div>
+            ${fs.description ? `<p class="text-sm text-violet-800 mt-1">${fs.description}</p>` : ''}
+          </div>
+        `).join('')}
+      </div>
+    `
+  }
+
   // Format relationships with enhanced styling - 支持新的数据结构
   const formatRelationships = (relationships: any[]) => {
     if (!relationships || relationships.length === 0) return '<p class="text-gray-500 italic">暂无关系设定</p>'
@@ -412,10 +532,17 @@ const formattedBlueprint = computed(() => {
     icons.summary
   )
 
-  // Chapters section with enhanced styling
+  // Chapters section with enhanced styling（含章级规划徽标：功能/爽点/钩子）
   const chaptersHTML = `
     <div class="space-y-4">
-      ${(blueprint.chapter_outline || []).map((ch, index) => `
+      ${(blueprint.chapter_outline || []).map((ch, index) => {
+        const planning: any = (ch as any).metadata?.planning || null
+        const badges = planning ? [
+          planning.chapter_function ? `<span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">${planning.chapter_function}</span>` : '',
+          planning.coolpoint ? `<span class="text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full">爽点：${planning.coolpoint}</span>` : '',
+          planning.hook_type ? `<span class="text-xs bg-teal-50 text-teal-700 px-2 py-0.5 rounded-full">钩子：${planning.hook_type}</span>` : ''
+        ].filter(Boolean).join('') : ''
+        return `
         <div class="group relative overflow-hidden bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition-all duration-300">
           <div class="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-indigo-500 to-purple-600 transform origin-top group-hover:scale-y-110 transition-transform duration-300"></div>
           <div class="flex items-start">
@@ -425,19 +552,29 @@ const formattedBlueprint = computed(() => {
             <div class="flex-1">
               <h4 class="text-lg font-bold text-gray-800 mb-2 group-hover:text-indigo-600 transition-colors duration-300">第 ${ch.chapter_number} 章: ${ch.title}</h4>
               <p class="text-gray-600 leading-relaxed">${ch.summary}</p>
+              ${badges ? `<div class="flex flex-wrap gap-1.5 mt-2">${badges}</div>` : ''}
             </div>
           </div>
         </div>
-      `).join('')}
+      `}).join('')}
     </div>
   `
 
+  const reviewHTML = formatReviewReport((blueprint as any).review_report)
+  const volumesHTML = formatVolumes((blueprint as any).volumes || [])
+  const goldenFingerHTML = formatGoldenFinger((blueprint as any).golden_finger)
+  const foreshadowingsHTML = formatForeshadowings((blueprint as any).foreshadowings || [])
+
   return `
     ${headerHTML}
+    ${reviewHTML ? createSection('审稿报告（商业量表）', reviewHTML, icons.summary) : ''}
     ${summaryHTML}
     ${createSection('世界设定', formatWorldSetting(blueprint.world_setting), icons.world)}
+    ${goldenFingerHTML ? createSection('金手指', goldenFingerHTML, icons.story) : ''}
     ${createSection('主要角色', formatCharacters(blueprint.characters || []), icons.characters)}
     ${createSection('角色关系', formatRelationships(blueprint.relationships || []), icons.relationships)}
+    ${volumesHTML ? createSection('分卷规划', volumesHTML, icons.chapters) : ''}
+    ${foreshadowingsHTML ? createSection('伏笔清单', foreshadowingsHTML, icons.story) : ''}
     ${createSection('章节大纲', chaptersHTML, icons.chapters)}
   `
 })

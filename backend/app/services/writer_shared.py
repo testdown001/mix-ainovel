@@ -63,6 +63,18 @@ def extract_outline_planning_metadata(item: Dict[str, Any]) -> Optional[Dict[str
         if foreshadowing:
             planning["foreshadowing"] = foreshadowing
 
+    # 章级规划五字段（chapter_function/hook_type/coolpoint/foreshadowing_ops/
+    # must_not_include）：与蓝图 Stage B 同一套提取，落进同一个 planning 子键——
+    # update_or_create_outline 见到 planning 会同步 upsert chapter_blueprints
+    try:
+        from .chapter_planning_service import extract_planning_from_item
+
+        chapter_planning = extract_planning_from_item(item)
+        if chapter_planning:
+            planning.update(chapter_planning)
+    except Exception:  # noqa: BLE001 - 规划提取失败不影响既有三字段
+        pass
+
     return planning or None
 
 

@@ -53,6 +53,15 @@ CAPABILITIES: List[Capability] = [
                "结合评审、世界观和文笔打磨，适合持续产出可读、可选、可定稿的日更章节。", "creator"),
     Capability("preset_premium", "关键章节精修",
                "加入自我批判、读者模拟和优化器，适合开篇、高潮、转折等高要求章节。", "flagship"),
+
+    # 立项-规划质量层（2026-08-15 灵感模式质量机制重设计）
+    # 注：立项书蒸馏与蓝图审稿门是全档质量底线，不注册能力位（永不门控）
+    Capability("premise_stress", "开书压力推演",
+               "白金主编视角推演冲突可持续性与金手指崩坏点，扫描弃书级毒点并自动修订立项书。", "creator"),
+    Capability("chapter_planning", "章级剧情规划",
+               "章纲附带章节功能、章末钩子、爽点与伏笔操作规划，正文生成按规划执行节奏。", "creator"),
+    Capability("rolling_review", "续章滚动审稿",
+               "写作台续排章纲同样过商业量表审稿门，长期连载 100 章后质量不掉档。", "flagship"),
 ]
 
 _CAP_BY_KEY: Dict[str, Capability] = {c.key: c for c in CAPABILITIES}

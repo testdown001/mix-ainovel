@@ -581,7 +581,15 @@ async def converse_with_concept(
         fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
     if reference_context or fusion_dna_text:
         system_prompt = _inject_reference_context(system_prompt, reference_context, fusion_dna_text)
+    # 创作禁区持久化：请求带禁区时落库到 novel_projects.exclusions（蓝图生成/宪法播种
+    # 都从库里读，兑现「整个对话和蓝图生成中遵守」的产品承诺）；请求未带时回退库存值，
+    # 保证刷新页面后禁区仍然生效。
     exclusions = (request.exclusions or "").strip()
+    if exclusions and project.exclusions != exclusions:
+        project.exclusions = exclusions
+        # 不单独 commit：随下方 append_conversation 的事务一并提交
+    elif not exclusions:
+        exclusions = (project.exclusions or "").strip()
     if exclusions:
         system_prompt = _inject_exclusions(system_prompt, exclusions)
 
@@ -712,8 +720,113 @@ async def converse_with_concept(
     await novel_service.append_conversation(project_id, "user", user_content)
     await novel_service.append_conversation(project_id, "assistant", assistant_record)
 
+    # 对话判定完成 → 后台蒸馏故事立项书（+按档位压力推演）。用户看确认页时大概率已就绪；
+    # 没跑完也无妨——确认页 GET /concept/dossier 会同步补齐（per-project 锁防双跑）。
+    if response.is_complete:
+        from ...core.safe_task import safe_create_task
+        from ...services.concept_dossier_service import background_ensure_dossier
+
+        run_stress = tier_allows(user_tier, "premise_stress", min_tiers)
+        safe_create_task(
+            background_ensure_dossier(project_id, current_user.id, run_stress=run_stress),
+            name=f"dossier:{project_id}",
+        )
+        logger.info(
+            "项目 %s 概念对话完成，已调度立项书蒸馏（stress=%s）", project_id, run_stress
+        )
+
     logger.info("项目 %s 概念对话完成，is_complete=%s", project_id, response.is_complete)
     return response
+
+
+# ---------------------------------------------------------------------------
+# 故事立项书（结构化前提产物）：确认页的读取/编辑/采纳修复入口
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{project_id}/concept/dossier")
+async def get_concept_dossier(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """读取故事立项书；未蒸馏/推演时同步补齐（对话完成后的后台任务大概率已跑完，
+    此处只是兜底，per-project 锁保证不双跑）。蒸馏失败返回 status=absent，
+    确认页按无立项书降级展示，不阻断蓝图生成。"""
+    from ...schemas.concept_dossier import DossierResponse
+    from ...services.concept_dossier_service import ConceptDossierService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    user_tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
+    run_stress = tier_allows(user_tier, "premise_stress", min_tiers)
+
+    service = ConceptDossierService(session)
+    state = service.get_state(project)
+    if not isinstance(state.get("dossier"), dict) or (
+        run_stress and not isinstance(state.get("stress_report"), dict)
+    ):
+        state = await service.ensure_dossier(
+            project_id, current_user.id, run_stress=run_stress
+        )
+
+    return DossierResponse(
+        status="ready" if isinstance(state.get("dossier"), dict) else "absent",
+        dossier=state.get("dossier"),
+        stress_report=state.get("stress_report"),
+        stress_available=run_stress,
+        generated_at=state.get("generated_at"),
+    ).model_dump()
+
+
+@router.patch("/{project_id}/concept/dossier")
+async def patch_concept_dossier(
+    project_id: str,
+    payload: Dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """分块编辑立项书（确认页的可编辑保存）：只合并提供的顶层键，嵌套 dict 再合一层。"""
+    from ...services.concept_dossier_service import ConceptDossierService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    partial = payload.get("dossier")
+    if not isinstance(partial, dict) or not partial:
+        raise HTTPException(status_code=400, detail="缺少 dossier 更新内容")
+
+    service = ConceptDossierService(session)
+    if not isinstance(service.get_state(project).get("dossier"), dict):
+        raise HTTPException(status_code=404, detail="立项书尚未生成，无法编辑")
+    state = await service.patch_dossier(project, partial)
+    logger.info("项目 %s 立项书分块编辑：keys=%s", project_id, list(partial.keys()))
+    return {"status": "ok", "dossier": state.get("dossier")}
+
+
+@router.post("/{project_id}/concept/dossier/apply-fixes")
+async def apply_dossier_fixes(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """采纳推演修复建议：把压力推演报告的全部修复建议一次性应用回立项书（一轮 LLM 修订）。"""
+    from ...services.concept_dossier_service import ConceptDossierService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    service = ConceptDossierService(session)
+    state = await service.apply_stress_fixes(project, current_user.id)
+    if state is None:
+        raise HTTPException(
+            status_code=409,
+            detail="没有可采纳的修复建议（无推演报告或修订失败），可直接生成蓝图或手动编辑立项书。",
+        )
+    logger.info("项目 %s 立项书已采纳推演修复建议", project_id)
+    return {"status": "ok", "dossier": state.get("dossier"), "stress_report": state.get("stress_report")}
 
 
 @router.get("/concept/personas")

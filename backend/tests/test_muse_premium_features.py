@@ -48,10 +48,16 @@ def test_capabilities_for_tier_and_registry():
     from app.core.feature_gating import capabilities_for_tier, registry_dump, CAPABILITIES
     assert capabilities_for_tier("free") == []
     creator_keys = {c["key"] for c in capabilities_for_tier("creator")}
-    # 5d6070a 起注册表含章节生成预设能力 preset_standard（creator 档）
-    assert creator_keys == {"muse_persona", "muse_search", "preset_standard"}
+    # 5d6070a 起注册表含章节生成预设能力 preset_standard（creator 档）；
+    # 2026-08-15 灵感模式质量机制新增 premise_stress/chapter_planning（creator）
+    # 与 rolling_review（flagship）
+    assert creator_keys == {
+        "muse_persona", "muse_search", "preset_standard",
+        "premise_stress", "chapter_planning",
+    }
     flagship_keys = {c["key"] for c in capabilities_for_tier("flagship")}
     assert "muse_divergence" in flagship_keys
+    assert "rolling_review" in flagship_keys
     # 注册表元数据含展示名/说明（定价页与门控同源）
     reg = registry_dump()
     assert len(reg) == len(CAPABILITIES)

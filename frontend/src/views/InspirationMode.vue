@@ -227,6 +227,7 @@
           <div v-if="showBlueprintConfirmation" class="inline-blueprint-wrap">
             <BlueprintConfirmation
               :ai-message="confirmationMessage"
+              :project-id="novelStore.currentProject?.id || ''"
               @blueprint-generated="handleBlueprintGenerated"
               @back="backToConversation"
             />

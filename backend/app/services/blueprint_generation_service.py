@@ -1,15 +1,21 @@
-# AIMETA P=蓝图两段式生成|R=设定段+章纲段两次LLM调用_数量断言_补问重试|NR=不含蓝图CRUD|E=generate_blueprint_for_project|X=internal|A=蓝图生成|D=llm_service,novel_service,prompt_service|S=db|RD=./README.ai
-"""蓝图两段式生成服务（审计 P0 #13 + P1 #8）。
+# AIMETA P=蓝图多段式生成|R=立项书锚点+设定段+分批章纲段+审稿门+宪法播种|NR=不含蓝图CRUD|E=generate_blueprint_for_project|X=internal|A=蓝图生成|D=llm_service,novel_service,prompt_service,blueprint_review_service|S=db|RD=./README.ai
+"""蓝图多段式生成服务。
 
-原实现单次 LLM 调用 max_tokens=8192 产出全部结构（50 章大纲+世界观+角色+伏笔），
-中文轻松超限；截断被 repair_json 补成"合法"JSON 后，残缺蓝图静默落库。
+链路（2026-08-15 灵感模式质量机制重设计后）：
+1. 设定段（screenwriting）：输入 = 立项书（存在时，最高优先级锚点）+ 瘦身对话史 +
+   创作禁区；产出标题/世界观/角色/金手指/关系/伏笔 + volumes 分卷规划。
+2. 章纲段（screenwriting_outline）：分批生成（每批 ≤25 章，批间携带前批尾部上下文），
+   creator+ 档每章带章级规划字段（chapter_function/hook_type/coolpoint/
+   foreshadowing_ops/must_not_include）；覆盖率断言 + 缺章补问保持原语义。
+3. 审稿门（blueprint_review_service）：商业量表评审蓝图+章纲；低于阈值触发一轮
+   定向修订（只重写被点名的设定块/章号区间）后复审；仍不达标照常落库，
+   审稿报告随蓝图透传（novel_blueprints.review_report）。
+4. 落库（replace_blueprint，含 chapter_blueprints 章级规划同步）后自动播种小说宪法
+   （幂等；毒点+禁区+题材禁忌进 forbidden_content）。
 
-现拆为两段：
-1. 设定段（screenwriting）：标题/题材/世界观/角色/金手指/关系/伏笔 + volumes 轻量分卷规划；
-2. 章纲段（screenwriting_outline）：以设定段摘要为输入，生成前 N 章章纲，独立 max_tokens。
-
+质量层全部软失败：立项书缺失/审稿失败/宪法播种失败都不阻断蓝图主链路。
 章纲数量断言：少于承诺章数的 80% 时用缺失章号区间补问一次；仍不足则 502，绝不静默落库残缺蓝图。
-端点 novels.generate_blueprint 是本服务的薄壳（为后续异步任务化铺路）。
+端点 novels.generate_blueprint 是本服务的薄壳（异步任务路径 task_worker 复用同一函数）。
 """
 import json
 import logging
@@ -21,9 +27,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.feature_gating import get_user_tier, load_min_tiers, tier_allows
 from ..models.novel import Chapter, ChapterVersion
 from ..models.writer_persona import WriterPersona
 from ..schemas.novel import Blueprint, BlueprintGenerationResponse
+from ..services.chapter_planning_service import extract_planning_from_item
+from ..services.concept_dossier_service import format_dossier_for_prompt
 from ..services.llm_service import LLMService
 from ..services.novel_service import NovelService
 from ..services.prompt_service import PromptService
@@ -34,6 +43,7 @@ from ..utils.json_utils import (
     sanitize_json_like_text,
     unwrap_markdown_json,
 )
+from ..utils.tracing import span
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +52,7 @@ OUTLINE_MAX_TOKENS = 12288
 OUTLINE_PROMISED_DEFAULT = 50
 OUTLINE_PROMISED_MIN = 10  # 分卷覆盖数低于此值视为 LLM 误填，承诺章数回退默认
 OUTLINE_MIN_RATIO = 0.8
+OUTLINE_BATCH_SIZE = 25  # 章纲分批生成：带章级规划字段后 50 章单次必超 token 预算
 FORESHADOWING_MIN_COUNT = 3
 
 
@@ -138,7 +149,11 @@ def _covered_count(outline_items: List[Dict[str, Any]], promised: int) -> int:
 
 
 def _extract_outline_items(data: Any) -> List[Dict[str, Any]]:
-    """从章纲段解析结果中提取合法章纲条目（兼容裸数组与 {"chapter_outline": [...]} 两种形态）。"""
+    """从章纲段解析结果中提取合法章纲条目（兼容裸数组与 {"chapter_outline": [...]} 两种形态）。
+
+    章级规划字段（chapter_function/hook_type/coolpoint/foreshadowing_ops/must_not_include）
+    统一清洗进 item["planning"]（缺失时无该键，下游全部 no-op 优雅降级）。
+    """
     if isinstance(data, list):
         items = data
     elif isinstance(data, dict):
@@ -158,13 +173,15 @@ def _extract_outline_items(data: Any) -> List[Dict[str, Any]]:
         title = str(item.get("title") or "").strip()
         if number < 1 or not title:
             continue
-        result.append(
-            {
-                "chapter_number": number,
-                "title": title,
-                "summary": str(item.get("summary") or "").strip(),
-            }
-        )
+        entry: Dict[str, Any] = {
+            "chapter_number": number,
+            "title": title,
+            "summary": str(item.get("summary") or "").strip(),
+        }
+        planning = extract_planning_from_item(item)
+        if planning:
+            entry["planning"] = planning
+        result.append(entry)
     return result
 
 
@@ -201,9 +218,13 @@ def _format_missing_ranges(missing: List[int]) -> str:
 def _build_settings_summary(
     settings_data: Dict[str, Any],
     volumes: List[Dict[str, Any]],
-    promised: int,
+    promised: Optional[int] = None,
 ) -> str:
-    """把设定段产出压缩为章纲段的输入摘要。"""
+    """把设定段产出压缩为章纲段的输入摘要。
+
+    promised 提供时在末尾附整段任务行（兼容旧单批语义）；分批生成传 None，
+    任务行由 _build_batch_task 按批次单独拼。
+    """
     lines: List[str] = ["【蓝图设定摘要】"]
     lines.append(f"书名：{settings_data.get('title', '')}")
     lines.append(
@@ -257,9 +278,61 @@ def _build_settings_summary(
                 f" → 第{item.get('target_chapter', '?')}章兑现；{item.get('description', '')}"
             )
 
-    lines.append("")
-    lines.append(f"【任务】请为第 1-{promised} 章生成章纲，共 {promised} 章，章号从 1 连续编到 {promised}。")
+    if promised is not None:
+        lines.append("")
+        lines.append(f"【任务】请为第 1-{promised} 章生成章纲，共 {promised} 章，章号从 1 连续编到 {promised}。")
     return "\n".join(lines)
+
+
+def _format_outline_tail(outline_items: List[Dict[str, Any]], tail: int = 5) -> str:
+    """前批尾部章纲压缩为下一批的衔接上下文（一章一行）。"""
+    picked = sorted(outline_items, key=lambda item: item["chapter_number"])[-tail:]
+    return "\n".join(
+        f"第{item['chapter_number']}章《{item['title']}》：{item['summary']}" for item in picked
+    )
+
+
+_PLAN_FIELDS_SKIP_NOTE = (
+    "\n【输出精简】本次任务只需输出 chapter_number/title/summary 三个字段，"
+    "忽略提示词中关于章级规划字段（chapter_function/hook_type/coolpoint/"
+    "foreshadowing_ops/must_not_include）的要求。"
+)
+
+
+def _build_batch_task(
+    batch_start: int,
+    batch_end: int,
+    prev_tail: str,
+    include_planning: bool,
+) -> str:
+    """单批章纲的任务段（分批生成时替代 _build_settings_summary 的整段任务行）。"""
+    parts: List[str] = []
+    if prev_tail:
+        parts.append(
+            "【前批已生成章纲的尾部（本批必须与其自然衔接，禁止重复其中事件）】\n" + prev_tail
+        )
+    count = batch_end - batch_start + 1
+    parts.append(
+        f"【任务】请为第 {batch_start}-{batch_end} 章生成章纲，共 {count} 章，"
+        f"chapter_number 从 {batch_start} 连续编到 {batch_end}，一章不少。"
+    )
+    task = "\n\n".join(parts)
+    if not include_planning:
+        task += _PLAN_FIELDS_SKIP_NOTE
+    return task
+
+
+def _inject_blueprint_exclusions(prompt: str, exclusions: str) -> str:
+    """把创作禁区注入蓝图各段 system prompt（对话侧的 _inject_exclusions 口径独立）。"""
+    text = (exclusions or "").strip()
+    if not text:
+        return prompt
+    return (
+        f"{prompt}\n\n"
+        "## 创作禁区（红线，最高优先级约束）\n"
+        "以下是用户明确划定的禁区，蓝图的任何设定、角色、情节与章纲都不得触碰：\n"
+        f"{text}\n"
+    )
 
 
 async def generate_blueprint_for_project(
@@ -336,6 +409,33 @@ async def generate_blueprint_for_project(
         )
 
     # ------------------------------------------------------------------
+    # 质量层输入：立项书（存在时为最高优先级锚点）+ 推演报告 + 创作禁区 + 档位
+    # ------------------------------------------------------------------
+    dossier_state = project.concept_dossier if isinstance(project.concept_dossier, dict) else {}
+    dossier = dossier_state.get("dossier") if isinstance(dossier_state.get("dossier"), dict) else None
+    stress_report = (
+        dossier_state.get("stress_report")
+        if isinstance(dossier_state.get("stress_report"), dict)
+        else None
+    )
+    exclusions = (project.exclusions or "").strip()
+
+    try:
+        user_tier = await get_user_tier(session, user_id)
+        min_tiers = await load_min_tiers(session)
+        planning_allowed = tier_allows(user_tier, "chapter_planning", min_tiers)
+    except Exception as exc:  # noqa: BLE001 - 门控读取失败按放行处理（质量优先）
+        logger.warning("项目 %s 蓝图档位读取失败，按含章级规划处理: %s", project_id, exc)
+        planning_allowed = True
+
+    if dossier:
+        dossier_text = format_dossier_for_prompt(dossier)
+        if dossier_text:
+            # 立项书作为首条 user 消息置顶：结构化锚点在前，对话散文只作细节补充
+            formatted_history = [{"role": "user", "content": dossier_text}] + formatted_history
+            logger.info("项目 %s 蓝图设定段：已注入立项书锚点", project_id)
+
+    # ------------------------------------------------------------------
     # 第一段：设定（标题/世界观/角色/金手指/关系/伏笔/分卷规划）
     # ------------------------------------------------------------------
     settings_prompt = _ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
@@ -351,6 +451,7 @@ async def generate_blueprint_for_project(
                 "请在设计蓝图结构、章节节奏和人物关系时参考这些指引，但保持原创性：\n\n"
                 f"{dna_text}"
             )
+    settings_prompt = _inject_blueprint_exclusions(settings_prompt, exclusions)
     logger.info(
         "项目 %s 蓝图设定段：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
         project_id, len(settings_prompt), len(formatted_history),
@@ -358,16 +459,17 @@ async def generate_blueprint_for_project(
 
     # 蓝图为结构化生成：显式降一档 reasoning_effort 提速（仅对 o系列/gpt-5 的 openai 格式
     # 生效，其它模型/格式无副作用），且不影响章节生成（章节不传该覆盖、仍用通道默认档）。
-    settings_raw = await llm_service.get_llm_response(
-        system_prompt=settings_prompt,
-        conversation_history=formatted_history,
-        temperature=0.7,
-        user_id=user_id,
-        timeout=600.0,
-        max_retries=1,
-        max_tokens=SETTINGS_MAX_TOKENS,
-        reasoning_effort="low",
-    )
+    with span("blueprint_settings_stage", attributes={"project_id": project_id}):
+        settings_raw = await llm_service.get_llm_response(
+            system_prompt=settings_prompt,
+            conversation_history=formatted_history,
+            temperature=0.7,
+            user_id=user_id,
+            timeout=600.0,
+            max_retries=1,
+            max_tokens=SETTINGS_MAX_TOKENS,
+            reasoning_effort="low",
+        )
     logger.info("项目 %s 蓝图设定段：LLM 调用完成，raw_len=%d", project_id, len(settings_raw))
 
     settings_data = _parse_stage_json(settings_raw, project_id, "设定段")
@@ -398,7 +500,7 @@ async def generate_blueprint_for_project(
         )
 
     # ------------------------------------------------------------------
-    # 第二段：章纲（输入 = 设定段摘要），独立 max_tokens
+    # 第二段：章纲（输入 = 设定段摘要），分批生成（每批 ≤OUTLINE_BATCH_SIZE 章）
     # ------------------------------------------------------------------
     outline_prompt = _ensure_prompt(
         await prompt_service.get_prompt("screenwriting_outline"), "screenwriting_outline"
@@ -413,27 +515,48 @@ async def generate_blueprint_for_project(
             "冲突量级怎么抬、章末钩子怎么留），但情节必须原创：\n\n"
             f"{structure_reference}"
         )
-    settings_summary = _build_settings_summary(settings_data, volumes, promised)
-    outline_conversation: List[Dict[str, str]] = [{"role": "user", "content": settings_summary}]
+    outline_prompt = _inject_blueprint_exclusions(outline_prompt, exclusions)
+    settings_digest = _build_settings_summary(settings_data, volumes, promised=None)
 
-    logger.info(
-        "项目 %s 蓝图章纲段：开始 LLM 调用，promised=%d, summary_len=%d",
-        project_id, promised, len(settings_summary),
-    )
-    outline_raw = await llm_service.get_llm_response(
-        system_prompt=outline_prompt,
-        conversation_history=outline_conversation,
-        temperature=0.7,
-        user_id=user_id,
-        timeout=600.0,
-        max_retries=1,
-        max_tokens=OUTLINE_MAX_TOKENS,
-        reasoning_effort="low",
-    )
-    logger.info("项目 %s 蓝图章纲段：LLM 调用完成，raw_len=%d", project_id, len(outline_raw))
-
-    outline_items = _extract_outline_items(_parse_stage_json(outline_raw, project_id, "章纲段"))
-    outline_items = _merge_outline_items([], outline_items)
+    outline_items: List[Dict[str, Any]] = []
+    batch_total = math.ceil(promised / OUTLINE_BATCH_SIZE)
+    with span(
+        "blueprint_outline_stage",
+        attributes={"project_id": project_id, "promised": promised, "batches": batch_total},
+    ):
+        for batch_index in range(batch_total):
+            batch_start = batch_index * OUTLINE_BATCH_SIZE + 1
+            batch_end = min(promised, batch_start + OUTLINE_BATCH_SIZE - 1)
+            prev_tail = _format_outline_tail(outline_items) if outline_items else ""
+            batch_task = _build_batch_task(batch_start, batch_end, prev_tail, planning_allowed)
+            batch_input = f"{settings_digest}\n\n{batch_task}"
+            logger.info(
+                "项目 %s 蓝图章纲段批次 %d/%d：第 %d-%d 章，input_len=%d",
+                project_id, batch_index + 1, batch_total, batch_start, batch_end, len(batch_input),
+            )
+            try:
+                batch_raw = await llm_service.get_llm_response(
+                    system_prompt=outline_prompt,
+                    conversation_history=[{"role": "user", "content": batch_input}],
+                    temperature=0.7,
+                    user_id=user_id,
+                    timeout=600.0,
+                    max_retries=1,
+                    max_tokens=OUTLINE_MAX_TOKENS,
+                    reasoning_effort="low",
+                )
+                batch_items = _extract_outline_items(
+                    _parse_stage_json(batch_raw, project_id, f"章纲段批次{batch_index + 1}")
+                )
+            except HTTPException:
+                # 单批坏 JSON 不立即失败：留给整体覆盖率断言 + 缺章补问判生死
+                batch_items = []
+            except Exception as exc:  # pragma: no cover - LLM 调用异常降级
+                logger.warning(
+                    "项目 %s 蓝图章纲批次 %d 调用失败: %s", project_id, batch_index + 1, exc
+                )
+                batch_items = []
+            outline_items = _merge_outline_items(outline_items, batch_items)
 
     # ------------------------------------------------------------------
     # 数量断言（修静默截断）：不足承诺章数 80% → 按缺失章号区间补问一次
@@ -450,28 +573,26 @@ async def generate_blueprint_for_project(
             "项目 %s 蓝图章纲段覆盖不足：覆盖 %d/%d 章（共 %d 条，阈值 %d），补问缺失章号 %s",
             project_id, covered, promised, len(outline_items), threshold, missing_ranges,
         )
-        retry_conversation = outline_conversation + [
-            {
-                "role": "assistant",
-                "content": json.dumps(
-                    {"chapter_outline": outline_items}, ensure_ascii=False
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"你上一轮只输出了 {len(outline_items)} 章章纲，距离要求的 {promised} 章"
-                    f"还缺少以下章号：{missing_ranges}。\n"
-                    '请只补齐缺失章号的章纲：输出一个 JSON 对象 {"chapter_outline": [...]}，'
-                    "仅包含缺失章号的章节，每章含 chapter_number/title/summary，"
-                    "节奏与风格与已有章纲自然衔接。不要重复已输出的章节，不要输出任何解释。"
-                ),
-            },
-        ]
+        existing_tail = _format_outline_tail(outline_items, tail=8) if outline_items else ""
+        retry_task_parts = []
+        if existing_tail:
+            retry_task_parts.append(
+                "【已生成章纲的部分内容（补齐章节须与其自然衔接，禁止重复其中事件）】\n"
+                + existing_tail
+            )
+        retry_task_parts.append(
+            f"此前的产出缺少以下章号：{missing_ranges}。\n"
+            '请只补齐缺失章号的章纲：输出一个 JSON 对象 {"chapter_outline": [...]}，'
+            "仅包含缺失章号的章节，字段与既有章纲格式一致，"
+            "节奏与风格与已有章纲自然衔接。不要重复已输出的章节，不要输出任何解释。"
+        )
+        retry_input = f"{settings_digest}\n\n" + "\n\n".join(retry_task_parts)
+        if not planning_allowed:
+            retry_input += _PLAN_FIELDS_SKIP_NOTE
         try:
             retry_raw = await llm_service.get_llm_response(
                 system_prompt=outline_prompt,
-                conversation_history=retry_conversation,
+                conversation_history=[{"role": "user", "content": retry_input}],
                 temperature=0.7,
                 user_id=user_id,
                 timeout=600.0,
@@ -504,12 +625,80 @@ async def generate_blueprint_for_project(
         )
 
     # ------------------------------------------------------------------
+    # 蓝图审稿门：商业量表评审 → 低于阈值定向修订一轮 → 复审
+    # 全程软失败：审稿/修订任何一步失败都跳过该步，绝不阻断落库
+    # ------------------------------------------------------------------
+    review_report_dict: Optional[Dict[str, Any]] = None
+    try:
+        from ..services.blueprint_review_service import BlueprintReviewService
+
+        reviewer = BlueprintReviewService(session)
+        with span("blueprint_review_gate", attributes={"project_id": project_id}) as review_span:
+            report = await reviewer.review(
+                settings_data=settings_data,
+                outline_items=outline_items,
+                stress_report=stress_report,
+                dossier=dossier,
+                user_id=user_id,
+            )
+            if report is not None:
+                min_score = await reviewer.get_min_score()
+                review_span.set("score", report.total_score)
+                if report.total_score < min_score and report.issues:
+                    logger.info(
+                        "项目 %s 蓝图审稿未达标（%d < %d），触发定向修订",
+                        project_id, report.total_score, min_score,
+                    )
+                    settings_data = await reviewer.revise_settings_blocks(
+                        settings_data=settings_data,
+                        report=report,
+                        user_id=user_id,
+                        exclusions=exclusions,
+                    )
+                    # 设定块可能被重写：volumes 重新清洗，摘要重建供章纲修订用
+                    volumes = _sanitize_volumes(settings_data.get("volumes"))
+                    settings_data["volumes"] = volumes
+                    settings_digest = _build_settings_summary(settings_data, volumes, promised=None)
+                    outline_items = await reviewer.revise_chapter_ranges(
+                        outline_items=outline_items,
+                        report=report,
+                        settings_summary=settings_digest,
+                        outline_system_prompt=outline_prompt,
+                        user_id=user_id,
+                        extract_items=_extract_outline_items,
+                    )
+                    second = await reviewer.review(
+                        settings_data=settings_data,
+                        outline_items=outline_items,
+                        stress_report=stress_report,
+                        dossier=dossier,
+                        user_id=user_id,
+                    )
+                    if second is not None:
+                        report = second
+                    report.revised = True
+                    review_span.set("revised", True)
+                    review_span.set("final_score", report.total_score)
+                review_report_dict = report.model_dump()
+    except Exception as exc:  # noqa: BLE001 - 审稿门整体软失败
+        logger.warning("项目 %s 蓝图审稿门执行失败（跳过，不阻断落库）: %s", project_id, exc)
+
+    # ------------------------------------------------------------------
     # 组装 + 校验 + 落库（保持原有错误契约）
     # ------------------------------------------------------------------
     blueprint_data = dict(settings_data)
-    blueprint_data["chapter_outline"] = sorted(
-        outline_items, key=lambda item: item["chapter_number"]
-    )
+    blueprint_data["chapter_outline"] = [
+        {
+            "chapter_number": item["chapter_number"],
+            "title": item["title"],
+            "summary": item["summary"],
+            # 章级规划进 metadata.planning：ChapterOutline.metadata 共享 JSON 列，
+            # replace_blueprint 落库后同步写入 chapter_blueprints（含重排对齐）
+            **({"metadata": {"planning": item["planning"]}} if item.get("planning") else {}),
+        }
+        for item in sorted(outline_items, key=lambda item: item["chapter_number"])
+    ]
+    blueprint_data["review_report"] = review_report_dict
 
     try:
         blueprint = Blueprint(**blueprint_data)
@@ -565,6 +754,28 @@ async def generate_blueprint_for_project(
             status_code=500,
             detail=f"蓝图已生成但更新项目状态失败: {str(exc)[:200]}",
         ) from exc
+
+    # 宪法自动播种（幂等，软失败）：毒点+禁区+题材禁忌进 forbidden_content，
+    # [小说宪法] 注入链路与六维评审即刻吃到反向约束
+    try:
+        from ..services.constitution_seed_service import seed_constitution_from_blueprint
+
+        seeded = await seed_constitution_from_blueprint(
+            session,
+            project_id=project_id,
+            blueprint_data=blueprint_data,
+            dossier=dossier,
+            stress_report=stress_report,
+            exclusions=exclusions,
+        )
+        if seeded:
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001 - 播种失败不影响蓝图结果
+        logger.warning("项目 %s 小说宪法自动播种失败（不影响蓝图）: %s", project_id, exc)
+        try:
+            await session.rollback()
+        except Exception:  # pragma: no cover
+            pass
 
     ai_message = (
         "太棒了！我已经根据我们的对话整理出完整的小说蓝图。请确认是否进入写作阶段，或提出修改意见。"

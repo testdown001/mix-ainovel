@@ -117,6 +117,111 @@ export interface Blueprint {
   relationships?: any[]
   chapter_outline?: ChapterOutline[]
   volumes?: BlueprintVolume[]
+  golden_finger?: Record<string, any> | null
+  foreshadowings?: BlueprintForeshadowing[]
+  review_report?: BlueprintReviewReport | null
+}
+
+export interface BlueprintForeshadowing {
+  name?: string
+  description?: string
+  planted_chapter?: number
+  target_chapter?: number | null
+  tier?: string
+  type?: string
+  reveal_method?: string | null
+  reveal_impact?: string | null
+}
+
+export interface ReviewIssue {
+  dimension?: string
+  severity?: string
+  target?: string
+  problem?: string
+  fix_hint?: string
+}
+
+export interface BlueprintReviewReport {
+  total_score?: number
+  dimension_scores?: Record<string, number>
+  verdict?: string
+  issues?: ReviewIssue[]
+  strengths?: string[]
+  revised?: boolean
+}
+
+// ── 故事立项书（结构化前提产物）+ 压力推演报告 ──
+
+export interface DossierProtagonist {
+  name?: string
+  identity?: string
+  desire?: string
+  flaw?: string
+  predicament?: string
+  charm_point?: string
+}
+
+export interface DossierGoldenFinger {
+  name?: string
+  source?: string
+  mechanism?: string
+  limitations?: string
+  growth_curve?: string
+}
+
+export interface DossierAnticipation {
+  ten_chapters?: string
+  fifty_chapters?: string
+  long_term?: string
+}
+
+export interface ConceptDossier {
+  core_selling_line?: string
+  genre?: string
+  audience?: string
+  platform_mode?: string
+  protagonist?: DossierProtagonist
+  core_conflict?: string
+  conflict_engine?: string
+  golden_finger?: DossierGoldenFinger | null
+  anticipation?: DossierAnticipation
+  coolpoint_chain?: string[]
+  title_candidates?: string[]
+  notes?: string
+}
+
+export interface ToxicPoint {
+  issue?: string
+  severity?: string
+  reason?: string
+  fix_suggestion?: string
+}
+
+export interface StressReport {
+  conflict_sustainability?: {
+    at_50?: string
+    at_100?: string
+    at_300?: string
+    verdict?: string
+    analysis?: string
+  }
+  golden_finger_collapse?: {
+    stall_chapter?: number
+    stall_reason?: string
+    verdict?: string
+    analysis?: string
+  }
+  toxic_points?: ToxicPoint[]
+  overall_verdict?: string
+  summary?: string
+}
+
+export interface DossierResponse {
+  status: 'ready' | 'absent'
+  dossier: ConceptDossier | null
+  stress_report: StressReport | null
+  stress_available: boolean
+  generated_at?: string | null
 }
 
 export interface Character {
@@ -146,11 +251,19 @@ export interface ChapterPrediction {
   beats?: ChapterBeat[]
 }
 
+export interface ChapterPlanning {
+  chapter_function?: string
+  hook_type?: string
+  coolpoint?: string
+  foreshadowing_ops?: { op: string; name: string }[]
+  must_not_include?: string[]
+}
+
 export interface ChapterOutline {
   chapter_number: number
   title: string
   summary: string
-  metadata?: { prediction?: ChapterPrediction } | null
+  metadata?: { prediction?: ChapterPrediction; planning?: ChapterPlanning } | null
 }
 
 export interface RegenerateOutlinesResponse {
@@ -551,6 +664,31 @@ export class NovelAPI {
   /** 获取缪斯人格清单 + 当前用户订阅档位与特性可用性。 */
   static async listMusePersonas(): Promise<MusePersonasResponse> {
     return request(`${NOVELS_BASE}/concept/personas`)
+  }
+
+  /** 读取故事立项书（对话完成后后台已蒸馏，未就绪时本请求会同步补齐，首次可能 30-90 秒）。 */
+  static async getConceptDossier(projectId: string): Promise<DossierResponse> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/dossier`)
+  }
+
+  /** 分块编辑立项书（只提交改动的顶层键）。 */
+  static async patchConceptDossier(
+    projectId: string,
+    partial: Record<string, any>
+  ): Promise<{ status: string; dossier: ConceptDossier }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/dossier`, {
+      method: 'PATCH',
+      body: JSON.stringify({ dossier: partial })
+    })
+  }
+
+  /** 采纳压力推演的修复建议：一轮 LLM 修订写回立项书。 */
+  static async applyDossierFixes(
+    projectId: string
+  ): Promise<{ status: string; dossier: ConceptDossier; stress_report: StressReport }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/dossier/apply-fixes`, {
+      method: 'POST'
+    })
   }
 
   /** N 路发散（旗舰档）：一次生成 N 个迥异种子并评分收敛到 Top。 */

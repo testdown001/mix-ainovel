@@ -1,8 +1,8 @@
-"""蓝图两段式生成回归测试（审计 P0 #13 + P1 #8）。
+"""蓝图多段式生成回归测试（审计 P0 #13 + P1 #8；2026-08-15 分批章纲后更新）。
 
 覆盖：
-1. 两段成功：设定段+章纲段各自独立调用（max_tokens 8192/12288、不同模板），
-   蓝图完整落库且含 volumes 分卷；
+1. 生成成功：设定段 1 次 + 章纲分批 2 次（50 章 ÷ 25 章/批，max_tokens 8192/12288、
+   不同模板、批间携带前批尾部上下文），蓝图完整落库且含 volumes 分卷；
 2. 章纲不足承诺章数 80% → 按缺失章号区间补问一次后补齐；
 3. 补问后仍不足 → 502 且蓝图/大纲均不落库（不再静默落库残缺蓝图）;
 4. 旧格式兼容：设定段无 volumes 仍成功，volumes 为空列表；
@@ -11,7 +11,9 @@
 
 通过最小 FastAPI 应用挂载真实 novels 路由（薄壳端点），LLM/Prompt 在
 blueprint_generation_service 模块内打桩，底层走 conftest 真内存 SQLite，
-真正命中两段式生成与 replace_blueprint 落库路径。
+真正命中多段式生成与 replace_blueprint 落库路径。
+审稿门在本测试中因 Prompt 表为空（缺 blueprint_review 提示词）自然跳过——
+这本身就是「审稿门软失败不阻断蓝图」契约的一部分。
 """
 import json
 
@@ -171,14 +173,18 @@ async def _outline_count(db_session):
 
 
 # ------------------------------------------------------------------
-# 1. 两段成功 + volumes 落库
+# 1. 生成成功（设定 1 次 + 章纲分批 2 次）+ volumes 落库
 # ------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_two_stage_success_persists_volumes(db_session, monkeypatch):
     calls = _patch_two_stage(
         monkeypatch,
-        [_settings_payload(), _outline_payload(range(1, 51))],
+        [
+            _settings_payload(),
+            _outline_payload(range(1, 26)),   # 批 1：第 1-25 章
+            _outline_payload(range(26, 51)),  # 批 2：第 26-50 章
+        ],
     )
     await _seed_project_with_history(db_session)
 
@@ -193,16 +199,21 @@ async def test_two_stage_success_persists_volumes(db_session, monkeypatch):
         "第一卷·废都编译", "第二卷·灵网扩张", "第三卷·根服务器",
     ]
 
-    # 两段各自独立调用：模板与 max_tokens 不同
-    assert len(calls) == 2
+    # 设定段 1 次 + 章纲 2 批：模板与 max_tokens 不同
+    assert len(calls) == 3
     assert calls[0]["system_prompt"] == "SETTINGS_PROMPT"
     assert calls[0]["max_tokens"] == 8192
-    assert calls[1]["system_prompt"] == "OUTLINE_PROMPT"
-    assert calls[1]["max_tokens"] == 12288
-    # 章纲段输入带设定段产出摘要
-    outline_input = calls[1]["conversation_history"][0]["content"]
-    assert "赛博修仙指南" in outline_input and "第一卷·废都编译" in outline_input
-    assert "1-50" in outline_input
+    for call in calls[1:]:
+        assert call["system_prompt"] == "OUTLINE_PROMPT"
+        assert call["max_tokens"] == 12288
+    # 批 1 输入带设定段产出摘要与本批章号范围
+    batch1_input = calls[1]["conversation_history"][0]["content"]
+    assert "赛博修仙指南" in batch1_input and "第一卷·废都编译" in batch1_input
+    assert "第 1-25 章" in batch1_input
+    # 批 2 带前批尾部衔接上下文
+    batch2_input = calls[2]["conversation_history"][0]["content"]
+    assert "第 26-50 章" in batch2_input
+    assert "前批已生成章纲的尾部" in batch2_input and "第25章" in batch2_input
 
     # 落库：蓝图主体含 volumes，章纲 50 条，项目标题已更新
     record = await db_session.get(NovelBlueprint, PROJECT_ID)
@@ -225,7 +236,8 @@ async def test_outline_shortfall_triggers_retry_and_completes(db_session, monkey
         monkeypatch,
         [
             _settings_payload(),
-            _outline_payload(range(1, 31)),      # 30/50 < 80%
+            _outline_payload(range(1, 26)),      # 批 1 齐
+            _outline_payload(range(26, 31)),     # 批 2 只给 26-30 → 覆盖 30/50 < 80%
             _outline_payload(range(31, 51)),     # 补问补齐 31-50
         ],
     )
@@ -236,9 +248,9 @@ async def test_outline_shortfall_triggers_retry_and_completes(db_session, monkey
 
     assert resp.status_code == 200, resp.text
     assert len(resp.json()["blueprint"]["chapter_outline"]) == 50
-    assert len(calls) == 3
+    assert len(calls) == 4
     # 补问只要缺失章号区间
-    retry_message = calls[2]["conversation_history"][-1]["content"]
+    retry_message = calls[3]["conversation_history"][-1]["content"]
     assert "31-50" in retry_message
     assert await _outline_count(db_session) == 50
 
@@ -253,8 +265,9 @@ async def test_outline_still_short_after_retry_502_and_nothing_saved(db_session,
         monkeypatch,
         [
             _settings_payload(),
-            _outline_payload(range(1, 31)),   # 30/50
-            _outline_payload(range(31, 34)),  # 只补到 33 章，仍 < 40
+            _outline_payload(range(1, 26)),   # 批 1 齐
+            _outline_payload(range(26, 31)),  # 批 2 只到 30
+            _outline_payload(range(31, 34)),  # 补问只补到 33 章，仍 < 40
         ],
     )
     await _seed_project_with_history(db_session)
@@ -264,7 +277,7 @@ async def test_outline_still_short_after_retry_502_and_nothing_saved(db_session,
 
     assert resp.status_code == 502
     assert "章纲生成不完整" in resp.json()["detail"]
-    assert len(calls) == 3
+    assert len(calls) == 4
     # 绝不静默落库残缺蓝图
     assert await db_session.get(NovelBlueprint, PROJECT_ID) is None
     assert await _outline_count(db_session) == 0
@@ -280,7 +293,11 @@ async def test_outline_still_short_after_retry_502_and_nothing_saved(db_session,
 async def test_settings_without_volumes_still_works(db_session, monkeypatch):
     _patch_two_stage(
         monkeypatch,
-        [_settings_payload(with_volumes=False), _outline_payload(range(1, 51))],
+        [
+            _settings_payload(with_volumes=False),
+            _outline_payload(range(1, 26)),
+            _outline_payload(range(26, 51)),
+        ],
     )
     await _seed_project_with_history(db_session)
 
@@ -302,7 +319,11 @@ async def test_settings_without_volumes_still_works(db_session, monkeypatch):
 async def test_few_foreshadowings_warn_but_not_block(db_session, monkeypatch, caplog):
     _patch_two_stage(
         monkeypatch,
-        [_settings_payload(foreshadowing_count=1), _outline_payload(range(1, 51))],
+        [
+            _settings_payload(foreshadowing_count=1),
+            _outline_payload(range(1, 26)),
+            _outline_payload(range(26, 51)),
+        ],
     )
     await _seed_project_with_history(db_session)
 

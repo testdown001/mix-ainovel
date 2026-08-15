@@ -387,6 +387,9 @@ class NovelService:
         record.world_setting = blueprint.world_setting
         record.golden_finger = blueprint.golden_finger
         record.volumes = [volume.model_dump() for volume in (blueprint.volumes or [])]
+        # 审稿报告只增不清：入参带报告时覆盖，不带时保留既有（前端 save 回传会带上）
+        if blueprint.review_report is not None:
+            record.review_report = blueprint.review_report
 
         await self.session.execute(delete(BlueprintCharacter).where(BlueprintCharacter.project_id == project_id))
         if blueprint.characters:
@@ -469,6 +472,27 @@ class NovelService:
         else:
             normalized_outlines = []
             normalized_foreshadowings = blueprint.foreshadowings or []
+
+        # 章级规划同步写入 chapter_blueprints（补上休眠表缺失的写入方）。
+        # 章号用 number_map 重排后的最终值，与 chapter_outlines 严格对齐；
+        # 无规划字段的蓝图（旧蓝图/免费档）清空即可——读取方对空表全部 no-op。
+        try:
+            from .chapter_planning_service import replace_chapter_blueprints
+
+            planning_rows = [
+                {
+                    "chapter_number": number_map[outline.chapter_number],
+                    "planning": (outline.metadata or {}).get("planning")
+                    if isinstance(getattr(outline, "metadata", None), dict)
+                    else None,
+                }
+                for outline in sorted_outlines
+            ] if blueprint.chapter_outline else []
+            written = await replace_chapter_blueprints(self.session, project_id, planning_rows)
+            if written:
+                logger.info("项目 %s 章级规划落盘 chapter_blueprints：%d 章", project_id, written)
+        except Exception as exc:  # noqa: BLE001 - 规划落盘失败不阻断蓝图落库
+            logger.warning("项目 %s 章级规划落盘失败（蓝图照常落库）: %s", project_id, exc)
 
         await self._sync_blueprint_foreshadowings(
             project_id=project_id,
@@ -1034,6 +1058,20 @@ class NovelService:
                     metadata=metadata,
                 )
                 self.session.add(outline)
+            # 章级规划同步：metadata 带 planning 时单章 upsert 到 chapter_blueprints
+            # （续排/重排路径的写入方；只更新规划列、保留状态列，失败不阻断大纲写入）
+            if isinstance(metadata, dict) and isinstance(metadata.get("planning"), dict):
+                try:
+                    from .chapter_planning_service import upsert_chapter_blueprint
+
+                    await upsert_chapter_blueprint(
+                        self.session, project_id, chapter_number, metadata["planning"]
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "章级规划单章落盘失败（大纲照常写入）: project=%s chapter=%s error=%s",
+                        project_id, chapter_number, exc,
+                    )
             await self.session.flush()
             return outline
 
@@ -1467,6 +1505,7 @@ class NovelService:
                 full_synopsis=blueprint_obj.full_synopsis or "",
                 world_setting=blueprint_obj.world_setting or {},
                 volumes=getattr(blueprint_obj, "volumes", None) or [],
+                review_report=getattr(blueprint_obj, "review_report", None),
                 characters=[
                     {
                         "name": character.name,

@@ -54,6 +54,15 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         ),
     ),
     SystemConfigDefault(
+        key="blueprint.review_min_score",
+        value_getter=lambda _: "70",
+        description=(
+            "蓝图审稿门达标分（0-100）：商业量表总分低于该值触发一轮定向修订"
+            "（只重写被点名的设定块/章号区间）后复审；仍不达标照常落库并把审稿报告"
+            "透传给用户决策。填 0 相当于永不修订（报告仍生成）。"
+        ),
+    ),
+    SystemConfigDefault(
         key="pregen.mission_enabled",
         value_getter=lambda _: "true",
         description=(
@@ -222,13 +231,15 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="嵌入向量维度，留空则自动检测。",
     ),
     SystemConfigDefault(
+        # 默认改 true（2026-08-15 质量机制重设计）：异步不阻塞正文、成本低、收益直接；
+        # 仍是旗舰档 preset=premium 才生效（gating 不变），后台「质量回路」可随时关
         key="quality_loop.outline_revision",
-        value_getter=lambda config: _bool_to_text(config.outline_revision_enabled),
+        value_getter=lambda _: "true",
         description="滚动细纲修订（旗舰档）：章节定稿后评审后续大纲是否被本章实际内容写过时，产出修订提示。异步、不阻塞正文。",
     ),
     SystemConfigDefault(
         key="quality_loop.volume_retrospective",
-        value_getter=lambda config: _bool_to_text(config.volume_retrospective_enabled),
+        value_getter=lambda _: "true",
         description="卷级复盘重规划（旗舰档）：一卷末章定稿后对比「原规划 vs 实际写成」，复盘并修订下一卷方向。异步、不阻塞正文。",
     ),
     SystemConfigDefault(

@@ -185,6 +185,8 @@ class Blueprint(BaseModel):
     chapter_outline: List[ChapterOutline] = []
     foreshadowings: List[BlueprintForeshadowing] = []
     volumes: List[BlueprintVolume] = []
+    # 蓝图审稿门产物（分数+问题清单）；None = 未审（旧蓝图/审稿降级跳过）
+    review_report: Optional[Dict[str, Any]] = None
 
 
 class NovelProject(BaseModel):
@@ -389,6 +391,8 @@ class RegenerateOutlinesResponse(BaseModel):
     updated_chapters: List[int]
     total_target: int
     chapter_outline: List[ChapterOutline]
+    # 滚动章纲轻量审稿报告（旗舰档续排路径产出）；None = 未审/审稿降级跳过
+    review_report: Optional[Dict[str, Any]] = None
 
 
 class BlueprintPatch(BaseModel):

@@ -65,6 +65,11 @@ class NovelProject(Base):
     )
     reference_novel_ids: Mapped[Optional[List[int]]] = mapped_column(JSON, default=list)
     fusion_dna: Mapped[Optional[dict]] = mapped_column(JSON)
+    # 故事立项书（结构化前提产物）：{"dossier": {...ConceptDossier}, "stress_report": {...}, ...}
+    # 灵感对话 is_complete 后蒸馏生成；蓝图 Stage A 以它为最高优先级设定锚点。NULL = 未蒸馏。
+    concept_dossier: Mapped[Optional[dict]] = mapped_column(JSON)
+    # 创作禁区（用户在灵感模式划定的红线文本）：持久化后贯穿概念对话/蓝图生成/宪法播种。
+    exclusions: Mapped[Optional[str]] = mapped_column(Text)
 
 
 class NovelConversation(Base):
@@ -102,6 +107,8 @@ class NovelBlueprint(Base):
     world_setting: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
     golden_finger: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     volumes: Mapped[Optional[list]] = mapped_column(JSON, default=None)
+    # 蓝图审稿门产物（商业量表评分+问题清单）：NULL = 未审（旧蓝图/审稿降级跳过）。
+    review_report: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

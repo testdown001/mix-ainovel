@@ -210,6 +210,7 @@ async def _ensure_schema_updates() -> None:
                 {
                     "golden_finger": "golden_finger JSON",
                     "volumes": "volumes JSON",
+                    "review_report": "review_report JSON",
                 },
             )
 
@@ -229,6 +230,8 @@ async def _ensure_schema_updates() -> None:
                     # 唯一索引不在这里补（_ensure_index 不支持 UNIQUE）——由守卫式迁移
                     # a7b8c9d0e1f2 补建；token 由 secrets.token_urlsafe 生成，碰撞概率可忽略
                     "share_token": "share_token VARCHAR(64) NULL",
+                    "concept_dossier": "concept_dossier JSON",
+                    "exclusions": "exclusions TEXT NULL",
                 },
             )
 

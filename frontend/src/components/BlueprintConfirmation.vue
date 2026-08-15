@@ -1,158 +1,280 @@
-<!-- AIMETA P=蓝图确认_蓝图确认对话框|R=确认操作|NR=不含编辑功能|E=component:BlueprintConfirmation|X=internal|A=确认对话框|D=vue|S=dom|RD=./README.ai -->
+<!-- AIMETA P=蓝图确认_立项书决策面|R=立项书分块展示编辑_压力推演报告_采纳修复返回对话生成蓝图三动作|NR=不含蓝图渲染|E=component:BlueprintConfirmation|X=internal|A=决策面|D=vue,api/novel|S=dom|RD=./README.ai -->
 <template>
-  <div class="p-8 bg-white rounded-2xl shadow-2xl fade-in">
-    <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">信息收集完成！</h2>
-
-    <div class="text-center mb-8">
-      <div 
-        class="prose prose-lg prose-gray max-w-none mx-auto mb-4 text-gray-600"
-        v-html="renderedAiMessage"
-      ></div>
-      <p class="text-sm text-gray-500">
-        我们已经收集了足够的信息来为您创建详细的小说蓝图。点击下方按钮开始生成您的专属故事大纲。
+  <div class="dossier-shell">
+    <!-- ═══ 头部 ═══ -->
+    <div class="dossier-head">
+      <h2 class="dossier-title">故事立项书</h2>
+      <p class="dossier-sub">
+        对话共识已蒸馏为结构化立项书{{ dossierResp?.stress_available ? '，并经白金主编压力推演' : '' }}。确认或修改后再生成蓝图，越早改越省返工。
       </p>
     </div>
 
-    <!-- 高级加载状态 -->
-    <div v-if="isGenerating" class="text-center py-12">
-      <!-- 主加载动画 -->
-      <div class="relative mx-auto mb-8 w-24 h-24">
-        <!-- 外圆环 -->
-        <div
-          class="absolute inset-0 border-4 rounded-full transition-colors duration-500"
-          :class="progress >= 100 ? 'border-green-100' : 'border-indigo-100'"
-        ></div>
-        <!-- 旋转的渐变圆环 -->
-        <div
-          class="absolute inset-0 border-4 border-transparent rounded-full transition-colors duration-500"
-          :class="[
-            progress >= 100
-              ? 'border-t-green-500 border-r-green-400'
-              : 'border-t-indigo-500 border-r-indigo-400',
-            progress < 100 ? 'animate-spin' : ''
-          ]"
-        ></div>
-        <!-- 内部脉冲圆 -->
-        <div
-          class="absolute inset-3 rounded-full animate-pulse opacity-20 transition-colors duration-500"
-          :class="progress >= 100 ? 'bg-green-500' : 'bg-indigo-500'"
-        ></div>
-        <!-- 中心图标 -->
-        <div
-          class="absolute inset-6 rounded-full flex items-center justify-center transition-colors duration-500"
-          :class="progress >= 100 ? 'bg-green-500' : 'bg-indigo-500'"
+    <!-- ═══ 立项书加载中 ═══ -->
+    <div v-if="dossierLoading" class="dossier-loading">
+      <div class="loading-ring-wrap">
+        <div class="loading-ring"></div>
+        <div class="loading-core">✦</div>
+      </div>
+      <p class="loading-title">{{ dossierStageText }}</p>
+      <p class="loading-sub">已用时 {{ elapsedLabel(dossierElapsed) }} · 首次蒸馏约需 30-90 秒</p>
+      <ul class="loading-stages">
+        <li
+          v-for="(stage, i) in DOSSIER_STAGES"
+          :key="i"
+          :class="i < dossierStageIndex ? 'st-done' : i === dossierStageIndex ? 'st-active' : 'st-wait'"
         >
-          <svg
-            v-if="progress >= 100"
-            class="w-6 h-6 text-white"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-          </svg>
-          <svg
-            v-else
-            class="w-6 h-6 text-white animate-pulse"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-          </svg>
-        </div>
+          <span class="st-dot"></span>{{ stage }}
+        </li>
+      </ul>
+    </div>
+
+    <!-- ═══ 蓝图生成中 ═══ -->
+    <div v-else-if="isGenerating" class="dossier-loading">
+      <div class="loading-ring-wrap">
+        <div class="loading-ring" :class="{ 'ring-done': genDone }"></div>
+        <div class="loading-core">{{ genDone ? '✓' : '✎' }}</div>
+      </div>
+      <p class="loading-title">{{ genStageText }}</p>
+      <p class="loading-sub">已用时 {{ elapsedLabel(genElapsed) }} · 蓝图链路含审稿门与定向修订，约 3-6 分钟</p>
+      <ul class="loading-stages">
+        <li
+          v-for="(stage, i) in GEN_STAGES"
+          :key="i"
+          :class="i < genStageIndex ? 'st-done' : i === genStageIndex ? 'st-active' : 'st-wait'"
+        >
+          <span class="st-dot"></span>{{ stage }}
+        </li>
+      </ul>
+      <div class="loading-bar">
+        <div class="loading-bar-fill" :style="{ width: `${genProgress}%` }"></div>
+      </div>
+      <p class="loading-hint">步骤为预估节奏，已用时为真实计时。请勿关闭页面。</p>
+    </div>
+
+    <!-- ═══ 立项书主体 ═══ -->
+    <template v-else>
+      <!-- 无立项书降级：不阻断生成 -->
+      <div v-if="!dossier" class="dossier-absent">
+        <p class="absent-title">立项书生成未完成</p>
+        <p class="absent-sub">{{ aiMessage || '已收集到足够信息。' }}</p>
+        <p class="absent-hint">可以直接生成蓝图（走原始对话链路），也可以返回对话再聊几轮后重试。</p>
       </div>
 
-      <!-- 加载文本 + 真实已用时 -->
-      <div class="space-y-4">
-        <h3 class="text-xl font-semibold text-gray-800">{{ loadingText }}</h3>
-        <p class="text-sm text-gray-500">已用时 {{ elapsedLabel }} · AI 正在为你打造专属蓝图</p>
+      <div v-else class="dossier-body">
+        <!-- 核心卖点 -->
+        <section class="d-block d-block-hero">
+          <div class="d-block-head">
+            <span class="d-block-tag">核心卖点</span>
+            <button class="d-edit-btn" @click="startEdit('selling')">{{ editing === 'selling' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'selling'">
+            <textarea v-model="buffer.core_selling_line" class="d-textarea" rows="3"></textarea>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveEdit({ core_selling_line: buffer.core_selling_line })">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <p v-else class="d-hero-text">{{ dossier.core_selling_line || '（未提炼）' }}</p>
+          <div class="d-meta-row">
+            <span v-if="dossier.genre" class="d-chip">{{ dossier.genre }}</span>
+            <span v-if="dossier.audience" class="d-chip">{{ dossier.audience }}</span>
+            <span v-if="dossier.platform_mode" class="d-chip">{{ dossier.platform_mode }}</span>
+          </div>
+        </section>
 
-        <!-- 分阶段清单：步骤按经验节奏逐步推进 / 打勾 -->
-        <ul class="max-w-md mx-auto text-left space-y-2.5 mt-2">
-          <li
-            v-for="(stage, i) in STAGES"
-            :key="i"
-            class="flex items-center gap-3 text-sm transition-colors duration-300"
-            :class="i < currentStageIndex ? 'text-gray-700' : i === currentStageIndex ? 'text-indigo-600 font-medium' : 'text-gray-400'"
-          >
-            <span class="flex-shrink-0 w-5 h-5 flex items-center justify-center">
-              <!-- 已完成：打勾 -->
-              <svg v-if="i < currentStageIndex" class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-              </svg>
-              <!-- 进行中：脉冲点 -->
-              <span v-else-if="i === currentStageIndex" class="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
-              <!-- 待进行：灰点 -->
-              <span v-else class="w-2 h-2 rounded-full bg-gray-300"></span>
-            </span>
-            <span>{{ stage }}</span>
-          </li>
-        </ul>
+        <!-- 主角三件套 -->
+        <section class="d-block">
+          <div class="d-block-head">
+            <span class="d-block-tag">主角三件套</span>
+            <button class="d-edit-btn" @click="startEdit('protagonist')">{{ editing === 'protagonist' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'protagonist'">
+            <div v-for="f in PROTAGONIST_FIELDS" :key="f.key" class="d-field-edit">
+              <label>{{ f.label }}</label>
+              <textarea v-model="buffer[f.key]" class="d-textarea" rows="2"></textarea>
+            </div>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveProtagonist">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <dl v-else class="d-kv">
+            <template v-for="f in PROTAGONIST_FIELDS" :key="f.key">
+              <div v-if="protagonistValue(f.key)" class="d-kv-row">
+                <dt>{{ f.label }}</dt>
+                <dd>{{ protagonistValue(f.key) }}</dd>
+              </div>
+            </template>
+          </dl>
+        </section>
 
-        <!-- 进度条：按已进入的阶段推进 -->
-        <div class="w-full max-w-md mx-auto">
-          <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-            <div
-              class="h-2 rounded-full transition-all duration-700 ease-out relative"
-              :class="progress >= 100 ? 'bg-gradient-to-r from-green-500 to-emerald-600' : 'bg-gradient-to-r from-indigo-500 to-purple-600'"
-              :style="{ width: `${progress}%` }"
-            >
-              <!-- 闪光效果 -->
-              <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-30 animate-shimmer"></div>
+        <!-- 冲突与矛盾发动机 -->
+        <section class="d-block">
+          <div class="d-block-head">
+            <span class="d-block-tag">核心冲突与矛盾发动机</span>
+            <button class="d-edit-btn" @click="startEdit('conflict')">{{ editing === 'conflict' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'conflict'">
+            <div class="d-field-edit"><label>核心冲突</label><textarea v-model="buffer.core_conflict" class="d-textarea" rows="2"></textarea></div>
+            <div class="d-field-edit"><label>矛盾发动机（冲突为什么打不完）</label><textarea v-model="buffer.conflict_engine" class="d-textarea" rows="3"></textarea></div>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveEdit({ core_conflict: buffer.core_conflict, conflict_engine: buffer.conflict_engine })">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <dl v-else class="d-kv">
+            <div v-if="dossier.core_conflict" class="d-kv-row"><dt>核心冲突</dt><dd>{{ dossier.core_conflict }}</dd></div>
+            <div v-if="dossier.conflict_engine" class="d-kv-row"><dt>矛盾发动机</dt><dd>{{ dossier.conflict_engine }}</dd></div>
+          </dl>
+        </section>
+
+        <!-- 金手指 -->
+        <section v-if="hasGoldenFinger || editing === 'golden'" class="d-block">
+          <div class="d-block-head">
+            <span class="d-block-tag">金手指</span>
+            <button class="d-edit-btn" @click="startEdit('golden')">{{ editing === 'golden' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'golden'">
+            <div v-for="f in GOLDEN_FIELDS" :key="f.key" class="d-field-edit">
+              <label>{{ f.label }}</label>
+              <textarea v-model="buffer[f.key]" class="d-textarea" rows="2"></textarea>
+            </div>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveGolden">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <dl v-else class="d-kv">
+            <template v-for="f in GOLDEN_FIELDS" :key="f.key">
+              <div v-if="goldenValue(f.key)" class="d-kv-row">
+                <dt>{{ f.label }}</dt>
+                <dd>{{ goldenValue(f.key) }}</dd>
+              </div>
+            </template>
+          </dl>
+        </section>
+
+        <!-- 期待感承诺 -->
+        <section class="d-block">
+          <div class="d-block-head">
+            <span class="d-block-tag">期待感承诺</span>
+            <button class="d-edit-btn" @click="startEdit('anticipation')">{{ editing === 'anticipation' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'anticipation'">
+            <div v-for="f in ANTICIPATION_FIELDS" :key="f.key" class="d-field-edit">
+              <label>{{ f.label }}</label>
+              <textarea v-model="buffer[f.key]" class="d-textarea" rows="2"></textarea>
+            </div>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveAnticipation">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <dl v-else class="d-kv">
+            <template v-for="f in ANTICIPATION_FIELDS" :key="f.key">
+              <div v-if="anticipationValue(f.key)" class="d-kv-row">
+                <dt>{{ f.label }}</dt>
+                <dd>{{ anticipationValue(f.key) }}</dd>
+              </div>
+            </template>
+          </dl>
+        </section>
+
+        <!-- 爽点链 -->
+        <section v-if="(dossier.coolpoint_chain || []).length || editing === 'coolpoints'" class="d-block">
+          <div class="d-block-head">
+            <span class="d-block-tag">爽点链</span>
+            <button class="d-edit-btn" @click="startEdit('coolpoints')">{{ editing === 'coolpoints' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'coolpoints'">
+            <p class="d-edit-hint">一行一个爽点</p>
+            <textarea v-model="buffer.coolpoint_chain" class="d-textarea" rows="6"></textarea>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveCoolpoints">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <ol v-else class="d-coolpoints">
+            <li v-for="(cp, i) in dossier.coolpoint_chain" :key="i">{{ cp }}</li>
+          </ol>
+        </section>
+
+        <!-- 书名候选 -->
+        <section v-if="(dossier.title_candidates || []).length" class="d-block">
+          <div class="d-block-head"><span class="d-block-tag">书名候选</span></div>
+          <div class="d-meta-row">
+            <span v-for="(t, i) in dossier.title_candidates" :key="i" class="d-chip d-chip-title">{{ t }}</span>
+          </div>
+        </section>
+
+        <!-- ═══ 压力推演报告 ═══ -->
+        <section v-if="stressReport" class="d-block d-block-stress">
+          <div class="d-block-head">
+            <span class="d-block-tag d-tag-stress">压力推演报告</span>
+            <span class="d-verdict" :class="verdictClass(stressReport.overall_verdict)">{{ stressReport.overall_verdict || '已推演' }}</span>
+          </div>
+          <p v-if="stressReport.summary" class="d-stress-summary">{{ stressReport.summary }}</p>
+
+          <div v-if="stressReport.conflict_sustainability" class="d-stress-sub">
+            <p class="d-stress-sub-title">
+              冲突可持续性
+              <span class="d-verdict-mini" :class="verdictClass(stressReport.conflict_sustainability.verdict)">{{ stressReport.conflict_sustainability.verdict }}</span>
+            </p>
+            <ul class="d-stress-list">
+              <li v-if="stressReport.conflict_sustainability.at_50"><b>第 50 章</b>{{ stressReport.conflict_sustainability.at_50 }}</li>
+              <li v-if="stressReport.conflict_sustainability.at_100"><b>第 100 章</b>{{ stressReport.conflict_sustainability.at_100 }}</li>
+              <li v-if="stressReport.conflict_sustainability.at_300"><b>第 300 章</b>{{ stressReport.conflict_sustainability.at_300 }}</li>
+            </ul>
+          </div>
+
+          <div v-if="stressReport.golden_finger_collapse?.verdict" class="d-stress-sub">
+            <p class="d-stress-sub-title">
+              金手指崩坏推演
+              <span class="d-verdict-mini" :class="verdictClass(stressReport.golden_finger_collapse.verdict)">{{ stressReport.golden_finger_collapse.verdict }}</span>
+            </p>
+            <p class="d-stress-text">
+              <template v-if="(stressReport.golden_finger_collapse.stall_chapter || 0) > 0">预测失速章：第 {{ stressReport.golden_finger_collapse.stall_chapter }} 章。</template>
+              {{ stressReport.golden_finger_collapse.stall_reason || stressReport.golden_finger_collapse.analysis }}
+            </p>
+          </div>
+
+          <div v-if="(stressReport.toxic_points || []).length" class="d-stress-sub">
+            <p class="d-stress-sub-title">毒点扫描（{{ stressReport.toxic_points!.length }} 项）</p>
+            <div v-for="(tp, i) in stressReport.toxic_points" :key="i" class="d-toxic" :class="severityClass(tp.severity)">
+              <div class="d-toxic-head">
+                <span class="d-toxic-severity">{{ tp.severity || '低危' }}</span>
+                <span class="d-toxic-issue">{{ tp.issue }}</span>
+              </div>
+              <p v-if="tp.reason" class="d-toxic-reason">{{ tp.reason }}</p>
+              <p v-if="tp.fix_suggestion" class="d-toxic-fix">修复建议：{{ tp.fix_suggestion }}</p>
             </div>
           </div>
-        </div>
-
-        <!-- 诚实提示：步骤为预估节奏，已用时为真实计时 -->
-        <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md mx-auto">
-          <p class="text-sm text-blue-800 flex items-start gap-2 text-left">
-            <svg class="w-4 h-4 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
-            </svg>
-            <span>蓝图为一次成型，上方步骤为预估节奏、已用时为真实计时。复杂设定可能需要数分钟，请耐心等待…</span>
-          </p>
-        </div>
+        </section>
       </div>
-    </div>
 
-    <!-- 操作按钮 -->
-    <div v-else class="text-center space-x-4">
-      <button
-        @click="$emit('back')"
-        class="bg-gray-200 text-gray-700 font-bold py-3 px-8 rounded-full hover:bg-gray-300 transition-all duration-300 transform hover:scale-105"
-      >
-        返回对话
-      </button>
-      <button
-        @click="generateBlueprint"
-        :disabled="isGenerating"
-        class="bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-bold py-3 px-8 rounded-full hover:from-indigo-600 hover:to-purple-700 transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-      >
-        <span class="flex items-center justify-center">
-          <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
-          </svg>
-          开始创建蓝图
-        </span>
-      </button>
-    </div>
+      <!-- ═══ 三动作 ═══ -->
+      <div class="dossier-actions">
+        <button class="act-btn act-secondary" @click="$emit('back')">返回对话</button>
+        <button
+          v-if="hasFixSuggestions"
+          class="act-btn act-fix"
+          :disabled="applyingFixes"
+          @click="applyFixes"
+        >
+          {{ applyingFixes ? '修订中…' : '采纳修复建议' }}
+        </button>
+        <button class="act-btn act-primary" :disabled="isGenerating" @click="generateBlueprint">
+          生成蓝图
+        </button>
+      </div>
+    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted, inject } from 'vue'
-import { marked } from 'marked'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useNovelStore } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
-
-// 配置 marked
-marked.setOptions({
-  gfm: true,           // 启用 GitHub 风格语法
-  breaks: true         // 将单个换行视为 <br>
-})
+import { NovelAPI, type ConceptDossier, type DossierResponse, type StressReport } from '@/api/novel'
 
 interface Props {
   aiMessage: string
+  projectId: string
 }
 
 const props = defineProps<Props>()
@@ -163,218 +285,396 @@ const emit = defineEmits<{
 }>()
 
 const novelStore = useNovelStore()
-const isGenerating = ref(false)
-const isDone = ref(false)
-const timeElapsed = ref(0)   // 真实已用秒数（基于开始时间戳计算，非估算）
 
-// 蓝图为一次成型的单次大模型调用，中途无真实子阶段；下列步骤按经验节奏推进，
-// 给用户「正在逐步成型」的可信反馈，而「已用时」为真实计时。
-const STAGES = [
-  '分析故事结构',
-  '构建角色关系网络',
-  '生成情节发展脉络',
-  '完善世界观设定',
-  '优化章节安排',
-  '润色蓝图细节',
-]
-const STAGE_AT = [0, 12, 28, 48, 70, 95]  // 各阶段预估开始秒数
+// ── 立项书状态 ──
+const dossierResp = ref<DossierResponse | null>(null)
+const dossierLoading = ref(false)
+const dossierElapsed = ref(0)
+const dossier = computed<ConceptDossier | null>(() => dossierResp.value?.dossier ?? null)
+const stressReport = computed<StressReport | null>(() => dossierResp.value?.stress_report ?? null)
 
-let progressTimer: ReturnType<typeof setInterval> | null = null
-let startTs = 0
+const hasGoldenFinger = computed(() => !!(dossier.value?.golden_finger?.name || '').trim())
+const hasFixSuggestions = computed(() =>
+  (stressReport.value?.toxic_points || []).some((tp) => (tp.fix_suggestion || '').trim())
+)
 
-// 渲染 Markdown
-const renderedAiMessage = computed(() => {
-  return marked.parse(props.aiMessage)
-})
+const PROTAGONIST_FIELDS = [
+  { key: 'name', label: '主角' },
+  { key: 'identity', label: '身份处境' },
+  { key: 'desire', label: '欲望' },
+  { key: 'flaw', label: '缺陷' },
+  { key: 'predicament', label: '困境' },
+  { key: 'charm_point', label: '代入点' }
+] as const
 
-// 当前进行到第几个阶段（完成后等于 STAGES.length，即全部打勾）
-const currentStageIndex = computed(() => {
-  if (isDone.value) return STAGES.length
+const GOLDEN_FIELDS = [
+  { key: 'name', label: '名称' },
+  { key: 'source', label: '来源' },
+  { key: 'mechanism', label: '机制' },
+  { key: 'limitations', label: '限制与代价' },
+  { key: 'growth_curve', label: '成长曲线' }
+] as const
+
+const ANTICIPATION_FIELDS = [
+  { key: 'ten_chapters', label: '前 10 章' },
+  { key: 'fifty_chapters', label: '前 50 章' },
+  { key: 'long_term', label: '长线' }
+] as const
+
+const protagonistValue = (key: string) => (dossier.value?.protagonist as any)?.[key] || ''
+const goldenValue = (key: string) => (dossier.value?.golden_finger as any)?.[key] || ''
+const anticipationValue = (key: string) => (dossier.value?.anticipation as any)?.[key] || ''
+
+// ── 加载阶段（真实计时，阶段为预估节奏）──
+const DOSSIER_STAGES = ['整理对话共识', '提炼卖点与主角三件套', '构建矛盾发动机与爽点链', '压力推演与毒点扫描', '整理推演报告']
+const DOSSIER_STAGE_AT = [0, 10, 22, 40, 70]
+const dossierStageIndex = computed(() => {
   let idx = 0
-  for (let i = 0; i < STAGE_AT.length; i++) {
-    if (timeElapsed.value >= STAGE_AT[i]) idx = i
+  for (let i = 0; i < DOSSIER_STAGE_AT.length; i++) {
+    if (dossierElapsed.value >= DOSSIER_STAGE_AT[i]) idx = i
   }
   return idx
 })
+const dossierStageText = computed(() => `${DOSSIER_STAGES[dossierStageIndex.value]}…`)
 
-// 进度条：按已进入的阶段推进，未完成时封顶 92%，真正完成才到 100%
-const progress = computed(() => {
-  if (isDone.value) return 100
-  return Math.min(92, ((currentStageIndex.value + 1) / STAGES.length) * 92)
+// ── 蓝图生成阶段 ──
+const GEN_STAGES = [
+  '生成世界观与角色设定',
+  '规划分卷与伏笔',
+  '分批生成章纲与章级规划',
+  '商业量表审稿',
+  '定向修订与复审',
+  '落库与宪法播种'
+]
+const GEN_STAGE_AT = [0, 30, 60, 150, 210, 280]
+const isGenerating = ref(false)
+const genDone = ref(false)
+const genElapsed = ref(0)
+const genStageIndex = computed(() => {
+  if (genDone.value) return GEN_STAGES.length
+  let idx = 0
+  for (let i = 0; i < GEN_STAGE_AT.length; i++) {
+    if (genElapsed.value >= GEN_STAGE_AT[i]) idx = i
+  }
+  return idx
 })
-
-// 真实已用时间 MM:SS
-const elapsedLabel = computed(() => {
-  const s = Math.floor(timeElapsed.value)
-  const m = Math.floor(s / 60)
-  return `${m}:${String(s % 60).padStart(2, '0')}`
-})
-
-// 动态加载文本：当前阶段名；长时间停在末阶段时切到「深度打磨」提示
-const loadingText = computed(() => {
-  if (isDone.value) return '生成完成！正在准备展示…'
-  const idx = currentStageIndex.value
-  if (idx >= STAGES.length - 1 && timeElapsed.value > STAGE_AT[STAGE_AT.length - 1] + 25) {
+const genStageText = computed(() => {
+  if (genDone.value) return '生成完成！正在准备展示…'
+  if (genStageIndex.value >= GEN_STAGES.length - 1 && genElapsed.value > GEN_STAGE_AT[GEN_STAGE_AT.length - 1] + 60) {
     return 'AI 正在深度打磨蓝图，复杂设定需要更多时间…'
   }
-  return `${STAGES[Math.min(idx, STAGES.length - 1)]}…`
+  return `${GEN_STAGES[Math.min(genStageIndex.value, GEN_STAGES.length - 1)]}…`
+})
+const genProgress = computed(() => {
+  if (genDone.value) return 100
+  return Math.min(92, ((genStageIndex.value + 1) / GEN_STAGES.length) * 92)
 })
 
+let dossierTimer: ReturnType<typeof setInterval> | null = null
+let genTimer: ReturnType<typeof setInterval> | null = null
+
+const elapsedLabel = (seconds: number) => {
+  const s = Math.floor(seconds)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+// ── 立项书拉取 ──
+const loadDossier = async () => {
+  dossierLoading.value = true
+  dossierElapsed.value = 0
+  const start = Date.now()
+  dossierTimer = setInterval(() => {
+    dossierElapsed.value = (Date.now() - start) / 1000
+  }, 250)
+  try {
+    dossierResp.value = await NovelAPI.getConceptDossier(props.projectId)
+  } catch (error) {
+    console.error('拉取立项书失败:', error)
+    dossierResp.value = null
+  } finally {
+    if (dossierTimer) {
+      clearInterval(dossierTimer)
+      dossierTimer = null
+    }
+    dossierLoading.value = false
+  }
+}
+
+// ── 分块编辑 ──
+const editing = ref<string | null>(null)
+const saving = ref(false)
+const buffer = ref<Record<string, string>>({})
+
+const startEdit = (block: string) => {
+  if (editing.value === block) {
+    editing.value = null
+    return
+  }
+  const d = dossier.value || {}
+  const next: Record<string, string> = {}
+  if (block === 'selling') next.core_selling_line = d.core_selling_line || ''
+  if (block === 'protagonist') PROTAGONIST_FIELDS.forEach((f) => (next[f.key] = protagonistValue(f.key)))
+  if (block === 'conflict') {
+    next.core_conflict = d.core_conflict || ''
+    next.conflict_engine = d.conflict_engine || ''
+  }
+  if (block === 'golden') GOLDEN_FIELDS.forEach((f) => (next[f.key] = goldenValue(f.key)))
+  if (block === 'anticipation') ANTICIPATION_FIELDS.forEach((f) => (next[f.key] = anticipationValue(f.key)))
+  if (block === 'coolpoints') next.coolpoint_chain = (d.coolpoint_chain || []).join('\n')
+  buffer.value = next
+  editing.value = block
+}
+
+const saveEdit = async (partial: Record<string, any>) => {
+  saving.value = true
+  try {
+    const resp = await NovelAPI.patchConceptDossier(props.projectId, partial)
+    if (dossierResp.value) dossierResp.value.dossier = resp.dossier
+    editing.value = null
+  } catch (error) {
+    globalAlert.showError(`保存失败: ${error instanceof Error ? error.message : '请稍后重试'}`, '立项书')
+  } finally {
+    saving.value = false
+  }
+}
+
+const saveProtagonist = () =>
+  saveEdit({ protagonist: Object.fromEntries(PROTAGONIST_FIELDS.map((f) => [f.key, buffer.value[f.key] || ''])) })
+const saveGolden = () =>
+  saveEdit({ golden_finger: Object.fromEntries(GOLDEN_FIELDS.map((f) => [f.key, buffer.value[f.key] || ''])) })
+const saveAnticipation = () =>
+  saveEdit({ anticipation: Object.fromEntries(ANTICIPATION_FIELDS.map((f) => [f.key, buffer.value[f.key] || ''])) })
+const saveCoolpoints = () =>
+  saveEdit({
+    coolpoint_chain: (buffer.value.coolpoint_chain || '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  })
+
+// ── 采纳修复建议 ──
+const applyingFixes = ref(false)
+const applyFixes = async () => {
+  applyingFixes.value = true
+  try {
+    const resp = await NovelAPI.applyDossierFixes(props.projectId)
+    if (dossierResp.value) {
+      dossierResp.value.dossier = resp.dossier
+      dossierResp.value.stress_report = resp.stress_report
+    }
+    globalAlert.showSuccess('修复建议已应用到立项书，可再次检查后生成蓝图。', '立项书已修订')
+  } catch (error) {
+    globalAlert.showError(
+      `采纳修复失败: ${error instanceof Error ? error.message : '请稍后重试'}`,
+      '立项书'
+    )
+  } finally {
+    applyingFixes.value = false
+  }
+}
+
+// ── 生成蓝图（沿用 store 的异步任务优先链路）──
 const generateBlueprint = async () => {
   isGenerating.value = true
-  isDone.value = false
-  timeElapsed.value = 0
-  startTs = Date.now()
-
-  // 真实计时：按开始时间戳推进「已用时」，驱动阶段清单逐步打勾与进度条推进
-  progressTimer = setInterval(() => {
-    timeElapsed.value = (Date.now() - startTs) / 1000
-  }, 200)
-
-  // 超时由 API 层 AbortController 处理，此处不再设独立 setTimeout
-
+  genDone.value = false
+  genElapsed.value = 0
+  const start = Date.now()
+  genTimer = setInterval(() => {
+    genElapsed.value = (Date.now() - start) / 1000
+  }, 250)
   try {
-    // 直接调用store中的API
-    console.log('开始调用generateBlueprint API...')
     const response = await novelStore.generateBlueprint()
-    console.log('API调用成功，收到响应:', response)
-
-    // 成功：停表并标记完成（全部阶段打勾、进度到 100%）
-    if (progressTimer) {
-      clearInterval(progressTimer)
-      progressTimer = null
+    if (genTimer) {
+      clearInterval(genTimer)
+      genTimer = null
     }
-    isDone.value = true
-
-    // 等待一下让用户看到100%完成状态，然后再切换界面
-    await new Promise(resolve => setTimeout(resolve, 800))
-
-    // 清理并重置状态
-    clearTimers()
+    genDone.value = true
+    await new Promise((resolve) => setTimeout(resolve, 800))
     isGenerating.value = false
-    isDone.value = false
-
-    // 通知父组件生成完成
+    genDone.value = false
     emit('blueprintGenerated', response)
-
   } catch (error) {
     console.error('生成蓝图失败:', error)
-    clearTimers()
+    if (genTimer) {
+      clearInterval(genTimer)
+      genTimer = null
+    }
     isGenerating.value = false
-    isDone.value = false
+    genDone.value = false
     // 蓝图生成不计费，billed:false 让文案不提「积分已退回」
     const human = humanizeGenerationError(
       error instanceof Error ? error.message : '未知错误',
-      { billed: false },
+      { billed: false }
     )
     globalAlert.showError(human.message, human.title)
   }
 }
 
-const clearTimers = () => {
-  if (progressTimer) {
-    clearInterval(progressTimer)
-    progressTimer = null
-  }
+// ── 判定/毒点配色 ──
+const verdictClass = (verdict?: string) => {
+  const v = verdict || ''
+  if (/(供血不足|必然崩坏|高危|重构)/.test(v)) return 'v-bad'
+  if (/(勉强|隐患|修订)/.test(v)) return 'v-warn'
+  if (/(充足|健康|可开工)/.test(v)) return 'v-good'
+  return 'v-neutral'
+}
+const severityClass = (severity?: string) => {
+  const s = severity || ''
+  if (s.includes('高')) return 'toxic-high'
+  if (s.includes('中')) return 'toxic-mid'
+  return 'toxic-low'
 }
 
+onMounted(loadDossier)
 onUnmounted(() => {
-  clearTimers()
+  if (dossierTimer) clearInterval(dossierTimer)
+  if (genTimer) clearInterval(genTimer)
 })
 </script>
 
 <style scoped>
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
+.dossier-shell {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 16px;
+  padding: 28px;
+  color: #e5e5e5;
+  animation: dossierFadeIn 0.5s ease-out;
+}
+@keyframes dossierFadeIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.animate-shimmer {
-  animation: shimmer 2s infinite;
+.dossier-head { text-align: center; margin-bottom: 22px; }
+.dossier-title { font-size: 22px; font-weight: 700; color: #fff; }
+.dossier-sub { margin-top: 8px; font-size: 13px; color: #888; line-height: 1.6; }
+
+/* ── 加载 ── */
+.dossier-loading { text-align: center; padding: 36px 0; }
+.loading-ring-wrap { position: relative; width: 64px; height: 64px; margin: 0 auto 18px; }
+.loading-ring {
+  position: absolute; inset: 0; border-radius: 50%;
+  border: 3px solid #2a2a2a; border-top-color: #ffe500;
+  animation: spin 1s linear infinite;
+}
+.loading-ring.ring-done { border-color: #4ade80; animation: none; }
+.loading-core {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: #ffe500; font-size: 20px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-title { font-size: 16px; font-weight: 600; color: #fff; }
+.loading-sub { margin-top: 6px; font-size: 12px; color: #888; }
+.loading-stages { max-width: 320px; margin: 18px auto 0; text-align: left; display: flex; flex-direction: column; gap: 8px; }
+.loading-stages li { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.st-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.st-done { color: #aaa; }
+.st-done .st-dot { background: #4ade80; }
+.st-active { color: #ffe500; font-weight: 500; }
+.st-active .st-dot { background: #ffe500; animation: pulse 1.2s ease-in-out infinite; }
+.st-wait { color: #555; }
+.st-wait .st-dot { background: #333; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.loading-bar { max-width: 320px; height: 4px; margin: 18px auto 0; background: #2a2a2a; border-radius: 2px; overflow: hidden; }
+.loading-bar-fill { height: 100%; background: linear-gradient(90deg, #ffe500, #ffb800); border-radius: 2px; transition: width 0.7s ease-out; }
+.loading-hint { margin-top: 14px; font-size: 12px; color: #666; }
+
+/* ── 降级 ── */
+.dossier-absent { text-align: center; padding: 20px 0 8px; }
+.absent-title { font-size: 15px; font-weight: 600; color: #fff; }
+.absent-sub { margin-top: 10px; font-size: 13px; color: #aaa; line-height: 1.7; white-space: pre-wrap; }
+.absent-hint { margin-top: 10px; font-size: 12px; color: #666; }
+
+/* ── 分块 ── */
+.dossier-body { display: flex; flex-direction: column; gap: 14px; }
+.d-block { background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px 18px; }
+.d-block-hero { border-color: rgba(255, 229, 0, 0.25); }
+.d-block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.d-block-tag { font-size: 12px; font-weight: 600; color: #ffe500; letter-spacing: 0.05em; }
+.d-tag-stress { color: #ff9f43; }
+.d-edit-btn {
+  font-size: 12px; color: #888; background: none; border: 1px solid #333;
+  border-radius: 6px; padding: 2px 10px; cursor: pointer; transition: all 0.2s;
+}
+.d-edit-btn:hover { color: #ffe500; border-color: #ffe500; }
+.d-hero-text { font-size: 15px; line-height: 1.7; color: #fff; }
+.d-meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.d-chip {
+  font-size: 12px; color: #ccc; background: #2a2a2a; border-radius: 999px; padding: 3px 12px;
+}
+.d-chip-title { color: #ffe500; background: rgba(255, 229, 0, 0.08); }
+.d-kv { display: flex; flex-direction: column; gap: 8px; }
+.d-kv-row { display: flex; gap: 12px; font-size: 13px; line-height: 1.65; }
+.d-kv-row dt { flex-shrink: 0; width: 76px; color: #888; }
+.d-kv-row dd { color: #ddd; }
+.d-coolpoints { list-style: none; counter-reset: cp; display: flex; flex-direction: column; gap: 8px; }
+.d-coolpoints li {
+  counter-increment: cp; font-size: 13px; color: #ddd; line-height: 1.6;
+  padding-left: 30px; position: relative;
+}
+.d-coolpoints li::before {
+  content: counter(cp); position: absolute; left: 0; top: 1px;
+  width: 20px; height: 20px; border-radius: 6px; background: rgba(255, 229, 0, 0.1);
+  color: #ffe500; font-size: 11px; display: flex; align-items: center; justify-content: center;
 }
 
-/* 自定义动画增强 */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* ── 编辑态 ── */
+.d-textarea {
+  width: 100%; background: #0a0a0a; border: 1px solid #333; border-radius: 8px;
+  color: #e5e5e5; font-size: 13px; line-height: 1.6; padding: 10px 12px; resize: vertical;
 }
+.d-textarea:focus { outline: none; border-color: #ffe500; }
+.d-field-edit { margin-bottom: 10px; }
+.d-field-edit label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
+.d-edit-hint { font-size: 12px; color: #666; margin-bottom: 6px; }
+.d-edit-actions { margin-top: 10px; text-align: right; }
+.d-save-btn {
+  font-size: 13px; font-weight: 600; color: #0a0a0a; background: #ffe500;
+  border: none; border-radius: 8px; padding: 6px 18px; cursor: pointer;
+}
+.d-save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.fade-in {
-  animation: fadeIn 0.6s ease-out;
-}
+/* ── 推演报告 ── */
+.d-block-stress { border-color: rgba(255, 159, 67, 0.3); }
+.d-verdict { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 12px; }
+.d-verdict-mini { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; margin-left: 8px; }
+.v-good { color: #4ade80; background: rgba(74, 222, 128, 0.1); }
+.v-warn { color: #ffb800; background: rgba(255, 184, 0, 0.1); }
+.v-bad { color: #ff6b6b; background: rgba(255, 107, 107, 0.12); }
+.v-neutral { color: #aaa; background: #2a2a2a; }
+.d-stress-summary { font-size: 13px; color: #ccc; line-height: 1.7; margin-bottom: 12px; }
+.d-stress-sub { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #2a2a2a; }
+.d-stress-sub-title { font-size: 13px; font-weight: 600; color: #eee; margin-bottom: 8px; }
+.d-stress-list { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #bbb; line-height: 1.6; }
+.d-stress-list b { color: #ffe500; font-weight: 600; margin-right: 8px; }
+.d-stress-text { font-size: 13px; color: #bbb; line-height: 1.6; }
+.d-toxic { border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; border: 1px solid; }
+.toxic-high { border-color: rgba(255, 107, 107, 0.4); background: rgba(255, 107, 107, 0.06); }
+.toxic-mid { border-color: rgba(255, 184, 0, 0.35); background: rgba(255, 184, 0, 0.05); }
+.toxic-low { border-color: #2a2a2a; background: #181818; }
+.d-toxic-head { display: flex; align-items: center; gap: 10px; }
+.d-toxic-severity { font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 7px; flex-shrink: 0; }
+.toxic-high .d-toxic-severity { color: #ff6b6b; background: rgba(255, 107, 107, 0.15); }
+.toxic-mid .d-toxic-severity { color: #ffb800; background: rgba(255, 184, 0, 0.12); }
+.toxic-low .d-toxic-severity { color: #888; background: #2a2a2a; }
+.d-toxic-issue { font-size: 13px; font-weight: 600; color: #eee; }
+.d-toxic-reason { margin-top: 6px; font-size: 12px; color: #999; line-height: 1.6; }
+.d-toxic-fix { margin-top: 4px; font-size: 12px; color: #7dd3a8; line-height: 1.6; }
 
-/* 按钮悬停效果增强 */
-.transform {
-  transition: transform 0.2s ease-in-out;
+/* ── 动作 ── */
+.dossier-actions {
+  display: flex; justify-content: center; gap: 12px; margin-top: 22px; flex-wrap: wrap;
 }
-
-.hover\:scale-105:hover {
-  transform: scale(1.05);
+.act-btn {
+  font-size: 14px; font-weight: 600; border-radius: 999px; padding: 10px 28px;
+  cursor: pointer; border: none; transition: all 0.25s;
 }
-
-/* 禁用状态样式 */
-.disabled\:transform-none:disabled {
-  transform: none !important;
-}
-
-/* Markdown 内容样式优化 */
-.prose {
-  text-align: left;
-}
-
-.prose strong {
-  color: #374151;
-  font-weight: 700;
-}
-
-.prose em {
-  color: #4b5563;
-  font-style: italic;
-}
-
-.prose p {
-  margin-bottom: 0.75rem;
-}
-
-.prose p:last-child {
-  margin-bottom: 0;
-}
-
-.prose a {
-  color: #6366f1;
-  text-decoration: none;
-  transition: color 0.2s;
-}
-
-.prose a:hover {
-  color: #4f46e5;
-  text-decoration: underline;
-}
-
-.prose code {
-  background-color: #f3f4f6;
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  font-size: 0.875em;
-  color: #1f2937;
-}
-
-.prose ul, .prose ol {
-  margin-left: 1.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.prose li {
-  margin-bottom: 0.25rem;
-}
+.act-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.act-secondary { color: #ccc; background: #2a2a2a; }
+.act-secondary:hover { background: #333; }
+.act-fix { color: #ffb800; background: rgba(255, 184, 0, 0.1); border: 1px solid rgba(255, 184, 0, 0.35); }
+.act-fix:hover:not(:disabled) { background: rgba(255, 184, 0, 0.18); }
+.act-primary { color: #0a0a0a; background: linear-gradient(135deg, #ffe500, #ffb800); }
+.act-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(255, 229, 0, 0.25); }
 </style>
