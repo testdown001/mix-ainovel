@@ -138,6 +138,18 @@
 
         <div v-if="!isAdmin" class="flex-shrink-0 pb-2 flex items-center gap-2">
           <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all border hover:opacity-90"
+            style="border-color: #2A2A2A; color: #fff; background: transparent;"
+            :disabled="exportBusy"
+            @click="exportBook('txt')">
+            {{ exportBusy ? '导出中…' : '导出全书' }}
+          </button>
+          <button class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all border hover:opacity-90"
+            style="border-color: #2A2A2A; color: #fff; background: transparent;"
+            :disabled="exportBusy"
+            @click="exportBook('docx')">
+            DOCX
+          </button>
+          <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all border hover:opacity-90"
             :style="shareEnabled
               ? 'border-color: #FFE500; color: #FFE500; background: rgba(255,229,0,0.08);'
               : 'border-color: #2A2A2A; color: #fff; background: transparent;'"
@@ -408,6 +420,20 @@ const newChapterTitle = ref('')
 const newChapterSummary = ref('')
 
 // ==================== 公开分享 ====================
+
+const exportBusy = ref(false)
+
+const exportBook = async (format: 'txt' | 'docx') => {
+  if (!projectId || exportBusy.value) return
+  exportBusy.value = true
+  try {
+    await NovelAPI.exportManuscript(projectId, format)
+  } catch (err) {
+    console.error(err)
+  } finally {
+    exportBusy.value = false
+  }
+}
 
 const shareEnabled = ref(false)
 const shareToken = ref<string | null>(null)

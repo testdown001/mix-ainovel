@@ -1194,10 +1194,14 @@ class NovelService:
                 content=text_content,
                 metadata=extra,  # ✅ 落盘 metadata
                 version_label=f"v{index+1}",
+                ai_assisted=True,
             )
             self.session.add(version)
             versions.append(version)
         chapter.status = ChapterGenerationStatus.WAITING_FOR_CONFIRM.value
+        project = await self.session.get(NovelProject, chapter.project_id)
+        if project is not None:
+            project.ai_assisted = True
         await self.session.commit()
         await self.session.refresh(chapter)
         await self._touch_project(chapter.project_id)

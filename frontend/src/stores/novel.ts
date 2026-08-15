@@ -362,7 +362,7 @@ export const useNovelStore = defineStore('novel', () => {
         currentProject.value.id,
         chapterOutline
       )
-      currentProject.value = updatedProject // 更新 store
+      setCurrentProject(updatedProject)
     } catch (err) {
       error.value = err instanceof Error ? err.message : '更新章节大纲失败'
       throw err

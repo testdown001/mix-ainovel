@@ -31,7 +31,41 @@ export interface PersonaPayload {
   extra?: Record<string, any>
 }
 
+export interface ConstitutionPayload {
+  core_theme?: string
+  genre?: string
+  core_conflict?: string
+  story_direction?: string
+  core_values?: string
+  pov_type?: string
+  pov_character?: string
+  pov_restrictions?: string
+  language_style?: string
+  overall_tone?: string
+  world_type?: string
+  power_system?: string
+  world_rules?: Record<string, unknown> | string
+  forbidden_content?: string[] | string
+  [key: string]: unknown
+}
+
 export class ProjectAPI {
+  static async getConstitution(
+    projectId: string,
+  ): Promise<{ project_id: string; constitution: ConstitutionPayload | null }> {
+    return requestJson(`${PROJECT_PREFIX}/${projectId}/constitution`)
+  }
+
+  static async updateConstitution(
+    projectId: string,
+    payload: ConstitutionPayload,
+  ): Promise<{ project_id: string; constitution: ConstitutionPayload }> {
+    return requestJson(`${PROJECT_PREFIX}/${projectId}/constitution`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  }
+
   static async getPersona(projectId: string): Promise<{ project_id: string, persona: PersonaPayload | null }> {
     return requestJson(`${PROJECT_PREFIX}/${projectId}/persona`)
   }

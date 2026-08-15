@@ -85,7 +85,7 @@ const features = [
     icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>`,
     title: '自创先进多 Agent 架构',
     subtitle: '为长篇网文定制的协作引擎',
-    desc: '规划、生成、审核、记忆与技能模块协同工作，从章节目标到成稿质量全链路把关，让每章创作都达到发布水准。',
+    desc: '立项书锁定设定 → 章节草稿 → 体检与返工建议 → 你来定稿。质量门控帮你守住长篇，拍板权始终在你。',
     color: '#FFE500',
   },
   {
@@ -127,8 +127,8 @@ const features = [
 
 const steps = [
   { num: '01', title: '创建你的小说项目', desc: '填写书名、类型与核心设定，AI帮你拓展世界观与角色体系', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>` },
-  { num: '02', title: '激活多 Agent 协作', desc: '规划智能体分析章节目标，生成、审核、记忆模块协同完成高质量草稿', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>` },
-  { num: '03', title: '审核与完善章节', desc: '质量审核智能体自动评估，你只需确认并微调，章节即可达到发布水准', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>` },
+  { num: '02', title: '锁定设定再起草', desc: '多模块协作出草稿；定稿权与改写始终在你，系统负责锁住人设与节奏', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>` },
+  { num: '03', title: '审核与定稿', desc: '质量审核给出分数和返工建议，你确认、改写、拍板，章节才算出手', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>` },
   { num: '04', title: '持续积累，完成大作', desc: '每日高效产出，伏笔追踪确保故事无漏，朝百万字长篇迈进', icon: `<path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>` },
 ]
 
@@ -230,7 +230,7 @@ const stats = [
         <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border mb-8 text-xs font-medium"
           style="background:#141400; border-color:#FFE50030; color:var(--md-primary);">
           <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style="background:var(--md-primary);"></span>
-          自创先进多 Agent 架构 · AI 驱动的中国网络小说创作平台
+          缪斯立项 · 设定锁 · 你来定稿的长篇创作工作流
         </div>
 
         <!-- Headline -->
@@ -241,8 +241,8 @@ const stats = [
 
         <!-- Subheadline -->
         <p class="text-lg mb-10 max-w-2xl mx-auto" style="color:var(--md-on-surface-variant); line-height:1.7;">
-          Octopus AI Novel 用我们自创的先进多 Agent 架构，帮你突破创作瓶颈——
-          从灵感到定稿，全流程 AI 加持，让日更 5000 字成为常态。
+          从对话立项到章节定稿：AI 起草，你审阅、改写、拍板。
+          设定锁住之后，长篇才不会在第 80 章改瞳色。
         </p>
 
         <!-- CTAs -->
@@ -540,7 +540,7 @@ const stats = [
           你的第一部百万字<br>长篇，从今天开始
         </h2>
         <p class="text-base mb-10 max-w-md mx-auto" style="color:#666;">
-          加入已有 10,000+ 创作者的 Octopus AI Novel，用 AI 的力量释放你的故事。
+          用缪斯把灵感锁成设定，用你的手完成定稿。
         </p>
         <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
           <button @click="goStart"

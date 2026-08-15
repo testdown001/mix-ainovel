@@ -101,7 +101,8 @@ async def test_public_overview_lists_only_completed_chapters(db_session):
     data = resp.json()
     # 显式白名单：不含 email/user_id/积分/蓝图设定/版本列表
     assert set(data.keys()) == {
-        "title", "description", "author_name", "chapter_count", "chapters", "author_invite_code",
+        "title", "description", "author_name", "chapter_count", "chapters",
+        "author_invite_code", "ai_assisted",
     }
     assert data["title"] == "测试小说"
     assert data["description"] == "一句话简介"
@@ -129,7 +130,7 @@ async def test_public_chapter_content_and_neighbors(db_session):
 
     assert ch1.status_code == 200
     data1 = ch1.json()
-    assert set(data1.keys()) == {"chapter_number", "title", "content", "prev", "next"}
+    assert set(data1.keys()) == {"chapter_number", "title", "content", "prev", "next", "ai_assisted"}
     assert data1["content"] == "第一章正文内容"
     assert data1["title"] == "初入宗门"
     # prev/next 跳过未完稿的第 2 章

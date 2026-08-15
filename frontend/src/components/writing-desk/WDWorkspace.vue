@@ -23,6 +23,44 @@
             </div>
             <h3 class="md-title-medium md-on-surface mb-1">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
             <p class="md-body-small md-on-surface-variant">{{ selectedChapterOutline?.summary || '暂无章节描述' }}</p>
+            <p v-if="selectedChapterOutline?.metadata?.revision_hint" class="mt-2 text-xs leading-5 px-2 py-1.5 rounded" style="background:rgba(201,162,39,0.12);color:#C9A227;">
+              修订提示：{{ selectedChapterOutline.metadata.revision_hint }}
+            </p>
+            <div v-if="outlineEditing" class="mt-3 space-y-2">
+              <input v-model="outlineDraft.title" class="md-input w-full" placeholder="章标题" />
+              <textarea v-model="outlineDraft.summary" rows="3" class="md-textarea w-full" placeholder="章摘要" />
+              <button class="md-btn md-btn-filled" :disabled="outlineSaving" @click="saveOutlineText">
+                {{ outlineSaving ? '保存中…' : '保存大纲' }}
+              </button>
+            </div>
+            <button v-else class="md-btn md-btn-text !px-2 !py-0 text-xs mt-2" @click="startOutlineEdit">编辑大纲</button>
+
+            <div v-if="selectedChapterOutline" class="mt-3 md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
+              <div class="flex items-center justify-between mb-2">
+                <h4 class="md-label-large font-semibold">本章规划</h4>
+                <button class="md-btn md-btn-text !px-2 !py-0 text-xs" @click="planningEditing = !planningEditing">
+                  {{ planningEditing ? '收起' : '编辑' }}
+                </button>
+              </div>
+              <div v-if="!planningEditing" class="flex flex-wrap gap-1.5">
+                <span v-if="chapterPlanning.chapter_function" class="md-chip !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.chapter_function }}</span>
+                <span v-if="chapterPlanning.hook_type" class="md-chip !text-[10px] !px-1.5 !py-0">钩子 {{ chapterPlanning.hook_type }}</span>
+                <span v-if="chapterPlanning.coolpoint" class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.coolpoint }}</span>
+                <span v-if="!chapterPlanning.chapter_function && !chapterPlanning.coolpoint" class="md-body-small md-on-surface-variant">尚未填写章功能 / 爽点 / 禁写</span>
+              </div>
+              <p v-if="!planningEditing && chapterPlanning.must_not_include?.length" class="md-body-small md-on-surface-variant mt-1">
+                禁写：{{ chapterPlanning.must_not_include.join('、') }}
+              </p>
+              <div v-else-if="planningEditing" class="space-y-2">
+                <input v-model="planningDraft.chapter_function" class="md-input w-full" placeholder="章功能：铺垫 / 爽点 / 转折 / 收束" />
+                <input v-model="planningDraft.hook_type" class="md-input w-full" placeholder="钩子类型" />
+                <input v-model="planningDraft.coolpoint" class="md-input w-full" placeholder="本章爽点" />
+                <textarea v-model="mustNotText" rows="2" class="md-textarea w-full" placeholder="禁写，每行一条" />
+                <button class="md-btn md-btn-filled" :disabled="planningSaving" @click="saveChapterPlanning">
+                  {{ planningSaving ? '保存中…' : '保存规划' }}
+                </button>
+              </div>
+            </div>
 
             <!-- 推演入口（紧凑按钮，仅在头部显示） -->
             <div v-if="canShowPredictionPanel" class="mt-2 flex items-center gap-2">
@@ -99,7 +137,7 @@
               <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingChapter === selectedChapterNumber ? '生成中...' : '重新生成' }}
+              {{ generatingChapter === selectedChapterNumber ? '起草中...' : '重新起草' }}
             </button>
           </div>
         </div>
@@ -253,7 +291,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
-import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction } from '@/api/novel'
+import { useNovelStore } from '@/stores/novel'
+import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction, ChapterPlanning } from '@/api/novel'
 import type { GenerationProgressView } from '@/composables/useGenerationProgress'
 import TemplateSelector from './TemplateSelector.vue'
 
@@ -309,8 +348,77 @@ const emit = defineEmits([
   'toggleCodex'
 ])
 
+const novelStore = useNovelStore()
+const planningEditing = ref(false)
+const planningSaving = ref(false)
+const planningDraft = ref<ChapterPlanning>({})
+const mustNotText = ref('')
+const outlineEditing = ref(false)
+const outlineSaving = ref(false)
+const outlineDraft = ref({ title: '', summary: '' })
+
+const chapterPlanning = computed<ChapterPlanning>(() => selectedChapterOutline.value?.metadata?.planning || {})
+
+watch(
+  () => selectedChapterOutline.value,
+  (outline) => {
+    planningDraft.value = { ...(outline?.metadata?.planning || {}) }
+    mustNotText.value = (outline?.metadata?.planning?.must_not_include || []).join('\n')
+    outlineDraft.value = { title: outline?.title || '', summary: outline?.summary || '' }
+    outlineEditing.value = false
+  },
+  { immediate: true },
+)
+
+function startOutlineEdit() {
+  const outline = selectedChapterOutline.value
+  outlineDraft.value = { title: outline?.title || '', summary: outline?.summary || '' }
+  outlineEditing.value = true
+}
+
+async function saveOutlineText() {
+  const outline = selectedChapterOutline.value
+  if (!outline) return
+  outlineSaving.value = true
+  try {
+    await novelStore.updateChapterOutline({
+      ...outline,
+      title: outlineDraft.value.title.trim() || outline.title,
+      summary: outlineDraft.value.summary.trim() || outline.summary,
+    })
+    outlineEditing.value = false
+    globalAlert.showSuccess('章纲已更新，下次起草会按新摘要走。', '大纲已保存')
+  } catch (err) {
+    globalAlert.showError(err instanceof Error ? err.message : '保存失败', '章纲')
+  } finally {
+    outlineSaving.value = false
+  }
+}
+
+async function saveChapterPlanning() {
+  const outline = selectedChapterOutline.value
+  if (!outline) return
+  planningSaving.value = true
+  try {
+    const planning: ChapterPlanning = {
+      ...planningDraft.value,
+      must_not_include: mustNotText.value.split('\n').map((s) => s.trim()).filter(Boolean),
+    }
+    await novelStore.updateChapterOutline({
+      ...outline,
+      metadata: { ...(outline.metadata || {}), planning },
+    })
+    planningEditing.value = false
+    globalAlert.showSuccess('本章规划已写入，下次起草会作为约束。', '规划已保存')
+  } catch (err) {
+    globalAlert.showError(err instanceof Error ? err.message : '保存失败', '本章规划')
+  } finally {
+    planningSaving.value = false
+  }
+}
+
 const confirmRegenerateChapter = async () => {
-  const confirmed = await globalAlert.showConfirm('重新生成会覆盖当前章节的现有内容，确定继续吗？', '重新生成确认')
+  const confirmed = await globalAlert.showConfirm('重新起草会覆盖当前章节的现有内容，确定继续吗？', '重新起草确认')
   if (confirmed) {
     emit('regenerateChapter')
   }

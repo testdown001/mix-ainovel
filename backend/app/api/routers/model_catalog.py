@@ -81,6 +81,14 @@ async def _polish_price(session: AsyncSession) -> int:
         return _DEFAULT_POLISH_PRICE
 
 
+async def _config_price(session: AsyncSession, key: str, default: int) -> int:
+    rec = await SystemConfigRepository(session).get_by_key(key)
+    try:
+        return max(0, int(rec.value)) if rec and rec.value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
 # ---------------- 前台：按档可用模型 + 我的积分 ----------------
 
 @router.get("/available")
@@ -116,6 +124,11 @@ async def list_available_models(
         "tier": tier,
         "credit": quota_info.get("credit", {}),
         "polish_price": await _polish_price(db),
+        "transform_prices": {
+            "expand": await _config_price(db, "credits.price.transform_expand", 3),
+            "rewrite": await _config_price(db, "credits.price.transform_rewrite", 3),
+            "de_ai": await _config_price(db, "credits.price.transform_de_ai", 2),
+        },
         "models": out,
     }
 

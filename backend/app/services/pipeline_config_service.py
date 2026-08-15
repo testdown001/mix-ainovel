@@ -111,6 +111,43 @@ class PipelineConfigService:
             values.setdefault(name, bool(getattr(settings, env_attr, False)))
         return values
 
+    async def describe_quality_loops(
+        self,
+        preset: Optional[str] = None,
+        flow_config: Optional[Dict[str, Any]] = None,
+        tier: str = "free",
+    ) -> Dict[str, Any]:
+        """作者可见的质量回路生效状态：SystemConfig ∧ premium 档；旗舰可用 flow_config 显式打开。
+
+        只读描述，不写 SystemConfig。free/fast 默认全关。
+        """
+        from ..core.feature_gating import tier_rank
+
+        switches = await self._load_quality_loop_switches()
+        normalized = normalize_preset(preset or "fast")
+        preset_ok = normalized == "premium"
+        tier_ok = tier_rank(tier) >= tier_rank("flagship")
+        overrides = flow_config or {}
+        loops: Dict[str, Any] = {}
+        for name in self._QUALITY_LOOP_SWITCHES:
+            key = f"enable_{name}"
+            override = overrides.get(key)
+            system_on = bool(switches.get(name))
+            if override is True and tier_ok:
+                active = True
+            elif override is False:
+                active = False
+            else:
+                active = system_on and preset_ok
+            loops[name] = {
+                "system": system_on,
+                "preset_ok": preset_ok,
+                "tier_ok": tier_ok,
+                "overridden": None if override is None else bool(override),
+                "active": bool(active),
+            }
+        return {"preset": normalized, "tier": tier, "loops": loops}
+
     async def resolve_config(self, flow_config: Optional[Dict[str, Any]]) -> PipelineConfig:
         """解析最终生效的 PipelineConfig。
 
@@ -324,6 +361,10 @@ class PipelineConfigService:
             "enable_power_system",
             "enable_character_relationships",
             "enable_trajectory_analysis",
+            "enable_outline_revision",
+            "enable_volume_retrospective",
+            "enable_character_significance",
+            "enable_two_pass_draft",
         ):
             if key in flow_config and flow_config[key] is not None:
                 setattr(config, key, bool(flow_config[key]))

@@ -102,6 +102,24 @@ def test_all_four_switches_default_off():
     assert config.enable_character_significance is False
 
 
+def test_describe_quality_loops_off_for_fast_free():
+    svc = _service({"outline_revision": "true", "two_pass_draft": "true"})
+    desc = asyncio.run(svc.describe_quality_loops(preset="fast", tier="free"))
+    assert desc["preset"] == "fast"
+    assert all(item["active"] is False for item in desc["loops"].values())
+    assert desc["loops"]["outline_revision"]["system"] is True
+    # 旗舰 + flow_config 才能在非 premium 上打开
+    flagged = asyncio.run(
+        svc.describe_quality_loops(
+            preset="fast",
+            tier="flagship",
+            flow_config={"enable_outline_revision": True},
+        )
+    )
+    assert flagged["loops"]["outline_revision"]["active"] is True
+    assert flagged["loops"]["two_pass_draft"]["active"] is False
+
+
 def test_switches_are_seeded_into_system_config():
     """首次启动要把 env 值播进 SystemConfig，升级后后台里不能是空白。"""
     from app.db.system_config_defaults import SYSTEM_CONFIG_DEFAULTS

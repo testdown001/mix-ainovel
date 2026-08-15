@@ -37,7 +37,13 @@ BLUEPRINT_DEEP_PRICE_KEY = "credits.price.blueprint_deep"
 DEFAULT_BLUEPRINT_DEEP_PRICE = 20
 _BLUEPRINT_DEEP_REASON = "blueprint_deep"
 _BLUEPRINT_DEEP_UNIT_MARKER = "blueprint_deep_unit="
-_CHARGE_REASONS = ("generate", _BLUEPRINT_DEEP_REASON)
+_TRANSFORM_REASON = "transform"
+_CHARGE_REASONS = ("generate", _BLUEPRINT_DEEP_REASON, _TRANSFORM_REASON)
+TRANSFORM_PRICE_KEYS = {
+    "expand": ("credits.price.transform_expand", 3),
+    "rewrite": ("credits.price.transform_rewrite", 3),
+    "de_ai": ("credits.price.transform_de_ai", 2),
+}
 
 
 def _polish_unit_from_note(note: Optional[str]) -> int:
@@ -174,6 +180,37 @@ async def charge_blueprint_deep(
     note = f"蓝图深度打磨 {_BLUEPRINT_DEEP_UNIT_MARKER}{price}"
     await QuotaService(session).consume_credits(
         user_id, price, reason=_BLUEPRINT_DEEP_REASON, ref_key=ref_key, note=note
+    )
+    return price
+
+
+async def transform_price(session: AsyncSession, action: str) -> int:
+    key, default = TRANSFORM_PRICE_KEYS.get(action, ("credits.price.transform_rewrite", 3))
+    from ..repositories.system_config_repository import SystemConfigRepository
+
+    rec = await SystemConfigRepository(session).get_by_key(key)
+    try:
+        return max(0, int(rec.value)) if rec and rec.value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+async def charge_transform(
+    session: AsyncSession,
+    user_id: int,
+    action: str,
+    *,
+    ref_key: Optional[str] = None,
+) -> int:
+    price = await transform_price(session, action)
+    if price <= 0:
+        return 0
+    await QuotaService(session).consume_credits(
+        user_id,
+        price,
+        reason=_TRANSFORM_REASON,
+        ref_key=ref_key,
+        note=f"选区{action} transform_unit={price}",
     )
     return price
 

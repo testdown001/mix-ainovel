@@ -34,6 +34,7 @@ class SharedNovelOverview(BaseModel):
     chapters: List[SharedChapterMeta]
     # 注册 CTA 带上作者邀请码，把分享转化接进邀请返积分闭环
     author_invite_code: str
+    ai_assisted: bool = False
 
 
 class SharedChapterContent(BaseModel):
@@ -42,6 +43,7 @@ class SharedChapterContent(BaseModel):
     content: str
     prev: Optional[int] = None
     next: Optional[int] = None
+    ai_assisted: bool = False
 
 
 @router.get("/{token}", response_model=SharedNovelOverview)

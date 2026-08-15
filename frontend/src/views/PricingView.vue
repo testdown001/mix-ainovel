@@ -57,7 +57,7 @@
       <!-- Page header -->
       <div class="text-center mb-10">
         <h1 class="text-4xl font-bold mb-3" style="font-family:'Space Grotesk',sans-serif;">选择你的创作套餐</h1>
-        <p class="text-lg mb-8" style="color:var(--md-on-surface-variant);">从灵感开局到长篇稳定连载，把 AI 变成可控的创作工作流</p>
+        <p class="text-lg mb-8" style="color:var(--md-on-surface-variant);">从灵感开局到长篇稳定连载，把 AI 变成可控的辅助工作流，定稿权在你</p>
 
         <!-- Annual toggle（仅当后台配置了年付套餐时展示） -->
         <div v-if="hasYearlyPlans" class="inline-flex items-center gap-3 px-4 py-2 rounded-full border" style="background:var(--md-surface); border-color:var(--md-outline);">

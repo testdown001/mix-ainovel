@@ -40,6 +40,32 @@
 
       <div class="h-4 w-px hidden sm:block" style="background-color: #2A2A2A;"></div>
 
+      <div class="relative hidden sm:block">
+        <button
+          @click="exportOpen = !exportOpen"
+          class="flex items-center gap-1.5 text-sm px-3 h-8 rounded-md border transition-colors"
+          style="border-color: #2A2A2A; background-color: transparent; color: #888888;"
+        >
+          导出全书
+        </button>
+        <div
+          v-if="exportOpen"
+          class="absolute right-0 mt-1 w-40 rounded-md border py-1 z-40"
+          style="background:#1C1C1C; border-color:#2A2A2A;"
+        >
+          <button class="w-full text-left px-3 py-1.5 text-sm text-white hover:bg-[#2A2A2A]" :disabled="exporting" @click="exportBook('txt')">导出 TXT</button>
+          <button class="w-full text-left px-3 py-1.5 text-sm text-white hover:bg-[#2A2A2A]" :disabled="exporting" @click="exportBook('docx')">导出 DOCX</button>
+        </div>
+      </div>
+
+      <button
+        @click="precheckOpen = true"
+        class="hidden md:flex items-center gap-1.5 text-sm px-3 h-8 rounded-md border transition-colors"
+        style="border-color: #2A2A2A; background-color: transparent; color: #888888;"
+      >
+        投稿预检
+      </button>
+
       <button
         @click="$emit('viewProjectDetail')"
         class="hidden sm:flex items-center gap-1.5 text-sm px-3 h-8 rounded-md border transition-colors"
@@ -81,15 +107,50 @@
       </button>
     </div>
   </header>
+
+  <Teleport to="body">
+    <div v-if="precheckOpen" class="fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,0.45)" @click.self="precheckOpen = false">
+      <div class="w-[28rem] max-w-[92vw] rounded-xl p-5" style="background:#141414;border:1px solid #2A2A2A;">
+        <h3 class="text-white font-semibold mb-1">投稿预检</h3>
+        <p class="text-xs mb-4" style="color:#888;">对照平台词表扫描已完稿正文。命中只提示，不会阻止导出或继续写作。</p>
+        <select v-model="precheckPlatform" class="w-full mb-3 px-3 py-2 rounded-md text-sm" style="background:#1C1C1C;color:#fff;border:1px solid #2A2A2A;">
+          <option value="qidian">起点</option>
+          <option value="fanqie">番茄</option>
+          <option value="jjwxc">晋江</option>
+        </select>
+        <div class="flex gap-2 mb-3">
+          <button class="px-3 py-1.5 rounded-md text-sm font-semibold" style="background:#FFE500;color:#000;" :disabled="prechecking" @click="runPrecheck">
+            {{ prechecking ? '扫描中…' : '开始预检' }}
+          </button>
+          <button class="px-3 py-1.5 rounded-md text-sm" style="color:#888;" @click="precheckOpen = false">关闭</button>
+        </div>
+        <p v-if="precheckResult" class="text-sm mb-2" style="color:#ccc;">{{ precheckResult.message }}</p>
+        <div v-if="precheckResult?.hits?.length" class="max-h-48 overflow-y-auto space-y-2">
+          <div v-for="(hit, i) in precheckResult.hits" :key="i" class="text-xs p-2 rounded" style="background:#1C1C1C;color:#ddd;">
+            <span style="color:#C9A227;">{{ hit.term }}</span>
+            <p class="mt-1" style="color:#888;">…{{ hit.snippet }}…</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import type { NovelProject } from '@/api/novel'
+import { NovelAPI, type CompliancePrecheckResult, type NovelProject } from '@/api/novel'
+import { globalAlert } from '@/composables/useAlert'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const exportOpen = ref(false)
+const exporting = ref(false)
+const precheckOpen = ref(false)
+const prechecking = ref(false)
+const precheckPlatform = ref<'qidian' | 'fanqie' | 'jjwxc'>('qidian')
+const precheckResult = ref<CompliancePrecheckResult | null>(null)
 
 const handleLogout = () => {
   authStore.logout()
@@ -103,7 +164,33 @@ interface Props {
   totalChapters: number
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 
 defineEmits(['goBack', 'viewProjectDetail', 'toggleSidebar'])
+
+async function exportBook(format: 'txt' | 'docx') {
+  if (!props.project?.id) return
+  exporting.value = true
+  exportOpen.value = false
+  try {
+    await NovelAPI.exportManuscript(props.project.id, format)
+    globalAlert.showSuccess('已开始下载已完稿章节。', '导出全书')
+  } catch (err) {
+    globalAlert.showError(err instanceof Error ? err.message : '导出失败', '导出全书')
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function runPrecheck() {
+  if (!props.project?.id) return
+  prechecking.value = true
+  try {
+    precheckResult.value = await NovelAPI.compliancePrecheck(props.project.id, precheckPlatform.value)
+  } catch (err) {
+    globalAlert.showError(err instanceof Error ? err.message : '预检失败', '投稿预检')
+  } finally {
+    prechecking.value = false
+  }
+}
 </script>

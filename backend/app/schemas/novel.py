@@ -367,6 +367,8 @@ class UpdateChapterOutlineRequest(BaseModel):
     chapter_number: int
     title: str
     summary: str
+    metadata: Optional[Dict[str, Any]] = None
+    planning: Optional[Dict[str, Any]] = None
 
 
 class DeleteChapterRequest(BaseModel):
@@ -408,3 +410,11 @@ class BlueprintPatch(BaseModel):
 class EditChapterRequest(BaseModel):
     chapter_number: int
     content: str
+
+
+class TransformTextRequest(BaseModel):
+    chapter_number: int
+    action: str = Field(..., description="expand | rewrite | de_ai")
+    selected_text: str
+    instruction: Optional[str] = None
+    apply: bool = False

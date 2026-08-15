@@ -92,6 +92,7 @@ class ShareService:
                 for chapter in chapters
             ],
             "author_invite_code": referral_service.build_invite_code(project.user_id),
+            "ai_assisted": bool(getattr(project, "ai_assisted", False)),
         }
 
     async def get_public_chapter(self, token: str, chapter_number: int) -> Dict[str, Any]:
@@ -115,6 +116,9 @@ class ShareService:
             "content": version.content,
             "prev": numbers[idx - 1] if idx > 0 else None,
             "next": numbers[idx + 1] if idx < len(numbers) - 1 else None,
+            "ai_assisted": bool(
+                getattr(version, "ai_assisted", False) or getattr(project, "ai_assisted", False)
+            ),
         }
 
     # ------------------------------------------------------------------

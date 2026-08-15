@@ -7,6 +7,7 @@ from app.models.model_catalog import ModelCatalog
 from app.services.quota_service import QuotaService
 from app.services.generation_billing_service import (
     charge_generation,
+    charge_transform,
     compute_generation_cost,
     refund_generation,
 )
@@ -66,3 +67,14 @@ async def test_charge_insufficient_402(db_session):
         await charge_generation(db_session, 3, "big", False, ref_key="t3")
     assert ei.value.status_code == 402
     assert (await svc.get_or_create_quota(3)).credit_balance == 60  # 未扣
+
+
+@pytest.mark.asyncio
+async def test_charge_transform_reason_and_refund(db_session):
+    svc = QuotaService(db_session)
+    await svc.get_or_create_quota(4)
+    charged = await charge_transform(db_session, 4, "de_ai", ref_key="xf-bill")
+    assert charged == 2
+    assert (await svc.get_or_create_quota(4)).credit_balance == 58
+    assert await refund_generation(db_session, 4, ref_key="xf-bill") == 2
+    assert (await svc.get_or_create_quota(4)).credit_balance == 60

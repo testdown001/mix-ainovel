@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { archiveApi, type WritingArchive, type ArchiveStats } from '@/api/novel'
+import { archiveApi, type WritingArchive, type WritingArchiveDetail, type ArchiveStats } from '@/api/novel'
 
+const props = defineProps<{ projectId?: string }>()
 const route = useRoute()
-const projectId = computed(() => route.params.id as string)
+const projectId = computed(() => props.projectId || (route.params.id as string))
 
 // 数据状态
 const archives = ref<WritingArchive[]>([])
 const stats = ref<ArchiveStats | null>(null)
 const loading = ref(false)
-const selectedArchive = ref<WritingArchive | null>(null)
+const selectedArchive = ref<WritingArchive | WritingArchiveDetail | null>(null)
 const showDetail = ref(false)
 
 // 分页
@@ -60,6 +61,11 @@ async function loadStats() {
 async function viewArchive(archive: WritingArchive) {
   selectedArchive.value = archive
   showDetail.value = true
+  try {
+    selectedArchive.value = await archiveApi.getArchiveDetail(projectId.value, archive.id)
+  } catch (e) {
+    console.error('加载档案详情失败:', e)
+  }
 }
 
 // 关闭详情

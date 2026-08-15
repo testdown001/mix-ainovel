@@ -354,6 +354,21 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="润色(humanize/polish)附加积分单价，默认不勾选；勾选时每章额外扣此积分。",
     ),
     SystemConfigDefault(
+        key="credits.price.transform_expand",
+        value_getter=lambda _: "3",
+        description="选区扩写积分单价。只改圈中的一段，失败退回。",
+    ),
+    SystemConfigDefault(
+        key="credits.price.transform_rewrite",
+        value_getter=lambda _: "3",
+        description="选区改写积分单价。只改圈中的一段，失败退回。",
+    ),
+    SystemConfigDefault(
+        key="credits.price.transform_de_ai",
+        value_getter=lambda _: "2",
+        description="选区去 AI 味积分单价。规则修复免费，不够再走 LLM。",
+    ),
+    SystemConfigDefault(
         key="credits.price.blueprint_deep",
         value_getter=lambda _: "20",
         description=(
@@ -375,5 +390,21 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         key="credits.monthly.flagship",
         value_getter=lambda _: "18000",
         description="旗舰档每月发放积分，=1800 篇章鱼2.0(60/天×30)；Plan.monthly_credits>0 时以套餐为准。",
+    ),
+    # ---- 投稿预检词表（只提示，不拦截） ----
+    SystemConfigDefault(
+        key="compliance.lexicon.qidian",
+        value_getter=lambda _: '["详细血腥描写", "现实政治影射", "未成年恋爱"]',
+        description="起点投稿预检词表（JSON 数组）。命中只提示，从不拦截生成或导出。",
+    ),
+    SystemConfigDefault(
+        key="compliance.lexicon.fanqie",
+        value_getter=lambda _: '["详细血腥描写", "现实政治影射", "未成年恋爱"]',
+        description="番茄投稿预检词表（JSON 数组）。命中只提示，从不拦截生成或导出。",
+    ),
+    SystemConfigDefault(
+        key="compliance.lexicon.jjwxc",
+        value_getter=lambda _: '["详细血腥描写", "现实政治影射"]',
+        description="晋江投稿预检词表（JSON 数组）。命中只提示，从不拦截生成或导出。",
     ),
 ]

@@ -14,6 +14,7 @@ export interface SharedNovelOverview {
   chapter_count: number
   chapters: SharedChapterMeta[]
   author_invite_code: string
+  ai_assisted?: boolean
 }
 
 export interface SharedChapterContent {
@@ -22,6 +23,7 @@ export interface SharedChapterContent {
   content: string
   prev: number | null
   next: number | null
+  ai_assisted?: boolean
 }
 
 export interface ShareStatus {

@@ -6,7 +6,8 @@ import traceback
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +50,8 @@ from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
 from ...services.share_service import ShareService
+from ...services.manuscript_export_service import export_project
+from ...services.compliance_precheck_service import precheck_text
 from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
 from ...services.reference_beat_service import ReferenceBeatService
@@ -435,6 +438,90 @@ async def disable_share(
     project = await share_service.ensure_share_owner(project_id, current_user.id)
     await share_service.disable_share(project)
     logger.info("用户 %s 关闭项目 %s 的公开分享", current_user.id, project_id)
+
+
+def _content_disposition(filename: str) -> str:
+    from urllib.parse import quote
+
+    ascii_name = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+@router.get("/{project_id}/export")
+async def export_manuscript(
+    project_id: str,
+    format: str = Query("txt", alias="format"),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Response:
+    """导出已完稿章节（successful + selected_version）。属主专属。"""
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    fmt = (format or "txt").strip().lower()
+    if fmt not in {"txt", "docx"}:
+        raise HTTPException(status_code=400, detail="format 必须是 txt 或 docx")
+    filename, payload, media_type = await export_project(session, project, fmt)
+    return Response(
+        content=payload,
+        media_type=media_type,
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+class CompliancePrecheckRequest(BaseModel):
+    platform: str = "qidian"
+    chapter_number: Optional[int] = None
+
+
+@router.post("/{project_id}/compliance/precheck")
+async def compliance_precheck(
+    project_id: str,
+    request: CompliancePrecheckRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """投稿敏感词预检。只提示，不拦截导出或生成。"""
+    from ...models.novel import Chapter, ChapterVersion
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    platform = (request.platform or "qidian").strip().lower()
+    texts: List[str] = []
+    if request.chapter_number is not None:
+        chapter = (
+            await session.execute(
+                select(Chapter).where(
+                    Chapter.project_id == project_id,
+                    Chapter.chapter_number == request.chapter_number,
+                )
+            )
+        ).scalar_one_or_none()
+        if chapter is None or not chapter.selected_version_id:
+            return {
+                "platform": platform,
+                "hit_count": 0,
+                "hits": [],
+                "advisory": True,
+                "blocked": False,
+                "message": "本章还没有完稿正文，预检未扫描到内容。",
+            }
+        version = await session.get(ChapterVersion, chapter.selected_version_id)
+        if version and version.content:
+            texts.append(version.content)
+    else:
+        from ...services.manuscript_export_service import collect_export_chapters
+
+        for _num, _title, content, _flag in await collect_export_chapters(session, project):
+            texts.append(content)
+    result = await precheck_text(session, platform, "\n".join(texts))
+    result["advisory"] = True
+    result["blocked"] = False
+    result["message"] = (
+        f"发现 {result['hit_count']} 处可能触发平台审核的表述，仅供参考，不会阻止导出或继续写作。"
+        if result["hit_count"]
+        else "未命中当前平台词表。预检只提示，不代表平台一定通过。"
+    )
+    return result
 
 
 @router.get("/{project_id}/sections/{section}", response_model=NovelSectionResponse)

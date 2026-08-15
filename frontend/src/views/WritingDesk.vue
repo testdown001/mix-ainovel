@@ -78,6 +78,7 @@
             @edit-chapter="openEditChapterModal"
             @delete-chapter="deleteChapter"
             @generate-outline="generateOutline"
+            @regenerate-outlines="regenerateOutlines"
             @rebuild-rag="rebuildRag"
             @batch-generate="openBatchGenerateModal"
             @cancel-batch="cancelBatchGenerate"
@@ -87,6 +88,7 @@
             @preview-context-plan="handlePreviewContextPlan"
             @open-diagnostic-panel="showDiagnosticPanel = true"
             @open-agent-visualizer="showAgentVisualizer = true"
+            @open-archives="archiveDrawerOpen = true"
             @update:professional-mode="setProfessionalMode"
           />
 
@@ -183,11 +185,17 @@
       />
       <WDCodexPanel
         :visible="codexPanelOpen"
+        :project-id="project?.id || ''"
         :blueprint="project?.blueprint"
         :selected-chapter-number="selectedChapterNumber"
         :outlines="project?.blueprint?.chapter_outline || []"
         @update:visible="codexPanelOpen = $event"
       />
+      <n-drawer v-model:show="archiveDrawerOpen" :width="480" placement="right">
+        <n-drawer-content title="任务档案" closable>
+          <ArchiveViewer v-if="archiveDrawerOpen && project" :project-id="project.id" />
+        </n-drawer-content>
+      </n-drawer>
 
       <!-- 预设选择器 -->
       <n-modal
@@ -477,6 +485,7 @@ import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
 import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal.vue'
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
+import ArchiveViewer from '@/components/writing-desk/ArchiveViewer.vue'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
 import { isStreamInterruption } from '@/utils/streamInterruption'
@@ -580,6 +589,7 @@ const isGeneratingOutline = ref(false)
 const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 const codexPanelOpen = ref(false)
+const archiveDrawerOpen = ref(false)
 const showPresetSelector = ref(false)
 const showPredictionRequestModal = ref(false)
 const showSkillSelector = ref(false)
@@ -1838,6 +1848,31 @@ const handleGenerateOutline = async (
     globalAlert.showError(
       `生成大纲失败: ${error instanceof Error ? error.message : '未知错误'}`,
       '生成失败',
+    )
+  } finally {
+    isGeneratingOutline.value = false
+  }
+}
+
+const regenerateOutlines = async () => {
+  if (!project.value) return
+  const confirmed = await globalAlert.showConfirm(
+    '只会重排尚未完稿的章节大纲，已定稿章节不会被覆盖。',
+    '重排未完成大纲',
+  )
+  if (!confirmed) return
+  isGeneratingOutline.value = true
+  try {
+    const result = await NovelAPI.regenerateOutlines(project.value.id)
+    await novelStore.loadProject(project.value.id, true)
+    globalAlert.showSuccess(
+      `已更新 ${result.updated_chapters?.length || 0} 章未完成大纲。`,
+      '大纲已重排',
+    )
+  } catch (error) {
+    globalAlert.showError(
+      error instanceof Error ? error.message : '重排失败',
+      '大纲重排',
     )
   } finally {
     isGeneratingOutline.value = false

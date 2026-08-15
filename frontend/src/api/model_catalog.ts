@@ -23,6 +23,7 @@ export interface ModelAvailableResponse {
     reset_at?: string | null
   }
   polish_price: number
+  transform_prices?: { expand: number; rewrite: number; de_ai: number }
   models: AvailableModel[]
 }
 

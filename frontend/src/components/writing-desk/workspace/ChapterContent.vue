@@ -65,8 +65,37 @@
           </button>
         </div>
       </div>
-      <div class="prose max-w-none">
-        <div class="whitespace-pre-wrap leading-relaxed" style="color: var(--md-on-surface);">{{ cleanVersionContent(selectedChapter.content || '') }}</div>
+      <div class="prose max-w-none relative">
+        <p class="md-body-small md-on-surface-variant mb-2">选中一段可扩写 / 改写 / 去 AI 味，不必重滚整章。</p>
+        <div
+          ref="proseEl"
+          class="whitespace-pre-wrap leading-relaxed"
+          style="color: var(--md-on-surface);"
+          @mouseup="onSelectText"
+        >{{ cleanVersionContent(selectedChapter.content || '') }}</div>
+        <div
+          v-if="selection"
+          class="transform-bar"
+          :style="{ top: toolbarY + 'px', left: toolbarX + 'px' }"
+        >
+          <button class="md-btn md-btn-filled !px-2 !py-1 text-xs" :disabled="transforming" @click="runTransform('expand')">
+            扩写 +{{ prices.expand }}
+          </button>
+          <button class="md-btn md-btn-tonal !px-2 !py-1 text-xs" :disabled="transforming" @click="runTransform('rewrite')">
+            改写 +{{ prices.rewrite }}
+          </button>
+          <button class="md-btn md-btn-tonal !px-2 !py-1 text-xs" :disabled="transforming" @click="runTransform('de_ai')">
+            去AI味 +{{ prices.de_ai }}
+          </button>
+        </div>
+      </div>
+      <div v-if="previewText" class="mt-4 md-card md-card-outlined p-4" style="border-radius: var(--md-radius-lg);">
+        <h5 class="md-title-small mb-2">预览（未覆盖原文）</h5>
+        <p class="whitespace-pre-wrap md-body-medium mb-3">{{ previewText }}</p>
+        <div class="flex gap-2">
+          <button class="md-btn md-btn-filled" :disabled="applyingTransform" @click="applyPreview">采用</button>
+          <button class="md-btn md-btn-outlined" @click="discardPreview">丢弃</button>
+        </div>
       </div>
     </div>
 
@@ -208,11 +237,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import { useNovelStore } from '@/stores/novel'
 import type { Chapter } from '@/api/novel'
-import { OptimizerAPI } from '@/api/novel'
+import { NovelAPI, OptimizerAPI } from '@/api/novel'
+import { ModelCatalogAPI } from '@/api/model_catalog'
+import { detectUpgradeHint } from '@/utils/upgradeHint'
 
 interface Props {
   selectedChapter: Chapter
@@ -224,6 +255,82 @@ const props = defineProps<Props>()
 defineEmits(['showVersionSelector', 'openSkillApply'])
 
 const novelStore = useNovelStore()
+const proseEl = ref<HTMLElement | null>(null)
+const selection = ref('')
+const toolbarX = ref(0)
+const toolbarY = ref(0)
+const transforming = ref(false)
+const applyingTransform = ref(false)
+const previewText = ref('')
+const prices = ref({ expand: 3, rewrite: 3, de_ai: 2 })
+
+onMounted(async () => {
+  try {
+    const avail = await ModelCatalogAPI.getAvailable()
+    if (avail.transform_prices) prices.value = avail.transform_prices
+  } catch {
+    /* keep defaults */
+  }
+})
+
+function onSelectText() {
+  const sel = window.getSelection()
+  const text = sel?.toString().trim() || ''
+  if (!text || !proseEl.value || !sel || sel.rangeCount === 0) {
+    selection.value = ''
+    return
+  }
+  const range = sel.getRangeAt(0)
+  if (!proseEl.value.contains(range.commonAncestorContainer)) {
+    selection.value = ''
+    return
+  }
+  selection.value = text
+  const rect = range.getBoundingClientRect()
+  const host = proseEl.value.getBoundingClientRect()
+  toolbarX.value = Math.max(0, rect.left - host.left)
+  toolbarY.value = Math.max(0, rect.top - host.top - 40)
+}
+
+async function runTransform(action: 'expand' | 'rewrite' | 'de_ai') {
+  if (!props.projectId || !selection.value) return
+  transforming.value = true
+  try {
+    const res = await NovelAPI.transformSelection(props.projectId, {
+      chapter_number: props.selectedChapter.chapter_number,
+      action,
+      selected_text: selection.value,
+    })
+    previewText.value = res.result_text
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    globalAlert.showError(detectUpgradeHint(msg) === 'credits' ? '积分不足，可改选更短选区或购买加油包。' : msg, '选区改写')
+  } finally {
+    transforming.value = false
+  }
+}
+
+async function applyPreview() {
+  if (!props.projectId || !selection.value || !previewText.value) return
+  applyingTransform.value = true
+  try {
+    const original = cleanVersionContent(props.selectedChapter.content || '')
+    const next = original.replace(selection.value, previewText.value)
+    await NovelAPI.editChapterContent(props.projectId, props.selectedChapter.chapter_number, next)
+    await novelStore.loadChapter(props.selectedChapter.chapter_number)
+    discardPreview()
+    globalAlert.showSuccess('已写入本章，原文其余部分未动。', '选区已采用')
+  } catch (err) {
+    globalAlert.showError(err instanceof Error ? err.message : '采用失败', '选区改写')
+  } finally {
+    applyingTransform.value = false
+  }
+}
+
+function discardPreview() {
+  previewText.value = ''
+  selection.value = ''
+}
 
 // 优化相关状态
 const showOptimizer = ref(false)
@@ -408,5 +515,17 @@ const applyOptimization = async () => {
   border-color: var(--md-primary);
   background-color: var(--md-primary-container);
   box-shadow: var(--md-elevation-1);
+}
+
+.transform-bar {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--md-surface);
+  box-shadow: var(--md-elevation-2);
+  border: 1px solid var(--md-outline-variant);
 }
 </style>

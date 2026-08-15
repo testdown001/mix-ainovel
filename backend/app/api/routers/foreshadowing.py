@@ -27,10 +27,10 @@ from pydantic import BaseModel
 
 class ForeshadowingCreate(BaseModel):
     """创建伏笔请求"""
-    chapter_id: int
+    chapter_id: Optional[int] = None
     chapter_number: int
     content: str
-    type: str
+    type: str = "plot"
     keywords: Optional[List[str]] = None
     author_note: Optional[str] = None
 
@@ -209,10 +209,15 @@ async def create_foreshadowing(
 ):
     """创建伏笔"""
     try:
+        chapter_id = data.chapter_id
+        if chapter_id is None:
+            novel_service = NovelService(session)
+            chapter = await novel_service.get_or_create_chapter(project_id, data.chapter_number)
+            chapter_id = chapter.id
         service = ForeshadowingService(session)
         foreshadowing = await service.create_foreshadowing(
             project_id=project_id,
-            chapter_id=data.chapter_id,
+            chapter_id=chapter_id,
             chapter_number=data.chapter_number,
             content=data.content,
             foreshadowing_type=data.type,

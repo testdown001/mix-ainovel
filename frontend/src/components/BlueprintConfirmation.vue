@@ -280,14 +280,14 @@
             @click="chooseDepth('fast')"
           >
             <span class="depth-opt-title">
-              快速成书
+              快速成纲
               <span class="depth-price depth-price-free">免费</span>
             </span>
-            <span class="depth-opt-desc">跳过审稿打磨，直接成书，约 2-3 分钟</span>
+            <span class="depth-opt-desc">跳过深度审稿，先出结构蓝图，约 2-3 分钟</span>
           </button>
         </div>
         <p v-if="deepCreditShort" class="depth-credit-warn">
-          当前积分不足（需 {{ deepCreditPrice }}，剩余 {{ creditTotal ?? 0 }}）。可购买加油包或改选快速成书。
+          当前积分不足（需 {{ deepCreditPrice }}，剩余 {{ creditTotal ?? 0 }}）。可购买加油包或改选快速成纲。
         </p>
       </div>
 
@@ -303,7 +303,7 @@
           {{ applyingFixes ? '修订中…' : '采纳修复建议' }}
         </button>
         <button class="act-btn act-primary" :disabled="isGenerating" @click="generateBlueprint">
-          生成蓝图
+          锁定设定并生成蓝图
         </button>
       </div>
     </template>
@@ -468,7 +468,7 @@ const genStageAt = computed(() => (selectedDepth.value === 'deep' ? GEN_STAGE_AT
 const genEtaHint = computed(() =>
   selectedDepth.value === 'deep'
     ? '深度打磨含总编审稿与定向修订，约 5-8 分钟'
-    : '快速成书跳过审稿打磨，约 2-3 分钟'
+    : '快速成纲跳过审稿打磨，约 2-3 分钟'
 )
 const isGenerating = ref(false)
 const genDone = ref(false)

@@ -167,7 +167,7 @@
           </div>
           <h2 class="text-2xl font-bold mb-2 transition-colors text-white"
             style="font-family:'Space Grotesk',sans-serif;">灵感模式</h2>
-          <p class="mb-6 text-base" style="color:#888888;">还没有故事？让AI引导你从零开始。设定世界观、构建人物关系、生成完美大纲。</p>
+          <p class="mb-6 text-base" style="color:#888888;">还没有故事？和缪斯聊出立项书，锁定世界观与人物，再进入连载。</p>
           <span class="inline-flex items-center gap-1.5 text-sm font-semibold" style="color:#FFE500;">
             开始探索
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">

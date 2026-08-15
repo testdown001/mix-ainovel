@@ -19,7 +19,7 @@
           <h2 class="config-headline">
             小说家的<br><span style="color: #FFE500;">新篇章</span>
           </h2>
-          <p class="config-sub">让AI引导你，一步步构建出独一无二的故事世界。</p>
+          <p class="config-sub">和文思对话，把灵感蒸馏成可锁定的立项书。</p>
         </div>
 
         <div class="config-section">
@@ -183,7 +183,7 @@
         <div class="empty-icon">✦</div>
         <p class="empty-title">从一句灵感，到完整蓝图</p>
         <p class="empty-sub">
-          和「文思」聊几轮你的想法——AI 会引导你确定题材、世界观与核心角色，聊满 3 轮即可一键生成小说蓝图。
+          和「文思」聊几轮你的想法——确定题材、世界观与核心角色，聊满 3 轮即可生成可编辑的立项蓝图。
         </p>
         <div class="empty-steps">
           <div class="empty-step">
@@ -196,7 +196,7 @@
           </div>
           <div class="empty-step">
             <span class="step-num">3</span>
-            <span>聊满 3 轮，生成蓝图，直接进入连载写作</span>
+            <span>聊满 3 轮，生成立项蓝图（你可编辑后再锁定）</span>
           </div>
         </div>
       </div>

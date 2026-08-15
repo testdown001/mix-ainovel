@@ -22,7 +22,7 @@ from uuid import uuid4
 
 from ...core.safe_task import safe_create_task
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +66,7 @@ from ...schemas.novel import (
     RegenerateOutlinesRequest,
     RegenerateOutlinesResponse,
     SelectVersionRequest,
+    TransformTextRequest,
     UpdateChapterOutlineRequest,
 )
 from ...schemas.user import UserInDB
@@ -1315,6 +1316,15 @@ async def update_chapter_outline(
 
     outline.title = request.title
     outline.summary = request.summary
+    meta = dict(outline.metadata or {})
+    if request.metadata:
+        meta.update(request.metadata)
+    planning = request.planning if request.planning is not None else meta.get("planning")
+    if isinstance(planning, dict):
+        meta["planning"] = planning
+        from ...services.chapter_planning_service import upsert_chapter_blueprint
+        await upsert_chapter_blueprint(session, project_id, request.chapter_number, planning)
+    outline.metadata = meta
     await session.commit()
 
     await CacheService().invalidate_project_schema(project_id)
@@ -2095,6 +2105,107 @@ async def edit_chapter_content(
 
     await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
+
+
+@router.post("/novels/{project_id}/transform")
+async def transform_chapter_selection(
+    project_id: str,
+    request: TransformTextRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    from uuid import uuid4
+
+    from ...services.generation_billing_service import charge_transform, refund_generation
+    from ...services.text_transform_service import transform_selection
+
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    action = (request.action or "").strip()
+    if action not in {"expand", "rewrite", "de_ai"}:
+        raise HTTPException(status_code=400, detail="action 必须是 expand / rewrite / de_ai")
+    selected = (request.selected_text or "").strip()
+    if not selected:
+        raise HTTPException(status_code=400, detail="请先选中要改的段落")
+
+    chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
+    current = ""
+    if chapter.selected_version:
+        current = chapter.selected_version.content or ""
+    elif chapter.versions:
+        current = sorted(chapter.versions, key=lambda item: item.created_at)[-1].content or ""
+    idx = current.find(selected)
+    context_before = current[max(0, idx - 200):idx] if idx >= 0 else ""
+    context_after = current[idx + len(selected):idx + len(selected) + 200] if idx >= 0 else ""
+
+    ref_key = f"transform:{project_id}:{uuid4().hex}"
+    charged = 0
+    try:
+        charged = await charge_transform(session, current_user.id, action, ref_key=ref_key)
+        await session.commit()
+        result_text = await transform_selection(
+            session,
+            action=action,  # type: ignore[arg-type]
+            selected_text=selected,
+            instruction=request.instruction or "",
+            context_before=context_before,
+            context_after=context_after,
+            user_id=current_user.id,
+        )
+        owned = await session.get(NovelProject, project_id)
+        if owned is not None and hasattr(owned, "ai_assisted"):
+            owned.ai_assisted = True
+        applied = False
+        if request.apply and idx >= 0:
+            new_content = current[:idx] + result_text + current[idx + len(selected):]
+            target = chapter.selected_version
+            if not target and chapter.versions:
+                target = sorted(chapter.versions, key=lambda item: item.created_at)[-1]
+            if target:
+                target.content = new_content
+                if hasattr(target, "ai_assisted"):
+                    target.ai_assisted = True
+            chapter.word_count = len(new_content)
+            applied = True
+        await session.commit()
+        if applied:
+            await CacheService().invalidate_project_schema(project_id)
+        return {
+            "action": action,
+            "result_text": result_text,
+            "charged": charged,
+            "ref_key": ref_key,
+            "applied": applied,
+        }
+    except HTTPException:
+        if charged:
+            await refund_generation(session, current_user.id, ref_key=ref_key)
+            await session.commit()
+        raise
+    except Exception as exc:
+        if charged:
+            try:
+                await refund_generation(session, current_user.id, ref_key=ref_key)
+                await session.commit()
+            except Exception:
+                logger.warning("选区变换退款失败 ref=%s", ref_key)
+        logger.exception("选区变换失败")
+        raise HTTPException(status_code=502, detail=f"改写失败，积分已退回：{exc}") from exc
+
+
+@router.get("/quality-loops")
+async def describe_quality_loops(
+    preset: str = Query("fast"),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """作者可见的质量回路生效状态。只读，不写 SystemConfig。"""
+    from ...services.pipeline_config_service import PipelineConfigService
+
+    tier = await get_user_tier(session, current_user.id)
+    return await PipelineConfigService(session).describe_quality_loops(
+        preset=preset, tier=tier
+    )
 
 
 @router.post("/novels/{project_id}/chapters/edit-fast", response_model=ChapterSchema)

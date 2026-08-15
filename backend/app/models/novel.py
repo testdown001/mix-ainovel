@@ -70,6 +70,8 @@ class NovelProject(Base):
     concept_dossier: Mapped[Optional[dict]] = mapped_column(JSON)
     # 创作禁区（用户在灵感模式划定的红线文本）：持久化后贯穿概念对话/蓝图生成/宪法播种。
     exclusions: Mapped[Optional[str]] = mapped_column(Text)
+    # 任一章走过模型起草/选区改写后为 True；纯手打且从未跑模型保持 False。
+    ai_assisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
 
 
 class NovelConversation(Base):
@@ -227,6 +229,7 @@ class ChapterVersion(Base):
     version_label: Mapped[Optional[str]] = mapped_column(String(64))
     provider: Mapped[Optional[str]] = mapped_column(String(64))
     content: Mapped[str] = mapped_column(LONG_TEXT_TYPE, nullable=False)
+    ai_assisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
     metadata = _MetadataAccessor()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

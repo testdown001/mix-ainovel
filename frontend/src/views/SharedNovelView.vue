@@ -58,7 +58,10 @@
       <h2 class="text-xl font-bold text-white leading-snug mb-1.5">
         第{{ currentChapter.chapter_number }}章 {{ currentChapter.title }}
       </h2>
-      <p class="text-xs mb-8" style="color: #666;">《{{ overview?.title }}》 · {{ overview?.author_name }}</p>
+      <p class="text-xs mb-3" style="color: #666;">《{{ overview?.title }}》 · {{ overview?.author_name }}</p>
+      <p v-if="currentChapter.ai_assisted || overview?.ai_assisted" class="text-xs mb-8 px-3 py-2 rounded-lg" style="background:#1C1C1C;color:#C9A227;">
+        本章含 AI 辅助创作内容，定稿权属于作者。
+      </p>
 
       <div v-if="isChapterLoading" class="flex justify-center py-16">
         <div class="w-7 h-7 border-2 rounded-full animate-spin" style="border-color: #2A2A2A; border-top-color: #FFE500;"></div>
@@ -102,6 +105,9 @@
         <h1 class="text-2xl font-bold text-white leading-snug">《{{ overview.title }}》</h1>
         <p class="text-sm mt-2" style="color: #888;">
           {{ overview.author_name }} 著 · 共 {{ overview.chapter_count }} 章
+        </p>
+        <p v-if="overview.ai_assisted" class="text-xs mt-3 px-3 py-2 rounded-lg" style="background:#1C1C1C;color:#C9A227;">
+          本书含 AI 辅助创作内容，定稿权属于作者。
         </p>
         <p v-if="overview.description" class="text-sm leading-6 mt-3" style="color: #999;">
           {{ overview.description }}
@@ -193,6 +199,7 @@ const openChapter = async (chapterNumber: number) => {
       content: '',
       prev: null,
       next: null,
+      ai_assisted: overview.value?.ai_assisted,
     }
   }
   try {

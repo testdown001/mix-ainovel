@@ -217,6 +217,11 @@ FLOW_OVERRIDE_SWITCHES: List[FlowOverrideSwitch] = [
     FlowOverrideSwitch("enable_mission_brief", "导演任务书", "creator"),
     FlowOverrideSwitch("enable_density_compression", "密度压缩", "creator"),
     FlowOverrideSwitch("enable_pacing_control", "节奏控制", "creator"),
+    # 质量回路：默认只在 premium 档 + SystemConfig 开启；旗舰可用 flow_config 显式打开
+    FlowOverrideSwitch("enable_outline_revision", "滚动细纲修订", "flagship"),
+    FlowOverrideSwitch("enable_volume_retrospective", "卷级复盘重规划", "flagship"),
+    FlowOverrideSwitch("enable_character_significance", "人物意义层", "flagship"),
+    FlowOverrideSwitch("enable_two_pass_draft", "两遍制草稿", "flagship"),
     # 降本/中性开关（enable_fast_path、disable_guardrail_rewrite 等）不登记，即不设限
 ]
 

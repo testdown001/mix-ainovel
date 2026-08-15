@@ -232,6 +232,13 @@ async def _ensure_schema_updates() -> None:
                     "share_token": "share_token VARCHAR(64) NULL",
                     "concept_dossier": "concept_dossier JSON",
                     "exclusions": "exclusions TEXT NULL",
+                    "ai_assisted": "ai_assisted TINYINT(1) NOT NULL DEFAULT 0",
+                },
+            )
+            _ensure_columns(
+                "chapter_versions",
+                {
+                    "ai_assisted": "ai_assisted TINYINT(1) NOT NULL DEFAULT 0",
                 },
             )
 

@@ -268,7 +268,41 @@ export interface ChapterOutline {
   chapter_number: number
   title: string
   summary: string
-  metadata?: { prediction?: ChapterPrediction; planning?: ChapterPlanning } | null
+  metadata?: {
+    prediction?: ChapterPrediction
+    planning?: ChapterPlanning
+    revision_hint?: string
+  } | null
+}
+
+export interface QualityLoopStatus {
+  system: boolean
+  preset_ok: boolean
+  tier_ok: boolean
+  overridden: boolean | null
+  active: boolean
+}
+
+export interface QualityLoopsResponse {
+  preset: string
+  tier: string
+  loops: Record<string, QualityLoopStatus>
+}
+
+export interface ComplianceHit {
+  term: string
+  index: number
+  snippet: string
+  hint: string
+}
+
+export interface CompliancePrecheckResult {
+  platform: string
+  hit_count: number
+  hits: ComplianceHit[]
+  advisory: boolean
+  blocked: boolean
+  message: string
 }
 
 export interface RegenerateOutlinesResponse {
@@ -1136,6 +1170,42 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/foreshadowings/generate`, { method: 'POST' })
   }
 
+  static async listForeshadowings(projectId: string): Promise<{
+    total: number
+    data: Array<{
+      id: number
+      chapter_number: number
+      content: string
+      type: string
+      status: string
+      resolved_chapter_number?: number | null
+      author_note?: string | null
+    }>
+  }> {
+    return request(`${NOVELS_BASE}/${projectId}/foreshadowings?limit=200`)
+  }
+
+  static async updateForeshadowing(
+    projectId: string,
+    foreshadowingId: number,
+    data: { content?: string; status?: string; author_note?: string },
+  ) {
+    return request(`${NOVELS_BASE}/${projectId}/foreshadowings/${foreshadowingId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  static async createForeshadowing(
+    projectId: string,
+    data: { chapter_number: number; content: string; type?: string },
+  ) {
+    return request(`${NOVELS_BASE}/${projectId}/foreshadowings`, {
+      method: 'POST',
+      body: JSON.stringify({ ...data, type: data.type || 'plot' }),
+    })
+  }
+
   static async rebuildRag(projectId: string, forceFull: boolean = false): Promise<{ indexed_chapters: number; skipped_chapters: number; removed_chapters: number }> {
     return request(`${WRITER_BASE}/${projectId}/rag/rebuild?force_full=${forceFull}`, { method: 'POST' })
   }
@@ -1188,6 +1258,65 @@ export class NovelAPI {
 
   static async getPredictionProgress(projectId: string): Promise<{ running: boolean; total: number; completed: number; failed: number }> {
     return request(`${WRITER_BASE}/${projectId}/chapters/prediction-progress`)
+  }
+
+  static async exportManuscript(projectId: string, format: 'txt' | 'docx'): Promise<void> {
+    const authStore = useAuthStore()
+    const response = await fetch(`${NOVELS_BASE}/${projectId}/export?format=${format}`, {
+      headers: authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {},
+    })
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '')
+      throw new Error(detail || `导出失败(${response.status})`)
+    }
+    const blob = await response.blob()
+    const cd = response.headers.get('content-disposition') || ''
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+    const plain = /filename="?([^";]+)"?/i.exec(cd)
+    const filename = decodeURIComponent(star?.[1] || plain?.[1] || `novel.${format}`)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  }
+
+  static async compliancePrecheck(
+    projectId: string,
+    platform: 'qidian' | 'fanqie' | 'jjwxc',
+    chapterNumber?: number,
+  ): Promise<CompliancePrecheckResult> {
+    return request(`${NOVELS_BASE}/${projectId}/compliance/precheck`, {
+      method: 'POST',
+      body: JSON.stringify({
+        platform,
+        ...(chapterNumber != null ? { chapter_number: chapterNumber } : {}),
+      }),
+    })
+  }
+
+  static async getQualityLoops(preset?: string): Promise<QualityLoopsResponse> {
+    const q = preset ? `?preset=${encodeURIComponent(preset)}` : ''
+    return request(`${WRITER_PREFIX}/quality-loops${q}`)
+  }
+
+  static async transformSelection(
+    projectId: string,
+    payload: {
+      chapter_number: number
+      action: 'expand' | 'rewrite' | 'de_ai'
+      selected_text: string
+      instruction?: string
+      apply?: boolean
+    },
+  ): Promise<{ action: string; result_text: string; charged: number; ref_key: string; applied: boolean }> {
+    return request(`${WRITER_BASE}/${projectId}/transform`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
   }
 
   static async editChapterContent(

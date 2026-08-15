@@ -56,7 +56,7 @@
           :disabled="generatingChapter === chapterNumber"
           class="md-btn md-btn-filled md-ripple flex items-center gap-2 disabled:opacity-50"
         >
-          {{ generatingChapter === chapterNumber ? '生成中...' : '开始创作' }}
+          {{ generatingChapter === chapterNumber ? '起草中...' : '起草本章' }}
         </button>
       </div>
     </div>
@@ -69,10 +69,10 @@
             <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"></path>
           </svg>
         </div>
-        <h3 class="md-title-medium font-semibold mb-2">开始创作</h3>
+        <h3 class="md-title-medium font-semibold mb-2">起草本章</h3>
 
         <div v-if="canGenerate">
-          <p class="md-body-medium md-on-surface-variant mb-4">可先生成剧情推演，再开始创作</p>
+          <p class="md-body-medium md-on-surface-variant mb-4">可先生成剧情推演，再起草本章（你来定稿）</p>
           <div class="w-full mb-4 text-left">
             <label class="md-label-large font-medium mb-1 block" style="color: var(--md-on-surface);">作者备注（可选）</label>
             <textarea v-model="writingNotes" rows="2" class="md-textarea w-full"
@@ -91,7 +91,7 @@
               :disabled="generatingChapter === chapterNumber"
               class="md-btn md-btn-filled md-ripple flex items-center gap-2 disabled:opacity-50"
             >
-              {{ generatingChapter === chapterNumber ? '生成中...' : '开始创作' }}
+              {{ generatingChapter === chapterNumber ? '起草中...' : '起草本章' }}
             </button>
           </div>
         </div>

@@ -186,15 +186,27 @@
                   定位到未完成
                 </button>
                 <span class="md-chip md-chip-filter selected">
-                  {{ totalChapters }} 章
+                  {{ visibleOutlines.length }}/{{ totalChapters }} 章
                 </span>
               </div>
             </div>
+            <div v-if="volumeOptions.length" class="mt-3">
+              <select v-model="selectedVolume" class="md-input w-full text-sm">
+                <option value="all">全部分卷</option>
+                <option v-for="vol in volumeOptions" :key="vol.key" :value="vol.key">
+                  {{ vol.label }}
+                </option>
+              </select>
+            </div>
+            <div v-if="activeLoopLabels.length" class="mt-2 flex flex-wrap gap-1">
+              <span v-for="label in activeLoopLabels" :key="label" class="md-chip !text-[10px] !px-1.5 !py-0">{{ label }}</span>
+            </div>
+            <p v-else-if="qualityLoops" class="mt-2 md-body-small md-on-surface-variant">当前模式未开启质量回路（免费/极速默认关闭）。</p>
           </div>
 
           <!-- 迷你节奏条 -->
-          <div v-if="project.blueprint?.chapter_outline?.length" class="flex gap-px mx-6 mb-2 h-3">
-            <div v-for="outline in project.blueprint.chapter_outline" :key="outline.chapter_number"
+          <div v-if="visibleOutlines.length" class="flex gap-px mx-6 mb-2 h-3">
+            <div v-for="outline in visibleOutlines" :key="outline.chapter_number"
               class="flex-1 rounded-sm cursor-pointer transition-all duration-200 hover:h-4"
               :style="{ backgroundColor: getRhythmColor(outline) }"
               :class="{ 'opacity-40': selectedChapterNumber !== null && selectedChapterNumber !== outline.chapter_number }"
@@ -204,9 +216,9 @@
           </div>
 
           <div class="px-6 pb-6">
-            <div v-if="project.blueprint?.chapter_outline?.length" class="space-y-3">
+            <div v-if="visibleOutlines.length" class="space-y-3">
               <div
-                v-for="(chapter, index) in project.blueprint.chapter_outline"
+                v-for="(chapter, index) in visibleOutlines"
                 :key="chapter.chapter_number"
                 :ref="el => setChapterRef(chapter.chapter_number, el)"
                 @click="handleSelectChapter(chapter)"
@@ -265,6 +277,9 @@
                     <Tooltip :text="chapter.summary">
                       <p class="md-body-small md-on-surface-variant line-clamp-2 leading-relaxed">{{ chapter.summary }}</p>
                     </Tooltip>
+                    <p v-if="chapter.metadata?.revision_hint" class="mt-1 text-[11px] leading-4" style="color:#C9A227;">
+                      修订提示：{{ chapter.metadata.revision_hint }}
+                    </p>
 
                     <!-- 章节状态 -->
                     <div class="mt-2 flex items-center gap-2">
@@ -395,6 +410,13 @@
                 </svg>
                 <span>{{ props.isGeneratingOutline ? '生成中...' : '生成后续大纲' }}</span>
               </button>
+              <button
+                class="md-btn md-btn-outlined md-ripple w-full flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
+                :disabled="props.isGeneratingOutline || props.batchGenerating || !hasIncompleteChapters"
+                @click="$emit('regenerateOutlines')"
+              >
+                <span>{{ props.isGeneratingOutline ? '重排中...' : '重排未完成大纲' }}</span>
+              </button>
             </div>
             <!-- 连续生成按钮 -->
             <div class="mt-3">
@@ -495,6 +517,14 @@
                   <span>Agent</span>
                   <small>协作流程可视化</small>
                 </button>
+                <button
+                  @click="$emit('openArchives')"
+                  class="advanced-tool-btn"
+                  title="查看写作任务档案"
+                >
+                  <span>任务档案</span>
+                  <small>奏折与生成记录</small>
+                </button>
               </div>
             </div>
           </div>
@@ -506,10 +536,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, nextTick, watch } from 'vue'
+import { computed, onMounted, ref, nextTick, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
-import type { NovelProject, ChapterOutline, ChapterPrediction, ReferenceNovelSummary } from '@/api/novel'
+import { NovelAPI, type NovelProject, type ChapterOutline, type ChapterPrediction, type QualityLoopsResponse, type ReferenceNovelSummary } from '@/api/novel'
 import Tooltip from '@/components/Tooltip.vue'
 import { useNovelStore } from '@/stores/novel'
 import ReferenceNovelLibrary from '@/components/ReferenceNovelLibrary.vue'
@@ -572,7 +602,9 @@ const emit = defineEmits([
   'previewContextPlan',
   'openDiagnosticPanel',
   'openAgentVisualizer',
-  'update:professionalMode'
+  'openArchives',
+  'update:professionalMode',
+  'regenerateOutlines',
 ])
 
 // 预设名称映射
@@ -594,6 +626,49 @@ const listContainer = ref<HTMLElement | null>(null)
 const chapterRefs = ref<Record<number, HTMLElement | null>>({})
 const referenceLibraryVisible = ref(false)
 const showProfessionalTools = ref(!!props.professionalMode)
+const selectedVolume = ref('all')
+const qualityLoops = ref<QualityLoopsResponse | null>(null)
+
+const volumeOptions = computed(() =>
+  (props.project.blueprint?.volumes || []).map((vol, i) => ({
+    key: String(i),
+    label: `${vol.name || `第${i + 1}卷`} ${vol.start_chapter || '?'}-${vol.end_chapter || '?'}`,
+    start: vol.start_chapter || 1,
+    end: vol.end_chapter || 99999,
+  })),
+)
+
+const visibleOutlines = computed(() => {
+  const all = props.project.blueprint?.chapter_outline || []
+  if (selectedVolume.value === 'all') return all
+  const vol = volumeOptions.value.find((item) => item.key === selectedVolume.value)
+  if (!vol) return all
+  return all.filter((outline) => outline.chapter_number >= vol.start && outline.chapter_number <= vol.end)
+})
+
+const LOOP_LABELS: Record<string, string> = {
+  outline_revision: '滚动细纲',
+  volume_retrospective: '卷级复盘',
+  character_significance: '人物意义层',
+  two_pass_draft: '两遍制',
+}
+
+const activeLoopLabels = computed(() =>
+  Object.entries(qualityLoops.value?.loops || {})
+    .filter(([, status]) => status.active)
+    .map(([key]) => LOOP_LABELS[key] || key),
+)
+
+async function loadQualityLoops() {
+  try {
+    qualityLoops.value = await NovelAPI.getQualityLoops(props.selectedPreset || 'fast')
+  } catch {
+    qualityLoops.value = null
+  }
+}
+
+watch(() => props.selectedPreset, loadQualityLoops)
+onMounted(loadQualityLoops)
 
 // 故事概览折叠态：默认折叠（让章节列表占据主区域），并持久化到 localStorage
 const OVERVIEW_COLLAPSE_KEY = 'wd_sidebar_overview_collapsed'
