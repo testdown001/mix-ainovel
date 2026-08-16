@@ -127,7 +127,6 @@
               @confirm-version-selection="confirmVersionSelection"
               @generate-chapter="generateChapter"
               @show-evaluation-detail="showEvaluationDetailModal = true"
-              @open-skill-apply="showSkillApplyModal = true"
               @request-prediction="openPredictionRequestModal"
               @fetch-chapter-status="fetchChapterStatus"
               @edit-chapter="editChapterContent"

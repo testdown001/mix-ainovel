@@ -372,14 +372,14 @@ async function handleApply() {
 .selector-header {
   padding: 20px 0 16px;
   margin-bottom: 4px;
-  border-bottom: 1px solid var(--md-outline-variant, #e8e8e8);
+  border-bottom: 1px solid #2a2a2a;
 }
 
 .selector-title {
   margin: 0 0 4px 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--md-on-surface, #1a1a1a);
+  color: #fff;
   letter-spacing: 0.02em;
 }
 
@@ -401,9 +401,10 @@ async function handleApply() {
 
 .category-tab {
   padding: 8px 14px;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  border: 1px solid #2a2a2a;
   border-radius: 20px;
-  background: var(--md-surface-container-lowest, #fafafa);
+  background: #1c1c1c;
+  color: #ccc;
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
@@ -412,13 +413,14 @@ async function handleApply() {
 }
 
 .category-tab:hover {
-  border-color: var(--md-primary, #1976d2);
+  border-color: #ffe500;
+  color: #fff;
 }
 
 .category-tab.active {
-  background: var(--md-primary, #1976d2);
-  color: white;
-  border-color: var(--md-primary, #1976d2);
+  background: rgba(255, 229, 0, 0.12);
+  color: #ffe500;
+  border-color: rgba(255, 229, 0, 0.4);
 }
 
 .search-box {
@@ -428,14 +430,16 @@ async function handleApply() {
 .search-input {
   width: 100%;
   padding: 10px 16px;
-  border: 1px solid var(--md-outline-variant, #e0e0e0);
+  border: 1px solid #2a2a2a;
   border-radius: 8px;
   font-size: 14px;
+  background: #141414;
+  color: #eee;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--md-primary, #1976d2);
+  border-color: #ffe500;
 }
 
 .skill-grid {
@@ -447,8 +451,8 @@ async function handleApply() {
 
 .skill-card {
   padding: 16px;
-  background: white;
-  border: 2px solid var(--md-outline-variant, #e0e0e0);
+  background: #1c1c1c;
+  border: 1px solid #2a2a2a;
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
@@ -458,13 +462,12 @@ async function handleApply() {
 }
 
 .skill-card:hover {
-  border-color: var(--md-primary, #1976d2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #ffe500;
 }
 
 .skill-card.selected {
-  border-color: var(--md-primary, #1976d2);
-  background: var(--md-primary-container, #e3f2fd);
+  border-color: rgba(255, 229, 0, 0.55);
+  background: rgba(255, 229, 0, 0.08);
 }
 
 .skill-icon {
@@ -481,10 +484,12 @@ async function handleApply() {
   font-size: 15px;
   font-weight: 600;
   margin-bottom: 4px;
+  color: #fff;
 }
 
 .skill-desc {
   font-size: 12px;
+  color: #888;
   color: var(--md-on-surface-variant, #666);
   margin-bottom: 8px;
   line-height: 1.4;

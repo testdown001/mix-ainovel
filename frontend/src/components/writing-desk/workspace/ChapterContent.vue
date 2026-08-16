@@ -1,72 +1,36 @@
 <!-- AIMETA P=章节内容_章节文本展示编辑|R=内容展示_编辑|NR=不含版本管理|E=component:ChapterContent|X=internal|A=内容组件|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div class="space-y-6">
-    <div class="md-card md-card-filled p-4 mb-6" style="border-radius: var(--md-radius-lg); background-color: var(--md-success-container);">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2" style="color: var(--md-on-success-container);">
-          <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
-          </svg>
-          <span class="font-medium">这个章节已经完成</span>
-        </div>
-
-        <button
-          v-if="selectedChapter.versions && selectedChapter.versions.length > 0"
-          @click="$emit('showVersionSelector', true)"
-          class="md-btn md-btn-text md-ripple flex items-center gap-1"
-        >
-          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"></path>
-            <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"></path>
-          </svg>
-          查看所有版本
-        </button>
-      </div>
+  <div class="chapter-prose-wrap">
+    <div class="chapter-prose-toolbar">
+      <h4 class="md-title-small font-semibold">章节内容</h4>
+      <span class="md-body-small md-on-surface-variant">
+        约 {{ Math.round(cleanVersionContent(selectedChapter.content || '').length / 100) * 100 }} 字
+      </span>
+      <span class="toolbar-spacer" />
+      <button
+        v-if="selectedChapter.versions && selectedChapter.versions.length > 0"
+        @click="$emit('showVersionSelector', true)"
+        class="md-btn md-btn-text md-ripple !px-2 !py-1 text-xs"
+      >
+        查看版本
+      </button>
+      <button
+        class="md-btn md-btn-tonal md-ripple flex items-center gap-1"
+        @click="showOptimizer = true"
+      >
+        分层优化
+      </button>
+      <button
+        class="md-btn md-btn-outlined md-ripple flex items-center gap-1"
+        :class="selectedChapter.content ? '' : 'opacity-50 cursor-not-allowed'"
+        :disabled="!selectedChapter.content"
+        @click="exportChapterAsTxt(selectedChapter)"
+      >
+        导出TXT
+      </button>
     </div>
-
-    <div class="md-card md-card-outlined p-6" style="border-radius: var(--md-radius-xl);">
-      <div class="flex items-center justify-between mb-4 gap-3">
-        <h4 class="md-title-medium font-semibold">章节内容</h4>
-        <div class="flex items-center gap-3">
-          <div class="md-body-small md-on-surface-variant">
-            约 {{ Math.round(cleanVersionContent(selectedChapter.content || '').length / 100) * 100 }} 字
-          </div>
-          <!-- 分层优化按钮 -->
-          <button
-            class="md-btn md-btn-tonal md-ripple flex items-center gap-1"
-            @click="showOptimizer = true"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
-            分层优化
-          </button>
-          <button
-            class="md-btn md-btn-tonal md-ripple flex items-center gap-1"
-            :class="selectedChapter.content ? '' : 'opacity-50 cursor-not-allowed'"
-            :disabled="!selectedChapter.content"
-            @click="$emit('openSkillApply')"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            应用技能
-          </button>
-          <button
-            class="md-btn md-btn-outlined md-ripple flex items-center gap-1"
-            :class="selectedChapter.content ? '' : 'opacity-50 cursor-not-allowed'"
-            :disabled="!selectedChapter.content"
-            @click="exportChapterAsTxt(selectedChapter)"
-          >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v16h16V4m-4 4l-4-4-4 4m4-4v12" />
-            </svg>
-            导出TXT
-          </button>
-        </div>
-      </div>
-      <div class="prose max-w-none relative">
-        <p class="md-body-small md-on-surface-variant mb-2">选中一段可扩写 / 改写 / 去 AI 味，不必重滚整章。</p>
+    <p class="chapter-prose-hint">选中一段可扩写 / 改写 / 去 AI 味，不必重滚整章。</p>
+    <div class="prose max-w-none relative">
         <div
           ref="proseEl"
           class="whitespace-pre-wrap leading-relaxed"
@@ -114,7 +78,6 @@
           <button class="md-btn md-btn-outlined" @click="discardPreview">丢弃</button>
         </div>
       </div>
-    </div>
 
     <!-- 分层优化弹窗 -->
     <Teleport to="body">
@@ -269,7 +232,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-defineEmits(['showVersionSelector', 'openSkillApply'])
+defineEmits(['showVersionSelector'])
 
 const novelStore = useNovelStore()
 const proseEl = ref<HTMLElement | null>(null)
@@ -557,6 +520,30 @@ const applyOptimization = async () => {
 </script>
 
 <style scoped>
+.chapter-prose-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.chapter-prose-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 10px;
+  margin-bottom: 4px;
+  background: var(--md-surface, #141414);
+}
+.toolbar-spacer { flex: 1; min-width: 8px; }
+.chapter-prose-hint {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 10px;
+}
+
 .m3-optimizer-dialog {
   max-width: min(720px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);

@@ -2,96 +2,36 @@
 <template>
   <div class="flex-1 min-w-0 h-full">
     <div class="md-card md-card-elevated h-full flex flex-col" style="border-radius: var(--md-radius-xl);">
-      <!-- 章节工作区头部 -->
-      <div v-if="selectedChapterNumber" class="md-card-header flex-shrink-0">
-        <!-- flex-wrap 是移动端必需：卡片是 overflow-x:hidden，不换行时右侧按钮组会被
-             直接裁掉且无法滚动到（390px 下「设定典」「重新生成」整个消失） -->
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex items-center gap-3 mb-2">
-              <h2 class="md-title-large font-semibold">第{{ selectedChapterNumber }}章</h2>
-              <span
-                :class="[
-                  'md-chip',
-                  isChapterCompleted(selectedChapterNumber)
-                    ? 'm3-chip-success'
-                    : 'm3-chip-neutral'
-                ]"
-              >
-                {{ isChapterCompleted(selectedChapterNumber) ? '已完成' : '未完成' }}
-              </span>
-            </div>
-            <h3 class="md-title-medium md-on-surface mb-1">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
-            <p class="md-body-small md-on-surface-variant">{{ selectedChapterOutline?.summary || '暂无章节描述' }}</p>
-            <p v-if="revisionHintText" class="mt-2 text-xs leading-5 px-2 py-1.5 rounded" style="background:rgba(201,162,39,0.12);color:#C9A227;">
-              修订提示：{{ revisionHintText }}
-            </p>
-            <div v-if="outlineEditing" class="mt-3 space-y-2">
-              <input v-model="outlineDraft.title" class="md-input w-full" placeholder="章标题" />
-              <textarea v-model="outlineDraft.summary" rows="3" class="md-textarea w-full" placeholder="章摘要" />
-              <button class="md-btn md-btn-filled" :disabled="outlineSaving" @click="saveOutlineText">
-                {{ outlineSaving ? '保存中…' : '保存大纲' }}
-              </button>
-            </div>
-            <button v-else class="md-btn md-btn-text !px-2 !py-0 text-xs mt-2" @click="startOutlineEdit">编辑大纲</button>
-
-            <div v-if="selectedChapterOutline" class="mt-3 md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
-              <div class="flex items-center justify-between mb-2">
-                <h4 class="md-label-large font-semibold">本章规划</h4>
-                <button class="md-btn md-btn-text !px-2 !py-0 text-xs" @click="planningEditing = !planningEditing">
-                  {{ planningEditing ? '收起' : '编辑' }}
-                </button>
-              </div>
-              <div v-if="!planningEditing" class="flex flex-wrap gap-1.5">
-                <span v-if="chapterPlanning.chapter_function" class="md-chip !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.chapter_function }}</span>
-                <span v-if="chapterPlanning.hook_type" class="md-chip !text-[10px] !px-1.5 !py-0">钩子 {{ chapterPlanning.hook_type }}</span>
-                <span v-if="chapterPlanning.coolpoint" class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.coolpoint }}</span>
-                <span v-if="!chapterPlanning.chapter_function && !chapterPlanning.coolpoint" class="md-body-small md-on-surface-variant">尚未填写章功能 / 爽点 / 禁写</span>
-              </div>
-              <p v-if="!planningEditing && chapterPlanning.must_not_include?.length" class="md-body-small md-on-surface-variant mt-1">
-                禁写：{{ chapterPlanning.must_not_include.join('、') }}
-              </p>
-              <div v-else-if="planningEditing" class="space-y-2">
-                <input v-model="planningDraft.chapter_function" class="md-input w-full" placeholder="章功能：铺垫 / 爽点 / 转折 / 收束" />
-                <input v-model="planningDraft.hook_type" class="md-input w-full" placeholder="钩子类型" />
-                <input v-model="planningDraft.coolpoint" class="md-input w-full" placeholder="本章爽点" />
-                <textarea v-model="mustNotText" rows="2" class="md-textarea w-full" placeholder="禁写，每行一条" />
-                <button class="md-btn md-btn-filled" :disabled="planningSaving" @click="saveChapterPlanning">
-                  {{ planningSaving ? '保存中…' : '保存规划' }}
-                </button>
-              </div>
-            </div>
-
-            <!-- 推演入口（紧凑按钮，仅在头部显示） -->
-            <div v-if="canShowPredictionPanel" class="mt-2 flex items-center gap-2">
-              <button
-                @click="showPrediction = !showPrediction"
-                class="md-btn md-btn-text md-ripple flex items-center gap-1 !px-2 !py-1"
-                style="font-size: 0.8125rem;"
-              >
-                <svg
-                  class="w-4 h-4 transition-transform"
-                  :class="showPrediction ? 'rotate-90' : ''"
-                  fill="currentColor" viewBox="0 0 20 20"
-                >
-                  <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
-                </svg>
-                剧情推演
-                <span v-if="outlinePrediction" class="md-body-small md-on-surface-variant ml-1">(已有)</span>
-              </button>
-              <button
-                v-if="isChapterCompleted(selectedChapterNumber)"
-                @click="handleGeneratePrediction"
-                :disabled="generatingPrediction"
-                class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-2 !py-1 disabled:opacity-50"
-                style="font-size: 0.8125rem;"
-              >
-                <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
-                  <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-                </svg>
-                {{ generatingPrediction ? '推演中...' : (outlinePrediction ? '重新推演' : '生成推演') }}
-              </button>
-            </div>
+      <!-- 章节工作区头部：默认一条工具栏，规划/大纲收进「要点」以免挡住正文 -->
+      <div v-if="selectedChapterNumber" class="wd-chapter-bar flex-shrink-0">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0 flex items-center gap-2 flex-wrap">
+            <h2 class="md-title-medium font-semibold whitespace-nowrap">第{{ selectedChapterNumber }}章</h2>
+            <span
+              :class="[
+                'md-chip',
+                isChapterCompleted(selectedChapterNumber)
+                  ? 'm3-chip-success'
+                  : 'm3-chip-neutral'
+              ]"
+            >
+              {{ isChapterCompleted(selectedChapterNumber) ? '已完成' : '未完成' }}
+            </span>
+            <h3 class="md-title-small md-on-surface truncate max-w-[42vw]">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
+            <button
+              class="md-btn md-btn-text !px-2 !py-0 text-xs"
+              @click="briefOpen = !briefOpen"
+            >
+              {{ briefOpen ? '收起要点' : '本章要点' }}
+            </button>
+            <span
+              v-if="!briefOpen && chapterPlanning.coolpoint"
+              class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0"
+            >{{ chapterPlanning.coolpoint }}</span>
+            <span
+              v-if="!briefOpen && chapterPlanning.chapter_function"
+              class="md-chip !text-[10px] !px-1.5 !py-0"
+            >{{ chapterPlanning.chapter_function }}</span>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -154,6 +94,79 @@
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
               {{ generatingChapter === selectedChapterNumber ? '起草中...' : '起草本章' }}
+            </button>
+          </div>
+        </div>
+
+        <p v-if="revisionHintText" class="mt-2 text-xs leading-5 px-2 py-1.5 rounded" style="background:rgba(201,162,39,0.12);color:#C9A227;">
+          修订提示：{{ revisionHintText }}
+        </p>
+
+        <div v-if="briefOpen" class="wd-chapter-brief">
+          <p class="md-body-small md-on-surface-variant">{{ selectedChapterOutline?.summary || '暂无章节描述' }}</p>
+          <div v-if="outlineEditing" class="mt-3 space-y-2">
+            <input v-model="outlineDraft.title" class="md-input w-full" placeholder="章标题" />
+            <textarea v-model="outlineDraft.summary" rows="3" class="md-textarea w-full" placeholder="章摘要" />
+            <button class="md-btn md-btn-filled" :disabled="outlineSaving" @click="saveOutlineText">
+              {{ outlineSaving ? '保存中…' : '保存大纲' }}
+            </button>
+          </div>
+          <button v-else class="md-btn md-btn-text !px-2 !py-0 text-xs mt-2" @click="startOutlineEdit">编辑大纲</button>
+
+          <div v-if="selectedChapterOutline" class="mt-3 md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
+            <div class="flex items-center justify-between mb-2">
+              <h4 class="md-label-large font-semibold">本章规划</h4>
+              <button class="md-btn md-btn-text !px-2 !py-0 text-xs" @click="planningEditing = !planningEditing">
+                {{ planningEditing ? '收起' : '编辑' }}
+              </button>
+            </div>
+            <div v-if="!planningEditing" class="flex flex-wrap gap-1.5">
+              <span v-if="chapterPlanning.chapter_function" class="md-chip !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.chapter_function }}</span>
+              <span v-if="chapterPlanning.hook_type" class="md-chip !text-[10px] !px-1.5 !py-0">钩子 {{ chapterPlanning.hook_type }}</span>
+              <span v-if="chapterPlanning.coolpoint" class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.coolpoint }}</span>
+              <span v-if="!chapterPlanning.chapter_function && !chapterPlanning.coolpoint" class="md-body-small md-on-surface-variant">尚未填写章功能 / 爽点 / 禁写</span>
+            </div>
+            <p v-if="!planningEditing && chapterPlanning.must_not_include?.length" class="md-body-small md-on-surface-variant mt-1">
+              禁写：{{ chapterPlanning.must_not_include.join('、') }}
+            </p>
+            <div v-else-if="planningEditing" class="space-y-2">
+              <input v-model="planningDraft.chapter_function" class="md-input w-full" placeholder="章功能：铺垫 / 爽点 / 转折 / 收束" />
+              <input v-model="planningDraft.hook_type" class="md-input w-full" placeholder="钩子类型" />
+              <input v-model="planningDraft.coolpoint" class="md-input w-full" placeholder="本章爽点" />
+              <textarea v-model="mustNotText" rows="2" class="md-textarea w-full" placeholder="禁写，每行一条" />
+              <button class="md-btn md-btn-filled" :disabled="planningSaving" @click="saveChapterPlanning">
+                {{ planningSaving ? '保存中…' : '保存规划' }}
+              </button>
+            </div>
+          </div>
+
+          <div v-if="canShowPredictionPanel" class="mt-2 flex items-center gap-2">
+            <button
+              @click="showPrediction = !showPrediction"
+              class="md-btn md-btn-text md-ripple flex items-center gap-1 !px-2 !py-1"
+              style="font-size: 0.8125rem;"
+            >
+              <svg
+                class="w-4 h-4 transition-transform"
+                :class="showPrediction ? 'rotate-90' : ''"
+                fill="currentColor" viewBox="0 0 20 20"
+              >
+                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
+              </svg>
+              剧情推演
+              <span v-if="outlinePrediction" class="md-body-small md-on-surface-variant ml-1">(已有)</span>
+            </button>
+            <button
+              v-if="isChapterCompleted(selectedChapterNumber)"
+              @click="handleGeneratePrediction"
+              :disabled="generatingPrediction"
+              class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-2 !py-1 disabled:opacity-50"
+              style="font-size: 0.8125rem;"
+            >
+              <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
+              </svg>
+              {{ generatingPrediction ? '推演中...' : (outlinePrediction ? '重新推演' : '生成推演') }}
             </button>
           </div>
         </div>
@@ -221,7 +234,6 @@
           @confirmVersionSelection="$emit('confirmVersionSelection')"
           @generateChapter="(...args: any[]) => $emit('generateChapter', ...args)"
           @showVersionSelector="$emit('showVersionSelector')"
-          @openSkillApply="$emit('openSkillApply')"
           @requestPrediction="$emit('requestPrediction', $event)"
           @regenerateChapter="$emit('regenerateChapter')"
           @evaluateChapter="$emit('evaluateChapter')"
@@ -357,7 +369,6 @@ const emit = defineEmits([
   'confirmVersionSelection',
   'generateChapter',
   'showVersionSelector',
-  'openSkillApply',
   'requestPrediction',
   'showEvaluationDetail',
   'fetchChapterStatus',
@@ -366,6 +377,7 @@ const emit = defineEmits([
 ])
 
 const novelStore = useNovelStore()
+const briefOpen = ref(false)
 const planningEditing = ref(false)
 const planningSaving = ref(false)
 const planningDraft = ref<ChapterPlanning>({})
@@ -388,6 +400,7 @@ watch(
 )
 
 function startOutlineEdit() {
+  briefOpen.value = true
   const outline = selectedChapterOutline.value
   outlineDraft.value = { title: outline?.title || '', summary: outline?.summary || '' }
   outlineEditing.value = true
@@ -612,6 +625,16 @@ const isChapterCompleted = (chapterNumber: number) => {
   return chapter && chapter.generation_status === 'successful'
 }
 
+watch(
+  () => props.selectedChapterNumber,
+  (n) => {
+    briefOpen.value = n != null && !isChapterCompleted(n)
+    outlineEditing.value = false
+    planningEditing.value = false
+  },
+  { immediate: true },
+)
+
 const isChapterGenerating = (chapterNumber: number) => {
   if (!props.project?.chapters) return false
   const chapter = props.project.chapters.find(ch => ch.chapter_number === chapterNumber)
@@ -780,6 +803,16 @@ const currentComponentProps = computed(() => {
 </script>
 
 <style scoped>
+.wd-chapter-bar {
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--md-outline-variant, #2a2a2a);
+}
+.wd-chapter-brief {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--md-outline-variant, #2a2a2a);
+}
+
 .m3-chip-success {
   background-color: var(--md-success-container);
   color: var(--md-on-success-container);

@@ -481,8 +481,8 @@
                   class="advanced-tool-btn disabled:opacity-50 disabled:cursor-not-allowed"
                   :title="props.agentEnabled ? '配置 Agent 技能增强' : '启用 Agent 模式后可配置技能'"
                 >
-                  <span>技能</span>
-                  <small>{{ props.selectedSkillCount ? `${props.selectedSkillCount} 个已选` : 'Agent 增强' }}</small>
+                  <span>Agent 技能</span>
+                  <small>{{ props.selectedSkillCount ? `${props.selectedSkillCount} 个已选` : '起草时注入' }}</small>
                 </button>
                 <button
                   @click="$emit('previewContextPlan')"
