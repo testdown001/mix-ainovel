@@ -20,6 +20,7 @@ from ..db.session import AsyncSessionLocal
 from ..models.novel import Chapter, ChapterVersion
 from ..services.chapter_guardrails import default_guardrails
 from ..services.llm_service import LLMService
+from ..services.entity_registry_service import EntityRegistryService
 from ..services.cache_service import CacheService
 from ..services.novel_service import NovelService
 from ..services.preview_generation_service import PreviewGenerationService
@@ -409,6 +410,16 @@ class PipelineOrchestrator(PipelineReviewMixin):
 
         all_characters = [c.get("name") for c in blueprint_dict.get("characters", []) if c.get("name")]
 
+        alias_map: Dict[str, str] = {}
+        name_lock_text = ""
+        try:
+            registry = EntityRegistryService(self.session)
+            entities = await registry.get_all_entities(project_id)
+            alias_map = EntityRegistryService.alias_map_from_entities(entities)
+            name_lock_text = EntityRegistryService.format_name_lock(entities)
+        except Exception as exc:
+            logger.warning("人设锁/别名表加载失败（不影响生成）: project=%s error=%s", project_id, exc)
+
         pattern_constraint = self.prompt_assembly_service.build_pattern_differentiation(
             history_context.get("completed_chapters", [])
         )
@@ -421,6 +432,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             outline_summary=outline_summary,
             writing_notes=writing_notes,
             allowed_new_characters=[],
+            alias_map=alias_map,
         )
         introduced_characters_for_mission = visibility_context["introduced_characters"]
         blueprint_constraints = build_blueprint_constraints_for_mission(
@@ -803,6 +815,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             project_reference_novels=project_reference_novels,
             reference_service=reference_service,
             enhanced_context=enhanced_context,
+            name_lock_text=name_lock_text,
         )
         prompt_sections = prompt_stage.prompt_sections
         prompt_compile_summary = prompt_stage.prompt_compile_summary

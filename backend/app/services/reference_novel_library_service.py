@@ -708,6 +708,7 @@ class ReferenceNovelLibraryService:
     # 这类低价值字段反而永远活着。
     _MEMORY_CARD_PROMPT_FIELDS: List[tuple[str, str]] = [
         ("main_conflict_pattern", "主线冲突模版"),
+        ("core_selling_point", "核心卖点"),
         ("cool_point_patterns", "爽点模式"),
         ("foreshadowing_techniques", "伏笔技法"),
         ("suspense_techniques", "悬念技法"),
@@ -718,6 +719,76 @@ class ReferenceNovelLibraryService:
         ("takeaways", "可复用要点"),
         ("risks", "风险提醒"),
     ]
+
+    @staticmethod
+    def _join_card_values(value: Any, *, limit: int = 3) -> str:
+        if isinstance(value, list):
+            items = [str(item).strip() for item in value if str(item).strip()]
+            return "；".join(items[:limit])
+        if isinstance(value, str):
+            return value.strip()
+        return ""
+
+    def format_recommend_compass_for_concept(
+        self,
+        novels: Optional[List[ReferenceNovel]] = None,
+        fusion_dna: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """概念选择题的推荐罗盘：核心底层逻辑 + 读者最大魅力点。
+
+        给 LLM 一个短、难忽略的约束块——选项可以换题材换人物，但被标「推荐」的那一项
+        必须转译这里的发动机和魅力，而不是抄原作人名情节。
+        """
+        blocks: List[str] = []
+        for novel in novels or []:
+            card = getattr(novel, "memory_card", None) or {}
+            if not isinstance(card, dict):
+                card = {}
+            engine = self._join_card_values(card.get("main_conflict_pattern"))
+            if not engine:
+                engine = self._join_card_values(card.get("takeaways"), limit=2)
+            charm = self._join_card_values(card.get("core_selling_point"))
+            cool = self._join_card_values(card.get("cool_point_patterns"))
+            if cool:
+                charm = f"{charm}；{cool}" if charm else cool
+            if not engine and not charm:
+                continue
+            title = getattr(novel, "title", None) or "参考小说"
+            lines = [f"《{title}》"]
+            if engine:
+                lines.append(f"- 核心底层逻辑：{engine}")
+            if charm:
+                lines.append(f"- 读者最大魅力点：{charm}")
+            blocks.append("\n".join(lines))
+
+        if not blocks and isinstance(fusion_dna, dict):
+            engine = str(fusion_dna.get("narrative_strategy") or "").strip()
+            charm_parts = [
+                str(fusion_dna.get("style_fingerprint") or "").strip(),
+            ]
+            techniques = fusion_dna.get("key_techniques") or []
+            if isinstance(techniques, list):
+                charm_parts.append("；".join(str(item).strip() for item in techniques[:3] if str(item).strip()))
+            charm = "；".join(part for part in charm_parts if part)
+            if engine or charm:
+                lines = ["融合创作DNA"]
+                if engine:
+                    lines.append(f"- 核心底层逻辑：{engine}")
+                if charm:
+                    lines.append(f"- 读者最大魅力点：{charm}")
+                blocks.append("\n".join(lines))
+
+        if not blocks:
+            return ""
+        return (
+            "## 选项推荐罗盘（绑定了参考小说，必须遵守）\n"
+            "出 single_choice 时必须且只能把其中一个选项标 recommended=true，"
+            "并写一句不超过 24 字的 recommend_reason。\n"
+            "被推荐的选项必须把下面的「核心底层逻辑」转译成当前问题的答案"
+            "（换题材、换人物、换世界观都可以），并让读者感到同一类「最大魅力点」。\n"
+            "禁止抄原作人名/情节；禁止把「全不满意/自由描述」标成推荐。\n"
+            + "\n\n".join(blocks)
+        )
 
     def format_memory_card_for_prompt(self, novels: List[ReferenceNovel]) -> str:
         cards: List[str] = []

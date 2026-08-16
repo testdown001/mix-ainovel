@@ -114,7 +114,14 @@ class ToxicPoint(BaseModel):
     issue: str = Field(default="", description="毒点名称（如 开局信息过载/主角不讨喜/爽点太迟）")
     severity: str = Field(default="低危", description="高危/中危/低危：高危=典型弃书点")
     reason: str = Field(default="", description="为什么在这个立项里会踩中")
-    fix_suggestion: str = Field(default="", description="可执行的修复建议（改哪个字段、怎么改）")
+    fix_suggestion: str = Field(
+        default="",
+        description=(
+            "给作者看的中文修法：点名立项书中文区块（如「主角身份处境」「金手指限制与代价」"
+            "「矛盾发动机」「爽点链」「期待感承诺」「补充说明」）并写清怎么改。"
+            "禁止英文变量名、下划线或带点号的路径"
+        ),
+    )
 
 
 class PremiseStressReport(BaseModel):

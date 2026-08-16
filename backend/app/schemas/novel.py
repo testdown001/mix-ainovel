@@ -10,6 +10,11 @@ class ChoiceOption(BaseModel):
 
     id: str
     label: str
+    recommended: bool = False
+    recommend_reason: Optional[str] = Field(
+        default=None,
+        description="推荐理由（有参考小说时点明转译了哪条底层逻辑/魅力点）",
+    )
 
 
 class UIControl(BaseModel):

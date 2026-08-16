@@ -160,7 +160,6 @@ from ..models import (
     NovelConversation,
     NovelProject,
 )
-from ..models.entity_registry import EntityRegistry
 from ..models.faction import Faction
 from ..repositories.novel_repository import NovelRepository
 from ..schemas.admin import AdminNovelSummary
@@ -546,11 +545,15 @@ class NovelService:
                             "abilities",
                             "relationship_to_protagonist",
                             "power_system_id",
-                            "current_power_level_id"
+                            "current_power_level_id",
+                            "previous_name",
+                            "originalName",
+                            "aliasesText",
                         }},
                         position=index,
                     )
                 )
+            await self._upsert_character_locks_from_payload(project_id, patch["characters"])
         if "relationships" in patch and patch["relationships"] is not None:
             await self.session.execute(delete(BlueprintRelationship).where(BlueprintRelationship.project_id == project_id))
             for index, relation in enumerate(patch["relationships"]):
@@ -877,35 +880,90 @@ class NovelService:
     # ------------------------------------------------------------------
     # 蓝图 → 实体注册表 / 势力表 同步
     # ------------------------------------------------------------------
-    async def _sync_blueprint_entities(self, project_id: str, blueprint: Blueprint) -> None:
-        """将蓝图角色和地点同步到 EntityRegistry（source=blueprint）。"""
-        # 清理旧的 blueprint 来源实体
-        await self.session.execute(
-            delete(EntityRegistry).where(
-                EntityRegistry.project_id == project_id,
-                EntityRegistry.source == "blueprint",
-            )
-        )
-        entities_to_add: list[EntityRegistry] = []
-        # 角色 → entity_type=character
-        for char_data in (blueprint.characters or []):
-            name = char_data.get("name", "").strip()
+    async def _upsert_character_locks_from_payload(
+        self,
+        project_id: str,
+        characters: Iterable[Any],
+    ) -> None:
+        """Codex / PATCH 角色列表 → EntityRegistry upsert（改名旧名变别名）。"""
+        from .entity_registry_service import EntityRegistryService
+
+        registry = EntityRegistryService(self.session)
+        for char_data in characters or []:
+            if not isinstance(char_data, dict):
+                continue
+            name = str(char_data.get("name") or "").strip()
             if not name:
                 continue
-            entities_to_add.append(EntityRegistry(
+            aliases = char_data.get("aliases")
+            await registry.upsert_character_lock(
                 project_id=project_id,
-                entity_type="character",
                 canonical_name=name,
+                previous_name=char_data.get("previous_name") or char_data.get("originalName"),
+                description=char_data.get("identity") or char_data.get("personality") or char_data.get("description") or "",
+                aliases=aliases if isinstance(aliases, list) else None,
+                replace_aliases=isinstance(aliases, list),
+                source="manual",
+            )
+
+    async def _hydrate_character_aliases(self, project_id: str, blueprint: Blueprint) -> None:
+        """读项目时把 EntityRegistry 亦称回填到蓝图角色卡，Codex 打开即可见。"""
+        characters = blueprint.characters or []
+        if not characters:
+            return
+        try:
+            from .entity_registry_service import EntityRegistryService
+
+            entities = await EntityRegistryService(self.session).get_all_entities(
+                project_id, entity_type="character"
+            )
+        except Exception as exc:
+            logger.warning("角色别名回填失败: project=%s error=%s", project_id, exc)
+            return
+        by_canonical: Dict[str, List[str]] = {}
+        by_alias: Dict[str, List[str]] = {}
+        for entity in entities:
+            names = [
+                alias_obj.alias
+                for alias_obj in (entity.aliases or [])
+                if alias_obj.alias and alias_obj.alias != entity.canonical_name
+            ]
+            by_canonical[entity.canonical_name] = names
+            for alias in names:
+                by_alias[alias] = names
+        for char in characters:
+            if not isinstance(char, dict):
+                continue
+            name = str(char.get("name") or "").strip()
+            if not name:
+                continue
+            aliases = by_canonical.get(name) or by_alias.get(name)
+            if aliases:
+                char["aliases"] = aliases
+
+    async def _sync_blueprint_entities(self, project_id: str, blueprint: Blueprint) -> None:
+        """将蓝图角色和地点 upsert 到 EntityRegistry。禁止 delete-all，以免手写亦称被级联清掉。"""
+        from .entity_registry_service import EntityRegistryService
+
+        registry = EntityRegistryService(self.session)
+        synced = 0
+        for char_data in (blueprint.characters or []):
+            if not isinstance(char_data, dict):
+                continue
+            name = str(char_data.get("name") or "").strip()
+            if not name:
+                continue
+            aliases = char_data.get("aliases")
+            await registry.upsert_character_lock(
+                project_id=project_id,
+                canonical_name=name,
+                previous_name=char_data.get("previous_name"),
                 description=char_data.get("identity") or char_data.get("personality") or "",
-                first_chapter=1,
+                aliases=aliases if isinstance(aliases, list) else None,
+                replace_aliases=isinstance(aliases, list),
                 source="blueprint",
-                confidence=1.0,
-                properties={
-                    k: v for k, v in char_data.items()
-                    if k != "name" and v
-                },
-            ))
-        # 地点 → entity_type=location
+            )
+            synced += 1
         world_setting = blueprint.world_setting or {}
         for location in (world_setting.get("key_locations") or []):
             loc_name = ""
@@ -917,18 +975,18 @@ class NovelService:
                 loc_name = location.strip()
             if not loc_name:
                 continue
-            entities_to_add.append(EntityRegistry(
+            await registry.register_entity(
                 project_id=project_id,
                 entity_type="location",
                 canonical_name=loc_name,
                 description=loc_desc,
                 source="blueprint",
                 confidence=1.0,
-            ))
-        if entities_to_add:
-            self.session.add_all(entities_to_add)
+            )
+            synced += 1
+        if synced:
             await self.session.flush()
-            logger.info("蓝图实体同步完成: project=%s entities=%d", project_id, len(entities_to_add))
+            logger.info("蓝图实体同步完成: project=%s entities=%d", project_id, synced)
 
     async def _sync_blueprint_factions(self, project_id: str, blueprint: Blueprint) -> None:
         """将蓝图 world_setting.factions 同步到 Faction 表。"""
@@ -1445,6 +1503,7 @@ class NovelService:
                 character.extra["_power_system_context"] = " | ".join(ps_text)
         
         blueprint_schema = self._build_blueprint_schema(project, list(foreshadowings_result.scalars().all()))
+        await self._hydrate_character_aliases(project.id, blueprint_schema)
 
         outlines_map = {outline.chapter_number: outline for outline in project.outlines}
         chapters_map = _collapse_chapters_by_number(project.chapters)

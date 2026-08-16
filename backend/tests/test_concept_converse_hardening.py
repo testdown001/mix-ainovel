@@ -319,3 +319,117 @@ def test_memory_card_prompt_prioritizes_plot_thinking_fields():
     # 非注入字段与 JSON 语法不该出现
     assert "genre" not in card
     assert "{" not in card
+
+
+def test_format_recommend_compass_uses_engine_and_charm():
+    svc = _format_service()
+    novel = SimpleNamespace(
+        title="某书",
+        memory_card={
+            "main_conflict_pattern": "以弱抗强的资源争夺",
+            "core_selling_point": "低调装逼打脸",
+            "cool_point_patterns": ["当众打脸", "扮猪吃虎"],
+        },
+    )
+    text = svc.format_recommend_compass_for_concept([novel])
+    assert "选项推荐罗盘" in text
+    assert "核心底层逻辑：以弱抗强的资源争夺" in text
+    assert "读者最大魅力点：低调装逼打脸；当众打脸；扮猪吃虎" in text
+    assert "禁止抄原作人名" in text
+    assert svc.format_recommend_compass_for_concept([]) == ""
+
+
+def test_format_recommend_compass_falls_back_to_fusion_dna():
+    svc = _format_service()
+    text = svc.format_recommend_compass_for_concept(
+        [],
+        fusion_dna={
+            "narrative_strategy": "压迫升级",
+            "key_techniques": ["章末刀切"],
+        },
+    )
+    assert "核心底层逻辑：压迫升级" in text
+    assert "章末刀切" in text
+
+
+def test_normalize_choice_recommendations_pins_single_non_opt_out():
+    parsed = {
+        "ui_control": {
+            "type": "single_choice",
+            "options": [
+                {"id": "a", "label": "阴郁悬疑", "recommended": False},
+                {"id": "b", "label": "当众打脸后反杀", "recommended": True, "recommend_reason": "转译该书打脸上瘾感"},
+                {"id": "c", "label": "全不满意，我另有想法", "recommended": True},
+            ],
+        }
+    }
+    novels._normalize_choice_recommendations(parsed)
+    options = parsed["ui_control"]["options"]
+    assert options[0]["id"] == "b"
+    assert options[0]["recommended"] is True
+    assert sum(1 for option in options if option.get("recommended")) == 1
+    assert options[-1]["recommended"] is False
+
+
+def test_normalize_choice_recommendations_fills_when_llm_forgets():
+    parsed = {
+        "ui_control": {
+            "type": "single_choice",
+            "options": [
+                {"id": "a", "label": "市井烟火"},
+                {"id": "b", "label": "全不满意/自由描述"},
+            ],
+        }
+    }
+    novels._normalize_choice_recommendations(parsed)
+    assert parsed["ui_control"]["options"][0]["recommended"] is True
+    assert parsed["ui_control"]["options"][1].get("recommended") is not True
+
+
+@pytest.mark.asyncio
+async def test_converse_injects_recommend_compass_from_fusion_dna(db_session, monkeypatch):
+    await _seed_project(db_session)
+    project = await db_session.get(NovelProject, PROJECT_ID)
+    project.fusion_dna = {
+        "narrative_strategy": "以压迫换升级",
+        "key_techniques": ["当众打脸", "章末刀切"],
+    }
+    await db_session.commit()
+    calls = _patch_services(monkeypatch, json.dumps(VALID_RESPONSE, ensure_ascii=False))
+
+    async with _build_client(db_session) as client:
+        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+        assert resp.status_code == 200
+
+    prompt = calls[0]["system_prompt"]
+    assert "选项推荐罗盘" in prompt
+    assert "核心底层逻辑：以压迫换升级" in prompt
+    assert "当众打脸" in prompt
+
+
+@pytest.mark.asyncio
+async def test_converse_single_choice_always_has_one_recommended(db_session, monkeypatch):
+    await _seed_project(db_session)
+    payload = {
+        "ai_message": "选一个方向",
+        "ui_control": {
+            "type": "single_choice",
+            "options": [
+                {"id": "option_1", "label": "他给仇人抬棺，棺是空的"},
+                {"id": "option_2", "label": "全不满意，我另有想法"},
+            ],
+        },
+        "conversation_state": {},
+        "is_complete": False,
+    }
+    _patch_services(monkeypatch, json.dumps(payload, ensure_ascii=False))
+
+    async with _build_client(db_session) as client:
+        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+        assert resp.status_code == 200
+
+    options = resp.json()["ui_control"]["options"]
+    assert options[0]["recommended"] is True
+    assert options[0]["label"] == "他给仇人抬棺，棺是空的"
+    assert options[1]["recommended"] is False
+

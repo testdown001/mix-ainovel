@@ -79,15 +79,19 @@ IMPORTANT: 你的回复必须是合法的 JSON 对象，并严格包含以下字
   "ui_control": {
     "type": "single_choice | text_input | info_display",
     "options": [
-      {"id": "option_1", "label": "string"}
+      {"id": "option_1", "label": "string", "recommended": false, "recommend_reason": "string"}
     ],
     "placeholder": "string"
   },
   "conversation_state": {},
   "is_complete": false
 }
+single_choice 时必须且只能把其中一个选项的 recommended 设为 true，并给一句不超过 24 字的 recommend_reason。
+不要把「全不满意 / 我另有想法 / 自由描述」标成推荐。
 不要输出额外的文本或解释。
 """
+
+_OPT_OUT_OPTION_MARKERS = ("全不满意", "另有想法", "自由描述", "我自己", "你来定", "我要输入")
 
 
 def _ensure_prompt(prompt: str | None, name: str) -> str:
@@ -152,10 +156,62 @@ def _normalize_reference_novel_names(novel_names: Optional[List[str]]) -> List[s
     return cleaned
 
 
+def _option_is_opt_out(label: str) -> bool:
+    text = (label or "").strip()
+    return any(marker in text for marker in _OPT_OUT_OPTION_MARKERS)
+
+
+def _normalize_choice_recommendations(parsed: Dict[str, Any]) -> None:
+    """single_choice 保证至多一个推荐，且不落在「全不满意」类出口项上。
+
+    LLM 漏标时，把第一个非出口选项补上推荐——界面始终有标记；
+    绑了参考小说时真正的选型仍靠提示词里的推荐罗盘约束。
+    """
+    ui = parsed.get("ui_control")
+    if not isinstance(ui, dict) or ui.get("type") != "single_choice":
+        return
+    options = ui.get("options")
+    if not isinstance(options, list):
+        return
+
+    for option in options:
+        if not isinstance(option, dict):
+            continue
+        reason = option.get("recommend_reason")
+        if isinstance(reason, str):
+            option["recommend_reason"] = reason.strip()[:24] or None
+        if _option_is_opt_out(str(option.get("label") or "")):
+            option["recommended"] = False
+
+    recommended_indexes = [
+        index
+        for index, option in enumerate(options)
+        if isinstance(option, dict) and option.get("recommended")
+    ]
+    if len(recommended_indexes) > 1:
+        for index in recommended_indexes[1:]:
+            options[index]["recommended"] = False
+            options[index]["recommend_reason"] = None
+        recommended_indexes = recommended_indexes[:1]
+    if not recommended_indexes:
+        for option in options:
+            if isinstance(option, dict) and not _option_is_opt_out(str(option.get("label") or "")):
+                option["recommended"] = True
+                break
+        recommended_indexes = [
+            index
+            for index, option in enumerate(options)
+            if isinstance(option, dict) and option.get("recommended")
+        ]
+    if recommended_indexes and recommended_indexes[0] != 0:
+        options.insert(0, options.pop(recommended_indexes[0]))
+
+
 def _inject_reference_context(
     system_prompt: str,
     reference_context: str,
     fusion_dna_text: str = "",
+    recommend_compass: str = "",
 ) -> str:
     """注入参考小说上下文。优先使用融合DNA，辅以精选参考素材。"""
     parts: list[str] = [system_prompt]
@@ -175,6 +231,10 @@ def _inject_reference_context(
             else "以下为用户提供的参考小说检索结果，请将其作为创作灵感参考，但不要机械复刻具体剧情："
         )
         parts.append(f"{header}\n{context}")
+
+    compass = (recommend_compass or "").strip()
+    if compass:
+        parts.append(compass)
 
     return "\n\n".join(parts)
 
@@ -674,8 +734,19 @@ async def converse_with_concept(
     fusion_dna_text = ""
     if project.fusion_dna:
         fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
-    if reference_context or fusion_dna_text:
-        system_prompt = _inject_reference_context(system_prompt, reference_context, fusion_dna_text)
+    recommend_compass = ""
+    if selected_library_novels or project.fusion_dna:
+        recommend_compass = reference_service.format_recommend_compass_for_concept(
+            selected_library_novels,
+            fusion_dna=project.fusion_dna,
+        )
+    if reference_context or fusion_dna_text or recommend_compass:
+        system_prompt = _inject_reference_context(
+            system_prompt,
+            reference_context,
+            fusion_dna_text,
+            recommend_compass,
+        )
     # 创作禁区持久化：请求带禁区时落库到 novel_projects.exclusions（蓝图生成/宪法播种
     # 都从库里读，兑现「整个对话和蓝图生成中遵守」的产品承诺）；请求未带时回退库存值，
     # 保证刷新页面后禁区仍然生效。
@@ -789,6 +860,7 @@ async def converse_with_concept(
         parsed["ready_for_blueprint"] = True
 
     parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
+    _normalize_choice_recommendations(parsed)
 
     # 先校验后落库：LLM 漏必填字段（如 ui_control）时不写入任何脏历史，用户重发即可
     try:

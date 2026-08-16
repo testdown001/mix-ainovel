@@ -41,7 +41,7 @@ class EntityRegistryService:
         aliases: Optional[List[str]] = None,
     ) -> EntityRegistry:
         """注册一个新实体，如果已存在同名实体则更新。"""
-        existing = await self._find_by_name(project_id, canonical_name)
+        existing = await self._find_by_name(project_id, canonical_name, entity_type=entity_type)
         if existing:
             if confidence > existing.confidence:
                 existing.confidence = confidence
@@ -141,6 +141,119 @@ class EntityRegistryService:
         logger.info("从蓝图注册实体完成: project=%s count=%d", project_id, len(registered))
         return registered
 
+    @staticmethod
+    def _normalize_alias_list(aliases: Optional[List[str]]) -> List[str]:
+        seen: Set[str] = set()
+        normalized: List[str] = []
+        for raw in aliases or []:
+            name = str(raw or "").strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            normalized.append(name)
+        return normalized
+
+    async def upsert_character_lock(
+        self,
+        *,
+        project_id: str,
+        canonical_name: str,
+        previous_name: Optional[str] = None,
+        description: Optional[str] = None,
+        aliases: Optional[List[str]] = None,
+        replace_aliases: bool = False,
+        source: str = "manual",
+    ) -> Optional[EntityRegistry]:
+        """按正式名 upsert 角色实体。改名时旧正式名自动变成别名；禁止 delete-all。
+
+        aliases 为 None：不改已有别名（蓝图全量同步走这条，保住手写亦称）。
+        replace_aliases=True：以本次列表为准（Codex 保存），并并入 previous_name。
+        """
+        canonical_name = (canonical_name or "").strip()
+        if not canonical_name:
+            return None
+        previous_name = (previous_name or "").strip() or None
+        if previous_name == canonical_name:
+            previous_name = None
+
+        entity = await self._find_by_name_or_alias(project_id, canonical_name, entity_type="character")
+        if entity is None and previous_name:
+            entity = await self._find_by_name_or_alias(project_id, previous_name, entity_type="character")
+
+        if entity is None:
+            entity = await self.register_entity(
+                project_id=project_id,
+                entity_type="character",
+                canonical_name=canonical_name,
+                description=description,
+                source=source,
+                confidence=1.0,
+            )
+        else:
+            if entity.canonical_name != canonical_name:
+                collision = await self._find_by_name(
+                    project_id, canonical_name, entity_type="character"
+                )
+                if collision is not None and collision.id != entity.id:
+                    if not previous_name:
+                        previous_name = entity.canonical_name
+                    entity = collision
+                else:
+                    if not previous_name:
+                        previous_name = entity.canonical_name
+                    entity.canonical_name = canonical_name
+            if description and (not entity.description or source == "manual"):
+                entity.description = description
+            if entity.source != "manual":
+                entity.source = source
+            await self.session.flush()
+
+        merged = self._normalize_alias_list(aliases)
+        if previous_name and previous_name != canonical_name:
+            merged = self._normalize_alias_list([*merged, previous_name])
+        merged = [name for name in merged if name != canonical_name]
+
+        if replace_aliases:
+            await self._replace_aliases(entity.id, merged)
+        elif merged:
+            await self._add_aliases(entity.id, merged)
+
+        await self.session.flush()
+        return entity
+
+    @staticmethod
+    def alias_map_from_entities(entities: List[EntityRegistry]) -> Dict[str, str]:
+        alias_map: Dict[str, str] = {}
+        for entity in entities:
+            alias_map[entity.canonical_name] = entity.canonical_name
+            for alias_obj in (entity.aliases or []):
+                if alias_obj.alias:
+                    alias_map[alias_obj.alias] = entity.canonical_name
+        return alias_map
+
+    @staticmethod
+    def format_name_lock(entities: List[EntityRegistry], *, max_aliases: int = 8) -> str:
+        """紧凑「人设锁」：只列出有亦称的角色，供提示词稳定前缀注入。"""
+        lines: List[str] = []
+        for entity in entities:
+            if entity.entity_type != "character" or not entity.is_active:
+                continue
+            aliases = [
+                alias_obj.alias
+                for alias_obj in (entity.aliases or [])
+                if alias_obj.alias and alias_obj.alias != entity.canonical_name
+            ]
+            if not aliases:
+                continue
+            shown = aliases[:max_aliases]
+            lines.append(f"{entity.canonical_name}（亦称：{'、'.join(shown)}）")
+        if not lines:
+            return ""
+        return (
+            "以下称呼指向同一人，正文用括号前的正式名，勿写成两个角色。\n"
+            + "\n".join(lines)
+        )
+
     async def get_all_entities(
         self,
         project_id: str,
@@ -213,12 +326,7 @@ class EntityRegistryService:
     async def build_alias_map(self, project_id: str) -> Dict[str, str]:
         """构建别名→正式名映射表，供批量处理使用。"""
         entities = await self.get_all_entities(project_id)
-        alias_map: Dict[str, str] = {}
-        for entity in entities:
-            alias_map[entity.canonical_name] = entity.canonical_name
-            for alias_obj in (entity.aliases or []):
-                alias_map[alias_obj.alias] = entity.canonical_name
-        return alias_map
+        return self.alias_map_from_entities(entities)
 
     async def detect_unregistered_names(
         self,
@@ -261,15 +369,68 @@ class EntityRegistryService:
 
         return sorted(unregistered, key=lambda x: x["occurrences"], reverse=True)
 
-    async def _find_by_name(self, project_id: str, name: str) -> Optional[EntityRegistry]:
+    async def _find_by_name(
+        self,
+        project_id: str,
+        name: str,
+        entity_type: Optional[str] = None,
+    ) -> Optional[EntityRegistry]:
         from sqlalchemy.orm import selectinload
-        result = await self.session.execute(
-            select(EntityRegistry).options(selectinload(EntityRegistry.aliases)).where(
+        stmt = (
+            select(EntityRegistry)
+            .options(selectinload(EntityRegistry.aliases))
+            .where(
                 EntityRegistry.project_id == project_id,
                 EntityRegistry.canonical_name == name,
             )
         )
+        if entity_type:
+            stmt = stmt.where(EntityRegistry.entity_type == entity_type)
+        result = await self.session.execute(stmt)
         return result.scalars().first()
+
+    async def _find_by_name_or_alias(
+        self,
+        project_id: str,
+        name: str,
+        entity_type: str = "character",
+    ) -> Optional[EntityRegistry]:
+        if not name:
+            return None
+        existing = await self._find_by_name(project_id, name, entity_type=entity_type)
+        if existing:
+            return existing
+        from sqlalchemy.orm import selectinload
+        result = await self.session.execute(
+            select(EntityRegistry)
+            .options(selectinload(EntityRegistry.aliases))
+            .join(EntityAlias, EntityAlias.entity_id == EntityRegistry.id)
+            .where(
+                EntityRegistry.project_id == project_id,
+                EntityRegistry.entity_type == entity_type,
+                EntityAlias.alias == name,
+            )
+        )
+        return result.scalars().first()
+
+    async def _replace_aliases(self, entity_id: int, aliases: List[str]) -> None:
+        desired = self._normalize_alias_list(aliases)
+        existing_result = await self.session.execute(
+            select(EntityAlias).where(EntityAlias.entity_id == entity_id)
+        )
+        existing_rows = list(existing_result.scalars().all())
+        existing_names = {row.alias for row in existing_rows}
+        desired_set = set(desired)
+        for row in existing_rows:
+            if row.alias not in desired_set:
+                await self.session.delete(row)
+        for alias in desired:
+            if alias not in existing_names:
+                self.session.add(EntityAlias(
+                    entity_id=entity_id,
+                    alias=alias,
+                    alias_type="alias",
+                ))
 
     async def _add_aliases(self, entity_id: int, aliases: List[str]) -> None:
         existing_result = await self.session.execute(

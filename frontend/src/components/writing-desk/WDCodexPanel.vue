@@ -56,13 +56,27 @@
                 <input v-model="char.name" class="md-input w-full mb-2" placeholder="角色名" />
                 <input v-model="char.identity" class="md-input w-full mb-2" placeholder="身份" />
                 <textarea v-model="char.description" rows="2" class="md-textarea w-full mb-2" placeholder="简介（生成时会注入）" />
-                <textarea v-model="char.personality" rows="2" class="md-textarea w-full" placeholder="性格" />
+                <textarea v-model="char.personality" rows="2" class="md-textarea w-full mb-2" placeholder="性格" />
+                <label class="md-label-small block mb-1">亦称</label>
+                <input
+                  v-model="char.aliasesText"
+                  class="md-input w-full"
+                  placeholder="顾公子、远哥（逗号或顿号分隔）"
+                />
+                <p class="md-body-small md-on-surface-variant mt-1">下次起草会按正式名锁定；大纲里写昵称也能对上这张卡。</p>
               </template>
               <template v-else>
-                <div class="flex items-center gap-2 mb-1">
+                <div class="flex items-center gap-2 mb-1 flex-wrap">
                   <span class="md-title-small font-semibold">{{ char.name }}</span>
-                  <span v-if="isRelevant(char.name)" class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0">本章相关</span>
+                  <span v-if="isRelevant(char)" class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0">本章相关</span>
                   <span v-if="char.identity" class="md-body-small md-on-surface-variant">{{ char.identity }}</span>
+                </div>
+                <div v-if="char.aliases?.length" class="flex flex-wrap gap-1 mb-1">
+                  <span
+                    v-for="alias in char.aliases"
+                    :key="alias"
+                    class="md-chip !text-[10px] !px-1.5 !py-0"
+                  >亦称 {{ alias }}</span>
                 </div>
                 <p class="md-body-small md-on-surface-variant">{{ char.description }}</p>
               </template>
@@ -161,7 +175,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NovelAPI, type Blueprint, type ChapterOutline, type Character } from '@/api/novel'
+import { NovelAPI, ConceptAPI, type Blueprint, type ChapterOutline, type Character } from '@/api/novel'
 import { ProjectAPI, type ConstitutionPayload } from '@/api/project'
 import { useNovelStore } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
@@ -199,7 +213,12 @@ const tabs = [
 type TabKey = typeof tabs[number]['key']
 const activeTab = ref<TabKey>('characters')
 
-const draftCharacters = ref<Character[]>([])
+interface CodexCharacter extends Character {
+  aliasesText?: string
+  originalName?: string
+}
+
+const draftCharacters = ref<CodexCharacter[]>([])
 const draftWorld = ref<{ core_rules?: string; key_locations?: any[]; factions?: any[] }>({})
 const draftRelations = ref<any[]>([])
 const ledgerItems = ref<LedgerItem[]>([])
@@ -212,13 +231,66 @@ const currentSummary = computed(() => {
   const outline = props.outlines?.find((o) => o.chapter_number === props.selectedChapterNumber)
   return `${outline?.summary || ''} ${outline?.title || ''}`
 })
-const isRelevant = (name: string) => name && currentSummary.value.includes(name)
+const isRelevant = (char: CodexCharacter) => {
+  const haystack = currentSummary.value
+  if (char.name && haystack.includes(char.name)) return true
+  return (char.aliases || []).some((alias) => alias && haystack.includes(alias))
+}
 const hasWorldData = computed(() => Boolean(draftWorld.value?.core_rules || draftWorld.value?.key_locations?.length || draftWorld.value?.factions?.length))
 
+function parseAliasInput(raw: string | string[] | undefined): string[] {
+  const text = Array.isArray(raw) ? raw.join('、') : raw || ''
+  const seen = new Set<string>()
+  const aliases: string[] = []
+  for (const part of text.split(/[,，、\n]/)) {
+    const name = part.trim()
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    aliases.push(name)
+  }
+  return aliases
+}
+
+function toDraftCharacter(char: Character): CodexCharacter {
+  const aliases = Array.isArray(char.aliases) ? char.aliases.filter(Boolean) : []
+  return {
+    ...char,
+    aliases,
+    aliasesText: aliases.join('、'),
+    originalName: char.name,
+  }
+}
+
 function hydrateFromBlueprint() {
-  draftCharacters.value = JSON.parse(JSON.stringify(props.blueprint?.characters || []))
+  draftCharacters.value = (props.blueprint?.characters || []).map((char) => toDraftCharacter(char as Character))
   draftWorld.value = JSON.parse(JSON.stringify(props.blueprint?.world_setting || {}))
   draftRelations.value = JSON.parse(JSON.stringify(props.blueprint?.relationships || []))
+}
+
+async function mergeAliasesFromRegistry() {
+  if (!props.projectId) return
+  try {
+    const concepts = await ConceptAPI.list(props.projectId, 'character')
+    const list = Array.isArray(concepts) ? concepts : []
+    const byName = new Map(list.map((item) => [item.canonical_name, item]))
+    const byAlias = new Map<string, (typeof list)[number]>()
+    for (const item of list) {
+      for (const alias of item.aliases || []) {
+        byAlias.set(alias, item)
+      }
+    }
+    draftCharacters.value = draftCharacters.value.map((char) => {
+      const match = byName.get(char.name) || byAlias.get(char.name)
+      const aliases = match?.aliases?.length ? match.aliases : char.aliases || []
+      return {
+        ...char,
+        aliases,
+        aliasesText: aliases.join('、'),
+      }
+    })
+  } catch (err) {
+    console.warn('设定典别名加载失败', err)
+  }
 }
 
 async function loadExtras() {
@@ -239,17 +311,17 @@ async function loadExtras() {
 
 watch(
   () => [props.visible, props.blueprint],
-  ([visible]) => {
+  async ([visible]) => {
     if (visible) {
       hydrateFromBlueprint()
-      loadExtras()
+      await Promise.all([loadExtras(), mergeAliasesFromRegistry()])
     }
   },
   { immediate: true },
 )
 
 function addCharacter() {
-  draftCharacters.value.push({ name: '', identity: '', description: '', personality: '' } as Character)
+  draftCharacters.value.push({ name: '', identity: '', description: '', personality: '', aliases: [], aliasesText: '', originalName: '' })
 }
 
 async function saveBlueprintPatch() {
@@ -257,7 +329,11 @@ async function saveBlueprintPatch() {
   saving.value = true
   try {
     const updated = await NovelAPI.updateBlueprint(props.projectId, {
-      characters: draftCharacters.value,
+      characters: draftCharacters.value.map((char) => ({
+        ...char,
+        aliases: parseAliasInput(char.aliasesText ?? char.aliases),
+        previous_name: char.originalName && char.originalName !== char.name ? char.originalName : undefined,
+      })),
       world_setting: draftWorld.value,
       relationships: draftRelations.value,
     })

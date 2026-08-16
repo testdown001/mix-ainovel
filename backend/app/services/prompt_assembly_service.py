@@ -400,6 +400,7 @@ class PromptAssemblyService:
         significance_context: Optional[str] = None,
         volume_summary_context: Optional[str] = None,
         book_summary_context: Optional[str] = None,
+        name_lock_text: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = self.build_blueprint_digest(writer_blueprint)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -447,6 +448,8 @@ class PromptAssemblyService:
                 ("[世界蓝图](结构化摘要，已按可见性裁剪)", blueprint_text),
             ]
         )
+        if name_lock_text:
+            sections.append(("[人设锁](亦称指向同一人，正文用正式名)", name_lock_text))
 
         # 分层长程记忆：全书脉络（最宏观）→ 卷级前情（最近数卷）→ 项目长期记忆
         if book_summary_context:

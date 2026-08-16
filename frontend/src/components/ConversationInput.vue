@@ -14,8 +14,14 @@
           :key="option.id"
           @click="handleOptionSelect(option.id, option.label)"
           class="choice-btn"
+          :class="{ 'choice-btn-recommended': option.recommended }"
+          :title="option.recommend_reason || undefined"
         >
-          {{ option.label }}
+          <span v-if="option.recommended" class="choice-badge">推荐</span>
+          <span class="choice-label">{{ option.label }}</span>
+          <span v-if="option.recommended && option.recommend_reason" class="choice-reason">
+            {{ option.recommend_reason }}
+          </span>
         </button>
         <button
           @click="isManualInput = true"
@@ -147,7 +153,13 @@ watch(isManualInput, async (newValue) => {
 
 <style scoped>
 .choice-btn {
-  padding: 10px 12px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 12px 10px;
   background: #1C1C1C;
   color: #FFE500;
   border: 1px solid #FFE50033;
@@ -162,6 +174,38 @@ watch(isManualInput, async (newValue) => {
 .choice-btn:hover {
   background: #FFE50011;
   border-color: #FFE50066;
+}
+
+.choice-btn-recommended {
+  background: #FFE50014;
+  border-color: #FFE500;
+  box-shadow: 0 0 0 1px rgba(255, 229, 0, 0.18);
+}
+
+.choice-badge {
+  position: absolute;
+  top: -7px;
+  right: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #FFE500;
+  color: #111;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+}
+
+.choice-label {
+  display: block;
+}
+
+.choice-reason {
+  display: block;
+  color: #b8a84a;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.35;
 }
 
 .choice-btn-secondary {

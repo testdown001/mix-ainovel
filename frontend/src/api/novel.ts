@@ -239,6 +239,10 @@ export interface Character {
   relationship_to_protagonist?: string
   power_system_id?: number
   current_power_level_id?: number
+  /** 亦称；EntityRegistry 是锁，蓝图 extra 只做展示回填 */
+  aliases?: string[]
+  /** 保存时若改名，后端把旧正式名收成别名 */
+  previous_name?: string
 }
 
 export interface ChapterBeat {
@@ -472,7 +476,12 @@ export interface BlueprintGenerationResponse {
 
 export interface UIControl {
   type: 'single_choice' | 'text_input'
-  options?: Array<{ id: string; label: string }>
+  options?: Array<{
+    id: string
+    label: string
+    recommended?: boolean
+    recommend_reason?: string
+  }>
   placeholder?: string
 }
 

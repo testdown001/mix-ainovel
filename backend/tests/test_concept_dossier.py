@@ -23,6 +23,8 @@ from app.services.concept_dossier_service import (
     ConceptDossierService,
     _compact_history_text,
     format_dossier_for_prompt,
+    humanize_dossier_jargon,
+    humanize_stress_report_dict,
 )
 from app.services.llm_service import LLMService
 from app.services.novel_service import NovelService
@@ -77,6 +79,51 @@ def test_format_dossier_for_prompt_sections():
 def test_format_dossier_for_prompt_empty_returns_blank():
     assert format_dossier_for_prompt({}) == ""
     assert format_dossier_for_prompt(None) == ""  # type: ignore[arg-type]
+
+
+def test_humanize_dossier_jargon_replaces_internal_paths():
+    raw = (
+        "改 `protagonist.identity` 只保留普通人身份，"
+        "`predicament` 只保留失忆+被追杀，其余放 notes。"
+        "同时收紧 golden_finger.limitations 与 growth_curve，"
+        "补 conflict_engine，翻新 coolpoint_chain，把兑现写进 anticipation。"
+    )
+    text = humanize_dossier_jargon(raw)
+    assert "protagonist" not in text
+    assert "identity" not in text
+    assert "predicament" not in text
+    assert "notes" not in text
+    assert "golden_finger" not in text
+    assert "limitations" not in text
+    assert "growth_curve" not in text
+    assert "conflict_engine" not in text
+    assert "coolpoint_chain" not in text
+    assert "anticipation" not in text
+    assert "主角身份处境" in text
+    assert "主角开局困境" in text
+    assert "补充说明" in text
+    assert "金手指限制与代价" in text
+    assert "金手指成长曲线" in text
+    assert "矛盾发动机" in text
+    assert "爽点链" in text
+    assert "期待感承诺" in text
+
+
+def test_humanize_stress_report_dict_cleans_fix_suggestions():
+    cleaned = humanize_stress_report_dict({
+        "toxic_points": [
+            {
+                "issue": "开局信息过载",
+                "severity": "高危",
+                "reason": "前3章概念太多",
+                "fix_suggestion": "改 protagonist.identity，其余放 notes",
+            }
+        ],
+        "summary": "建议补 conflict_engine",
+    })
+    assert cleaned["toxic_points"][0]["fix_suggestion"] == "改 主角身份处境，其余放 补充说明"
+    assert "conflict_engine" not in cleaned["summary"]
+    assert "矛盾发动机" in cleaned["summary"]
 
 
 def test_compact_history_text_extracts_and_survives_bad_records():
@@ -287,6 +334,28 @@ def test_hoist_misplaced_stress_fields():
     # 顶层已有内容时不动
     normal = PremiseStressReport(overall_verdict="可开工", toxic_points=[ToxicPoint(issue="a")])
     assert _hoist_misplaced_stress_fields(normal) is normal
+
+
+@pytest.mark.asyncio
+async def test_get_state_humanizes_stored_english_fix_suggestions(db_session):
+    """已落库的英文路径在读取时换成中文区块名，旧报告不用重跑推演。"""
+    project = await _seed_project(db_session, with_history=False)
+    project.concept_dossier = {
+        "dossier": {"core_selling_line": "卖点"},
+        "stress_report": {
+            "toxic_points": [
+                {"issue": "开局信息过载", "fix_suggestion": "改 protagonist.identity，其余放 notes"},
+            ],
+        },
+    }
+    await db_session.commit()
+    await db_session.refresh(project)
+    state = ConceptDossierService(db_session).get_state(project)
+    suggestion = state["stress_report"]["toxic_points"][0]["fix_suggestion"]
+    assert "protagonist" not in suggestion
+    assert "notes" not in suggestion
+    assert "主角身份处境" in suggestion
+    assert "补充说明" in suggestion
 
 
 @pytest.mark.asyncio

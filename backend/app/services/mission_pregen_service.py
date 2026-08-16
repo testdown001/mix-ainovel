@@ -289,6 +289,7 @@ async def _build_mission_for_outline(
 ) -> Optional[dict]:
     """按 pipeline_orchestrator 非 fast 路径的口径组装输入并生成 mission。
     输入组装方式必须与正式路径一致，否则预生成的 mission 质量走样。"""
+    from ..services.entity_registry_service import EntityRegistryService
     from ..services.history_context_service import HistoryContextService
     from ..services.llm_service import LLMService
     from ..services.novel_service import NovelService
@@ -326,6 +327,12 @@ async def _build_mission_for_outline(
     all_characters = [
         c.get("name") for c in blueprint_dict.get("characters", []) if c.get("name")
     ]
+    alias_map: Dict[str, str] = {}
+    try:
+        entities = await EntityRegistryService(session).get_all_entities(project.id)
+        alias_map = EntityRegistryService.alias_map_from_entities(entities)
+    except Exception as exc:
+        logger.warning("预生成使命别名表加载失败: project=%s error=%s", project.id, exc)
     pattern_constraint = PromptAssemblyService.build_pattern_differentiation(
         history_context.get("completed_chapters", [])
     )
@@ -337,6 +344,7 @@ async def _build_mission_for_outline(
         outline_summary=outline_summary,
         writing_notes=writing_notes,
         allowed_new_characters=[],
+        alias_map=alias_map,
     )
     blueprint_constraints = build_blueprint_constraints_for_mission(
         blueprint_dict=blueprint_dict,

@@ -11,8 +11,10 @@
    "revised": bool}
 """
 import asyncio
+import copy
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -44,6 +46,86 @@ async def _get_dossier_lock(project_id: str) -> asyncio.Lock:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# 立项书内部路径 → 确认页中文区块名。毒点「修复建议」常把 JSON 键写进给作者看的句子，
+# 必须在展示前替换；最长路径优先，避免 protagonist.identity 被拆成 identity。
+_DOSSIER_FIELD_LABELS: tuple[tuple[str, str], ...] = (
+    ("protagonist.charm_point", "主角代入点"),
+    ("protagonist.predicament", "主角开局困境"),
+    ("protagonist.identity", "主角身份处境"),
+    ("protagonist.desire", "主角欲望"),
+    ("protagonist.flaw", "主角缺陷"),
+    ("protagonist.name", "主角"),
+    ("golden_finger.growth_curve", "金手指成长曲线"),
+    ("golden_finger.limitations", "金手指限制与代价"),
+    ("golden_finger.mechanism", "金手指机制"),
+    ("golden_finger.source", "金手指来源"),
+    ("golden_finger.name", "金手指名称"),
+    ("anticipation.ten_chapters", "前10章承诺"),
+    ("anticipation.fifty_chapters", "前50章承诺"),
+    ("anticipation.long_term", "长线承诺"),
+    ("core_selling_line", "核心卖点"),
+    ("title_candidates", "书名候选"),
+    ("coolpoint_chain", "爽点链"),
+    ("conflict_engine", "矛盾发动机"),
+    ("core_conflict", "核心冲突"),
+    ("platform_mode", "平台模式"),
+    ("golden_finger", "金手指"),
+    ("growth_curve", "金手指成长曲线"),
+    ("charm_point", "主角代入点"),
+    ("predicament", "主角开局困境"),
+    ("limitations", "金手指限制与代价"),
+    ("mechanism", "金手指机制"),
+    ("anticipation", "期待感承诺"),
+    ("identity", "主角身份处境"),
+    ("audience", "目标读者"),
+    ("notes", "补充说明"),
+    ("genre", "题材"),
+)
+
+
+def humanize_dossier_jargon(text: str) -> str:
+    """把修复建议里的内部字段路径换成立项书中文区块名。"""
+    if not isinstance(text, str) or not text:
+        return text or ""
+    result = text
+    for path, label in sorted(_DOSSIER_FIELD_LABELS, key=lambda item: len(item[0]), reverse=True):
+        escaped = re.escape(path)
+        result = re.sub(rf"[`\"'「]{escaped}[`\"'」]", label, result)
+        result = re.sub(rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])", label, result)
+    return result
+
+
+def humanize_stress_report_dict(report: Dict[str, Any]) -> Dict[str, Any]:
+    """清洗推演报告里给作者看的字符串，不改结构。返回副本。"""
+    cleaned = copy.deepcopy(report)
+    for point in cleaned.get("toxic_points") or []:
+        if not isinstance(point, dict):
+            continue
+        for key in ("fix_suggestion", "reason", "issue"):
+            value = point.get(key)
+            if isinstance(value, str):
+                point[key] = humanize_dossier_jargon(value)
+    for section_key in ("conflict_sustainability", "golden_finger_collapse"):
+        section = cleaned.get(section_key)
+        if not isinstance(section, dict):
+            continue
+        for key, value in list(section.items()):
+            if isinstance(value, str):
+                section[key] = humanize_dossier_jargon(value)
+    for key in ("summary", "overall_verdict"):
+        value = cleaned.get(key)
+        if isinstance(value, str):
+            cleaned[key] = humanize_dossier_jargon(value)
+    return cleaned
+
+
+def humanize_stress_report(report: PremiseStressReport) -> PremiseStressReport:
+    try:
+        return PremiseStressReport.model_validate(humanize_stress_report_dict(report.model_dump()))
+    except Exception:  # noqa: BLE001 - 清洗失败不阻断推演
+        return report
 
 
 def _compact_history_text(history_records: List[Any]) -> str:
@@ -203,7 +285,13 @@ class ConceptDossierService:
     @staticmethod
     def get_state(project: NovelProject) -> Dict[str, Any]:
         state = project.concept_dossier
-        return state if isinstance(state, dict) else {}
+        if not isinstance(state, dict):
+            return {}
+        state = dict(state)
+        report = state.get("stress_report")
+        if isinstance(report, dict):
+            state["stress_report"] = humanize_stress_report_dict(report)
+        return state
 
     # ------------------------------------------------------------------
     # 主入口：确保立项书（+按档位推演）就绪；幂等，全程软失败
@@ -359,7 +447,12 @@ class ConceptDossierService:
                 logger.warning("压力推演跳过：缺少 premise_stress_test 提示词")
                 return None, None
 
-            prompt = "【故事立项书】\n" + json.dumps(dossier, ensure_ascii=False, indent=1)
+            prompt = (
+                "【故事立项书】\n"
+                + json.dumps(dossier, ensure_ascii=False, indent=1)
+                + "\n\n【写修复建议时】只用中文区块名（主角身份处境、金手指限制与代价、矛盾发动机、"
+                "爽点链、期待感承诺、补充说明等），不要写英文变量名。"
+            )
             report = await self.llm_service.generate_structured(
                 prompt=prompt,
                 schema=PremiseStressReport,
@@ -369,7 +462,10 @@ class ConceptDossierService:
                 max_tokens=_STRESS_MAX_TOKENS,
                 default=None,
             )
+            if report is None:
+                return None, None
             report = _hoist_misplaced_stress_fields(report)
+            report = humanize_stress_report(report)
 
             revised: Optional[ConceptDossier] = None
             high_risk = [p.model_dump() for p in report.high_risk_points()]
