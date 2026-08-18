@@ -165,6 +165,46 @@
             </n-spin>
           </n-card>
 
+          <!-- 证据评分模型 -->
+          <n-card :bordered="false">
+            <template #header>
+              <div class="card-header">
+                <span class="card-title">📊 证据评分模型</span>
+                <n-tag :type="graderForm.api_key ? 'success' : 'default'" size="small">
+                  {{ graderForm.api_key ? '已启用' : '未启用' }}
+                </n-tag>
+              </div>
+            </template>
+            <n-spin :show="loading">
+              <n-alert type="info" :bordered="false" style="margin-bottom:16px">
+                配置证据评分模型，用于 RAG 检索时对上下文片段进行质量评分。全部留空则跳过评分（不影响生成成败）。
+              </n-alert>
+              <n-form label-placement="top">
+                <n-grid :cols="2" :x-gap="16">
+                  <n-gi><n-form-item label="API Key">
+                    <n-input v-model:value="graderForm.api_key" type="password" show-password-on="click" placeholder="留空则跳过评分" />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="模型名称">
+                    <n-input v-model:value="graderForm.model" placeholder="例：gpt-4o-mini" />
+                  </n-form-item></n-gi>
+                  <n-gi :span="2"><n-form-item label="Base URL">
+                    <n-input v-model:value="graderForm.base_url" placeholder="例：https://api.openai.com/v1" />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="API 格式">
+                    <n-select v-model:value="graderForm.api_format" :options="apiFormatOptions" placeholder="留空自动识别" clearable />
+                  </n-form-item></n-gi>
+                  <n-gi><n-form-item label="推理深度 reasoning_effort">
+                    <n-select v-model:value="graderForm.reasoning_effort" :options="reasoningEffortOptions" placeholder="仅推理模型生效，留空即可" clearable />
+                  </n-form-item></n-gi>
+                </n-grid>
+                <n-space justify="end">
+                  <n-button :loading="testing.grader" @click="testChannel('grader')">测试连接</n-button>
+                  <n-button type="primary" :loading="graderSaving" @click="saveConfig('grader')">保存</n-button>
+                </n-space>
+              </n-form>
+            </n-spin>
+          </n-card>
+
           <!-- 向量嵌入模型 (Embedding) -->
           <n-card :bordered="false">
             <template #header>
@@ -380,6 +420,7 @@ const defaultForm = reactive({ api_key: '', base_url: '', model: '', api_format:
 const fallbackForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
 const polishForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
 const searchForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
+const graderForm = reactive({ api_key: '', base_url: '', model: '', api_format: null as string | null, reasoning_effort: null as string | null })
 // 向量嵌入：键与 LLM 通道不同（provider/model_vector_size、无 api_format/reasoning_effort），单列
 const embeddingForm = reactive({ provider: 'openai', api_key: '', base_url: '', model: '', model_vector_size: '' })
 const embeddingProviderOptions = [
@@ -393,12 +434,13 @@ const defaultSaving = ref(false)
 const fallbackSaving = ref(false)
 const polishSaving = ref(false)
 const searchSaving = ref(false)
+const graderSaving = ref(false)
 const embeddingSaving = ref(false)
 const rerankSaving = ref(false)
 
-// 仅覆盖本页配置卡管理的通道（grader 在「通道诊断」页测试，这里不配置）
+// 仅覆盖本页配置卡管理的通道（所有通道都在这里配置和测试）
 const testing = reactive<Partial<Record<ChannelType, boolean>>>({
-  default: false, fallback: false, polish: false, search: false, embedding: false, rerank: false,
+  default: false, fallback: false, polish: false, search: false, grader: false, embedding: false, rerank: false,
 })
 
 // 未填专用地址/密钥时会回退 embedding 配置，状态标签要如实反映这三种情形
@@ -414,14 +456,15 @@ const CONFIG_MAP = {
   fallback: { prefix: 'llm_fallback',  label: '兜底 API 配置（默认通道失败时自动重试一次）' },
   polish:   { prefix: 'llm_optimize',  label: '润色优化模型配置' },
   search:   { prefix: 'llm_search',    label: '参考小说搜索模型配置' },
+  grader:   { prefix: 'llm_grader',    label: '证据评分模型配置' },
 } as const
 type ConfigKey = keyof typeof CONFIG_MAP
 
 const getForm = (type: ConfigKey) => {
-  return { default: defaultForm, fallback: fallbackForm, polish: polishForm, search: searchForm }[type]
+  return { default: defaultForm, fallback: fallbackForm, polish: polishForm, search: searchForm, grader: graderForm }[type]
 }
 const getSaving = (type: ConfigKey) => {
-  return { default: defaultSaving, fallback: fallbackSaving, polish: polishSaving, search: searchSaving }[type]
+  return { default: defaultSaving, fallback: fallbackSaving, polish: polishSaving, search: searchSaving, grader: graderSaving }[type]
 }
 
 const fetchAllConfigs = async () => {
