@@ -88,8 +88,8 @@ Application logs are written to `backend/logs/`:
 Layered architecture: **Routers → Services → Repositories → Models**
 
 - `main.py` — FastAPI entry, lifespan (DB init + prompt preload), middleware stack (HTTPS redirect when not debug, CORS, rate limit, 10MB request-size limit, security headers, request-id), router registration
-- `api/routers/` — 20+ router modules. Key routers: `writer.py` (advanced generation, SSE, batch generation, finalize/select/evaluate, outline/prediction, summaries, RAG rebuild, archives, diagnostics), `novels.py` (project/concept/reference workflows incl. 灵感模式 endpoints), `auth.py` (password/JWT + WeChat/Google/Linux.do OAuth + phone-code login), `payment.py` (Alipay/WeChat/Stripe orders + webhooks), `plans.py` (plan CRUD + public plans with capabilities), `quota.py`, `api_usage.py` (LLM usage stats), `admin.py` (admin panel: system configs, LLM channel test, user subscriptions), `task_worker.py` (Go dispatcher worker adapter), `writer_progress.py` (backend-local chapter progress WebSocket — separate from the gateway `/ws` hub; its three REST siblings `GET /progress/...` + `pause`/`resume` had **no auth at all** until 2026-08-14 — the GET returns `last_output_preview`, i.e. in-flight prose — and now share the WS endpoint's ownership check via `_ensure_project_owner`, non-owner → 404), `review.py` (six-dimension / consistency / gatekeeper review APIs), `model_catalog.py` (frontend tier-filtered model list + credit balance, admin model-catalog CRUD)
-- `services/` — 130+ service modules. Core services used in chapter generation:
+- `api/routers/` — 24 router modules. Key routers: `writer.py` (advanced generation, SSE, batch generation, finalize/select/evaluate, outline/prediction, summaries, RAG rebuild, archives, diagnostics), `novels.py` (project/concept/reference workflows incl. 灵感模式 endpoints), `auth.py` (password/JWT + WeChat/Google/Linux.do OAuth + phone-code login), `payment.py` (Alipay/WeChat/Stripe orders + webhooks), `plans.py` (plan CRUD + public plans with capabilities), `quota.py`, `api_usage.py` (LLM usage stats), `admin.py` (admin panel: system configs, LLM channel test, user subscriptions), `task_worker.py` (Go dispatcher worker adapter), `writer_progress.py` (backend-local chapter progress WebSocket — separate from the gateway `/ws` hub; its three REST siblings `GET /progress/...` + `pause`/`resume` had **no auth at all** until 2026-08-14 — the GET returns `last_output_preview`, i.e. in-flight prose — and now share the WS endpoint's ownership check via `_ensure_project_owner`, non-owner → 404), `review.py` (six-dimension / consistency / gatekeeper review APIs), `model_catalog.py` (frontend tier-filtered model list + credit balance, admin model-catalog CRUD)
+- `services/` — 142 service modules. Core services used in chapter generation:
   - `pipeline_orchestrator.py` — traditional pipeline orchestrator: config → context/evidence → prompt assembly → generation flow → finalize/archive/telemetry
   - `pipeline_config_service.py` — resolves `fast` / `standard` / `premium` presets, global settings, and request overrides
   - `context_planner_service.py` — builds `ContextPlan` retrieval, prompt, verification, and token-budget tasks
@@ -290,6 +290,30 @@ Gateway: `TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET` (accepts `GATEWAY_` prefix a
 - Node engine requirement: `^20.19.0 || >=22.12.0`
 - Logging: use `logging.getLogger(__name__)` in backend modules; logs route to `backend/logs/app.log`, `llm.log`, or `trace.log` depending on logger configuration
 - When adding new agents: register in `WritingAgentSystem._register_agents()` (flow is sequential and return-value driven)
+
+## Critical Development Practices (Learned from Production Incidents)
+
+**Before deleting/modifying code:**
+- **Always `grep` to verify current state** (including `tests/`) — don't trust old reports, memories, or multi-agent surveys. The "gateway needs rebuild" item in TODO was a two-week-old stale memory that turned out false on verification.
+- **Check for test dependencies** before deleting what looks like dead code (`novel_bench_service` almost got deleted despite having active regression tests).
+
+**Configuration and deployment:**
+- **Never "helpfully" rewrite user-provided values**: auto-appending `/rerank` to the rerank URL breaks users who correctly filled `…/v1/rerank/multimodal`. Multi-vendor scenarios make path inference fail every time.
+- **Adding an env switch requires updating prod compose to pass it through** — otherwise it's silently off in production (happened with `VOLUME_RETROSPECTIVE_ENABLED`).
+- **Production stack commands MUST include `-f docker-compose.prod.yml`** — bare `docker compose` tears down prod stack app replicas.
+
+**Testing and debugging:**
+- **Never `import app.main` in tests** — it runs `dictConfig` with `propagate=False` at import time, breaking other tests' caplog (broke 3 unrelated tests at once).
+- **Adversarial review workflows over-request tests** — historically 27 findings yielded only 2 real code bugs, rest were "add more tests". Apply judgment.
+- **Best-effort `except` clauses are silent-failure incubators** — after batch runs or deploys, check logs for "failure/degraded" counts, not just report scores. (One batch run caught 4 silent failures this way.)
+
+**Production incident diagnosis:**
+- **Async path "task timeout" errors: first check `docker logs gateway | grep panic` + whether `trace.log` is empty** — don't assume it's slow generation. (Real culprit was once a gateway nil-map panic crashing the entire process.)
+- **Frontend reports after deploy about dynamic import failures**: check `curl -sI <site>/` for index.html Cache-Control, and whether old chunks 404 — if both true it's a caching issue, not a build problem.
+
+**Git workflow:**
+- Use explicit pathspec and put `-m` **before** `--`: `git commit -m "msg" -- <paths>` to avoid accidentally committing `.claude/settings.local.json` and other unrelated changes.
+- Project is pre-launch — commit directly to main.
 
 ## Known Pitfalls (verified 2026-06-10; 2026-07-26 大规模整改后部分描述已随之更新)
 
