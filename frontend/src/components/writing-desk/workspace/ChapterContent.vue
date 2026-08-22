@@ -319,6 +319,11 @@ async function runTransform(action: 'expand' | 'rewrite' | 'de_ai') {
       action,
       selected_text: selection.value,
     })
+    if (res.delivered === false) {
+      // 没改出东西就不给「采用」按钮——采用原文等于白点一次，积分后端已退
+      globalAlert.showAlert(res.message || '这次没能改出不一样的写法，可以直接重试。', 'info', '选区改写')
+      return
+    }
     previewText.value = res.result_text
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

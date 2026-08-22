@@ -1496,7 +1496,16 @@ export class NovelAPI {
       instruction?: string
       apply?: boolean
     },
-  ): Promise<{ action: string; result_text: string; charged: number; ref_key: string; applied: boolean }> {
+  ): Promise<{
+    action: string
+    result_text: string
+    charged: number
+    refunded: number
+    delivered: boolean
+    ref_key: string
+    applied: boolean
+    message?: string
+  }> {
     return request(`${WRITER_BASE}/${projectId}/transform`, {
       method: 'POST',
       body: JSON.stringify(payload),

@@ -2333,7 +2333,7 @@ async def transform_chapter_selection(
     try:
         charged = await charge_transform(session, current_user.id, action, ref_key=ref_key)
         await session.commit()
-        result_text = await transform_selection(
+        outcome = await transform_selection(
             session,
             action=action,  # type: ignore[arg-type]
             selected_text=selected,
@@ -2342,6 +2342,22 @@ async def transform_chapter_selection(
             context_after=context_after,
             user_id=current_user.id,
         )
+        result_text = outcome.text
+        if not outcome.delivered:
+            # 付费必交付：退回原文不算交付，退款后原样返回，正文一个字不动
+            refunded = await refund_generation(session, current_user.id, ref_key=ref_key) if charged else 0
+            await session.commit()
+            logger.info("选区变换未交付，已退还 %d 积分 ref=%s", refunded, ref_key)
+            return {
+                "action": action,
+                "result_text": result_text,
+                "charged": charged,
+                "refunded": refunded,
+                "delivered": False,
+                "ref_key": ref_key,
+                "applied": False,
+                "message": f"{outcome.note}，{'积分已退回，' if refunded else ''}可以直接重试。",
+            }
         owned = await session.get(NovelProject, project_id)
         if owned is not None and hasattr(owned, "ai_assisted"):
             owned.ai_assisted = True
@@ -2371,6 +2387,8 @@ async def transform_chapter_selection(
             "action": action,
             "result_text": result_text,
             "charged": charged,
+            "refunded": 0,
+            "delivered": True,
             "ref_key": ref_key,
             "applied": applied,
         }
