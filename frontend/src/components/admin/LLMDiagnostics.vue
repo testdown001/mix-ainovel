@@ -6,15 +6,19 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">🩺 通道实时健康</span>
-          <n-button type="primary" size="small" :loading="healthLoading" @click="loadHealth">
-            一键检测全部
-          </n-button>
+          <n-space align="center" :size="8">
+            <span v-if="healthCheckedAt" class="cache-hint">{{ healthCacheHint }}</span>
+            <n-button type="primary" size="small" :loading="healthLoading" @click="loadHealth(true)">
+              一键检测全部
+            </n-button>
+          </n-space>
         </div>
       </template>
       <n-spin :show="healthLoading">
         <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
           对每个<b>已配置</b>通道发起一次真实最小调用，验证密钥/地址/模型可达及当前延迟。
           标注「未配置」的通道运行时根本不会被使用（详情里写明少了什么能力），不会拿默认通道冒名顶替。
+          检测结果缓存 <b>10 分钟</b>，再次打开本页不会自动实测；点「一键检测全部」或单通道「重测」才会重新打上游。
         </n-alert>
         <n-data-table :columns="healthColumns" :data="health" :bordered="false" size="small" />
       </n-spin>
@@ -131,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref } from 'vue'
 import {
   NAlert, NButton, NCard, NDataTable, NRadioButton, NRadioGroup,
   NSelect, NSpace, NSpin, NTag, type DataTableColumns
@@ -162,7 +166,34 @@ const statusOptions = [
   { label: '超时', value: 'timeout' },
 ]
 
+const HEALTH_CACHE_KEY = 'arboris.admin.llm-health'
+const HEALTH_CACHE_TTL_MS = 10 * 60 * 1000
+
+type HealthCachePayload = { channels: LLMHealthChannel[]; checkedAt: number }
+
+function readHealthCache(): HealthCachePayload | null {
+  try {
+    const raw = sessionStorage.getItem(HEALTH_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as HealthCachePayload
+    if (!parsed?.checkedAt || !Array.isArray(parsed.channels)) return null
+    if (Date.now() - parsed.checkedAt > HEALTH_CACHE_TTL_MS) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function writeHealthCache(channels: LLMHealthChannel[], checkedAt = Date.now()) {
+  try {
+    sessionStorage.setItem(HEALTH_CACHE_KEY, JSON.stringify({ channels, checkedAt }))
+  } catch {
+    /* quota / private mode：缓存失败不影响检测本身 */
+  }
+}
+
 const health = ref<LLMHealthChannel[]>([])
+const healthCheckedAt = ref<number | null>(null)
 const findings = ref<LLMConfigFinding[]>([])
 const auditLoading = ref(false)
 const summary = ref<LLMCallSummaryChannel[]>([])
@@ -178,6 +209,19 @@ const filterStatus = ref<string | null>(null)
 const windowLabel = computed(
   () => ({ '1h': '1 小时', '6h': '6 小时', '24h': '24 小时', '7d': '7 天' } as Record<string, string>)[window.value] || window.value
 )
+
+// Date.now() 不是响应式依赖，直接写进 computed 会让「N 分钟前」停在挂载那一刻；
+// 用一个定时推进的 ref 当依赖驱动重算。注意本文件里 window 被 ref 遮蔽，只能用裸 setInterval。
+const nowTick = ref(Date.now())
+let hintTimer: ReturnType<typeof setInterval> | null = null
+
+const healthCacheHint = computed(() => {
+  if (!healthCheckedAt.value) return ''
+  const ageMin = Math.max(0, Math.floor((nowTick.value - healthCheckedAt.value) / 60000))
+  const time = new Date(healthCheckedAt.value).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })
+  if (ageMin <= 0) return `检测于 ${time}`
+  return `检测于 ${time}（${ageMin} 分钟前，10 分钟内不再自动实测）`
+})
 
 const fmtTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '-')
 const latencyStyle = (ms: number) => {
@@ -261,11 +305,22 @@ async function loadAudit() {
   }
 }
 
-async function loadHealth() {
+async function loadHealth(force = false) {
+  if (!force) {
+    const cached = readHealthCache()
+    if (cached) {
+      health.value = cached.channels
+      healthCheckedAt.value = cached.checkedAt
+      return
+    }
+  }
   healthLoading.value = true
   try {
     const r = await AdminAPI.getLlmHealth()
     health.value = r.channels || []
+    const checkedAt = Date.now()
+    healthCheckedAt.value = checkedAt
+    writeHealthCache(health.value, checkedAt)
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '检测通道失败', 'error')
   } finally {
@@ -277,7 +332,12 @@ async function retestOne(channel: string) {
   try {
     const r = await AdminAPI.testLlmChannel(channel as any)
     const idx = health.value.findIndex((c) => c.channel === channel)
-    if (idx >= 0) health.value[idx] = { channel: channel as any, ...r }
+    const row = { channel: channel as any, ...r }
+    if (idx >= 0) health.value[idx] = row
+    else health.value = [...health.value, row]
+    // 只重跑了这一条：批次时钟必须停在上次全量检测的时刻。刷成 now 会让另外几行
+    // 陈旧数据冒充「刚检测」，还把 10 分钟自动实测窗口整体后推。
+    if (healthCheckedAt.value) writeHealthCache(health.value, healthCheckedAt.value)
     if (r.configured === false) {
       showAlert(`${channelLabel(channel)}未配置：${r.detail}`, 'info')
     } else {
@@ -326,10 +386,16 @@ function refreshAll() {
 }
 
 onMounted(() => {
-  loadHealth()
+  loadHealth(false)
   loadAudit()
   loadSummary()
   loadCalls()
+  hintTimer = setInterval(() => { nowTick.value = Date.now() }, 30000)
+})
+
+onUnmounted(() => {
+  if (hintTimer !== null) clearInterval(hintTimer)
+  hintTimer = null
 })
 </script>
 
@@ -361,5 +427,10 @@ onMounted(() => {
 }
 .audit-title {
   font-weight: 600;
+}
+.cache-hint {
+  font-size: 12px;
+  color: #888;
+  font-weight: 400;
 }
 </style>
