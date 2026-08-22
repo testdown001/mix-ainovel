@@ -9,9 +9,11 @@ from .novel import (
     ChapterEvaluation,
     ChapterOutline,
     ChapterVersion,
+    ChapterWorldState,
     NovelBlueprint,
     NovelConversation,
     NovelProject,
+    Volume,
 )
 from .prompt import Prompt
 from .update_log import UpdateLog
@@ -91,10 +93,12 @@ __all__ = [
     "NovelBlueprint",
     "BlueprintCharacter",
     "BlueprintRelationship",
+    "Volume",
     "ChapterOutline",
     "Chapter",
     "ChapterVersion",
     "ChapterEvaluation",
+    "ChapterWorldState",
     "NovelProject",
     "Prompt",
     "UpdateLog",

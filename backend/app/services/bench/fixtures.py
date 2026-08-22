@@ -373,6 +373,13 @@ async def freeze_project(
         for row in relationships_result.scalars().all()
     ]
 
+    # Legacy JSON 投影现在包含一等 Volume 的数据库 id/顺序号；bench 场景必须可移植，
+    # 冻结时去掉这些环境相关字段，保留作者定义的卷内容。
+    portable_volumes = [
+        {key: value for key, value in volume.items() if key not in {"id", "volume_number"}}
+        for volume in (record.volumes or [])
+        if isinstance(volume, dict)
+    ]
     blueprint: Dict[str, Any] = {
         "title": record.title or project.title,
         "target_audience": record.target_audience or "",
@@ -382,7 +389,7 @@ async def freeze_project(
         "one_sentence_summary": record.one_sentence_summary or "",
         "full_synopsis": record.full_synopsis or "",
         "world_setting": record.world_setting or {},
-        "volumes": record.volumes or [],
+        "volumes": portable_volumes,
         "characters": characters,
         "relationships": relationships,
     }

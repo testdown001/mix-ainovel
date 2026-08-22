@@ -3,7 +3,7 @@
   <div>
     <!-- 侧边栏遮罩 (移动端) -->
     <div
-      v-if="sidebarOpen"
+      v-if="sidebarOpen && !embedded"
       @click="$emit('closeSidebar')"
       class="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
     ></div>
@@ -12,10 +12,14 @@
     <div
       :class="[
         'md-card md-card-elevated transition-all duration-300 h-full',
-        'lg:relative lg:translate-x-0 lg:w-80 lg:flex-shrink-0',
-        sidebarOpen
+        embedded
+          ? 'relative w-full translate-x-0'
+          : 'lg:relative lg:translate-x-0 lg:w-80 lg:flex-shrink-0',
+        !embedded && sidebarOpen
           ? 'fixed left-4 top-20 bottom-4 w-80 z-50 translate-x-0'
-          : 'lg:w-80 lg:flex-shrink-0 -translate-x-full absolute lg:relative'
+          : !embedded
+            ? 'lg:w-80 lg:flex-shrink-0 -translate-x-full absolute lg:relative'
+            : ''
       ]"
       style="border-radius: var(--md-radius-xl);"
     >
@@ -565,6 +569,7 @@ const getRhythmColor = (outline: ChapterOutline): string => {
 }
 
 interface Props {
+  embedded?: boolean
   project: NovelProject
   sidebarOpen: boolean
   selectedChapterNumber: number | null

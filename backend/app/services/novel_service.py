@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any, Dict, Iterable, List, Optional
 
 _PREFERRED_CONTENT_KEYS: tuple[str, ...] = (
@@ -244,6 +245,17 @@ class NovelService:
         await self.session.commit()
         await self._touch_project(project_id)
 
+    async def set_cover_image(
+        self,
+        project_id: str,
+        user_id: int,
+        cover_image: Dict[str, Any],
+    ) -> None:
+        project = await self.ensure_project_owner(project_id, user_id)
+        project.cover_image = cover_image
+        await self.session.commit()
+        await self._touch_project(project_id)
+
     async def get_section_data(
         self,
         project_id: str,
@@ -271,7 +283,27 @@ class NovelService:
             outlines = project.outlines
             chapters = project.chapters
             total = len(outlines) or len(chapters)
-            completed = sum(1 for chapter in chapters if chapter.selected_version_id)
+            selected_chapter_numbers = {
+                chapter.chapter_number for chapter in chapters if chapter.selected_version_id
+            }
+            completed = len(selected_chapter_numbers)
+            total_words = sum(
+                max(
+                    int(chapter.word_count or 0),
+                    len(chapter.selected_version.content or "")
+                    if chapter.selected_version is not None
+                    else 0,
+                )
+                for chapter in chapters
+            )
+            next_outline = next(
+                (
+                    outline
+                    for outline in outlines
+                    if outline.chapter_number not in selected_chapter_numbers
+                ),
+                None,
+            )
             summaries.append(
                 NovelProjectSummary(
                     id=project.id,
@@ -280,7 +312,11 @@ class NovelService:
                     last_edited=project.updated_at.isoformat() if project.updated_at else "未知",
                     completed_chapters=completed,
                     total_chapters=total,
+                    total_words=total_words,
+                    next_chapter_number=(next_outline.chapter_number if next_outline else None),
+                    next_chapter_title=(next_outline.title if next_outline else None),
                     is_completed=bool(project.is_completed),
+                    cover_image=getattr(project, "cover_image", None),
                 )
             )
         return summaries
@@ -311,10 +347,19 @@ class NovelService:
         return summaries
 
     async def delete_projects(self, project_ids: List[str], user_id: int) -> None:
+        # 先完成全部归属校验和数据库事务；文件清理放在提交之后，避免事务失败时
+        # 用户仍有作品记录却丢失封面。文件清理失败不会伪装成作品删除失败。
         for pid in project_ids:
             project = await self.ensure_project_owner(pid, user_id)
             await self.repo.delete(project)
         await self.session.commit()
+        from .cover_storage_service import delete_cover_file
+
+        for pid in project_ids:
+            try:
+                await asyncio.to_thread(delete_cover_file, pid)
+            except Exception:
+                logger.exception("项目已删除，但封面文件清理失败: project_id=%s", pid)
 
     async def count_projects(self) -> int:
         result = await self.session.execute(select(func.count(NovelProject.id)))
@@ -386,6 +431,11 @@ class NovelService:
         record.world_setting = blueprint.world_setting
         record.golden_finger = blueprint.golden_finger
         record.volumes = [volume.model_dump() for volume in (blueprint.volumes or [])]
+        # M1：先建立独立卷实体，再继续写章纲。旧 JSON 仍保留为生成/复盘链路的兼容投影。
+        from .volume_service import VolumeService
+
+        volume_service = VolumeService(self.session)
+        volume_records = await volume_service.sync_from_blueprint(record)
         # 审稿报告只增不清：入参带报告时覆盖，不带时保留既有（前端 save 回传会带上）
         if blueprint.review_report is not None:
             record.review_report = blueprint.review_report
@@ -442,7 +492,16 @@ class NovelService:
                 [
                     {
                         "project_id": project_id,
+                        "volume_id": next(
+                            (
+                                volume.id
+                                for volume in volume_records
+                                if volume.start_chapter <= number_map[outline.chapter_number] <= volume.end_chapter
+                            ),
+                            None,
+                        ),
                         "chapter_number": number_map[outline.chapter_number],
+                        "sort_key": number_map[outline.chapter_number] * 1000,
                         "title": outline.title,
                         "summary": outline.summary,
                         "metadata": self._strip_revision_hint(
@@ -471,6 +530,9 @@ class NovelService:
         else:
             normalized_outlines = []
             normalized_foreshadowings = blueprint.foreshadowings or []
+
+        # 历史章节可能早于蓝图写入，统一回填卷归属与稳定排序键。
+        await volume_service.assign_chapters(project_id, volume_records)
 
         # 章级规划同步写入 chapter_blueprints（补上休眠表缺失的写入方）。
         # 章号用 number_map 重排后的最终值，与 chapter_outlines 严格对齐；
@@ -523,6 +585,8 @@ class NovelService:
             # 创建新字典对象以触发 SQLAlchemy 的变更检测
             existing = blueprint.world_setting or {}
             blueprint.world_setting = {**existing, **patch["world_setting"]}
+        if "volumes" in patch and patch["volumes"] is not None:
+            blueprint.volumes = [dict(item) for item in patch["volumes"] if isinstance(item, dict)]
         if "characters" in patch and patch["characters"] is not None:
             await self.session.execute(delete(BlueprintCharacter).where(BlueprintCharacter.project_id == project_id))
             for index, data in enumerate(patch["characters"]):
@@ -573,6 +637,7 @@ class NovelService:
                     ChapterOutline(
                         project_id=project_id,
                         chapter_number=outline.get("chapter_number"),
+                        sort_key=int(outline.get("chapter_number") or 0) * 1000,
                         title=outline.get("title", ""),
                         summary=outline.get("summary"),
                         metadata=(
@@ -584,6 +649,15 @@ class NovelService:
                         ),
                     )
                 )
+        if "volumes" in patch and patch["volumes"] is not None:
+            from .volume_service import VolumeService
+
+            await VolumeService(self.session).sync_from_blueprint(blueprint)
+        elif "chapter_outline" in patch and patch["chapter_outline"] is not None:
+            # 仅编辑章纲时仍需把新建行归入当前卷；分卷范围未变化，不重写实体。
+            from .volume_service import VolumeService
+
+            await VolumeService(self.session).assign_chapters(project_id)
         if "foreshadowings" in patch and patch["foreshadowings"] is not None:
             if "chapter_outline" in patch and patch["chapter_outline"] is not None:
                 outlines_for_sync = [
@@ -842,11 +916,17 @@ class NovelService:
             chapter = Chapter(
                 project_id=project_id,
                 chapter_number=chapter_number,
+                sort_key=chapter_number * 1000,
             )
             self.session.add(chapter)
             chapter_map[chapter_number] = chapter
 
         await self.session.flush()
+
+        # 伏笔同步会按需预建章节；也必须沿用同一分卷和排序口径。
+        from .volume_service import VolumeService
+
+        await VolumeService(self.session).assign_chapters(project_id)
 
         for payload in payloads:
             chapter = chapter_map.get(payload["chapter_number"])
@@ -1111,6 +1191,7 @@ class NovelService:
                 outline = ChapterOutline(
                     project_id=project_id,
                     chapter_number=chapter_number,
+                    sort_key=chapter_number * 1000,
                     title=title,
                     summary=summary,
                     metadata=metadata,
@@ -1131,6 +1212,9 @@ class NovelService:
                         project_id, chapter_number, exc,
                     )
             await self.session.flush()
+            from .volume_service import VolumeService
+
+            await VolumeService(self.session).assign_chapters(project_id)
             return outline
 
     async def _load_chapters_by_number(self, project_id: str, chapter_number: int) -> List[Chapter]:
@@ -1230,29 +1314,39 @@ class NovelService:
                     chapters = await self._load_chapters_by_number(project_id, chapter_number)
                 return _select_canonical_chapter(chapters)
 
-            chapter = Chapter(project_id=project_id, chapter_number=chapter_number)
+            chapter = Chapter(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                sort_key=chapter_number * 1000,
+            )
             self.session.add(chapter)
+            await self.session.flush()
+            from .volume_service import VolumeService
+
+            await VolumeService(self.session).assign_chapters(project_id)
             await self.session.commit()
             await self.session.refresh(chapter)
             return chapter
 
     async def replace_chapter_versions(self, chapter: Chapter, contents: List[str], metadata: Optional[List[Dict]] = None) -> List[ChapterVersion]:
-        # 成功落库时才清理旧状态：先解除选中版本引用再删旧版本行（避免外键指向被删行），
-        # 同时清空 real_summary 让后处理按新内容重算（_ensure_summary 对已有摘要会跳过重算）
-        chapter.selected_version_id = None
-        chapter.real_summary = None
-        await self.session.flush()
-        await self.session.execute(delete(ChapterVersion).where(ChapterVersion.chapter_id == chapter.id))
+        # M3/H2：重起草只追加待选候选，绝不删除历史，也不取消作者已经确认的正文。
+        # selected_version_id / revision_id / content_hash / real_summary 只有作者明确选版
+        # 后才能推进；生成候选本身不是正文变更，不能制造虚假的编辑冲突或让导出漏章。
         versions: List[ChapterVersion] = []
+        generation_batch = uuid.uuid4().hex
         for index, content in enumerate(contents):
-            extra = metadata[index] if metadata and index < len(metadata) else None
+            raw_extra = metadata[index] if metadata and index < len(metadata) else None
+            extra = dict(raw_extra) if isinstance(raw_extra, dict) else {}
+            extra["m3_generation_batch"] = generation_batch
             text_content = _normalize_version_content(content, extra)
             version = ChapterVersion(
                 chapter_id=chapter.id,
                 content=text_content,
-                metadata=extra,  # ✅ 落盘 metadata
-                version_label=f"v{index+1}",
+                metadata=extra,
+                version_label=f"generation_{generation_batch[:6]}_{index + 1}",
                 ai_assisted=True,
+                source="generation",
+                content_hash=sha256((text_content or "").encode("utf-8")).hexdigest(),
             )
             self.session.add(version)
             versions.append(version)
@@ -1269,10 +1363,27 @@ class NovelService:
         stmt = select(ChapterVersion).where(ChapterVersion.chapter_id == chapter.id).order_by(ChapterVersion.created_at)
         result = await self.session.execute(stmt)
         versions = result.scalars().all()
+        # M3 起重生成不再删除旧版本。选择器只消费最新一批 AI 候选，避免版本索引
+        # 因历史快照累积而偏移；老数据没有 batch 标记时保持原有全量行为。
+        batch_ids = [
+            (version.metadata or {}).get("m3_generation_batch")
+            for version in versions
+            if isinstance(version.metadata, dict) and (version.metadata or {}).get("m3_generation_batch")
+        ]
+        if batch_ids:
+            latest_batch = batch_ids[-1]
+            selectable_versions = [
+                version
+                for version in versions
+                if isinstance(version.metadata, dict)
+                and (version.metadata or {}).get("m3_generation_batch") == latest_batch
+            ]
+        else:
+            selectable_versions = versions
         
-        if not versions or version_index < 0 or version_index >= len(versions):
+        if not selectable_versions or version_index < 0 or version_index >= len(selectable_versions):
             raise HTTPException(status_code=400, detail="版本索引无效")
-        selected = versions[version_index]
+        selected = selectable_versions[version_index]
         
         # 校验内容是否为空
         if not selected.content or len(selected.content.strip()) == 0:
@@ -1281,6 +1392,8 @@ class NovelService:
         chapter.selected_version_id = selected.id
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
         chapter.word_count = len(selected.content or "")
+        chapter.revision_id = int(chapter.revision_id or 0) + 1
+        chapter.content_hash = sha256((selected.content or "").encode("utf-8")).hexdigest()
         await self.session.commit()
         await self.session.refresh(chapter)
         await self._touch_project(chapter.project_id)
@@ -1524,6 +1637,7 @@ class NovelService:
             title=project.title,
             initial_prompt=project.initial_prompt or "",
             is_completed=bool(project.is_completed),
+            cover_image=getattr(project, "cover_image", None),
             conversation_history=conversations,
             blueprint=blueprint_schema,
             chapters=chapters_schema,
@@ -1651,6 +1765,7 @@ class NovelService:
                 "initial_prompt": project.initial_prompt or "",
                 "status": project.status,
                 "is_completed": bool(project.is_completed),
+                "cover_image": getattr(project, "cover_image", None),
                 "one_sentence_summary": blueprint.one_sentence_summary,
                 "target_audience": blueprint.target_audience,
                 "genre": blueprint.genre,
@@ -1735,21 +1850,51 @@ class NovelService:
 
         if chapter:
             # 超过保鲜期的 generating 按失败呈现：进程在生成途中消失时没人会再改这一行
+            # updated_at 可能因数据库 onupdate 在异步 commit 后处于 expired 状态；同步
+            # serializer 不能触发隐式 IO，否则会抛 MissingGreenlet。未加载时保守不判过期。
+            chapter_updated_at = vars(chapter).get("updated_at")
             status_value = effective_chapter_status(
-                chapter.status, getattr(chapter, "updated_at", None)
+                chapter.status, chapter_updated_at
             )
             word_count = chapter.word_count or 0
 
             if chapter.versions:
                 sorted_versions = sorted(chapter.versions, key=lambda item: item.created_at)
+                # M3 历史版本只能经专用历史接口按需读取。常规项目响应保留当前生成批次
+                # （供候选选择）或当前选中正文，避免长篇的所有历史正文重复传到浏览器。
+                visible_versions = sorted_versions
+                generation_batches = [
+                    (version.metadata or {}).get("m3_generation_batch")
+                    for version in sorted_versions
+                    if isinstance(version.metadata, dict)
+                    and (version.metadata or {}).get("m3_generation_batch")
+                ]
+                if generation_batches and status_value in {
+                    ChapterGenerationStatus.WAITING_FOR_CONFIRM.value,
+                    ChapterGenerationStatus.SELECTING.value,
+                    ChapterGenerationStatus.EVALUATING.value,
+                }:
+                    latest_batch = generation_batches[-1]
+                    visible_versions = [
+                        version
+                        for version in sorted_versions
+                        if isinstance(version.metadata, dict)
+                        and (version.metadata or {}).get("m3_generation_batch") == latest_batch
+                    ]
+                elif any(
+                    (getattr(version, "source", None) or "legacy") != "legacy"
+                    or getattr(version, "parent_version_id", None) is not None
+                    for version in sorted_versions
+                ):
+                    visible_versions = [chapter.selected_version] if chapter.selected_version else []
 
                 if include_content:
                     if chapter.selected_version:
                         content = chapter.selected_version.content
-                    versions = [v.content for v in sorted_versions]
+                    versions = [v.content for v in visible_versions]
 
                 version_metadata = []
-                for idx, version in enumerate(sorted_versions):
+                for idx, version in enumerate(visible_versions):
                     meta: Dict[str, Any] = {
                         "version_id": version.id,
                         "version_label": version.version_label,
@@ -1771,7 +1916,7 @@ class NovelService:
                     version_metadata.append(meta)
 
                 if recommended_version_index is None and chapter.selected_version_id:
-                    for idx, version in enumerate(sorted_versions):
+                    for idx, version in enumerate(visible_versions):
                         if version.id == chapter.selected_version_id:
                             recommended_version_index = idx
                             break
@@ -1783,8 +1928,11 @@ class NovelService:
         updated_at = None
         created_at = None
         if chapter:
-            chapter_updated_at = getattr(chapter, "updated_at", None)
-            chapter_created_at = getattr(chapter, "created_at", None)
+            # 与上面的状态计算保持同一规则：只读已经加载的值，禁止同步序列化
+            # 在 AsyncSession 上触发属性懒加载。
+            chapter_values = vars(chapter)
+            chapter_updated_at = chapter_values.get("updated_at")
+            chapter_created_at = chapter_values.get("created_at")
             if chapter_updated_at:
                 updated_at = chapter_updated_at.isoformat()
             if chapter_created_at:
@@ -1802,6 +1950,12 @@ class NovelService:
             evaluation=evaluation_text,
             generation_status=ChapterGenerationStatus(status_value),
             word_count=word_count,
+            revision_id=int(vars(chapter).get("revision_id", 0) or 0) if chapter else 0,
+            content_hash=(
+                sha256((chapter.selected_version.content if chapter and chapter.selected_version else "").encode("utf-8")).hexdigest()
+                if chapter else None
+            ),
+            selected_version_id=vars(chapter).get("selected_version_id") if chapter else None,
             updated_at=updated_at,
             created_at=created_at,
         )

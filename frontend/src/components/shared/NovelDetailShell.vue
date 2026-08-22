@@ -59,39 +59,66 @@
         <span style="color: #fff;">{{ novelTitle }}</span>
       </div>
 
-      <!-- Novel Header (User Mode) -->
-      <div v-if="!isAdmin" class="flex items-start justify-between gap-6 mb-4">
-        <!-- Left: Icon + Title + Meta -->
-        <div class="flex items-start gap-5 min-w-0">
-          <!-- Novel Avatar -->
-          <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0 text-2xl"
-            :style="{ background: genreAvatarBg }">
-            {{ genreEmoji }}
-          </div>
-          <div class="min-w-0">
-            <h1 class="text-3xl font-bold text-white leading-tight truncate">{{ novelTitle }}</h1>
-            <div class="flex items-center gap-3 mt-2 flex-wrap">
-              <span v-if="novelGenre" class="px-2.5 py-0.5 rounded-full text-xs font-medium border" style="color: #FFE500; border-color: #FFE500;">
-                {{ novelGenre }}
-              </span>
-              <span v-if="sectionData.overview?.is_completed || novel?.is_completed" class="px-2.5 py-0.5 rounded-full text-xs font-medium" style="background: rgba(46, 213, 115, 0.15); color: #2ED573;">
-                已完结
-              </span>
-              <span class="text-sm" style="color: #888;">
-                by {{ authStore.user?.username || '—' }}
-              </span>
-              <span v-if="overviewMeta.updated_at" class="text-sm" style="color: #666;">
-                · 最近更新 {{ formatDateTime(overviewMeta.updated_at) }}
-              </span>
+      <!-- Novel Hero (User Mode) -->
+      <section v-if="!isAdmin" class="novel-hero mb-8">
+        <div class="novel-cover-wrap">
+          <div class="novel-cover" :class="{ 'novel-cover--generated': coverObjectUrl }">
+            <img v-if="coverObjectUrl" :src="coverObjectUrl" :alt="`${novelTitle} 小说封面`">
+            <div v-else class="novel-cover__fallback" :style="{ background: genreAvatarBg }">
+              <span>{{ genreEmoji }}</span>
+              <strong>{{ novelTitle }}</strong>
+              <small>{{ novelGenre || '原创小说' }}</small>
             </div>
+            <div class="novel-cover__shine"></div>
+            <span v-if="coverObjectUrl" class="novel-cover__ai">AI COVER</span>
+          </div>
+          <button type="button" class="novel-cover-action" @click="openCoverDialog">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L8 18l-4 1 1-4L16.5 3.5z" />
+            </svg>
+            {{ coverObjectUrl ? '重新设计封面' : 'AI 生成封面' }}
+          </button>
+        </div>
+
+        <div class="novel-hero__content">
+          <div class="novel-hero__eyebrow">
+            <span>ORIGINAL STORY</span>
+            <i></i>
+            <span>{{ novelGenre || '待设定类型' }}</span>
+          </div>
+          <h1>{{ novelTitle }}</h1>
+          <div class="novel-hero__meta">
+            <span v-if="novelGenre" class="novel-genre">{{ novelGenre }}</span>
+            <span v-if="sectionData.overview?.is_completed || novel?.is_completed" class="novel-completed">已完结</span>
+            <span>作者 {{ authStore.user?.username || '—' }}</span>
+            <span v-if="overviewMeta.updated_at">更新于 {{ formatDateTime(overviewMeta.updated_at) }}</span>
+          </div>
+          <p class="novel-hero__summary">{{ novelDescription || '还没有填写一句话梗概，可在下方概览中补充作品的核心卖点。' }}</p>
+
+          <div class="novel-hero__stats">
+            <div><strong>{{ progressTotal }}</strong><span>规划章节</span></div>
+            <div><strong>{{ progressCompleted }}</strong><span>已完成</span></div>
+            <div><strong>{{ progressPercent }}%</strong><span>创作进度</span></div>
+          </div>
+
+          <div class="novel-hero__actions">
+            <button class="novel-primary-action" type="button" @click="goToWritingDesk">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              进入写作台
+            </button>
+            <button class="novel-secondary-action" type="button" @click="openCoverDialog">
+              {{ coverObjectUrl ? '更新封面' : '制作封面' }}
+            </button>
           </div>
         </div>
 
-        <!-- Right: Progress Ring -->
-        <div class="flex flex-col items-center flex-shrink-0">
+        <div class="novel-progress-card">
+          <span>创作进度</span>
           <div class="relative w-24 h-24">
             <svg class="w-full h-full" viewBox="0 0 100 100">
-              <circle cx="50" cy="50" r="42" fill="none" stroke="#2A2A2A" stroke-width="5" />
+              <circle cx="50" cy="50" r="42" fill="none" stroke="#30302A" stroke-width="5" />
               <circle cx="50" cy="50" r="42" fill="none" stroke="#FFE500" stroke-width="5"
                 stroke-linecap="round"
                 :stroke-dasharray="circumference"
@@ -99,19 +126,12 @@
                 transform="rotate(-90 50 50)"
                 style="transition: stroke-dashoffset 0.7s ease;" />
             </svg>
-            <div class="absolute inset-0 flex items-center justify-center">
-              <span class="text-xl font-bold" style="color: #FFE500;">{{ progressPercent }}%</span>
-            </div>
+            <strong>{{ progressPercent }}%</strong>
           </div>
-          <span class="text-xs mt-1.5" style="color: #888;">{{ progressCompleted }}/{{ progressTotal }}章</span>
+          <small>{{ progressCompleted }} / {{ progressTotal }} 章完成</small>
+          <div class="novel-progress-card__line"><i :style="{ width: progressPercent + '%' }"></i></div>
         </div>
-      </div>
-
-      <!-- Description (User Mode) -->
-      <p v-if="!isAdmin && novelDescription" class="text-sm leading-6 mb-8" style="color: #888;">
-        {{ novelDescription }}
-      </p>
-      <div v-else-if="!isAdmin" class="mb-6"></div>
+      </section>
 
       <!-- ==================== Tab Bar ====================
            标签条横向滚动，但主操作必须留在滚动容器外：此前「开始创作」用 ml-auto 挂在
@@ -146,6 +166,12 @@
           <button class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all border hover:opacity-90"
             style="border-color: #2A2A2A; color: #fff; background: transparent;"
             :disabled="exportBusy"
+            @click="exportBook('markdown')">
+            MD
+          </button>
+          <button class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition-all border hover:opacity-90"
+            style="border-color: #2A2A2A; color: #fff; background: transparent;"
+            :disabled="exportBusy"
             @click="exportBook('docx')">
             DOCX
           </button>
@@ -159,13 +185,6 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
             </svg>
             {{ shareBusy ? '处理中...' : '分享' }}
-          </button>
-          <button class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:opacity-90"
-            style="background: #FFE500; color: #000;" @click="goToWritingDesk">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            开始创作
           </button>
         </div>
       </div>
@@ -210,6 +229,21 @@
         />
       </div>
     </div>
+
+    <NovelCoverDialog
+      v-if="!isAdmin"
+      :show="coverDialogOpen"
+      :title="novelTitle"
+      :current-cover-url="coverObjectUrl"
+      :generating="coverGenerating"
+      :error="coverError"
+      :options-loading="coverOptionsLoading"
+      :can-generate="coverOptions.can_generate"
+      :credit-price="coverOptions.credit_price"
+      :required-tier="coverOptions.required_tier"
+      @close="coverDialogOpen = false"
+      @generate="handleGenerateCover"
+    />
 
     <!-- ==================== Blueprint Edit Modal ==================== -->
     <BlueprintEditModal
@@ -313,7 +347,7 @@ import { NovelAPI } from '@/api/novel'
 import { AdminAPI } from '@/api/admin'
 import { shareApi } from '@/api/share'
 import { getProjectAnalysis, type ProjectAnalysis } from '@/api/gatekeeperReview'
-import type { NovelProject, NovelSectionResponse, NovelSectionType, AllSectionType } from '@/api/novel'
+import type { CoverGenerationOptions, GenerateCoverPayload, NovelCoverInfo, NovelProject, NovelSectionResponse, NovelSectionType, AllSectionType } from '@/api/novel'
 import { formatDateTime } from '@/utils/date'
 import BlueprintEditModal from '@/components/BlueprintEditModal.vue'
 import OverviewSection from '@/components/novel-detail/OverviewSection.vue'
@@ -327,6 +361,7 @@ import ForeshadowingSection from '@/components/novel-detail/ForeshadowingSection
 import VolumesSection from '@/components/novel-detail/VolumesSection.vue'
 import WriterPersonaPanel from '@/components/WriterPersonaPanel.vue'
 import ConceptLibrarySection from '@/components/novel-detail/ConceptLibrarySection.vue'
+import NovelCoverDialog from '@/components/novel-detail/NovelCoverDialog.vue'
 
 const fetchPowerSystems = async () => {
   try {
@@ -423,7 +458,79 @@ const newChapterSummary = ref('')
 
 const exportBusy = ref(false)
 
-const exportBook = async (format: 'txt' | 'docx') => {
+// ==================== AI 小说封面 ====================
+
+const coverDialogOpen = ref(false)
+const coverGenerating = ref(false)
+const coverError = ref('')
+const coverObjectUrl = ref('')
+const coverOptionsLoading = ref(false)
+const coverOptions = ref<CoverGenerationOptions>({
+  tier: 'free',
+  required_tier: 'creator',
+  can_generate: false,
+  credit_price: 0
+})
+
+const loadCoverOptions = async () => {
+  if (props.isAdmin || !projectId || coverOptionsLoading.value) return
+  coverOptionsLoading.value = true
+  try {
+    coverOptions.value = await NovelAPI.getCoverGenerationOptions(projectId)
+  } catch (error) {
+    coverOptions.value.can_generate = false
+    coverError.value = error instanceof Error ? error.message : '暂时无法读取封面生成权限'
+  } finally {
+    coverOptionsLoading.value = false
+  }
+}
+
+const openCoverDialog = async () => {
+  coverError.value = ''
+  coverDialogOpen.value = true
+  await loadCoverOptions()
+}
+
+const releaseCoverObjectUrl = () => {
+  if (!coverObjectUrl.value) return
+  URL.revokeObjectURL(coverObjectUrl.value)
+  coverObjectUrl.value = ''
+}
+
+const loadCover = async () => {
+  const coverInfo = sectionData.overview?.cover_image || novel.value?.cover_image
+  if (!coverInfo || !projectId) {
+    releaseCoverObjectUrl()
+    return
+  }
+  try {
+    const blob = await NovelAPI.getCoverBlob(projectId)
+    releaseCoverObjectUrl()
+    coverObjectUrl.value = URL.createObjectURL(blob)
+  } catch (error) {
+    console.warn('封面加载失败:', error)
+    releaseCoverObjectUrl()
+  }
+}
+
+const handleGenerateCover = async (payload: GenerateCoverPayload) => {
+  if (coverGenerating.value || !projectId) return
+  coverGenerating.value = true
+  coverError.value = ''
+  try {
+    const result = await NovelAPI.generateCover(projectId, payload)
+    if (sectionData.overview) sectionData.overview.cover_image = result.cover_image
+    if (novel.value) novel.value.cover_image = result.cover_image as NovelCoverInfo
+    await loadCover()
+    coverDialogOpen.value = false
+  } catch (error) {
+    coverError.value = error instanceof Error ? error.message : '封面生成失败，请稍后重试'
+  } finally {
+    coverGenerating.value = false
+  }
+}
+
+const exportBook = async (format: 'txt' | 'markdown' | 'docx') => {
   if (!projectId || exportBusy.value) return
   exportBusy.value = true
   try {
@@ -610,6 +717,7 @@ const loadSection = async (section: SectionKey, force = false) => {
     if (section === 'overview') {
       overviewMeta.title = response.data?.title || overviewMeta.title
       overviewMeta.updated_at = response.data?.updated_at || null
+      await loadCover()
       loadProjectAnalysis()
     }
   } catch (error) {
@@ -911,10 +1019,12 @@ onMounted(async () => {
   loadSection('chapter_outline')
   loadSection('world_setting')
   loadShareStatus()
+  loadCoverOptions()
   powerSystems.value = await fetchPowerSystems()
 })
 
 onBeforeUnmount(() => {
+  releaseCoverObjectUrl()
   if (predictionPollTimer) {
     clearTimeout(predictionPollTimer)
     predictionPollTimer = null
@@ -947,5 +1057,94 @@ onBeforeUnmount(() => {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+.novel-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 188px minmax(0, 1fr) 170px;
+  gap: 30px;
+  padding: 30px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 13% 25%, rgba(255, 229, 0, 0.09), transparent 30%),
+    linear-gradient(125deg, #171713 0%, #111110 55%, #151510 100%);
+  border: 1px solid #2c2c25;
+  border-radius: 24px;
+}
+.novel-hero::after {
+  content: '';
+  position: absolute;
+  right: -50px;
+  bottom: -110px;
+  width: 330px;
+  height: 330px;
+  border: 1px solid rgba(255, 229, 0, 0.07);
+  border-radius: 50%;
+  box-shadow: 0 0 0 50px rgba(255, 229, 0, 0.025), 0 0 0 100px rgba(255, 229, 0, 0.018);
+  pointer-events: none;
+}
+.novel-cover-wrap { position: relative; z-index: 1; }
+.novel-cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background: #212119;
+  border: 1px solid #3a392b;
+  border-radius: 13px;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42), -9px 8px 0 #0b0b0a;
+}
+.novel-cover img { width: 100%; height: 100%; object-fit: cover; }
+.novel-cover__fallback { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 22px; text-align: center; }
+.novel-cover__fallback > span { font-size: 46px; filter: drop-shadow(0 7px 12px rgba(0, 0, 0, 0.38)); }
+.novel-cover__fallback strong { color: #fff; font-size: 17px; line-height: 1.35; }
+.novel-cover__fallback small { color: rgba(255, 255, 255, 0.5); font-size: 10px; letter-spacing: 0.15em; }
+.novel-cover__shine { position: absolute; inset: 0; background: linear-gradient(115deg, rgba(255,255,255,0.1), transparent 22%, transparent 78%, rgba(255,229,0,0.07)); pointer-events: none; }
+.novel-cover__ai { position: absolute; right: 9px; bottom: 9px; padding: 4px 6px; color: #111; font-size: 8px; font-weight: 900; letter-spacing: 0.12em; background: #ffe500; border-radius: 4px; }
+.novel-cover-action { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 14px; padding: 9px 10px; color: #b7b7ae; font-size: 12px; font-weight: 650; background: #1c1c18; border: 1px solid #34342c; border-radius: 9px; transition: 0.18s; }
+.novel-cover-action:hover { color: #ffe500; border-color: #7c730f; }
+.novel-cover-action svg { width: 14px; height: 14px; }
+.novel-hero__content { position: relative; z-index: 1; min-width: 0; padding: 8px 0 2px; }
+.novel-hero__eyebrow { display: flex; align-items: center; gap: 10px; color: #8b8b80; font-size: 9px; font-weight: 800; letter-spacing: 0.16em; }
+.novel-hero__eyebrow span:first-child { color: #ffe500; }
+.novel-hero__eyebrow i { width: 24px; height: 1px; background: #595847; }
+.novel-hero__content h1 { margin: 13px 0 10px; color: #fff; font-size: clamp(27px, 3vw, 42px); font-weight: 800; line-height: 1.15; letter-spacing: -0.035em; }
+.novel-hero__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 14px; color: #777770; font-size: 11px; }
+.novel-genre, .novel-completed { padding: 4px 8px; border-radius: 99px; }
+.novel-genre { color: #ffe500; background: rgba(255, 229, 0, 0.07); border: 1px solid rgba(255, 229, 0, 0.35); }
+.novel-completed { color: #37df87; background: rgba(46, 213, 115, 0.09); border: 1px solid rgba(46, 213, 115, 0.25); }
+.novel-hero__summary { max-width: 720px; min-height: 52px; margin: 20px 0 18px; color: #aaa9a1; font-size: 13px; line-height: 1.8; }
+.novel-hero__stats { display: flex; align-items: center; gap: 0; width: fit-content; padding: 12px 0; border-top: 1px solid #292921; border-bottom: 1px solid #292921; }
+.novel-hero__stats > div { display: flex; flex-direction: column; min-width: 100px; padding: 0 22px; border-right: 1px solid #2e2e27; }
+.novel-hero__stats > div:first-child { padding-left: 0; }
+.novel-hero__stats > div:last-child { border-right: 0; }
+.novel-hero__stats strong { color: #f5f5ee; font-size: 18px; }
+.novel-hero__stats span { margin-top: 2px; color: #6f6f68; font-size: 10px; }
+.novel-hero__actions { display: flex; gap: 10px; margin-top: 20px; }
+.novel-primary-action, .novel-secondary-action { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 18px; font-size: 13px; font-weight: 750; border-radius: 10px; }
+.novel-primary-action { color: #0b0b09; background: #ffe500; border: 1px solid #ffe500; box-shadow: 0 8px 24px rgba(255, 229, 0, 0.12); }
+.novel-primary-action svg { width: 15px; height: 15px; }
+.novel-secondary-action { color: #dddcd3; background: #1b1b18; border: 1px solid #393931; }
+.novel-progress-card { position: relative; z-index: 1; align-self: center; display: flex; flex-direction: column; align-items: center; padding: 20px 16px; background: rgba(9, 9, 8, 0.48); border: 1px solid #2d2d27; border-radius: 16px; }
+.novel-progress-card > span { margin-bottom: 10px; color: #808079; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; }
+.novel-progress-card .relative strong { position: absolute; inset: 0; display: grid; place-items: center; color: #ffe500; font-size: 20px; }
+.novel-progress-card small { margin-top: 8px; color: #77776f; font-size: 10px; }
+.novel-progress-card__line { width: 100%; height: 3px; margin-top: 14px; overflow: hidden; background: #2b2b25; border-radius: 99px; }
+.novel-progress-card__line i { display: block; height: 100%; background: #ffe500; border-radius: inherit; transition: width 0.5s ease; }
+
+@media (max-width: 980px) {
+  .novel-hero { grid-template-columns: 160px minmax(0, 1fr); gap: 24px; }
+  .novel-progress-card { display: none; }
+}
+@media (max-width: 640px) {
+  .novel-hero { grid-template-columns: 112px minmax(0, 1fr); gap: 17px; padding: 20px; border-radius: 18px; }
+  .novel-cover-action { font-size: 0; }
+  .novel-cover-action::after { content: '制作封面'; font-size: 11px; }
+  .novel-hero__content h1 { margin-top: 9px; font-size: 25px; }
+  .novel-hero__summary { margin: 13px 0; font-size: 12px; line-height: 1.65; }
+  .novel-hero__stats { display: none; }
+  .novel-hero__actions { flex-direction: column; margin-top: 14px; }
+  .novel-secondary-action { display: none; }
+  .novel-hero__meta span:not(.novel-genre):not(.novel-completed) { display: none; }
 }
 </style>

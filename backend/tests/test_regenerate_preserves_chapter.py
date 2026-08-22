@@ -204,24 +204,23 @@ def test_generation_failure_preserves_summary_and_selected_version(monkeypatch):
     assert len(versions) == 1 and versions[0].content == OLD_CONTENT, "失败后旧版本正文必须还在"
 
 
-def test_generation_success_replaces_versions_and_resets_summary(monkeypatch):
-    """生成成功：旧版本被替换、real_summary 清空待重算、选中引用解除。"""
+def test_generation_success_appends_candidates_without_unselecting_confirmed_text(monkeypatch):
+    """H2 重起草：候选追加，但作者确认前当前正文、摘要与修订基线保持不变。"""
     error, chapter, versions, old_version_id = asyncio.run(
         _run_regen(monkeypatch, fail_generation=False)
     )
     assert error is None
     assert versions, "成功路径应写入新版本"
-    # sqlite 会复用被删行的自增 id，故按内容断言旧版本已被替换
-    assert all(v.content != OLD_CONTENT for v in versions), "旧版本应被删除"
-    assert chapter.real_summary is None, "成功落库后 real_summary 应清空供后处理重算"
-    assert chapter.selected_version_id is None, "成功落库后应回到待选状态"
+    assert any(v.content == OLD_CONTENT for v in versions), "M3 必须保留旧版本供历史恢复"
+    assert any(v.content != OLD_CONTENT for v in versions), "成功路径应写入新候选版本"
+    assert chapter.real_summary == OLD_SUMMARY, "作者选版前不得清空当前正文摘要"
+    assert chapter.selected_version_id == old_version_id, "作者选版前不得取消当前正文"
     assert chapter.status == "waiting_for_confirm"
 
 
 @pytest.mark.asyncio
-async def test_replace_chapter_versions_clears_selected_ref_with_fk_on():
-    """replace_chapter_versions 在 FK 约束开启（生产 sqlite/mysql 行为）下：
-    先解除 selected_version_id 引用再删旧版本，不触发外键异常。"""
+async def test_replace_chapter_versions_preserves_current_selection_with_fk_on():
+    """H2 在 FK 约束开启时保留当前选中引用，并追加新候选而不删除旧快照。"""
     from app.services.novel_service import NovelService
     from app.models.novel import Chapter, ChapterVersion
     from app.models.user import User
@@ -257,11 +256,12 @@ async def test_replace_chapter_versions_clears_selected_ref_with_fk_on():
         new_versions = await service.replace_chapter_versions(chapter, ["全新正文" * 50])
 
         assert len(new_versions) == 1
-        assert chapter.selected_version_id is None
-        assert chapter.real_summary is None
+        assert chapter.selected_version_id == old.id
+        assert chapter.real_summary == OLD_SUMMARY
         remaining = (await session.execute(
             select(ChapterVersion).where(ChapterVersion.chapter_id == chapter.id)
         )).scalars().all()
-        assert [v.id for v in remaining] == [new_versions[0].id]
+        assert {v.id for v in remaining} == {old.id, new_versions[0].id}
+        assert any(v.content == OLD_CONTENT for v in remaining)
 
     await engine.dispose()

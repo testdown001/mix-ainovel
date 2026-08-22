@@ -7,13 +7,19 @@
         :progress="progress"
         :completed-chapters="completedChapters"
         :total-chapters="totalChapters"
+        :active-stage="activeStage"
+        :word-count="projectWordCount"
+        :autosave-text="autosaveText"
+        :model-settings-open="modelSettingsOpen"
         @go-back="goBack"
         @view-project-detail="viewProjectDetail"
-        @toggle-sidebar="toggleSidebar"
+        @open-tools="toggleSidebar"
+        @toggle-model-settings="modelSettingsOpen = !modelSettingsOpen"
+        @select-stage="handleStageSelect"
       />
 
       <!-- 主要内容区域 -->
-      <div class="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 overflow-hidden">
+      <div class="flex-1 w-full px-3 sm:px-5 lg:px-7 py-4 overflow-hidden wd-desk-body">
         <!-- 加载状态 -->
         <div v-if="novelStore.isLoading" class="h-full flex justify-center items-center">
           <div class="text-center">
@@ -56,10 +62,97 @@
         </div>
 
         <!-- 主要内容 -->
-        <div v-else-if="project" class="h-full flex gap-6">
-          <WDSidebar
+        <div v-else-if="project" class="h-full flex gap-3 wd-desk-layout">
+          <WDChapterRail
+            class="hidden lg:flex"
             :project="project"
-            :sidebar-open="sidebarOpen"
+            :selected-chapter-number="selectedChapterNumber"
+            :generating-chapter="generatingChapter"
+            :evaluating-chapter="evaluatingChapter"
+            @select-chapter="selectChapter"
+            @generate-outline="generateOutline"
+            @open-tools="sidebarOpen = true"
+          />
+
+          <div class="relative flex flex-1 min-w-0">
+            <div v-if="modelSettingsOpen" class="model-settings-popover">
+              <div class="model-settings-head">
+                <div><small>GENERATION MODEL</small><strong>模型与润色设置</strong></div>
+                <button type="button" @click="modelSettingsOpen = false">×</button>
+              </div>
+              <WDModelPicker
+                v-model:model-code="selectedModelCode"
+                v-model:enable-polish="enablePolish"
+              />
+            </div>
+
+            <WDPlanningCanvas
+              v-if="isPlanningStage && selectedChapterNumber"
+              :project="project"
+              :selected-chapter-number="selectedChapterNumber"
+              :prediction-generating-chapter="predictionGeneratingChapter"
+              @request-prediction="openPredictionRequestModal"
+              @generate-chapter="generateChapter"
+              @open-codex="codexPanelOpen = true"
+            />
+
+            <WDWorkspace
+              v-else
+              :project="project"
+              :selected-chapter-number="selectedChapterNumber"
+              :open-prediction-tick="openPredictionTick"
+              :generating-chapter="generatingChapter"
+              :prediction-generating-chapter="predictionGeneratingChapter"
+              :evaluating-chapter="evaluatingChapter"
+              :show-version-selector="showVersionSelector"
+              :chapter-generation-result="chapterGenerationResult"
+              :selected-version-index="selectedVersionIndex"
+              :available-versions="availableVersions"
+              :is-selecting-version="isSelectingVersion"
+              :streaming-draft-text="
+                selectedChapterNumber === streamingChapterNumber ? streamingDraftText : ''
+              "
+              :streaming-stage="
+                selectedChapterNumber === streamingChapterNumber ? streamingStage : null
+              "
+              :generation-progress="
+                selectedChapterNumber === streamingChapterNumber ? generationProgressView : null
+              "
+              :save-chapter="saveChapterWithRevision"
+              :load-chapter-revision="loadChapterRevision"
+              @regenerate-chapter="regenerateChapter"
+              @evaluate-chapter="evaluateChapter"
+              @hide-version-selector="hideVersionSelector"
+              @update:selected-version-index="selectedVersionIndex = $event"
+              @show-version-detail="showVersionDetail"
+              @open-version-compare="showVersionCompare = true"
+              @confirm-version-selection="confirmVersionSelection"
+              @generate-chapter="generateChapter"
+              @show-evaluation-detail="showEvaluationDetailModal = true"
+              @request-prediction="openPredictionRequestModal"
+              @fetch-chapter-status="fetchChapterStatus"
+              @edit-chapter="editChapterContent"
+              @toggle-codex="codexPanelOpen = !codexPanelOpen"
+            />
+          </div>
+
+          <WDContextRail
+            class="hidden 2xl:flex"
+            :project="project"
+            :selected-chapter-number="selectedChapterNumber"
+            @open-codex="codexPanelOpen = true"
+            @preview-context="handlePreviewContextPlan"
+          />
+        </div>
+      </div>
+
+      <n-drawer v-model:show="sidebarOpen" :width="372" placement="left">
+        <n-drawer-content title="写作台工具" closable body-content-style="padding: 12px; overflow: hidden;">
+          <WDSidebar
+            v-if="project"
+            embedded
+            :project="project"
+            :sidebar-open="false"
             :selected-chapter-number="selectedChapterNumber"
             :generating-chapter="generatingChapter"
             :evaluating-chapter="evaluatingChapter"
@@ -91,50 +184,9 @@
             @open-archives="archiveDrawerOpen = true"
             @update:professional-mode="setProfessionalMode"
           />
+        </n-drawer-content>
+      </n-drawer>
 
-          <div class="flex-1 min-w-0">
-            <WDModelPicker
-              v-model:model-code="selectedModelCode"
-              v-model:enable-polish="enablePolish"
-            />
-            <WDWorkspace
-              :project="project"
-              :selected-chapter-number="selectedChapterNumber"
-              :open-prediction-tick="openPredictionTick"
-              :generating-chapter="generatingChapter"
-              :prediction-generating-chapter="predictionGeneratingChapter"
-              :evaluating-chapter="evaluatingChapter"
-              :show-version-selector="showVersionSelector"
-              :chapter-generation-result="chapterGenerationResult"
-              :selected-version-index="selectedVersionIndex"
-              :available-versions="availableVersions"
-              :is-selecting-version="isSelectingVersion"
-              :streaming-draft-text="
-                selectedChapterNumber === streamingChapterNumber ? streamingDraftText : ''
-              "
-              :streaming-stage="
-                selectedChapterNumber === streamingChapterNumber ? streamingStage : null
-              "
-              :generation-progress="
-                selectedChapterNumber === streamingChapterNumber ? generationProgressView : null
-              "
-              @regenerate-chapter="regenerateChapter"
-              @evaluate-chapter="evaluateChapter"
-              @hide-version-selector="hideVersionSelector"
-              @update:selected-version-index="selectedVersionIndex = $event"
-              @show-version-detail="showVersionDetail"
-              @open-version-compare="showVersionCompare = true"
-              @confirm-version-selection="confirmVersionSelection"
-              @generate-chapter="generateChapter"
-              @show-evaluation-detail="showEvaluationDetailModal = true"
-              @request-prediction="openPredictionRequestModal"
-              @fetch-chapter-status="fetchChapterStatus"
-              @edit-chapter="editChapterContent"
-              @toggle-codex="codexPanelOpen = !codexPanelOpen"
-            />
-          </div>
-        </div>
-      </div>
       <WDVersionDetailModal
         :show="showVersionDetailModal"
         :detail-version-index="detailVersionIndex"
@@ -235,7 +287,7 @@
               placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
             ></textarea>
             <p class="mt-2 text-xs" style="color: #888">
-              这些内容会作为 exclusions 一起传给后端剧情推演接口。
+              这些内容将作为创作禁区，一并传给剧情推演模型，生成时会主动避开。
             </p>
           </div>
         </div>
@@ -456,7 +508,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { NModal, NButton, NConfigProvider, darkTheme, type GlobalThemeOverrides } from 'naive-ui'
+import {
+  NButton,
+  NConfigProvider,
+  NDrawer,
+  NDrawerContent,
+  NModal,
+  darkTheme,
+  type GlobalThemeOverrides,
+} from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
 import { NovelAPI } from '@/api/novel'
@@ -475,6 +535,9 @@ import { useWebSocket } from '@/composables/useWebSocket'
 import { useAsyncGeneration } from '@/composables/useAsyncGeneration'
 import WDHeader from '@/components/writing-desk/WDHeader.vue'
 import WDSidebar from '@/components/writing-desk/WDSidebar.vue'
+import WDChapterRail from '@/components/writing-desk/WDChapterRail.vue'
+import WDPlanningCanvas from '@/components/writing-desk/WDPlanningCanvas.vue'
+import WDContextRail from '@/components/writing-desk/WDContextRail.vue'
 import WDWorkspace from '@/components/writing-desk/WDWorkspace.vue'
 import WDModelPicker from '@/components/writing-desk/WDModelPicker.vue'
 import WDVersionDetailModal from '@/components/writing-desk/WDVersionDetailModal.vue'
@@ -574,6 +637,9 @@ const authStore = useAuthStore()
 
 // 状态管理
 const selectedChapterNumber = ref<number | null>(null)
+const modelSettingsOpen = ref(false)
+const stageOverride = ref<number | null>(null)
+const lastSavedAt = ref(new Date())
 const chapterGenerationResult = ref<ChapterGenerationResponse | null>(null)
 const selectedVersionIndex = ref<number>(0)
 const generatingChapter = ref<number | null>(null)
@@ -882,6 +948,21 @@ const componentMounted = ref(true)
 // 计算属性
 const project = computed(() => novelStore.currentProject)
 
+const projectWordCount = computed(() =>
+  (project.value?.chapters || []).reduce((total, chapter) => {
+    if (typeof chapter.word_count === 'number' && chapter.word_count > 0) {
+      return total + chapter.word_count
+    }
+    return total + (chapter.content || '').replace(/\s/g, '').length
+  }, 0),
+)
+
+const autosaveText = computed(() => {
+  const hours = String(lastSavedAt.value.getHours()).padStart(2, '0')
+  const minutes = String(lastSavedAt.value.getMinutes()).padStart(2, '0')
+  return `已自动保存 · ${hours}:${minutes}`
+})
+
 const selectedChapter = computed(() => {
   if (!project.value || selectedChapterNumber.value === null) return null
   return (
@@ -920,6 +1001,30 @@ const selectedChapterOutline = computed(() => {
     ) || null
   )
 })
+
+const inferredStage = computed(() => {
+  if (!selectedChapterNumber.value) return 1
+  const chapter = selectedChapter.value
+  if (chapter?.generation_status === 'evaluating' || chapter?.evaluation) return 4
+  if (
+    chapter?.content ||
+    ['generating', 'selecting', 'waiting_for_confirm', 'successful', 'evaluation_failed'].includes(
+      chapter?.generation_status || '',
+    )
+  ) {
+    return 3
+  }
+  if (
+    predictionGeneratingChapter.value === selectedChapterNumber.value ||
+    selectedChapterOutline.value?.metadata?.prediction
+  ) {
+    return 2
+  }
+  return 1
+})
+
+const activeStage = computed(() => stageOverride.value ?? inferredStage.value)
+const isPlanningStage = computed(() => activeStage.value <= 2)
 
 const progress = computed(() => {
   if (!project.value?.blueprint?.chapter_outline) return 0
@@ -1072,6 +1177,27 @@ const viewProjectDetail = () => {
   }
 }
 
+const handleStageSelect = (stage: number) => {
+  if (!selectedChapterNumber.value) return
+
+  if (stage === 2 && !selectedChapterOutline.value?.metadata?.prediction) {
+    openPredictionRequestModal(selectedChapterNumber.value)
+    return
+  }
+
+  if (stage === 3 && inferredStage.value < 3) {
+    globalAlert.showAlert('完成剧情推演后，可从规划页进入正文创作。', 'info', '尚未进入正文阶段')
+    return
+  }
+
+  if (stage === 4 && !selectedChapter.value?.content) {
+    globalAlert.showAlert('正文生成完成后才能进行一致性检查。', 'info', '暂无可检查正文')
+    return
+  }
+
+  stageOverride.value = stage
+}
+
 const toggleSidebar = () => {
   sidebarOpen.value = !sidebarOpen.value
 }
@@ -1083,6 +1209,7 @@ const closeSidebar = () => {
 const loadProject = async () => {
   try {
     await novelStore.loadProject(props.id)
+    lastSavedAt.value = new Date()
     autoSelectNextChapter()
     noticeBackgroundGeneration()
   } catch (error) {
@@ -1160,6 +1287,8 @@ const hideVersionSelector = () => {
 const selectChapter = (chapterNumber: number) => {
   const isSameChapter = selectedChapterNumber.value === chapterNumber
   selectedChapterNumber.value = chapterNumber
+  stageOverride.value = null
+  modelSettingsOpen.value = false
 
   if (!isSameChapter) {
     chapterGenerationResult.value = null
@@ -1294,6 +1423,8 @@ const confirmPredictionRequest = async () => {
       openPredictionTick.value += 1
     }
 
+    lastSavedAt.value = new Date()
+    stageOverride.value = null
     showPredictionRequestModal.value = false
     globalAlert.showSuccess(`第 ${predictionTargetChapter.value} 章剧情推演已更新`, '推演完成')
   } catch (error) {
@@ -1826,6 +1957,16 @@ const editChapterContent = async (data: { chapterNumber: number; content: string
   }
 }
 
+const saveChapterWithRevision = async (payload: import('@/api/novel').ChapterSaveRequest) => {
+  if (!project.value) throw new Error('当前项目未加载')
+  return novelStore.saveChapterContent(project.value.id, payload)
+}
+
+const loadChapterRevision = async (chapterNumber: number) => {
+  if (!project.value) throw new Error('当前项目未加载')
+  return novelStore.loadChapterRevision(project.value.id, chapterNumber)
+}
+
 const handleGenerateOutline = async (
   numChapters: number,
   estimatedTotalChapters?: number,
@@ -2205,11 +2346,47 @@ onUnmounted(() => {
 }
 
 .m3-shell {
-  background: #0a0a0a;
+  background:
+    radial-gradient(circle at 85% -20%, rgba(255, 229, 0, 0.055), transparent 36%),
+    linear-gradient(#141411 1px, transparent 1px),
+    linear-gradient(90deg, #141411 1px, transparent 1px),
+    #090909;
+  background-size: auto, 56px 56px, 56px 56px, auto;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
   animation: m3-fade 0.6s ease-out both;
 }
+
+.wd-desk-body { position: relative; }
+.wd-desk-layout { max-width: 1880px; margin: 0 auto; }
+
+.model-settings-popover {
+  position: absolute;
+  z-index: 45;
+  top: 8px;
+  right: 8px;
+  width: 430px;
+  max-width: calc(100% - 16px);
+  padding: 12px;
+  border: 1px solid #35372f;
+  border-radius: 12px;
+  background: rgba(22, 23, 20, 0.98);
+  box-shadow: 0 22px 65px rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(16px);
+}
+
+.model-settings-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1px 3px 10px;
+}
+
+.model-settings-head div { display: flex; flex-direction: column; gap: 2px; }
+.model-settings-head small { color: #756d20; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; }
+.model-settings-head strong { color: #e4e5de; font-size: 12px; }
+.model-settings-head button { border: 0; color: #777a72; font-size: 20px; line-height: 1; background: transparent; }
+.model-settings-popover :deep(.model-picker) { margin-bottom: 0; border-color: #2d2f29; background: #11120f; }
 
 @media (prefers-reduced-motion: reduce) {
   .m3-shell {

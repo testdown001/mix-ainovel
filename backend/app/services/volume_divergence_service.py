@@ -267,6 +267,9 @@ class VolumeDivergenceService:
             },
         }
         blueprint.volumes = new_volumes
+        from .volume_service import VolumeService
+
+        await VolumeService(self.session).sync_from_blueprint(blueprint)
         await self.session.commit()
         logger.info("卷级发散卡片已应用 project=%s 卷#%d", project_id, volume_number)
         return True

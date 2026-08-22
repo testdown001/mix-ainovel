@@ -1,3 +1,6 @@
 AIDIR PATH=docs|ROLE=项目文档_架构设计和API说明|BOUND=不含源代码_仅文档|ENTRY=NO_ENTRY|EXPOSE=internal|FIND=架构文档_API文档
 AILIST NAME=architecture.md|K=file|P=架构文档_系统架构设计说明|E=-|A=架构图_模块说明
 AILIST NAME=api.md|K=file|P=API文档_接口使用说明|E=-|A=接口列表_参数说明
+AILIST NAME=adr|K=dir|P=架构决策记录_数据内容安全和AI策略|E=-|A=ADR-001至ADR-003
+AILIST NAME=standards|K=dir|P=工程标准_API错误码和创作链路观测|E=-|A=错误码_指标事件
+AILIST NAME=recent-change-hardening-plan-2026-08-22.md|K=file|P=近期改动发布加固实施方案|E=-|A=迁移_正文安全_封面成本_草稿_历史容量

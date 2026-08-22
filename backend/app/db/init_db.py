@@ -27,8 +27,20 @@ _SCHEMA_MISMATCH_MARKERS = (
     "Unknown column 'blueprint_characters.current_power_level_id'",
     "Unknown column 'novel_projects.reference_novel_ids'",
     "Unknown column 'novel_projects.fusion_dna'",
+    "Unknown column 'novel_projects.cover_image'",
     "Unknown column 'chapter_blueprints.strand_type'",
     "Unknown column 'chapter_blueprints.strand_weight'",
+    "Unknown column 'chapter_outlines.volume_id'",
+    "Unknown column 'chapter_outlines.sort_key'",
+    "Unknown column 'chapters.volume_id'",
+    "Unknown column 'chapters.sort_key'",
+    "Unknown column 'chapters.revision_id'",
+    "Unknown column 'chapters.content_hash'",
+    "Unknown column 'chapter_versions.parent_version_id'",
+    "Unknown column 'chapter_versions.source'",
+    "Unknown column 'chapter_versions.content_hash'",
+    "Unknown column 'chapter_versions.change_note'",
+    "Unknown column 'chapter_versions.created_by_user_id'",
 )
 
 
@@ -143,9 +155,12 @@ async def _ensure_database_exists() -> None:
 async def _ensure_schema_updates() -> None:
     """补齐历史版本缺失的列，避免旧库在新版本报错。"""
     db_uri = settings.sqlalchemy_database_uri
-    if settings.db_provider == "sqlite" or "postgresql" in db_uri or "postgres" in db_uri:
-        # SQLite/PostgreSQL: Base.metadata.create_all already created all columns, skip ALTER TABLE
+    if "postgresql" in db_uri or "postgres" in db_uri:
+        # 当前补列 DDL 兼容 MySQL/SQLite；PostgreSQL 统一走 Alembic，避免 TINYINT 等
+        # MySQL 方言落到生产 PostgreSQL。
         return
+
+    is_sqlite = settings.db_provider == "sqlite" or db_uri.startswith("sqlite")
 
     async with engine.begin() as conn:
         def _upgrade(sync_conn):
@@ -166,7 +181,9 @@ async def _ensure_schema_updates() -> None:
                 _ensure_columns 只能补列，改不了既有列的非空约束；而 create_all 对已存在
                 的表完全不动，所以模型改 nullable 后老库仍会因 NOT NULL 拒绝写入。
                 """
-                if not inspector.has_table(table_name):
+                if is_sqlite or not inspector.has_table(table_name):
+                    # SQLite 不支持 MySQL 的 MODIFY COLUMN；对应旧约束需由 Alembic
+                    # batch migration 重建表，不能在启动修复里冒险改表。
                     return
                 for col in inspector.get_columns(table_name):
                     if col["name"] != column_name:
@@ -194,6 +211,18 @@ async def _ensure_schema_updates() -> None:
                 "chapter_outlines",
                 {
                     "metadata": "metadata JSON",
+                    "volume_id": "volume_id BIGINT NULL",
+                    "sort_key": "sort_key INT NOT NULL DEFAULT 0",
+                },
+            )
+
+            _ensure_columns(
+                "chapters",
+                {
+                    "volume_id": "volume_id BIGINT NULL",
+                    "sort_key": "sort_key INT NOT NULL DEFAULT 0",
+                    "revision_id": "revision_id INT NOT NULL DEFAULT 0",
+                    "content_hash": "content_hash VARCHAR(64) NULL",
                 },
             )
 
@@ -233,12 +262,18 @@ async def _ensure_schema_updates() -> None:
                     "concept_dossier": "concept_dossier JSON",
                     "exclusions": "exclusions TEXT NULL",
                     "ai_assisted": "ai_assisted TINYINT(1) NOT NULL DEFAULT 0",
+                    "cover_image": "cover_image JSON",
                 },
             )
             _ensure_columns(
                 "chapter_versions",
                 {
                     "ai_assisted": "ai_assisted TINYINT(1) NOT NULL DEFAULT 0",
+                    "parent_version_id": "parent_version_id BIGINT NULL",
+                    "source": "source VARCHAR(32) NOT NULL DEFAULT 'legacy'",
+                    "content_hash": "content_hash VARCHAR(64) NULL",
+                    "change_note": "change_note VARCHAR(500) NULL",
+                    "created_by_user_id": "created_by_user_id BIGINT NULL",
                 },
             )
 
@@ -298,6 +333,14 @@ async def _ensure_schema_updates() -> None:
                           ["project_id", "chapter_number"])
             _ensure_index("chapter_outlines", "ix_chapter_outlines_project_chapter",
                           ["project_id", "chapter_number"])
+            _ensure_index("chapter_outlines", "ix_chapter_outlines_volume_id", ["volume_id"])
+            _ensure_index("chapters", "ix_chapters_volume_id", ["volume_id"])
+            _ensure_index("chapter_versions", "ix_chapter_versions_parent_version_id",
+                          ["parent_version_id"])
+            _ensure_index("chapter_versions", "ix_chapter_versions_source", ["source"])
+            _ensure_index("chapter_versions", "ix_chapter_versions_content_hash", ["content_hash"])
+            _ensure_index("chapter_versions", "ix_chapter_versions_created_by_user_id",
+                          ["created_by_user_id"])
         await conn.run_sync(_upgrade)
 
 

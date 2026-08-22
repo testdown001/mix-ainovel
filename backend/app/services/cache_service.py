@@ -150,6 +150,35 @@ class CacheService:
             logger.error(f"Redis exists 失败: key={key}, error={e}")
             return False
 
+    async def acquire_distributed_lock(self, key: str, token: str, ttl_seconds: int) -> bool:
+        """获取跨进程互斥锁。
+
+        生成类操作成本高，Redis 故障时必须失败关闭，不能像普通缓存那样静默放行。
+        ``token`` 由调用方生成，释放时用于防止误删已经续接给其他请求的锁。
+        """
+        try:
+            redis = await self._get_redis()
+            return bool(await redis.set(key, token, nx=True, ex=max(1, int(ttl_seconds))))
+        except Exception as exc:
+            logger.exception("Redis 分布式锁获取失败: key=%s", key)
+            raise RuntimeError("暂时无法取得生成任务锁，请稍后重试") from exc
+
+    async def release_distributed_lock(self, key: str, token: str) -> bool:
+        """仅当 token 仍属于当前调用方时释放锁。"""
+        script = """
+        if redis.call('get', KEYS[1]) == ARGV[1] then
+          return redis.call('del', KEYS[1])
+        end
+        return 0
+        """
+        try:
+            redis = await self._get_redis()
+            return bool(await redis.eval(script, 1, key, token))
+        except Exception:
+            # 锁有 TTL；释放失败只记录，不能用无条件 delete 误删他人的后继锁。
+            logger.exception("Redis 分布式锁释放失败: key=%s", key)
+            return False
+
     # ==================== 业务缓存方法 ====================
 
     async def get_blueprint(self, project_id: str) -> Optional[Dict]:

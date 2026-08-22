@@ -144,9 +144,10 @@
           {{ creditPriceError }}
         </n-alert>
         <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
-          润色与蓝图深度打磨的积分单价，对应 SystemConfig
+          润色、蓝图深度打磨与 AI 封面的积分单价，对应 SystemConfig
           <code>credits.price.polish</code> /
-          <code>credits.price.blueprint_deep</code>。快速成书不扣费。
+          <code>credits.price.blueprint_deep</code> /
+          <code>credits.price.cover_generation</code>。快速成书不扣费。
         </n-alert>
         <n-form label-placement="top" class="polish-form">
           <n-form-item label="润色附加（每章）">
@@ -154,6 +155,9 @@
           </n-form-item>
           <n-form-item label="蓝图深度打磨">
             <n-input-number v-model:value="blueprintDeepPrice" :min="0" :step="1" />
+          </n-form-item>
+          <n-form-item label="AI 小说封面（每次）">
+            <n-input-number v-model:value="coverGenerationPrice" :min="0" :step="1" />
           </n-form-item>
           <n-space justify="end">
             <n-button type="primary" :loading="creditPriceSaving" @click="saveCreditPrices">
@@ -274,10 +278,12 @@ const creditPriceSaving = ref(false)
 const creditPriceError = ref<string | null>(null)
 const polishPrice = ref<number>(5)
 const blueprintDeepPrice = ref<number>(20)
+const coverGenerationPrice = ref<number>(10)
 
 const CREDIT_PRICE_KEYS = {
   polish: 'credits.price.polish',
   blueprintDeep: 'credits.price.blueprint_deep',
+  coverGeneration: 'credits.price.cover_generation',
 }
 
 const fetchCreditPrices = async () => {
@@ -288,8 +294,10 @@ const fetchCreditPrices = async () => {
     const map = new Map(allConfigs.map((c) => [c.key, c.value]))
     const polish = Number(map.get(CREDIT_PRICE_KEYS.polish))
     const deep = Number(map.get(CREDIT_PRICE_KEYS.blueprintDeep))
+    const cover = Number(map.get(CREDIT_PRICE_KEYS.coverGeneration))
     polishPrice.value = Number.isFinite(polish) ? polish : 5
     blueprintDeepPrice.value = Number.isFinite(deep) ? deep : 20
+    coverGenerationPrice.value = Number.isFinite(cover) ? cover : 10
   } catch (err) {
     creditPriceError.value = err instanceof Error ? err.message : '加载积分单价失败'
   } finally {
@@ -307,6 +315,10 @@ const saveCreditPrices = async () => {
     await AdminAPI.upsertSystemConfig(CREDIT_PRICE_KEYS.blueprintDeep, {
       value: String(Math.max(0, Math.floor(blueprintDeepPrice.value ?? 0))),
       description: '蓝图深度打磨积分单价。仅实际跑审稿/修订时扣费；快速成书免费。',
+    })
+    await AdminAPI.upsertSystemConfig(CREDIT_PRICE_KEYS.coverGeneration, {
+      value: String(Math.max(0, Math.floor(coverGenerationPrice.value ?? 0))),
+      description: 'AI 小说封面每次生成的积分单价；生成失败自动退回。',
     })
     showAlert('积分单价已保存', 'success')
   } catch (err) {

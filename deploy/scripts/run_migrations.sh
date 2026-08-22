@@ -19,8 +19,8 @@
 #     LEGACY_SQL=1    改跑已归档的 backend/db/migrations/*.sql 原始 SQL 路径（见文末）
 #
 # 首次在「由 init_db() create_all 建出来的库」上运行时，脚本会识别出没有
-# alembic_version 表，执行 `alembic stamp head` 把现状登记为基线（而不是傻乎乎
-# upgrade 一遍——那会在已存在的表上建表失败）。之后每次部署再跑就是增量升级。
+# alembic_version 表。只有 ORM 表/列契约完整时才允许 `alembic stamp head`；存在
+# 漂移会拒绝盖章，防止出现“版本号最新、真实字段缺失”的不可恢复状态。
 # =============================================================================
 
 set -euo pipefail
@@ -118,8 +118,60 @@ case "$SCHEMA_STATE" in
     *) die "无法探测数据库状态（返回：${SCHEMA_STATE:-空}）。手工排查：cd $DEPLOY_DIR && ${DC[*]} exec app alembic current" ;;
 esac
 
+verify_legacy_shape() {
+    app_exec python - <<'PY'
+import asyncio
+import sys
+
+from sqlalchemy import inspect
+from sqlalchemy.ext.asyncio import create_async_engine
+
+import app.models  # noqa: F401
+from app.core.config import settings
+from app.db.base import Base
+
+
+def collect(conn):
+    inspector = inspect(conn)
+    tables = set(inspector.get_table_names())
+    columns = {name: {item["name"] for item in inspector.get_columns(name)} for name in tables}
+    return tables, columns
+
+
+async def main() -> int:
+    engine = create_async_engine(settings.sqlalchemy_database_uri)
+    try:
+        async with engine.connect() as conn:
+            tables, columns = await conn.run_sync(collect)
+    finally:
+        await engine.dispose()
+
+    missing = []
+    for name, table in sorted(Base.metadata.tables.items()):
+        if name not in tables:
+            missing.append(name)
+            continue
+        missing.extend(
+            f"{name}.{column.name}"
+            for column in table.columns
+            if column.name not in columns[name]
+        )
+    if missing:
+        print("Legacy 库仍缺少以下 ORM 结构，拒绝 stamp head：", file=sys.stderr)
+        for item in missing:
+            print(f"  - {item}", file=sys.stderr)
+        return 1
+    return 0
+
+
+sys.exit(asyncio.run(main()))
+PY
+}
+
 # ---- 3. 执行迁移 -------------------------------------------------------------
 if [ "$SCHEMA_STATE" = "LEGACY" ]; then
+    info "校验 Legacy 库是否满足当前 ORM 结构契约…"
+    verify_legacy_shape </dev/null || die "Legacy 库结构不完整，已拒绝 stamp head；请先启动新应用完成结构修复后重试"
     info "存量库由 init_db() create_all 建出、尚未纳入 Alembic；登记基线（stamp head）…"
     app_exec alembic stamp head </dev/null
     ok "已登记为 head（本次不改结构；后续新增 revision 会走增量升级）"

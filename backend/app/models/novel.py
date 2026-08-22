@@ -4,7 +4,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,10 +71,18 @@ class NovelProject(Base):
         back_populates="project", cascade="all, delete-orphan", order_by="BlueprintRelationship.position"
     )
     outlines: Mapped[list["ChapterOutline"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan", order_by="ChapterOutline.chapter_number"
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by=lambda: (ChapterOutline.sort_key, ChapterOutline.chapter_number),
     )
     chapters: Mapped[list["Chapter"]] = relationship(
-        back_populates="project", cascade="all, delete-orphan", order_by="Chapter.chapter_number"
+        back_populates="project",
+        cascade="all, delete-orphan",
+        order_by=lambda: (Chapter.sort_key, Chapter.chapter_number),
+    )
+    # M1：分卷从 blueprint JSON 演进为一等实体；JSON 仅保留为旧生成链路的兼容投影。
+    volumes: Mapped[list["Volume"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan", order_by="Volume.position"
     )
     reference_novel_ids: Mapped[Optional[List[int]]] = mapped_column(JSON, default=list)
     fusion_dna: Mapped[Optional[dict]] = mapped_column(JSON)
@@ -72,6 +93,8 @@ class NovelProject(Base):
     exclusions: Mapped[Optional[str]] = mapped_column(Text)
     # 任一章走过模型起草/选区改写后为 True；纯手打且从未跑模型保持 False。
     ai_assisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
+    # AI 封面元数据；图片二进制保存在共享 storage 卷，避免 JSON/base64 膨胀数据库。
+    cover_image: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
 
 class NovelConversation(Base):
@@ -115,6 +138,43 @@ class NovelBlueprint(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     project: Mapped[NovelProject] = relationship(back_populates="blueprint")
+
+
+class Volume(Base):
+    """作品的一等分卷实体（M1）。
+
+    ``NovelBlueprint.volumes`` 在过渡期仍保留为面向旧生成/复盘代码的 JSON 投影；
+    该表才是编辑、排序、导出边界和章节归属的长期事实来源。
+    """
+
+    __tablename__ = "volumes"
+    __table_args__ = (
+        UniqueConstraint("project_id", "position", name="uq_volumes_project_position"),
+        Index("ix_volumes_project_range", "project_id", "start_chapter", "end_chapter"),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # position 从 1 开始，是对外稳定卷号；不要依赖数据库自增 id 表达显示顺序。
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    start_chapter: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_chapter: Mapped[int] = mapped_column(Integer, nullable=False)
+    arc_goal: Mapped[Optional[str]] = mapped_column(Text)
+    climax_hint: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="planned", server_default="planned")
+    retrospective: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    replan: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    # 保存旧 JSON 中的未知扩展字段，防止 M1 迁移吞掉既有功能数据。
+    extra: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    project: Mapped[NovelProject] = relationship(back_populates="volumes")
+    outlines: Mapped[list["ChapterOutline"]] = relationship(back_populates="volume")
+    chapters: Mapped[list["Chapter"]] = relationship(back_populates="volume")
 
 
 class BlueprintCharacter(Base):
@@ -169,13 +229,19 @@ class ChapterOutline(Base):
 
     id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    volume_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("volumes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # M1：排序与显示章号解耦。旧数据回填为 chapter_number * 1000，便于未来插章。
+    sort_key: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     summary: Mapped[Optional[str]] = mapped_column(Text)
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON)  # 存储导演脚本/节拍状态
     metadata = _MetadataAccessor()
 
     project: Mapped[NovelProject] = relationship(back_populates="outlines")
+    volume: Mapped[Optional[Volume]] = relationship(back_populates="outlines")
 
 
 class Chapter(Base):
@@ -188,10 +254,18 @@ class Chapter(Base):
 
     id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    volume_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("volumes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    sort_key: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     real_summary: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="not_generated")
     word_count: Mapped[int] = mapped_column(Integer, default=0)
+    # M2：正文保存的乐观锁基线。每次改变当前选中正文都递增 revision_id，
+    # content_hash 与实际选中文本对应，避免不同浏览器静默互相覆盖。
+    revision_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     rag_ingest_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)
     selected_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
@@ -200,6 +274,7 @@ class Chapter(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     project: Mapped[NovelProject] = relationship(back_populates="chapters")
+    volume: Mapped[Optional[Volume]] = relationship(back_populates="chapters")
     versions: Mapped[list["ChapterVersion"]] = relationship(
         "ChapterVersion",
         back_populates="chapter",
@@ -217,10 +292,17 @@ class Chapter(Base):
     evaluations: Mapped[list["ChapterEvaluation"]] = relationship(
         back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterEvaluation.created_at"
     )
+    world_state_snapshots: Mapped[list["ChapterWorldState"]] = relationship(
+        back_populates="chapter", cascade="all, delete-orphan", order_by="ChapterWorldState.created_at"
+    )
 
 
 class ChapterVersion(Base):
-    """章节生成的不同版本文本。"""
+    """章节的不可变正文快照。
+
+    ``Chapter.selected_version_id`` 只标记当前采用的快照；任何保存、AI 采纳或
+    恢复历史都必须新增本表记录，绝不能修改已有 ``content``。
+    """
 
     __tablename__ = "chapter_versions"
 
@@ -229,6 +311,18 @@ class ChapterVersion(Base):
     version_label: Mapped[Optional[str]] = mapped_column(String(64))
     provider: Mapped[Optional[str]] = mapped_column(String(64))
     content: Mapped[str] = mapped_column(LONG_TEXT_TYPE, nullable=False)
+    # M3：可追溯修订链。旧记录由迁移标为 legacy，后续写入一律携带来源和正文哈希。
+    parent_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="legacy", server_default="legacy", index=True
+    )
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    change_note: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     ai_assisted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSON)
     metadata = _MetadataAccessor()
@@ -239,8 +333,61 @@ class ChapterVersion(Base):
         back_populates="versions",
         foreign_keys=[chapter_id],
     )
+    parent_version: Mapped[Optional["ChapterVersion"]] = relationship(
+        "ChapterVersion",
+        remote_side="ChapterVersion.id",
+        foreign_keys=[parent_version_id],
+        back_populates="child_versions",
+    )
+    child_versions: Mapped[list["ChapterVersion"]] = relationship(
+        "ChapterVersion",
+        foreign_keys="[ChapterVersion.parent_version_id]",
+        back_populates="parent_version",
+    )
     evaluations: Mapped[list["ChapterEvaluation"]] = relationship(
         back_populates="version", cascade="all, delete-orphan"
+    )
+    world_state_snapshots: Mapped[list["ChapterWorldState"]] = relationship(
+        back_populates="source_version", foreign_keys="[ChapterWorldState.source_version_id]"
+    )
+
+
+class ChapterWorldState(Base):
+    """章节版本级世界状态切片（M1）。
+
+    仅保存已确认的事实切片与来源证据；自动抽取、冲突诊断及下一章增量继承由 M5
+    接入。每次写入都新增记录，避免把新的推测覆盖旧版本事实。
+    """
+
+    __tablename__ = "chapter_world_states"
+    __table_args__ = (
+        Index("ix_world_states_project_chapter", "project_id", "chapter_number"),
+        Index("ix_world_states_source_version", "source_version_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BIGINT_PK_TYPE, primary_key=True, autoincrement=True)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    chapter_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    chapter_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_version_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    parent_snapshot_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("chapter_world_states.id", ondelete="SET NULL"), nullable=True
+    )
+    origin: Mapped[str] = mapped_column(String(32), nullable=False, default="manual", server_default="manual")
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    state: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    chapter: Mapped[Optional[Chapter]] = relationship(back_populates="world_state_snapshots")
+    source_version: Mapped[Optional[ChapterVersion]] = relationship(
+        back_populates="world_state_snapshots", foreign_keys=[source_version_id]
     )
 
 

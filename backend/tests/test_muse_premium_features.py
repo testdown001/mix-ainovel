@@ -57,6 +57,7 @@ def test_capabilities_for_tier_and_registry():
     assert creator_keys == {
         "muse_persona", "muse_search", "preset_standard",
         "premise_stress", "chapter_planning", "blueprint_deep",
+        "cover_generation",
     }
     flagship_keys = {c["key"] for c in capabilities_for_tier("flagship")}
     assert "muse_divergence" in flagship_keys

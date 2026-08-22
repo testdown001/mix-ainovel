@@ -25,6 +25,9 @@ export interface VolumeReplan {
 }
 
 export interface VolumePlan {
+  /** M1 一等分卷实体；旧服务端不返回时保持兼容。 */
+  id?: number
+  volume_number?: number
   name?: string
   start_chapter?: number
   end_chapter?: number

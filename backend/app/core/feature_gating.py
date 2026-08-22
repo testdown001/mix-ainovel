@@ -65,6 +65,10 @@ CAPABILITIES: List[Capability] = [
                "蓝图生成后经总编审稿门，不达标则定向修订一轮再复审，减少开书即踩毒点。", "creator"),
     Capability("rolling_review", "续章滚动审稿",
                "写作台续排章纲同样过商业量表审稿门，长期连载 100 章后质量不掉档。", "flagship"),
+
+    # 图片生成成本显著，必须和文本生成一样具备明确的档位与计费边界。
+    Capability("cover_generation", "AI 小说封面",
+               "根据作品题材与梗概生成可发布的竖版封面，并保存到作品详情页。", "creator"),
 ]
 
 _CAP_BY_KEY: Dict[str, Capability] = {c.key: c for c in CAPABILITIES}

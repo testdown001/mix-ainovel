@@ -1,314 +1,331 @@
 <!-- AIMETA P=灵感模式_AI对话创作|R=对话创作界面|NR=不含写作台功能|E=route:/inspiration#component:InspirationMode|X=ui|A=对话界面|D=vue|S=dom,net|RD=./README.ai -->
 <template>
   <div class="inspiration-shell">
-
-    <!-- ──────────── LEFT SIDEBAR ──────────── -->
-    <aside class="sidebar">
-      <!-- Brand header -->
-      <div class="sidebar-brand">
-        <div class="brand-logo">
-          <span class="brand-accent">✦</span>
-          <span class="brand-name">Octopus AI Novel</span>
+    <header class="studio-header">
+      <div class="studio-brand">
+        <button type="button" class="icon-button back-button" aria-label="返回首页" @click="goBack">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <span class="brand-mark">✦</span>
+        <div class="brand-copy">
+          <h1>灵感工坊</h1>
+          <p>从一个念头，长成一本小说</p>
         </div>
-        <div class="brand-badge">✦ 灵感模式</div>
       </div>
 
-      <!-- ── PRE-START: config panel ── -->
-      <div v-if="!conversationStarted" class="sidebar-config">
-        <div class="config-section">
-          <h2 class="config-headline">
-            小说家的<br><span style="color: #FFE500;">新篇章</span>
-          </h2>
-          <p class="config-sub">和文思对话，把灵感蒸馏成可锁定的立项书。</p>
-        </div>
+      <div class="header-actions">
+        <span class="save-state">
+          <i></i>
+          {{ conversationStarted ? '第 ' + currentTurn + ' 轮已保存' : '灵感草稿自动保存' }}
+        </span>
+        <button v-if="conversationStarted" type="button" class="header-button" @click="handleRestart">
+          重新开始
+        </button>
+        <button type="button" class="icon-button" :aria-label="conversationStarted ? '退出灵感模式' : '返回首页'" @click="conversationStarted ? exitConversation() : goBack()">
+          <svg v-if="conversationStarted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M9 18 3 12l6-6M3 12h13M15 5h4a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-4" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M5 12h14m-5-5 5 5-5 5" />
+          </svg>
+        </button>
+      </div>
+    </header>
 
-        <div class="config-section">
-          <ReferenceNovelInput
-            v-model="referenceNovels"
-            :search-status="referenceSearchStatus"
-            :status-message="referenceSearchMessage"
-            @library-selection-change="handleLibrarySelectionChange"
-          />
+    <nav class="studio-flow" aria-label="灵感创作进度">
+      <div v-for="step in workflowSteps" :key="step.id" class="flow-step" :class="{ active: workflowStage === step.id, done: workflowStage > step.id }">
+        <strong>{{ String(step.id).padStart(2, '0') }}</strong>
+        <span>{{ step.label }}</span>
+      </div>
+    </nav>
 
-          <div v-if="librarySelectionsWithNames.length" class="ref-selected-hint">
-            已选：<strong style="color: #FFE500;">{{ librarySelectionsWithNames.join(' / ') }}</strong>
-          </div>
+    <div class="studio-workspace">
+      <aside class="studio-panel material-rail">
+        <header class="rail-heading">
+          <p>INSPIRATION KIT</p>
+          <h2>{{ conversationStarted ? '本次灵感' : '灵感素材' }}</h2>
+        </header>
 
-          <div v-if="boundReferenceNovels.length" class="bound-novels">
-            <p class="bound-label">项目已绑定参考小说：</p>
-            <div class="bound-chips">
-              <span v-for="novel in boundReferenceNovels" :key="novel.id" class="bound-chip">
-                <span class="chip-title">{{ novel.title }}</span>
-                <span class="chip-status">{{ novel.status }}</span>
+        <template v-if="!conversationStarted">
+          <section class="rail-section reference-section">
+            <div class="section-title">
+              <div><h3>参考小说</h3><span>可选，最多 3 本</span></div>
+            </div>
+            <ReferenceNovelInput
+              v-model="referenceNovels"
+              :search-status="referenceSearchStatus"
+              :status-message="referenceSearchMessage"
+              @library-selection-change="handleLibrarySelectionChange"
+            />
+            <p v-if="librarySelectionsWithNames.length" class="selection-note">
+              已选：{{ librarySelectionsWithNames.join(' / ') }}
+            </p>
+            <div v-if="boundReferenceNovels.length" class="bound-list">
+              <span v-for="novel in boundReferenceNovels" :key="novel.id">
+                <b>{{ novel.title }}</b><small>{{ novel.status }}</small>
               </span>
             </div>
-          </div>
-        </div>
+          </section>
 
-        <div class="config-section">
-          <button @click="showExclusions = !showExclusions" class="exclusion-toggle">
-            <svg
-              class="toggle-arrow"
-              :style="{ transform: showExclusions ? 'rotate(90deg)' : 'rotate(0deg)' }"
-              fill="currentColor" viewBox="0 0 20 20"
-            >
-              <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
-            </svg>
-            创作禁区（可选）
-          </button>
-          <div v-if="showExclusions" class="exclusion-body">
-            <textarea
-              v-model="exclusions"
-              placeholder="例如：不要后宫、不要重生穿越..."
-              rows="3"
-              class="exclusion-textarea"
-            />
-            <p class="exclusion-hint">AI 将在整个对话和蓝图生成中遵守这些限制</p>
-          </div>
-        </div>
-
-        <!-- ── 缪斯设定（分档特性）── -->
-        <div class="muse-config">
-          <div class="muse-config-head">
-            <span class="muse-config-title">缪斯设定</span>
-            <span class="tier-badge" :class="`tier-${userTier}`">
-              {{ userTier === 'flagship' ? '旗舰' : userTier === 'creator' ? '创作者' : '免费' }}
-            </span>
-          </div>
-
-          <!-- 缪斯人格选择（创作者档+）-->
-          <label class="muse-field-label">
-            缪斯人格
-            <span v-if="!canUsePersona" class="lock-hint"><svg class="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path stroke-linecap="round" d="M8 11V8a4 4 0 118 0v3"/></svg>创作者档</span>
-          </label>
-          <select v-model="selectedPersona" :disabled="!canUsePersona" class="muse-select">
-            <option v-for="p in musePersonas" :key="p.key" :value="p.key">{{ p.label }}</option>
-          </select>
-          <p v-if="canUsePersona" class="muse-field-hint">
-            {{ musePersonas.find((p) => p.key === selectedPersona)?.blurb || '' }}
-          </p>
-
-          <!-- 一键找素材（创作者档+）-->
-          <label class="muse-toggle" :class="{ disabled: !canUseMuseSearch }">
-            <input type="checkbox" :checked="canUseMuseSearch && !disableMuseSearch"
-                   :disabled="!canUseMuseSearch"
-                   @change="disableMuseSearch = !($event.target as HTMLInputElement).checked" />
-            <span>开场跨界找素材（联网）<span v-if="!canUseMuseSearch" class="lock-hint"><svg class="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="9" rx="2"/><path stroke-linecap="round" d="M8 11V8a4 4 0 118 0v3"/></svg>创作者档</span></span>
-          </label>
-
-          <!-- 灵感扰动（免费）-->
-          <label class="muse-toggle">
-            <input type="checkbox" :checked="!disableSpark"
-                   @change="disableSpark = !($event.target as HTMLInputElement).checked" />
-            <span>灵感扰动（每轮随机激发）</span>
-          </label>
-        </div>
-
-        <div class="config-cta">
-          <button
-            @click="startConversation"
-            :disabled="novelStore.isLoading || isPreparingConversation"
-            class="start-btn"
-            :class="{ disabled: novelStore.isLoading || isPreparingConversation }"
-          >
-            {{ startButtonText }}
-          </button>
-          <button @click="goBack" class="back-link">返回首页</button>
-        </div>
-      </div>
-
-      <!-- ── POST-START: status panel ── -->
-      <div v-else class="sidebar-status">
-        <div class="status-card">
-          <div class="status-row">
-            <span class="status-dot-wrap">
-              <span class="status-ping"></span>
-              <span class="status-dot"></span>
-            </span>
-            <span class="status-label">{{ showBlueprint ? '蓝图已生成' : showBlueprintConfirmation ? '信息收集完成' : '对话进行中' }}</span>
-          </div>
-          <div v-if="currentTurn > 0" class="status-turn">
-            第 {{ currentTurn }} 轮对话
-            <span v-if="!showBlueprint && !showBlueprintConfirmation && currentTurn < 3"
-              style="color:#FFE500;">
-              · 再聊 {{ 3 - currentTurn }} 轮解锁蓝图
-            </span>
-          </div>
-        </div>
-
-        <div v-if="normalizedReferenceNovels.length" class="sidebar-refs">
-          <p class="refs-label">参考小说</p>
-          <div class="refs-chips">
-            <span v-for="r in normalizedReferenceNovels" :key="r" class="ref-chip"><svg class="chip-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>{{ r }}</span>
-          </div>
-        </div>
-
-        <div v-if="exclusions.trim()" class="sidebar-exclusion-summary">
-          <p class="refs-label">创作禁区</p>
-          <p class="exclusion-summary-text">{{ exclusions }}</p>
-        </div>
-
-        <div class="sidebar-actions">
-          <button @click="handleRestart" class="action-btn">
-            <svg class="action-icon" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
-            </svg>
-            重新开始
-          </button>
-          <button @click="exitConversation" class="action-btn action-exit">
-            <svg class="action-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            退出
-          </button>
-        </div>
-      </div>
-    </aside>
-
-    <!-- ──────────── RIGHT MAIN PANEL ──────────── -->
-    <main class="chat-panel">
-
-      <!-- 准备阶段（建项目/联网检索参考小说）：此前只有按钮上一个静态「正在准备...」，
-           挂了参考小说时首次检索要 30-60 秒，用户不知道系统在干嘛。复用开场同款
-           加载视觉，按真实阶段换文案 + 已等待秒数 + 降级说明。 -->
-      <InspirationLoading
-        v-if="!conversationStarted && isPreparingConversation"
-        :title="preparingTitle"
-        :phase-override="preparingPhase"
-        :hint-override="preparingHint"
-      />
-
-      <!-- Empty state before start -->
-      <div v-else-if="!conversationStarted" class="chat-empty">
-        <div class="empty-icon">✦</div>
-        <p class="empty-title">从一句灵感，到完整蓝图</p>
-        <p class="empty-sub">
-          和「文思」聊几轮你的想法——确定题材、世界观与核心角色，聊满 3 轮即可生成可编辑的立项蓝图。
-        </p>
-        <div class="empty-steps">
-          <div class="empty-step">
-            <span class="step-num">1</span>
-            <span>可选：在左侧挂上参考小说、划定创作禁区</span>
-          </div>
-          <div class="empty-step">
-            <span class="step-num">2</span>
-            <span>点「开启灵感模式」，说出哪怕半句点子</span>
-          </div>
-          <div class="empty-step">
-            <span class="step-num">3</span>
-            <span>聊满 3 轮，生成立项蓝图（你可编辑后再锁定）</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Chat area (always rendered once started) -->
-      <template v-else>
-        <div class="chat-scroll" ref="chatArea">
-          <!-- Loading spinner for initial AI response -->
-          <transition name="fade">
-            <InspirationLoading
-              v-if="isInitialLoading"
-              class="chat-loading"
-              :hint-override="museSearchEnabled
-                ? '已开启「开场跨界找素材」：文思会先联网找一批跨界灵感素材再开场，比普通开场慢 20-30 秒。'
-                : ''"
-            />
-          </transition>
-
-          <!-- Chat bubbles -->
-          <ChatBubble
-            v-for="(message, index) in chatMessages"
-            :key="index"
-            :message="message.content"
-            :type="message.type"
-          />
-
-          <!-- Blueprint confirmation flows inline after chat -->
-          <div v-if="showBlueprintConfirmation" class="inline-blueprint-wrap">
-            <BlueprintConfirmation
-              :ai-message="confirmationMessage"
-              :project-id="novelStore.currentProject?.id || ''"
-              @blueprint-generated="handleBlueprintGenerated"
-              @back="backToConversation"
-            />
-          </div>
-
-          <!-- Blueprint display flows inline after chat -->
-          <div v-if="showBlueprint" class="inline-blueprint-wrap">
-            <BlueprintDisplay
-              :blueprint="completedBlueprint"
-              :ai-message="blueprintMessage"
-              @confirm="handleConfirmBlueprint"
-              @regenerate="handleRegenerateBlueprint"
-            />
-          </div>
-        </div>
-
-        <!-- N 路发散结果卡片（旗舰档）-->
-        <div v-if="divergeSeeds.length" class="diverge-results">
-          <div class="diverge-results-head">
-            <span class="diverge-head-text">缪斯给了你 {{ divergeSeeds.length }} 个迥异方向，挑一个继续（其余会保留，可继续对比 / 再挑）：</span>
-            <button class="diverge-dismiss" @click="dismissDivergeSeeds" title="都不满意？清除这批方向，回到普通对话">都不满意 ✕</button>
-          </div>
-          <div class="diverge-cards">
-            <button
-              v-for="seed in divergeSeeds"
-              :key="seed.id"
-              class="diverge-card"
-              :class="{ 'is-picked': pickedSeedIds.includes(seed.id) }"
-              @click="pickDivergeSeed(seed)"
-            >
-              <div class="diverge-card-title">
-                <span class="diverge-card-name">
-                  {{ seed.title || '未命名方向' }}
-                  <span v-if="pickedSeedIds.includes(seed.id)" class="diverge-picked-badge">已投喂</span>
-                </span>
-                <span v-if="typeof seed.score === 'number'" class="diverge-score">{{ seed.score }}/30</span>
+          <section class="rail-section boundary-section">
+            <button type="button" class="section-toggle" @click="showExclusions = !showExclusions">
+              <span><i class="section-dot boundary-dot"></i>创作禁区</span>
+              <svg :class="{ open: showExclusions }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+            <transition name="rail-fold">
+              <div v-if="showExclusions" class="boundary-editor">
+                <textarea v-model="exclusions" rows="4" placeholder="例如：不要后宫、不要提前揭示核心谜底……"></textarea>
+                <p>会贯穿灵感对话、蓝图与正文创作。</p>
               </div>
-              <div class="diverge-card-logline">{{ seed.logline }}</div>
-              <div v-if="seed.hook" class="diverge-card-hook">🪝 {{ seed.hook }}</div>
-              <div v-if="seed.twist" class="diverge-card-twist">🔄 {{ seed.twist }}</div>
-              <div v-if="seed.verdict" class="diverge-card-verdict">{{ seed.verdict }}</div>
+            </transition>
+          </section>
+
+          <section class="rail-section muse-section">
+            <div class="section-title">
+              <div><h3>缪斯人格</h3><span>决定 AI 的提问方式</span></div>
+              <span class="tier-badge" :class="'tier-' + userTier">
+                {{ userTier === 'flagship' ? '旗舰' : userTier === 'creator' ? '创作者' : '免费' }}
+              </span>
+            </div>
+            <div class="muse-list">
+              <button
+                v-for="persona in musePersonas"
+                :key="persona.key"
+                type="button"
+                class="muse-card"
+                :class="{ selected: selectedPersona === persona.key, locked: !canUsePersona && persona.key !== 'default' }"
+                :disabled="!canUsePersona && persona.key !== 'default'"
+                @click="selectedPersona = persona.key"
+              >
+                <span class="muse-avatar">{{ persona.label.slice(0, 1) }}</span>
+                <span class="muse-copy"><strong>{{ persona.label }}</strong><small>{{ persona.blurb || '灵感发散与故事提炼' }}</small></span>
+                <svg v-if="!canUsePersona && persona.key !== 'default'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                  <rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                </svg>
+              </button>
+            </div>
+            <div class="muse-switches">
+              <label :class="{ disabled: !canUseMuseSearch }">
+                <input type="checkbox" :checked="canUseMuseSearch && !disableMuseSearch" :disabled="!canUseMuseSearch" @change="disableMuseSearch = !($event.target as HTMLInputElement).checked" />
+                <span><strong>跨界找素材</strong><small>{{ canUseMuseSearch ? '开场联网寻找陌生素材' : '创作者档可用' }}</small></span>
+              </label>
+              <label>
+                <input type="checkbox" :checked="!disableSpark" @change="disableSpark = !($event.target as HTMLInputElement).checked" />
+                <span><strong>灵感扰动</strong><small>每轮随机激发新联想</small></span>
+              </label>
+            </div>
+          </section>
+        </template>
+
+        <template v-else>
+          <section class="rail-section">
+            <div class="conversation-state">
+              <span class="state-pulse"><i></i></span>
+              <div><strong>{{ conversationStatus }}</strong><small>第 {{ currentTurn }} 轮对话</small></div>
+            </div>
+            <div class="turn-progress" role="progressbar" aria-label="蓝图解锁进度" :aria-valuenow="Math.min(currentTurn, 3)" aria-valuemin="0" aria-valuemax="3">
+              <span :style="{ width: (Math.min(currentTurn / 3, 1) * 100) + '%' }"></span>
+            </div>
+            <p class="turn-hint">{{ nextActionLabel }}</p>
+          </section>
+
+          <section v-if="normalizedReferenceNovels.length" class="rail-section">
+            <div class="section-title"><div><h3>参考小说</h3><span>{{ normalizedReferenceNovels.length }} 本已挂载</span></div></div>
+            <div class="compact-chip-list"><span v-for="novel in normalizedReferenceNovels" :key="novel">▣ {{ novel }}</span></div>
+          </section>
+
+          <section v-if="exclusions.trim()" class="rail-section">
+            <div class="section-title"><div><h3>创作禁区</h3><span>全流程生效</span></div></div>
+            <p class="boundary-summary">{{ exclusions }}</p>
+          </section>
+
+          <section class="rail-section">
+            <div class="section-title"><div><h3>当前缪斯</h3><span>{{ currentMuse?.blurb || '灵感搭档' }}</span></div></div>
+            <div class="active-muse">
+              <span class="muse-avatar">{{ currentMuse?.label?.slice(0, 1) || '文' }}</span>
+              <div><strong>{{ currentMuse?.label || '文思' }}</strong><small>{{ museSearchEnabled ? '跨界素材已开启' : '专注当前对话' }}</small></div>
+            </div>
+          </section>
+
+          <div class="rail-bottom-actions">
+            <button type="button" @click="handleRestart">重新开始</button>
+            <button type="button" @click="exitConversation">退出灵感模式</button>
+          </div>
+        </template>
+      </aside>
+
+      <main class="studio-panel idea-stage">
+        <InspirationLoading
+          v-if="!conversationStarted && isPreparingConversation"
+          class="stage-loading"
+          :title="preparingTitle"
+          :phase-override="preparingPhase"
+          :hint-override="preparingHint"
+        />
+
+        <template v-else-if="!conversationStarted">
+          <section class="idea-hero">
+            <span class="hero-mark">✦</span>
+            <p class="hero-kicker">YOUR NEXT STORY STARTS HERE</p>
+            <h2>今天，想写一个什么样的故事？</h2>
+            <p>不用准备完整设定。一个画面、一句台词，甚至一种情绪都可以。文思会通过几轮追问，帮你找到最值得写的故事核心。</p>
+          </section>
+
+          <section class="starter-area">
+            <div class="starter-grid">
+              <button v-for="starter in ideaStarters" :key="starter.title" type="button" class="starter-card" :class="{ selected: initialIdea === starter.prompt }" @click="initialIdea = starter.prompt">
+                <span class="starter-icon" v-html="starter.icon"></span>
+                <strong>{{ starter.title }}</strong>
+                <small>{{ starter.description }}</small>
+              </button>
+            </div>
+
+            <div class="idea-composer">
+              <textarea
+                v-model="initialIdea"
+                rows="4"
+                placeholder="写下脑海中的一句话、一个人物或一幅画面……"
+                @keydown.ctrl.enter.prevent="startConversation"
+                @keydown.meta.enter.prevent="startConversation"
+              ></textarea>
+              <div class="composer-footer">
+                <span>文思会先追问，不会急着替你定稿</span>
+                <button type="button" :disabled="novelStore.isLoading || isPreparingConversation" @click="startConversation">
+                  {{ startButtonText }}
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
+                </button>
+              </div>
+            </div>
+          </section>
+        </template>
+
+        <template v-else>
+          <header class="conversation-header">
+            <div>
+              <p>{{ showBlueprint ? 'BLUEPRINT READY' : showBlueprintConfirmation ? 'STORY LOCK' : 'IDEA EXPLORATION' }}</p>
+              <h2>{{ showBlueprint ? '故事蓝图' : showBlueprintConfirmation ? '锁定你的故事' : '与文思继续探索' }}</h2>
+            </div>
+            <span>{{ currentTurn }}/3 轮</span>
+          </header>
+
+          <div class="chat-scroll" ref="chatArea">
+            <transition name="fade">
+              <InspirationLoading
+                v-if="isInitialLoading"
+                class="chat-loading"
+                :hint-override="museSearchEnabled ? '已开启跨界找素材：文思会先联网寻找陌生素材再开场，通常需要多等 20-30 秒。' : ''"
+              />
+            </transition>
+
+            <ChatBubble v-for="(message, index) in chatMessages" :key="index" :message="message.content" :type="message.type" />
+
+            <div v-if="showBlueprintConfirmation" class="inline-blueprint-wrap">
+              <BlueprintConfirmation
+                :ai-message="confirmationMessage"
+                :project-id="novelStore.currentProject?.id || ''"
+                @blueprint-generated="handleBlueprintGenerated"
+                @back="backToConversation"
+              />
+            </div>
+
+            <div v-if="showBlueprint" class="inline-blueprint-wrap">
+              <BlueprintDisplay
+                :blueprint="completedBlueprint"
+                :ai-message="blueprintMessage"
+                @confirm="handleConfirmBlueprint"
+                @regenerate="handleRegenerateBlueprint"
+              />
+            </div>
+          </div>
+
+          <section v-if="divergeSeeds.length" class="diverge-results">
+            <div class="diverge-results-head">
+              <div><strong>缪斯发散方向</strong><span>可以连续选择多个方向继续讨论</span></div>
+              <button type="button" @click="dismissDivergeSeeds">清除本轮</button>
+            </div>
+            <div class="diverge-cards">
+              <button v-for="seed in divergeSeeds" :key="seed.id" type="button" class="diverge-card" :class="{ picked: pickedSeedIds.includes(seed.id) }" @click="pickDivergeSeed(seed)">
+                <div><strong>{{ seed.title || '未命名方向' }}</strong><span v-if="typeof seed.score === 'number'">{{ seed.score }}/30</span></div>
+                <p>{{ seed.logline }}</p>
+                <small v-if="seed.hook">钩子 · {{ seed.hook }}</small>
+                <small v-if="seed.twist">转折 · {{ seed.twist }}</small>
+                <b v-if="pickedSeedIds.includes(seed.id)">已投喂</b>
+              </button>
+            </div>
+          </section>
+
+          <footer v-if="!showBlueprintConfirmation && !showBlueprint" class="conversation-footer">
+            <button v-if="canUseDivergence" type="button" class="diverge-trigger" :disabled="isDiverging || novelStore.isLoading" @click="handleDiverge">
+              {{ isDiverging ? '缪斯发散中…' : '✦ 给我 5 个狂点子' }}
+            </button>
+            <InlineProgress v-if="isDiverging" label="缪斯正在发散 5 个迥异方向并打分…" hint="需要两次模型调用，请勿离开页面。" />
+            <ConversationInput v-else :ui-control="currentUIControl" :loading="novelStore.isLoading" @submit="handleUserInput" />
+          </footer>
+        </template>
+      </main>
+
+      <aside class="studio-panel idea-board">
+        <header class="rail-heading">
+          <p>IDEA BOARD</p>
+          <h2>灵感看板</h2>
+        </header>
+
+        <section class="live-idea-card" :class="{ active: conversationStarted || initialIdea.trim() }">
+          <div><span>当前灵感</span><b>{{ conversationStarted ? '正在生长' : initialIdea.trim() ? '等待开启' : '等待输入' }}</b></div>
+          <h3>{{ currentIdeaTitle }}</h3>
+          <p>{{ currentIdeaSummary }}</p>
+        </section>
+
+        <section class="board-section">
+          <p>创作进度</p>
+          <div class="board-progress-list">
+            <div v-for="step in workflowSteps" :key="'board-' + step.id" :class="{ active: workflowStage === step.id, done: workflowStage > step.id }">
+              <span>{{ String(step.id).padStart(2, '0') }}</span>
+              <div><strong>{{ step.label }}</strong><small>{{ step.description }}</small></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="board-section">
+          <p>文思已捕捉</p>
+          <div class="insight-list">
+            <div>
+              <span class="insight-icon">◎</span>
+              <div><strong>故事种子</strong><small>{{ ideaSeedLabel }}</small></div>
+            </div>
+            <div>
+              <span class="insight-icon">◈</span>
+              <div><strong>参考基因</strong><small>{{ referenceInsight }}</small></div>
+            </div>
+            <div>
+              <span class="insight-icon">◇</span>
+              <div><strong>创作边界</strong><small>{{ boundaryInsight }}</small></div>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="divergeSeeds.length" class="board-section">
+          <p>候选方向</p>
+          <div class="direction-list">
+            <button v-for="seed in divergeSeeds.slice(0, 3)" :key="'board-seed-' + seed.id" type="button" @click="pickDivergeSeed(seed)">
+              <span>{{ String(divergeSeeds.indexOf(seed) + 1).padStart(2, '0') }}</span>
+              <div><strong>{{ seed.title || '未命名方向' }}</strong><small>{{ seed.logline }}</small></div>
             </button>
           </div>
-        </div>
+        </section>
 
-        <!-- Input bar (hidden when blueprint confirmation/display is showing) -->
-        <div
-          v-if="!showBlueprintConfirmation && !showBlueprint"
-          class="chat-input-bar"
-        >
-          <button
-            v-if="canUseDivergence"
-            class="diverge-trigger"
-            :disabled="isDiverging || novelStore.isLoading"
-            @click="handleDiverge"
-            title="一次生成 5 个迥异世界观种子并智能评分（旗舰）"
-          >
-            {{ isDiverging ? '✦ 缪斯发散中…' : '✦ 给我 5 个狂点子' }}
-          </button>
-          <!-- 缪斯发散中：隐藏并禁用选项/输入/发送，改显发散进度状态 -->
-          <InlineProgress
-            v-if="isDiverging"
-            label="缪斯正在发散 5 个迥异方向并打分…"
-            hint="发散需两次模型调用（先生成、再评分），稍慢属正常，请勿离开页面。"
-          />
-          <ConversationInput
-            v-else
-            :ui-control="currentUIControl"
-            :loading="novelStore.isLoading"
-            @submit="handleUserInput"
-          />
+        <div class="board-next">
+          <span>下一步</span>
+          <p>{{ nextActionLabel }}</p>
         </div>
-      </template>
-    </main>
+      </aside>
+    </div>
 
-    <UpgradePrompt
-      :show="showUpgrade"
-      :kind="upgradeKind"
-      :message="upgradeMessage"
-      @close="showUpgrade = false"
-    />
+    <UpgradePrompt :show="showUpgrade" :kind="upgradeKind" :message="upgradeMessage" @close="showUpgrade = false" />
   </div>
 </template>
 
@@ -368,6 +385,35 @@ const referenceSearchStatus = ref<'idle' | 'searching' | 'success' | 'error' | '
 const referenceSearchMessage = ref('')
 const exclusions = ref('')
 const showExclusions = ref(false)
+const initialIdea = ref('')
+
+const workflowSteps = [
+  { id: 1, label: '捕捉灵感', description: '写下第一句故事种子' },
+  { id: 2, label: '探索方向', description: '通过追问寻找核心冲突' },
+  { id: 3, label: '锁定故事', description: '确认题材、人物与情绪承诺' },
+  { id: 4, label: '生成蓝图', description: '沉淀为可编辑立项蓝图' },
+]
+
+const ideaStarters = [
+  {
+    title: '从一个画面开始',
+    description: '描述你脑海里最清晰的一幕',
+    prompt: '我脑中有一个画面：',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg>',
+  },
+  {
+    title: '从一个人物开始',
+    description: '告诉我他最想得到什么',
+    prompt: '我想写一个这样的人：',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  },
+  {
+    title: '从一个“如果”开始',
+    description: '抛出你最大胆的世界假设',
+    prompt: '如果有一天，',
+    icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.3 2.3 0 1 1 3.4 2c-.8.5-1.2 1-1.2 2M12 17h.01"/></svg>',
+  },
+]
 
 // ── 缪斯高级特性（分档：免费 / 创作者 / 旗舰）──
 const musePersonas = ref<MusePersona[]>([])
@@ -389,7 +435,7 @@ const museSearchEnabled = computed(() => canUseMuseSearch.value && !disableMuseS
 const startButtonText = computed(() => {
   if (preparingStage.value === 'reference') return '检索参考小说中...'
   if (isPreparingConversation.value || novelStore.isLoading) return '正在准备...'
-  return '开启灵感模式'
+  return initialIdea.value.trim() ? '开始构思' : '开启灵感模式'
 })
 
 const preparingTitle = computed(() =>
@@ -428,6 +474,61 @@ const selectedReferenceNovelIds = computed(() =>
     .filter((id): id is number => id !== null)
 )
 const boundReferenceNovels = computed(() => novelStore.projectReferenceNovels || [])
+const currentMuse = computed(() =>
+  musePersonas.value.find((persona) => persona.key === selectedPersona.value)
+    || musePersonas.value.find((persona) => persona.key === 'default')
+    || null,
+)
+const workflowStage = computed(() => {
+  if (showBlueprint.value) return 4
+  if (showBlueprintConfirmation.value || currentTurn.value >= 3) return 3
+  if (conversationStarted.value) return 2
+  return 1
+})
+const conversationStatus = computed(() => {
+  if (showBlueprint.value) return '蓝图已生成'
+  if (showBlueprintConfirmation.value) return '故事等待锁定'
+  if (isInitialLoading.value || novelStore.isLoading) return '文思正在思考'
+  return '灵感对话进行中'
+})
+const firstUserIdea = computed(() =>
+  chatMessages.value.find((message) => message.type === 'user')?.content?.trim() || '',
+)
+const effectiveIdea = computed(() => initialIdea.value.trim() || firstUserIdea.value)
+const currentIdeaTitle = computed(() => {
+  const rawIdea = effectiveIdea.value
+  const text = rawIdea
+    .replace(/^(我脑中有一个画面：|我想写一个这样的人：|如果有一天，)/, '')
+    .trim()
+  if (!text) return rawIdea.replace(/[：:]$/, '') || '等待第一句灵感'
+  return text.split(/[。！？!?；;\n]/)[0].slice(0, 20) || '一个正在生长的故事'
+})
+const currentIdeaSummary = computed(() => {
+  if (!effectiveIdea.value) return '从一个画面、人物或大胆假设开始，文思会帮你逐步提炼题材与冲突。'
+  return effectiveIdea.value.length > 72
+    ? `${effectiveIdea.value.slice(0, 72)}…`
+    : effectiveIdea.value
+})
+const ideaSeedLabel = computed(() =>
+  effectiveIdea.value ? currentIdeaTitle.value : '等待你给出第一句点子',
+)
+const referenceInsight = computed(() =>
+  normalizedReferenceNovels.value.length
+    ? `${normalizedReferenceNovels.value.length} 本参考小说已挂载`
+    : '尚未挂载参考小说',
+)
+const exclusionCount = computed(() =>
+  exclusions.value.split(/[\n；;]/).map((item) => item.trim()).filter(Boolean).length,
+)
+const boundaryInsight = computed(() =>
+  exclusionCount.value ? `${exclusionCount.value} 条创作禁区已生效` : '暂未设置创作禁区',
+)
+const nextActionLabel = computed(() => {
+  if (showBlueprint.value) return '确认蓝图后进入章节规划与正文创作。'
+  if (showBlueprintConfirmation.value || currentTurn.value >= 3) return '检查故事核心，准备生成可编辑蓝图。'
+  if (conversationStarted.value) return `再聊 ${Math.max(3 - currentTurn.value, 0)} 轮，逐步锁定故事。`
+  return initialIdea.value.trim() ? '点击开启灵感模式，与文思开始第一轮对话。' : '先写下一句话、一个人物或一幅画面。'
+})
 
 const goBack = () => {
   router.push('/home')
@@ -483,7 +584,11 @@ const bindReferencesIfNeeded = async () => {
   }
 }
 
-const resetInspirationMode = (options: { keepReferenceNovels?: boolean } = {}) => {
+const resetInspirationMode = (options: {
+  keepReferenceNovels?: boolean
+  keepExclusions?: boolean
+  keepInitialIdea?: boolean
+} = {}) => {
   conversationStarted.value = false
   isPreparingConversation.value = false
   isInitialLoading.value = false
@@ -501,8 +606,13 @@ const resetInspirationMode = (options: { keepReferenceNovels?: boolean } = {}) =
   if (!options.keepReferenceNovels) {
     referenceNovels.value = ['']
   }
-  exclusions.value = ''
-  showExclusions.value = false
+  if (!options.keepExclusions) {
+    exclusions.value = ''
+    showExclusions.value = false
+  }
+  if (!options.keepInitialIdea) {
+    initialIdea.value = ''
+  }
 
   novelStore.setCurrentProject(null)
   novelStore.currentConversationState = {}
@@ -529,8 +639,13 @@ const backToConversation = () => {
 
 const startConversation = async () => {
   const selectedReferenceNovels = [...normalizedReferenceNovels.value]
+  const selectedInitialIdea = initialIdea.value.trim()
 
-  resetInspirationMode({ keepReferenceNovels: true })
+  resetInspirationMode({
+    keepReferenceNovels: true,
+    keepExclusions: true,
+    keepInitialIdea: true,
+  })
   isPreparingConversation.value = true
   preparingStage.value = 'project'
 
@@ -563,14 +678,20 @@ const startConversation = async () => {
     conversationStarted.value = true
     isInitialLoading.value = true
 
-    await handleUserInput(null, {
+    await handleUserInput(selectedInitialIdea
+      ? { id: 'initial_idea', value: selectedInitialIdea }
+      : null, {
       referenceNovels: selectedReferenceNovels,
       referenceContext: referenceContext.value
     })
   } catch (error) {
     console.error('启动灵感模式失败:', error)
     globalAlert.showError(`无法开始灵感模式: ${error instanceof Error ? error.message : '未知错误'}`, '启动失败')
-    resetInspirationMode({ keepReferenceNovels: true })
+    resetInspirationMode({
+      keepReferenceNovels: true,
+      keepExclusions: true,
+      keepInitialIdea: true,
+    })
   } finally {
     isPreparingConversation.value = false
     preparingStage.value = 'idle'
@@ -821,634 +942,382 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* ──────────── Shell Layout ──────────── */
 .inspiration-shell {
-  display: flex;
   height: 100vh;
-  background: #0A0A0A;
   overflow: hidden;
-  font-family: 'Inter', sans-serif;
+  color: #f4f4ee;
+  background: #090a08;
+  font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif;
 }
-
-/* ──────────── Sidebar ──────────── */
-.sidebar {
-  width: 320px;
-  flex-shrink: 0;
-  background: #141414;
-  border-right: 1px solid #2A2A2A;
+.inspiration-shell * { box-sizing: border-box; }
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+.studio-header {
   display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.sidebar-brand {
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid #2A2A2A;
-  flex-shrink: 0;
-}
-
-.brand-logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.brand-accent {
-  color: #FFE500;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.brand-name {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: #FFFFFF;
-  letter-spacing: -0.01em;
-}
-
-.brand-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px;
-  background: #1C1C1C;
-  border: 1px solid #2A2A2A;
-  border-radius: 999px;
-  font-size: 12px;
-  color: #888;
-}
-
-/* ── Config Panel ── */
-.sidebar-config {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.sidebar-config::-webkit-scrollbar { width: 4px; }
-.sidebar-config::-webkit-scrollbar-track { background: transparent; }
-.sidebar-config::-webkit-scrollbar-thumb { background: #2A2A2A; border-radius: 4px; }
-
-.config-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.config-headline {
-  font-family: 'Space Grotesk', sans-serif;
-  font-size: 24px;
-  font-weight: 900;
-  color: #FFFFFF;
-  line-height: 1.2;
-  margin: 0;
-}
-
-.config-sub {
-  font-size: 13px;
-  color: #888;
-  line-height: 1.6;
-  margin: 0;
-}
-
-.ref-selected-hint {
-  font-size: 12px;
-  color: #888;
-  margin-top: 4px;
-}
-
-.bound-novels {
-  margin-top: 8px;
-  background: #1C1C1C;
-  border: 1px dashed #2A2A2A;
-  padding: 10px 12px;
-  border-radius: 10px;
-}
-
-.bound-label {
-  font-size: 11px;
-  color: #888;
-  margin: 0 0 6px;
-}
-
-.bound-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.bound-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: #141414;
-  border: 1px solid #2A2A2A;
-  font-size: 12px;
-  color: #FFFFFF;
-}
-
-.chip-title { font-weight: 600; }
-
-.chip-status {
-  font-size: 10px;
-  padding: 1px 5px;
-  border-radius: 999px;
-  background: rgba(255,229,0,0.12);
-  color: #FFE500;
-}
-
-.exclusion-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #888;
-  font-size: 13px;
-  padding: 0;
-  transition: color 0.15s;
-}
-
-.exclusion-toggle:hover { color: #CCC; }
-
-.toggle-arrow {
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  transition: transform 0.2s;
-}
-
-.exclusion-body {
-  margin-top: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.exclusion-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 12px;
-  background: #1C1C1C;
-  border: 1px solid #2A2A2A;
-  border-radius: 10px;
-  color: #FFFFFF;
-  outline: none;
-  resize: none;
-  box-sizing: border-box;
-  font-family: 'Inter', sans-serif;
-  transition: border-color 0.15s;
-}
-
-.exclusion-textarea:focus { border-color: #FFE500; }
-
-.exclusion-hint {
-  font-size: 11px;
-  color: #555;
-  margin: 0;
-}
-
-.config-cta {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding-top: 4px;
-}
-
-.start-btn {
-  width: 100%;
-  background: #FFE500;
-  color: #000;
-  font-weight: 700;
-  font-size: 15px;
-  padding: 13px 0;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-  font-family: 'Space Grotesk', sans-serif;
-  transition: opacity 0.2s, transform 0.15s;
-}
-
-.start-btn:hover:not(.disabled) { opacity: 0.9; transform: translateY(-1px); }
-.start-btn.disabled { opacity: 0.45; cursor: not-allowed; }
-
-.back-link {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #888;
-  font-size: 13px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-color: #333;
-  transition: color 0.15s;
-}
-
-.back-link:hover { color: #CCC; }
-
-/* ── Status Panel ── */
-.sidebar-status {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.status-card {
-  background: #1C1C1C;
-  border: 1px solid #2A2A2A;
-  border-radius: 12px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.status-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.status-dot-wrap {
-  position: relative;
-  display: inline-flex;
-  width: 10px;
-  height: 10px;
-  flex-shrink: 0;
-}
-
-.status-ping {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: #FFE500;
-  opacity: 0.55;
-  animation: ping 1.5s ease-in-out infinite;
-}
-
-.status-dot {
-  position: relative;
-  border-radius: 50%;
-  width: 10px;
-  height: 10px;
-  background: #FFE500;
-  display: block;
-}
-
-.status-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: #FFE500;
-}
-
-.status-turn {
-  font-size: 12px;
-  color: #888;
-}
-
-.sidebar-refs {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.refs-label {
-  font-size: 11px;
-  color: #555;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin: 0;
-}
-
-.refs-chips {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ref-chip {
-  font-size: 12px;
-  color: #CCCCCC;
-  background: #1C1C1C;
-  border: 1px solid #2A2A2A;
-  padding: 4px 10px;
-  border-radius: 8px;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-exclusion-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.exclusion-summary-text {
-  font-size: 12px;
-  color: #888;
-  line-height: 1.5;
-  margin: 0;
-  background: #1C1C1C;
-  border: 1px solid #2A2A2A;
-  padding: 8px 10px;
-  border-radius: 8px;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.sidebar-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: auto;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 14px;
-  background: #1C1C1C;
-  border: 1px solid #2A2A2A;
-  border-radius: 10px;
-  color: #888;
-  font-size: 13px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s, background 0.15s;
-  text-align: left;
-}
-
-.action-btn:hover { color: #CCCCCC; border-color: #444; background: #222; }
-.action-exit:hover { color: #FF4757; border-color: #FF4757; }
-
-.action-icon {
-  width: 15px;
-  height: 15px;
-  flex-shrink: 0;
-}
-
-/* ──────────── Chat Panel ──────────── */
-.chat-panel {
-  /* relative：InspirationLoading 根节点是 absolute inset-0，
-     准备阶段直接挂在本容器下，需要以本容器为定位锚 */
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: #0A0A0A;
-}
-
-/* Empty placeholder */
-.chat-empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  text-align: center;
-  padding: 40px;
-}
-
-.empty-icon {
-  font-size: 48px;
-  color: rgba(255, 229, 0, 0.28);
-  line-height: 1;
-  margin-bottom: 4px;
-}
-
-.empty-title {
-  font-family: 'Space Grotesk', 'Noto Sans SC', sans-serif;
-  font-size: 24px;
-  font-weight: 700;
-  color: #DDDDDD;
-  margin: 0;
-}
-
-.empty-sub {
-  font-size: 14px;
-  color: #777777;
-  max-width: 400px;
-  line-height: 1.7;
-  margin: 0;
-}
-
-.empty-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 16px;
-  width: 100%;
-  max-width: 400px;
-}
-
-.empty-step {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  font-size: 13px;
-  color: #999999;
-  text-align: left;
-  background: var(--md-surface, #141414);
-  border: 1px solid var(--md-outline-variant, #1C1C1C);
-  border-radius: 12px;
-}
-
-.step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: rgba(255, 229, 0, 0.12);
-  color: #FFE500;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-/* Chat scroll area */
-.chat-scroll {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.chat-scroll::-webkit-scrollbar { width: 5px; }
-.chat-scroll::-webkit-scrollbar-track { background: transparent; }
-.chat-scroll::-webkit-scrollbar-thumb { background: #2A2A2A; border-radius: 5px; }
-
-.chat-loading {
-  align-self: center;
-}
-
-/* Inline blueprint panels */
-.inline-blueprint-wrap {
-  margin-top: 8px;
-}
-
-/* Input bar */
-.chat-input-bar {
-  padding: 16px 24px;
-  border-top: 1px solid #1C1C1C;
-  background: #0D0D0D;
-  flex-shrink: 0;
-}
-
-/* ──────────── Animations ──────────── */
-@keyframes ping {
-  0%, 100% { transform: scale(1); opacity: 0.55; }
-  50% { transform: scale(1.7); opacity: 0; }
-}
-
-.fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-
-/* ──────────── Mobile ──────────── */
-@media (max-width: 768px) {
-  .inspiration-shell {
-    flex-direction: column;
-  }
-
-  .sidebar {
-    width: 100%;
-    max-height: 50vh;
-    border-right: none;
-    border-bottom: 1px solid #2A2A2A;
-  }
-
-  .chat-panel {
-    flex: 1;
-    min-height: 0;
-  }
-}
-
-/* ──────────── 缪斯设定 / N路发散 ──────────── */
-.muse-config {
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
-}
-.muse-config-head {
-  display: flex;
+  height: 68px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  gap: 18px;
+  padding: 0 24px;
+  border-bottom: 1px solid #24251f;
+  background: rgba(15,16,14,.98);
 }
-.muse-config-title { font-size: 13px; font-weight: 600; opacity: 0.9; }
-.tier-badge {
+.studio-brand, .header-actions, .conversation-state, .active-muse { display: flex; align-items: center; }
+.studio-brand { min-width: 0; gap: 11px; }
+.icon-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #2d2f29;
+  border-radius: 10px;
+  color: #999c93;
+  background: #171815;
+}
+.icon-button:hover { color: #ffe500; border-color: #4c4921; }
+.icon-button svg { width: 17px; height: 17px; }
+.brand-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  color: #171700;
+  background: #ffe500;
+  font-size: 16px;
+}
+.brand-copy { min-width: 0; }
+.brand-copy h1 { margin: 0; color: #f5f5ef; font-size: 16px; font-weight: 680; }
+.brand-copy p { margin: 3px 0 0; color: #6d7067; font-size: 10px; }
+.header-actions { gap: 9px; }
+.save-state { display: flex; align-items: center; gap: 7px; color: #6f7269; font-size: 10px; white-space: nowrap; }
+.save-state i { width: 6px; height: 6px; border-radius: 50%; background: #8a8518; }
+.header-button {
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid #2d2f29;
+  border-radius: 10px;
+  color: #aaada5;
+  background: #171815;
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid currentColor;
 }
-.tier-free { color: #9aa0a6; }
-.tier-creator { color: #6ad29a; }
-.tier-flagship { color: #f5c451; }
-.muse-field-label {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; opacity: 0.85; margin: 8px 0 4px;
+.header-button:hover { color: #f1f1eb; }
+.studio-flow {
+  display: grid;
+  height: 56px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 10px 24px;
+  border-bottom: 1px solid #1f201c;
+  background: #0d0e0c;
 }
-.lock-hint { font-size: 11px; opacity: 0.7; display: inline-flex; align-items: center; gap: 3px; }
-.lock-ico { width: 10px; height: 10px; flex-shrink: 0; }
-.chip-ico { width: 11px; height: 11px; flex-shrink: 0; margin-right: 4px; vertical-align: -1px; display: inline-block; }
-.muse-select {
+.flow-step {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border-radius: 9px;
+  color: #5f625a;
+}
+.flow-step strong { font-size: 9px; font-weight: 700; letter-spacing: .08em; }
+.flow-step span { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.flow-step.active { color: #171700; background: #ffe500; box-shadow: 0 8px 24px rgba(255,229,0,.08); }
+.flow-step.done { color: #b6b8b0; }
+.studio-workspace {
+  display: grid;
+  height: calc(100vh - 124px);
+  grid-template-columns: minmax(244px, 274px) minmax(440px, 1fr) minmax(250px, 292px);
+  gap: 12px;
+  padding: 14px;
+  background-color: #090a08;
+  background-image: linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+  background-size: 34px 34px;
+}
+.studio-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #252620;
+  border-radius: 16px;
+  background: rgba(16,17,14,.985);
+  box-shadow: 0 22px 60px rgba(0,0,0,.18);
+}
+.material-rail, .idea-board { padding: 17px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #31332c transparent; }
+.rail-heading { padding-bottom: 13px; border-bottom: 1px solid #252620; }
+.rail-heading p, .conversation-header p, .hero-kicker {
+  margin: 0 0 5px;
+  color: #686b63;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .16em;
+}
+.rail-heading h2 { margin: 0; color: #efefe9; font-size: 16px; font-weight: 680; }
+.rail-section { padding: 15px 0; border-bottom: 1px solid #252620; }
+.rail-section:last-of-type { border-bottom: 0; }
+.section-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.section-title h3 { margin: 0; color: #bfc1b9; font-size: 11px; font-weight: 680; }
+.section-title span { display: block; margin-top: 3px; color: #666960; font-size: 9px; }
+.selection-note { margin: 9px 0 0; color: #b8ad16; font-size: 9px; line-height: 1.55; }
+.bound-list { display: grid; gap: 6px; margin-top: 9px; }
+.bound-list > span { display: flex; justify-content: space-between; gap: 8px; padding: 7px 8px; border: 1px solid #292b25; border-radius: 8px; background: #161713; }
+.bound-list b { overflow: hidden; color: #b6b8b0; font-size: 9px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.bound-list small { color: #62655d; font-size: 8px; }
+.reference-section :deep(.reference-novel-input) { margin: 0; }
+.reference-section :deep(label), .reference-section :deep(.input-label) { color: #85887f !important; font-size: 9px !important; }
+.reference-section :deep(input) { border-color: #30322b !important; border-radius: 9px !important; color: #dedfd8 !important; background: #171815 !important; }
+.reference-section :deep(button) { border-radius: 8px !important; }
+.section-toggle {
+  display: flex;
   width: 100%;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.25);
-  color: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-.muse-select:disabled { opacity: 0.5; cursor: not-allowed; }
-.muse-field-hint { font-size: 11px; opacity: 0.6; margin: 4px 0 0; }
-.muse-toggle {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12px; margin-top: 10px; cursor: pointer;
-}
-.muse-toggle.disabled { opacity: 0.55; cursor: not-allowed; }
-
-.diverge-results { padding: 10px 16px; }
-.diverge-results-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  margin-bottom: 8px;
-}
-.diverge-head-text { font-size: 13px; opacity: 0.85; }
-.diverge-dismiss {
-  flex-shrink: 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  color: #bfc1b9;
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  border-radius: 8px;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  font-size: 11px;
+  font-weight: 680;
 }
-.diverge-dismiss:hover { color: #fff; border-color: rgba(255, 255, 255, 0.4); }
-.diverge-cards { display: flex; flex-direction: column; gap: 8px; }
-.diverge-card {
+.section-toggle > span { display: flex; align-items: center; gap: 8px; }
+.section-toggle svg { width: 14px; height: 14px; color: #6a6d64; transition: transform .2s ease; }
+.section-toggle svg.open { transform: rotate(90deg); }
+.section-dot { width: 6px; height: 6px; border-radius: 50%; }
+.boundary-dot { background: #966e9d; }
+.boundary-editor { margin-top: 10px; }
+.boundary-editor textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid #30322b;
+  border-radius: 9px;
+  outline: none;
+  color: #dedfd8;
+  background: #171815;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.boundary-editor textarea:focus { border-color: #5a5522; }
+.boundary-editor p { margin: 6px 0 0; color: #5e6159; font-size: 8px; line-height: 1.5; }
+.tier-badge {
+  margin: 0 !important;
+  padding: 4px 7px;
+  border: 1px solid #44451f;
+  border-radius: 999px;
+  color: #d3c700 !important;
+  background: #1c1c0c;
+  font-size: 8px !important;
+}
+.muse-list { display: grid; gap: 7px; }
+.muse-card {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid #2a2c26;
+  border-radius: 10px;
+  color: inherit;
   text-align: left;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  background: #151613;
 }
-.diverge-card:hover { border-color: #f5c451; background: rgba(245, 196, 81, 0.08); }
-.diverge-card.is-picked { border-color: rgba(245, 196, 81, 0.5); background: rgba(245, 196, 81, 0.06); }
-.diverge-card-title {
-  display: flex; align-items: center; justify-content: space-between;
-  font-weight: 600; font-size: 14px; margin-bottom: 4px;
+.muse-card:hover:not(:disabled) { border-color: #484722; }
+.muse-card.selected { border-color: #575224; background: #201f0e; }
+.muse-card.locked { opacity: .52; cursor: not-allowed; }
+.muse-avatar {
+  display: grid;
+  width: 31px;
+  height: 31px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  color: #171700;
+  background: #dfd200;
+  font-size: 10px;
+  font-weight: 800;
 }
-.diverge-card-name { display: inline-flex; align-items: center; gap: 6px; }
-.diverge-picked-badge {
-  font-size: 11px; font-weight: 600;
-  color: #0A0A0A; background: #f5c451;
-  border-radius: 6px; padding: 1px 6px;
+.muse-copy { min-width: 0; flex: 1; }
+.muse-copy strong, .active-muse strong { display: block; color: #d9dad4; font-size: 10px; font-weight: 650; }
+.muse-copy small, .active-muse small { display: block; overflow: hidden; margin-top: 3px; color: #686b63; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.muse-card > svg { width: 13px; height: 13px; flex: 0 0 auto; color: #777a72; }
+.muse-switches { display: grid; gap: 7px; margin-top: 10px; }
+.muse-switches label { display: flex; align-items: center; gap: 8px; color: #aaada5; cursor: pointer; }
+.muse-switches label.disabled { opacity: .5; cursor: not-allowed; }
+.muse-switches input { accent-color: #ffe500; }
+.muse-switches strong { display: block; font-size: 9px; font-weight: 650; }
+.muse-switches small { display: block; margin-top: 2px; color: #60635b; font-size: 8px; }
+.conversation-state { gap: 10px; }
+.state-pulse { position: relative; display: grid; width: 31px; height: 31px; place-items: center; border-radius: 9px; background: #1f1f0d; }
+.state-pulse::before { position: absolute; width: 13px; height: 13px; border: 1px solid #69631b; border-radius: 50%; content: ""; }
+.state-pulse i { width: 5px; height: 5px; border-radius: 50%; background: #d0c300; }
+.conversation-state strong { display: block; color: #d9dad4; font-size: 10px; font-weight: 650; }
+.conversation-state small { display: block; margin-top: 3px; color: #696c64; font-size: 8px; }
+.turn-progress { height: 3px; margin-top: 12px; overflow: hidden; border-radius: 2px; background: #272820; }
+.turn-progress span { display: block; height: 100%; background: #d7ca00; transition: width .25s ease; }
+.turn-hint { margin: 8px 0 0; color: #74776f; font-size: 8px; line-height: 1.5; }
+.compact-chip-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.compact-chip-list span { padding: 6px 7px; border: 1px solid #30322b; border-radius: 7px; color: #9ea198; background: #171815; font-size: 8px; }
+.boundary-summary { margin: 0; color: #969990; font-size: 9px; line-height: 1.65; white-space: pre-wrap; }
+.active-muse { gap: 9px; }
+.rail-bottom-actions { display: grid; gap: 7px; margin-top: 15px; }
+.rail-bottom-actions button { min-height: 34px; border: 1px solid #2d2f29; border-radius: 9px; color: #8f9289; background: #171815; font-size: 9px; }
+.rail-bottom-actions button:hover { color: #f1f1ea; }
+.rail-fold-enter-active, .rail-fold-leave-active { transition: opacity .16s ease, transform .16s ease; }
+.rail-fold-enter-from, .rail-fold-leave-to { opacity: 0; transform: translateY(-4px); }
+.idea-stage { display: flex; flex-direction: column; }
+.stage-loading { flex: 1; min-height: 0; }
+.idea-hero { padding: 32px 34px 24px; border-bottom: 1px solid #252620; }
+.hero-mark { display: grid; width: 38px; height: 38px; margin-bottom: 17px; place-items: center; border-radius: 11px; color: #171700; background: #ffe500; font-size: 18px; }
+.idea-hero h2 { max-width: 640px; margin: 0; color: #f5f5ef; font-size: clamp(24px,2.2vw,34px); font-weight: 720; letter-spacing: -.035em; }
+.idea-hero > p:last-child { max-width: 670px; margin: 11px 0 0; color: #8b8e85; font-size: 12px; line-height: 1.8; }
+.starter-area { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 22px 28px 24px; }
+.starter-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; }
+.starter-card {
+  min-height: 105px;
+  padding: 13px;
+  border: 1px solid #2b2d27;
+  border-radius: 11px;
+  color: #aaada4;
+  text-align: left;
+  background: #151613;
 }
-.diverge-score { font-size: 12px; color: #f5c451; }
-.diverge-card-logline { font-size: 13px; opacity: 0.9; }
-.diverge-card-hook,
-.diverge-card-twist { font-size: 12px; opacity: 0.75; margin-top: 4px; }
-.diverge-card-verdict { font-size: 11px; opacity: 0.6; margin-top: 6px; font-style: italic; }
-.diverge-trigger {
-  align-self: stretch;
-  margin-bottom: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid #f5c451;
-  background: rgba(245, 196, 81, 0.12);
-  color: #f5c451;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
+.starter-card:hover, .starter-card.selected { border-color: #575224; color: #efefe8; background: #201f0e; transform: translateY(-1px); }
+.starter-icon { display: block; width: 17px; height: 17px; margin-bottom: 13px; color: #c5ba00; }
+.starter-icon :deep(svg) { width: 17px; height: 17px; }
+.starter-card strong { display: block; font-size: 10px; font-weight: 680; }
+.starter-card small { display: block; margin-top: 5px; color: #656860; font-size: 8px; line-height: 1.5; }
+.idea-composer {
+  margin-top: auto;
+  overflow: hidden;
+  border: 1px solid #37392f;
+  border-radius: 13px;
+  background: #131410;
+  box-shadow: 0 16px 44px rgba(0,0,0,.2);
 }
-.diverge-trigger:disabled { opacity: 0.6; cursor: not-allowed; }
+.idea-composer textarea {
+  width: 100%;
+  min-height: 96px;
+  resize: none;
+  padding: 15px 16px 10px;
+  border: 0;
+  outline: 0;
+  color: #efefe9;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.idea-composer textarea::placeholder { color: #5c5f57; }
+.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; border-top: 1px solid #262820; }
+.composer-footer > span { padding-left: 7px; color: #62655d; font-size: 8px; }
+.composer-footer button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  color: #171700;
+  background: #ffe500;
+  font-size: 10px;
+  font-weight: 700;
+}
+.composer-footer button:disabled { opacity: .55; cursor: wait; }
+.composer-footer button svg { width: 14px; height: 14px; }
+.conversation-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 17px 22px; border-bottom: 1px solid #252620; }
+.conversation-header h2 { margin: 0; color: #efefe8; font-size: 17px; font-weight: 680; }
+.conversation-header > span { padding: 6px 9px; border: 1px solid #36351e; border-radius: 8px; color: #c3b900; background: #1d1d0d; font-size: 9px; }
+.chat-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 20px 24px; scrollbar-width: thin; scrollbar-color: #34362f transparent; }
+.chat-loading { min-height: 320px; }
+.chat-scroll :deep(.chat-bubble) { max-width: 820px; }
+.inline-blueprint-wrap { margin-top: 15px; }
+.conversation-footer { padding: 11px 16px 15px; border-top: 1px solid #252620; background: #10110e; }
+.conversation-footer :deep(.conversation-input) { margin: 0; }
+.diverge-trigger { margin-bottom: 8px; padding: 7px 10px; border: 1px solid #4b4820; border-radius: 8px; color: #cec200; background: #1c1b0c; font-size: 9px; }
+.diverge-trigger:disabled { opacity: .5; }
+.diverge-results { max-height: 235px; overflow-y: auto; padding: 12px 16px; border-top: 1px solid #2a2b24; background: #11120f; }
+.diverge-results-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.diverge-results-head strong { display: block; color: #d7d8d1; font-size: 10px; }
+.diverge-results-head span { display: block; margin-top: 2px; color: #696c64; font-size: 8px; }
+.diverge-results-head button { border: 0; color: #7b7e75; background: transparent; font-size: 8px; }
+.diverge-cards { display: grid; grid-template-columns: repeat(3,minmax(180px,1fr)); gap: 7px; }
+.diverge-card { position: relative; padding: 10px; border: 1px solid #2c2e27; border-radius: 9px; color: #aaada4; text-align: left; background: #171815; }
+.diverge-card:hover, .diverge-card.picked { border-color: #565224; background: #201f0e; }
+.diverge-card > div { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.diverge-card strong { color: #d4d5ce; font-size: 9px; }
+.diverge-card div span { color: #9e9616; font-size: 8px; }
+.diverge-card p { margin: 6px 0; color: #85887f; font-size: 8px; line-height: 1.5; }
+.diverge-card small { display: block; margin-top: 3px; color: #696c64; font-size: 7px; }
+.diverge-card > b { position: absolute; top: 7px; right: 7px; color: #d0c400; font-size: 7px; }
+.idea-board { display: flex; flex-direction: column; }
+.live-idea-card { margin-top: 14px; padding: 13px; border: 1px solid #2b2d27; border-radius: 11px; background: #161713; }
+.live-idea-card.active { border-color: #3e3c1d; background: #1b1b0d; }
+.live-idea-card > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.live-idea-card span { color: #73766d; font-size: 8px; }
+.live-idea-card b { color: #bdb300; font-size: 8px; font-weight: 700; }
+.live-idea-card h3 { margin: 10px 0 7px; color: #eeeee8; font-size: 13px; font-weight: 680; }
+.live-idea-card p { margin: 0; color: #8e9188; font-size: 9px; line-height: 1.65; }
+.board-section { padding: 15px 0; border-bottom: 1px solid #252620; }
+.board-section > p { margin: 0 0 10px; color: #71746c; font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.board-progress-list, .insight-list, .direction-list { display: grid; gap: 7px; }
+.board-progress-list > div, .insight-list > div, .direction-list button {
+  display: grid;
+  grid-template-columns: 26px minmax(0,1fr);
+  gap: 8px;
+  align-items: start;
+}
+.board-progress-list > div { opacity: .44; }
+.board-progress-list > div.active, .board-progress-list > div.done { opacity: 1; }
+.board-progress-list > div > span, .direction-list button > span {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 7px;
+  color: #7f821e;
+  background: #20200d;
+  font-size: 8px;
+  font-weight: 700;
+}
+.board-progress-list > div.active > span { color: #171700; background: #d7cb00; }
+.board-progress-list strong, .insight-list strong, .direction-list strong { display: block; color: #aeb1a8; font-size: 9px; font-weight: 650; }
+.board-progress-list small, .insight-list small, .direction-list small { display: block; margin-top: 3px; color: #5e6159; font-size: 8px; line-height: 1.45; }
+.insight-icon { display: grid; width: 26px; height: 26px; place-items: center; color: #aaa217; font-size: 14px; }
+.direction-list button { width: 100%; padding: 8px; border: 1px solid #2a2c26; border-radius: 9px; color: inherit; text-align: left; background: #151613; }
+.direction-list button:hover { border-color: #4d4a21; }
+.direction-list small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.board-next { margin-top: auto; padding: 13px; border: 1px solid #30311f; border-radius: 10px; background: #18180d; }
+.board-next span { color: #b7ad16; font-size: 8px; font-weight: 700; letter-spacing: .08em; }
+.board-next p { margin: 5px 0 0; color: #a0a39a; font-size: 9px; line-height: 1.55; }
+.fade-enter-active, .fade-leave-active { transition: opacity .2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
+@media (max-width: 1200px) {
+  .studio-workspace { grid-template-columns: 238px minmax(420px,1fr) 248px; }
+  .idea-hero { padding-inline: 26px; }
+}
+@media (max-width: 980px) {
+  .studio-workspace { grid-template-columns: 230px minmax(0,1fr); }
+  .idea-board { display: none; }
+}
+@media (max-width: 720px) {
+  .inspiration-shell { height: auto; min-height: 100vh; overflow: auto; }
+  .studio-header { height: 62px; padding: 0 13px; }
+  .save-state, .header-button { display: none; }
+  .studio-flow { height: auto; grid-template-columns: repeat(2,minmax(0,1fr)); padding: 8px 12px; }
+  .flow-step { min-height: 34px; }
+  .studio-workspace { height: auto; grid-template-columns: 1fr; padding: 10px; }
+  .material-rail, .idea-board { max-height: none; overflow: visible; }
+  .idea-stage { min-height: 660px; }
+  .idea-board { display: flex; }
+  .starter-grid { grid-template-columns: 1fr; }
+  .starter-card { min-height: 82px; }
+  .idea-hero { padding: 24px 19px 18px; }
+  .starter-area { padding: 17px; }
+  .composer-footer { align-items: flex-start; flex-direction: column; }
+  .composer-footer button { width: 100%; justify-content: center; }
+  .conversation-header { padding: 14px 16px; }
+  .chat-scroll { min-height: 520px; padding: 16px; }
+  .diverge-cards { grid-template-columns: 1fr; }
+}
 </style>

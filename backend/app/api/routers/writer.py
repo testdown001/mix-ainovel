@@ -30,6 +30,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from ...core.config import settings
 from ...core.dependencies import get_current_user
+from ...core.error_codes import DomainErrorCode, api_error
 from ...core.feature_gating import (
     ensure_flow_overrides_allowed,
     ensure_generation_preset_allowed,
@@ -49,6 +50,12 @@ from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProjec
 from ...models.writing_archive import WritingArchive
 from ...schemas.novel import (
     Chapter as ChapterSchema,
+    ChapterVersionDetail,
+    ChapterVersionDiffResponse,
+    ChapterVersionHistoryPage,
+    ChapterRevisionResponse,
+    ChapterSaveRequest,
+    ChapterSaveResponse,
     ChapterGenerationStatus,
     AdvancedGenerateRequest,
     AdvancedGenerateResponse,
@@ -65,6 +72,7 @@ from ...schemas.novel import (
     NovelProject as NovelProjectSchema,
     RegenerateOutlinesRequest,
     RegenerateOutlinesResponse,
+    RestoreChapterVersionRequest,
     SelectVersionRequest,
     TransformTextRequest,
     UpdateChapterOutlineRequest,
@@ -72,6 +80,8 @@ from ...schemas.novel import (
 from ...schemas.user import UserInDB
 from ...services.cache_service import CacheService
 from ...services.chapter_context_service import ChapterContextService
+from ...services.chapter_revision_service import ChapterRevisionService, hash_chapter_content
+from ...services.chapter_history_service import ChapterHistoryService
 from ...services.chapter_post_processor import ChapterPostProcessor
 from ...services.rag_rebuild_service import rebuild_project_rag
 from ...services.batch_generation_service import BatchGenerationService
@@ -429,6 +439,8 @@ async def _finalize_chapter_async(
         chapter.selected_version_id = selected_version.id
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
         chapter.word_count = len(selected_version.content or "")
+        chapter.revision_id = int(chapter.revision_id or 0) + 1
+        chapter.content_hash = hash_chapter_content(selected_version.content)
         await session.commit()
 
         # 本章落定 → 后台预生成下一章使命（内部预付成本，失败仅记日志）
@@ -1062,6 +1074,8 @@ async def finalize_chapter(
     chapter.selected_version_id = selected_version.id
     chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
     chapter.word_count = len(selected_version.content or "")
+    chapter.revision_id = int(chapter.revision_id or 0) + 1
+    chapter.content_hash = hash_chapter_content(selected_version.content)
     await session.commit()
 
     # 本章落定 → 后台预生成下一章使命，下次点生成免掉 ~2 分钟的规划等待。
@@ -2058,6 +2072,199 @@ async def regenerate_chapter_outlines(
     )
 
 
+async def _save_chapter_with_revision(
+    *,
+    project_id: str,
+    request: ChapterSaveRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession,
+    current_user: UserInDB,
+) -> ChapterSaveResponse:
+    """M2 安全保存的共享实现；所有人工正文改动必须经过这里。"""
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    revision_service = ChapterRevisionService(session)
+    result = await revision_service.save(
+        project_id=project_id,
+        chapter_number=request.chapter_number,
+        content=request.content,
+        expected_revision_id=request.expected_revision_id,
+        expected_content_hash=request.expected_content_hash,
+        mode=request.mode,
+        actor_user_id=current_user.id,
+    )
+    await CacheService().invalidate_project_schema(project_id)
+    # 条件 UPDATE 绕过了当前 ORM 实例；失效 identity map 后再序列化，确保响应一定
+    # 携带刚写入的 selected_version_id / revision_id，而不是写入前的关系缓存。
+    session.expire_all()
+    chapter_schema = await novel_service.get_chapter_schema(
+        project_id, current_user.id, request.chapter_number
+    )
+
+    if result.status == "saved":
+        background_tasks.add_task(
+            _background_chapter_post_process,
+            project_id,
+            request.chapter_number,
+            request.content,
+            current_user.id,
+            mode="edit",
+        )
+
+    return ChapterSaveResponse(
+        status=result.status,
+        chapter_number=request.chapter_number,
+        revision_id=result.revision.revision_id,
+        content_hash=result.revision.content_hash,
+        selected_version_id=result.revision.selected_version_id,
+        saved_version_id=result.saved_version_id,
+        chapter=chapter_schema,
+    )
+
+
+@router.get(
+    "/novels/{project_id}/chapters/{chapter_number}/revision",
+    response_model=ChapterRevisionResponse,
+)
+async def get_chapter_revision(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ChapterRevisionResponse:
+    """读取冲突处理所需的当前正文与版本基线。"""
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    revision = await ChapterRevisionService(session).get_revision(project_id, chapter_number)
+    return ChapterRevisionResponse(
+        chapter_number=revision.chapter_number,
+        revision_id=revision.revision_id,
+        content_hash=revision.content_hash,
+        selected_version_id=revision.selected_version_id,
+        content=revision.content,
+    )
+
+
+@router.get(
+    "/novels/{project_id}/chapters/{chapter_number}/versions",
+    response_model=ChapterVersionHistoryPage,
+)
+async def list_chapter_version_history(
+    project_id: str,
+    chapter_number: int,
+    limit: int = Query(default=30, ge=1, le=100),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ChapterVersionHistoryPage:
+    """游标分页列出只读修订历史；列表不传正文，并返回容量统计。"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    return await ChapterHistoryService(session).list_versions(
+        project_id,
+        chapter_number,
+        limit=limit,
+        before_id=before_id,
+    )
+
+
+@router.get(
+    "/novels/{project_id}/chapters/versions/{left_version_id}/compare/{right_version_id}",
+    response_model=ChapterVersionDiffResponse,
+)
+async def compare_chapter_versions(
+    project_id: str,
+    left_version_id: int,
+    right_version_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ChapterVersionDiffResponse:
+    """返回同章两个历史快照的中文词/字级 Diff。"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    return await ChapterHistoryService(session).compare_versions(
+        project_id, left_version_id, right_version_id
+    )
+
+
+@router.get(
+    "/novels/{project_id}/chapters/versions/{version_id}",
+    response_model=ChapterVersionDetail,
+)
+async def get_chapter_version_detail(
+    project_id: str,
+    version_id: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ChapterVersionDetail:
+    """读取单个历史正文；历史快照没有任何写入入口。"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    return await ChapterHistoryService(session).get_version(project_id, version_id)
+
+
+@router.post(
+    "/novels/{project_id}/chapters/versions/{version_id}/restore",
+    response_model=ChapterSaveResponse,
+)
+async def restore_chapter_version(
+    project_id: str,
+    version_id: int,
+    request: RestoreChapterVersionRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ChapterSaveResponse:
+    """把历史内容恢复为新快照，永不改写历史版本。"""
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    result = await ChapterHistoryService(session).restore_version(
+        project_id=project_id,
+        version_id=version_id,
+        expected_revision_id=request.expected_revision_id,
+        expected_content_hash=request.expected_content_hash,
+        change_note=request.change_note,
+        actor_user_id=current_user.id,
+    )
+    await CacheService().invalidate_project_schema(project_id)
+    session.expire_all()
+    chapter_schema = await novel_service.get_chapter_schema(
+        project_id, current_user.id, result.revision.chapter_number
+    )
+    background_tasks.add_task(
+        _background_chapter_post_process,
+        project_id,
+        result.revision.chapter_number,
+        result.revision.content,
+        current_user.id,
+        mode="edit",
+    )
+    return ChapterSaveResponse(
+        status=result.status,
+        chapter_number=result.revision.chapter_number,
+        revision_id=result.revision.revision_id,
+        content_hash=result.revision.content_hash,
+        selected_version_id=result.revision.selected_version_id,
+        saved_version_id=result.saved_version_id,
+        chapter=chapter_schema,
+    )
+
+
+@router.post("/novels/{project_id}/chapters/save", response_model=ChapterSaveResponse)
+async def save_chapter_content(
+    project_id: str,
+    request: ChapterSaveRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> ChapterSaveResponse:
+    return await _save_chapter_with_revision(
+        project_id=project_id,
+        request=request,
+        background_tasks=background_tasks,
+        session=session,
+        current_user=current_user,
+    )
+
+
 @router.post("/novels/{project_id}/chapters/edit", response_model=NovelProjectSchema)
 async def edit_chapter_content(
     project_id: str,
@@ -2066,45 +2273,26 @@ async def edit_chapter_content(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> NovelProjectSchema:
-    novel_service = NovelService(session)
-    
-    await novel_service.ensure_project_owner(project_id, current_user.id)
-    chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
-    
-    # 更新内容：优先更新选中版本，否则选最新版本或创建新版本
-    target_version = chapter.selected_version
-    if not target_version and chapter.versions:
-        target_version = sorted(chapter.versions, key=lambda item: item.created_at)[-1]
-
-    if target_version:
-        target_version.content = request.content
-        if not chapter.selected_version_id:
-            chapter.selected_version_id = target_version.id
-    else:
-        target_version = ChapterVersion(
-            chapter_id=chapter.id,
-            content=request.content,
-            version_label="manual_edit",
+    """旧 URL 的安全兼容层：无版本基线的客户端不再允许覆盖正文。"""
+    if request.expected_revision_id is None or request.expected_content_hash is None:
+        raise api_error(
+            400,
+            DomainErrorCode.INVALID_REQUEST,
+            "保存章节必须携带 revision_id 和 content_hash，请升级客户端。",
         )
-        session.add(target_version)
-        await session.flush()
-        chapter.selected_version_id = target_version.id
-    
-    chapter.status = "successful"
-    chapter.word_count = len(request.content or "")
-    await session.commit()
-
-    background_tasks.add_task(
-        _background_chapter_post_process,
-        project_id,
-        request.chapter_number,
-        request.content,
-        current_user.id,
-        mode="edit",
+    await _save_chapter_with_revision(
+        project_id=project_id,
+        request=ChapterSaveRequest(
+            chapter_number=request.chapter_number,
+            content=request.content,
+            expected_revision_id=request.expected_revision_id,
+            expected_content_hash=request.expected_content_hash,
+        ),
+        background_tasks=background_tasks,
+        session=session,
+        current_user=current_user,
     )
-
-    await CacheService().invalidate_project_schema(project_id)
-    return await _load_project_schema(novel_service, project_id, current_user.id)
+    return await _load_project_schema(NovelService(session), project_id, current_user.id)
 
 
 @router.post("/novels/{project_id}/transform")
@@ -2134,6 +2322,8 @@ async def transform_chapter_selection(
         current = chapter.selected_version.content or ""
     elif chapter.versions:
         current = sorted(chapter.versions, key=lambda item: item.created_at)[-1].content or ""
+    base_revision_id = int(chapter.revision_id or 0)
+    base_content_hash = hash_chapter_content(current)
     idx = current.find(selected)
     context_before = current[max(0, idx - 200):idx] if idx >= 0 else ""
     context_after = current[idx + len(selected):idx + len(selected) + 200] if idx >= 0 else ""
@@ -2158,14 +2348,21 @@ async def transform_chapter_selection(
         applied = False
         if request.apply and idx >= 0:
             new_content = current[:idx] + result_text + current[idx + len(selected):]
-            target = chapter.selected_version
-            if not target and chapter.versions:
-                target = sorted(chapter.versions, key=lambda item: item.created_at)[-1]
-            if target:
-                target.content = new_content
-                if hasattr(target, "ai_assisted"):
-                    target.ai_assisted = True
-            chapter.word_count = len(new_content)
+            # 选区改写也可能与另一台设备的手工保存并发，必须经过 M2 条件写入；
+            # 冲突将退款并交给前端显式处理，而不是覆盖较新的正文。
+            saved = await ChapterRevisionService(session).save(
+                project_id=project_id,
+                chapter_number=request.chapter_number,
+                content=new_content,
+                expected_revision_id=base_revision_id,
+                expected_content_hash=base_content_hash,
+                source="selection_transform",
+                change_note=f"选区改写：{action}",
+                actor_user_id=current_user.id,
+            )
+            version = await session.get(ChapterVersion, saved.saved_version_id)
+            if version is not None:
+                version.ai_assisted = True
             applied = True
         await session.commit()
         if applied:
@@ -2216,106 +2413,25 @@ async def edit_chapter_content_fast(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> ChapterSchema:
-    novel_service = NovelService(session)
-
-    await novel_service.ensure_project_owner(project_id, current_user.id)
-    chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
-
-    target_version = chapter.selected_version
-    if not target_version and chapter.versions:
-        target_version = sorted(chapter.versions, key=lambda item: item.created_at)[-1]
-
-    if target_version:
-        target_version.content = request.content
-        if not chapter.selected_version_id:
-            chapter.selected_version_id = target_version.id
-    else:
-        target_version = ChapterVersion(
-            chapter_id=chapter.id,
+    if request.expected_revision_id is None or request.expected_content_hash is None:
+        raise api_error(
+            400,
+            DomainErrorCode.INVALID_REQUEST,
+            "保存章节必须携带 revision_id 和 content_hash，请升级客户端。",
+        )
+    result = await _save_chapter_with_revision(
+        project_id=project_id,
+        request=ChapterSaveRequest(
+            chapter_number=request.chapter_number,
             content=request.content,
-            version_label="manual_edit",
-        )
-        session.add(target_version)
-        await session.flush()
-        chapter.selected_version_id = target_version.id
-
-    chapter.status = "successful"
-    chapter.word_count = len(request.content or "")
-    await session.commit()
-
-    # 清除项目序列化缓存，确保刷新页面能获取最新内容
-    try:
-        cache_service = CacheService()
-        await cache_service.invalidate_project_schema(project_id)
-    except Exception:
-        pass
-
-    logger.info(
-        "用户 %s 编辑章节 %d 完成，内容长度=%d，启动后台任务更新向量索引",
-        current_user.id, request.chapter_number, len(request.content or "")
+            expected_revision_id=request.expected_revision_id,
+            expected_content_hash=request.expected_content_hash,
+        ),
+        background_tasks=background_tasks,
+        session=session,
+        current_user=current_user,
     )
-
-    background_tasks.add_task(
-        _background_chapter_post_process,
-        project_id,
-        request.chapter_number,
-        request.content,
-        current_user.id,
-        mode="edit",
-    )
-
-    stmt = (
-        select(Chapter)
-        .options(
-            selectinload(Chapter.versions),
-            selectinload(Chapter.evaluations),
-            selectinload(Chapter.selected_version),
-        )
-        .where(
-            Chapter.project_id == project_id,
-            Chapter.chapter_number == request.chapter_number,
-        )
-    )
-    result = await session.execute(stmt)
-    chapter = result.scalars().first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
-
-    outline_stmt = select(ChapterOutline).where(
-        ChapterOutline.project_id == project_id,
-        ChapterOutline.chapter_number == request.chapter_number,
-    )
-    outline_result = await session.execute(outline_stmt)
-    outline = outline_result.scalars().first()
-
-    title = outline.title if outline else f"第{request.chapter_number}章"
-    summary = outline.summary if outline else ""
-    real_summary = chapter.real_summary
-    content = chapter.selected_version.content if chapter.selected_version else None
-    versions = (
-        [v.content for v in sorted(chapter.versions, key=lambda item: item.created_at)]
-        if chapter.versions
-        else None
-    )
-    evaluation_text = None
-    if chapter.evaluations:
-        latest = sorted(chapter.evaluations, key=lambda item: item.created_at)[-1]
-        evaluation_text = latest.feedback or latest.decision
-    status_value = effective_chapter_status(
-        chapter.status, getattr(chapter, "updated_at", None)
-    )
-
-    return ChapterSchema(
-        chapter_number=request.chapter_number,
-        title=title,
-        summary=summary,
-        real_summary=real_summary,
-        content=content,
-        versions=versions,
-        evaluation=evaluation_text,
-        generation_status=ChapterGenerationStatus(status_value),
-        word_count=chapter.word_count or 0,
-    )
+    return result.chapter
 
 
 # ---------------------------------------------------------------------------

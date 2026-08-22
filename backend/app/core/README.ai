@@ -3,3 +3,5 @@ AILIST NAME=__init__.py|K=file|P=核心包初始化_导出核心组件|E=-|A=-
 AILIST NAME=config.py|K=file|P=应用配置_环境变量加载和设置类|E=settings|A=Settings类_环境变量读取
 AILIST NAME=dependencies.py|K=file|P=依赖注入_FastAPI依赖项定义|E=get_db_get_current_user|A=数据库会话_当前用户获取
 AILIST NAME=security.py|K=file|P=安全模块_JWT令牌和密码处理|E=create_token_verify_password|A=JWT生成验证_密码哈希
+AILIST NAME=error_codes.py|K=file|P=领域错误码_稳定结构化API异常|E=DomainErrorCode_api_error|A=错误响应契约
+AILIST NAME=roadmap_metrics.py|K=file|P=路线图领域观测_结构化日志事件|E=emit_roadmap_metric|A=M0指标事件

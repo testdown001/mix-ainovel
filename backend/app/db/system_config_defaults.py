@@ -377,6 +377,11 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         ),
     ),
     SystemConfigDefault(
+        key="credits.price.cover_generation",
+        value_getter=lambda _: "10",
+        description="AI 小说封面每次生成的积分单价；仅创作者档及以上可用，生成失败自动退回。",
+    ),
+    SystemConfigDefault(
         key="credits.monthly.free",
         value_getter=lambda _: "60",
         description="free 档每月发放积分(无套餐用户兜底)，≈10 篇章鱼1.0。",

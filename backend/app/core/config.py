@@ -118,6 +118,11 @@ class Settings(BaseSettings):
         env="FRONTEND_DIST_DIR",
         description="前端构建产物(dist)目录；目录存在时由 FastAPI 直接服务前端页面与 SPA 路由回退，缺失则跳过挂载（开发模式正常）",
     )
+    cover_storage_dir: str = Field(
+        default="/app/storage/covers",
+        env="COVER_STORAGE_DIR",
+        description="AI 小说封面持久化目录；生产环境应位于共享 app-storage 卷内",
+    )
 
     # -------------------- Qdrant 向量数据库配置 (统一向量存储：RAG + Mem0 长期记忆) --------------------
     qdrant_host: str = Field(default="", env="QDRANT_HOST", description="Qdrant 主机地址（留空则禁用向量库）")

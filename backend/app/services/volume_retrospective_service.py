@@ -160,6 +160,9 @@ class VolumeRetrospectiveService:
             }
             stats["replanned_volume"] = idx + 2  # 1-based 卷号，便于日志对照
         blueprint.volumes = new_volumes
+        from .volume_service import VolumeService
+
+        await VolumeService(session).sync_from_blueprint(blueprint)
         await session.commit()
 
         stats["reviewed"] = True

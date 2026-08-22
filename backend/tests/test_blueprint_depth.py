@@ -366,7 +366,7 @@ def test_task_worker_passes_config_depth(monkeypatch):
     import asyncio
     resp = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
     assert resp.status == "completed"
-    gen.assert_awaited_once_with(fake_session, "p1", 3, depth="fast")
+    gen.assert_awaited_once_with(fake_session, "p1", 3, depth="fast", paid_deep=False)
 
 
 def test_task_worker_missing_depth_defaults_deep(monkeypatch):
@@ -375,6 +375,7 @@ def test_task_worker_missing_depth_defaults_deep(monkeypatch):
     monkeypatch.setattr(task_worker, "AsyncSessionLocal", lambda: _SessionContext(fake_session))
     gen = AsyncMock(return_value=SimpleNamespace(model_dump=lambda: {"ok": True}))
     monkeypatch.setattr(task_worker, "generate_blueprint_for_project", gen)
+    monkeypatch.setattr(task_worker, "should_charge_blueprint_deep", AsyncMock(return_value=False))
 
     req = task_worker.WorkerTaskRequest(
         task_id="t-old",
@@ -386,7 +387,7 @@ def test_task_worker_missing_depth_defaults_deep(monkeypatch):
     import asyncio
     resp = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
     assert resp.status == "completed"
-    gen.assert_awaited_once_with(fake_session, "p1", 3, depth="deep")
+    gen.assert_awaited_once_with(fake_session, "p1", 3, depth="deep", paid_deep=False)
 
 
 # ---------------------------------------------------------------------------

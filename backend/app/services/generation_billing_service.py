@@ -1,4 +1,4 @@
-# AIMETA P=生成计费服务_按模型+润色+蓝图深度算积分并扣减退款|R=compute_generation_cost,charge_generation,charge_blueprint_deep,refund_generation,refund_polish_surcharge|X=internal|A=服务函数|D=sqlalchemy|S=db
+# AIMETA P=生成计费服务_文本与封面生成积分扣减退款|R=compute_generation_cost,charge_generation,charge_blueprint_deep,charge_cover_generation,refund_generation,refund_polish_surcharge|X=internal|A=服务函数|D=sqlalchemy|S=db
 """章节生成与蓝图深度打磨的积分计费。
 
 章节：成本 = 模型积分价 +(润色? 润色单价 :0)，× 章数。
@@ -38,7 +38,11 @@ DEFAULT_BLUEPRINT_DEEP_PRICE = 20
 _BLUEPRINT_DEEP_REASON = "blueprint_deep"
 _BLUEPRINT_DEEP_UNIT_MARKER = "blueprint_deep_unit="
 _TRANSFORM_REASON = "transform"
-_CHARGE_REASONS = ("generate", _BLUEPRINT_DEEP_REASON, _TRANSFORM_REASON)
+COVER_GENERATION_PRICE_KEY = "credits.price.cover_generation"
+DEFAULT_COVER_GENERATION_PRICE = 10
+_COVER_GENERATION_REASON = "cover_generation"
+_COVER_GENERATION_UNIT_MARKER = "cover_generation_unit="
+_CHARGE_REASONS = ("generate", _BLUEPRINT_DEEP_REASON, _TRANSFORM_REASON, _COVER_GENERATION_REASON)
 TRANSFORM_PRICE_KEYS = {
     "expand": ("credits.price.transform_expand", 3),
     "rewrite": ("credits.price.transform_rewrite", 3),
@@ -180,6 +184,37 @@ async def charge_blueprint_deep(
     note = f"蓝图深度打磨 {_BLUEPRINT_DEEP_UNIT_MARKER}{price}"
     await QuotaService(session).consume_credits(
         user_id, price, reason=_BLUEPRINT_DEEP_REASON, ref_key=ref_key, note=note
+    )
+    return price
+
+
+async def cover_generation_price(session: AsyncSession) -> int:
+    """AI 封面单价。配置缺失或非法时使用默认值 10。"""
+    from ..repositories.system_config_repository import SystemConfigRepository
+
+    rec = await SystemConfigRepository(session).get_by_key(COVER_GENERATION_PRICE_KEY)
+    try:
+        return max(0, int(rec.value)) if rec and rec.value is not None else DEFAULT_COVER_GENERATION_PRICE
+    except (TypeError, ValueError):
+        return DEFAULT_COVER_GENERATION_PRICE
+
+
+async def charge_cover_generation(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    ref_key: Optional[str] = None,
+) -> int:
+    """封面生成先扣后跑；同一 ref_key 幂等，失败可交给 refund_generation 退款。"""
+    price = await cover_generation_price(session)
+    if price <= 0:
+        return 0
+    await QuotaService(session).consume_credits(
+        user_id,
+        price,
+        reason=_COVER_GENERATION_REASON,
+        ref_key=ref_key,
+        note=f"AI 小说封面 {_COVER_GENERATION_UNIT_MARKER}{price}",
     )
     return price
 

@@ -68,6 +68,15 @@
             </button>
             <button
               v-if="isChapterCompleted(selectedChapterNumber)"
+              @click="showRevisionHistory = true"
+              class="md-btn md-btn-outlined md-ripple flex items-center gap-2 whitespace-nowrap"
+              title="查看不可变版本、差异和恢复记录"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l2.5 1.5M21 12a9 9 0 11-18 0 9 9 0 0118 0Z" /></svg>
+              修订历史
+            </button>
+            <button
+              v-if="isChapterCompleted(selectedChapterNumber)"
               @click="confirmRegenerateChapter"
               :disabled="generatingChapter === selectedChapterNumber"
               class="md-btn md-btn-outlined md-ripple flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
@@ -251,13 +260,50 @@
             编辑第{{ selectedChapterNumber }}章内容
           </h3>
           <button
-            @click="closeEditModal"
+            @click="() => closeEditModal()"
             class="md-icon-btn md-ripple"
           >
             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
             </svg>
           </button>
+        </div>
+
+        <div
+          v-if="!isEditorOnline"
+          class="mx-6 mt-4 rounded-lg px-4 py-3 text-sm"
+          style="background: rgba(201, 162, 39, 0.14); color: #d9b832; border: 1px solid rgba(201, 162, 39, 0.36);"
+        >
+          离线编辑中：内容已持续保存到本机，恢复网络后会自动重试远端保存。
+        </div>
+        <div
+          v-else-if="editorStatus"
+          class="mx-6 mt-4 rounded-lg px-4 py-3 text-sm"
+          style="background: var(--md-surface-container); color: var(--md-on-surface-variant); border: 1px solid var(--md-outline-variant);"
+        >
+          {{ editorStatus }}
+        </div>
+
+        <div
+          v-if="editConflict"
+          class="mx-6 mt-4 rounded-lg p-4"
+          style="background: rgba(186, 26, 26, 0.1); border: 1px solid rgba(186, 26, 26, 0.5);"
+        >
+          <p class="font-semibold" style="color: var(--md-on-surface);">发现版本冲突</p>
+          <p class="mt-1 text-sm md-on-surface-variant">
+            远端已更新为修订 {{ editConflict.revision_id }}。你的本地文本仍保留在此，不会被覆盖。
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button class="md-btn md-btn-tonal md-ripple" :disabled="isSaving" @click="keepLocalDraft">
+              保留本地
+            </button>
+            <button class="md-btn md-btn-outlined md-ripple" :disabled="isSaving" @click="useRemoteDraft">
+              使用远端
+            </button>
+            <button class="md-btn md-btn-filled md-ripple" :disabled="isSaving" @click="saveConflictAsBranch">
+              另存为分支
+            </button>
+          </div>
         </div>
 
         <!-- 模态框内容 -->
@@ -270,7 +316,7 @@
               v-model="editingContent"
               class="md-textarea flex-1 w-full resize-none"
               placeholder="请输入章节内容..."
-              :disabled="isSaving"
+              :disabled="isSaving || !!editConflict"
             ></textarea>
             <div class="md-body-small md-on-surface-variant mt-2">
               字数统计: {{ editingContent.length }}
@@ -281,13 +327,14 @@
         <!-- 模态框底部 -->
         <div class="flex items-center justify-end gap-3 p-6 border-t" style="border-top-color: var(--md-outline-variant);">
           <button
-            @click="closeEditModal"
+            @click="() => closeEditModal()"
             :disabled="isSaving"
             class="md-btn md-btn-outlined md-ripple disabled:opacity-50"
           >
             取消
           </button>
           <button
+            v-if="!editConflict"
             @click="saveEditedContent"
             :disabled="isSaving || !editingContent.trim()"
             class="md-btn md-btn-filled md-ripple disabled:opacity-50 flex items-center gap-2"
@@ -313,14 +360,36 @@
         </div>
       </div>
     </Teleport>
+    <WDVersionHistoryModal
+      :show="showRevisionHistory"
+      :project-id="project?.id || ''"
+      :chapter-number="selectedChapterNumber || 0"
+      :revision-id="selectedChapter?.revision_id || 0"
+      :content-hash="selectedChapter?.content_hash"
+      @close="showRevisionHistory = false"
+      @restored="handleHistoryRestored"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch, onUnmounted } from 'vue'
+import { computed, nextTick, ref, watch, onMounted, onUnmounted } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
+import { useChapterDraft } from '@/composables/useChapterDraft'
 import { useNovelStore } from '@/stores/novel'
-import type { Chapter, ChapterOutline, ChapterGenerationResponse, ChapterVersion, NovelProject, ChapterPrediction, ChapterPlanning } from '@/api/novel'
+import { isVersionConflictError } from '@/api/novel'
+import type {
+  Chapter,
+  ChapterOutline,
+  ChapterGenerationResponse,
+  ChapterVersion,
+  NovelProject,
+  ChapterPrediction,
+  ChapterPlanning,
+  ChapterRevision,
+  ChapterSaveRequest,
+  ChapterSaveResponse,
+} from '@/api/novel'
 import type { GenerationProgressView } from '@/composables/useGenerationProgress'
 import { formatRevisionHint } from '@/utils/revisionHint'
 import TemplateSelector from './TemplateSelector.vue'
@@ -339,6 +408,7 @@ import VersionSelector from './workspace/VersionSelector.vue'
 import ChapterContent from './workspace/ChapterContent.vue'
 import ChapterFailed from './workspace/ChapterFailed.vue'
 import ChapterEmpty from './workspace/ChapterEmpty.vue'
+import WDVersionHistoryModal from './WDVersionHistoryModal.vue'
 
 interface Props {
   project: NovelProject | null
@@ -355,6 +425,8 @@ interface Props {
   streamingDraftText?: string
   streamingStage?: string | null
   generationProgress?: GenerationProgressView | null
+  saveChapter?: (payload: ChapterSaveRequest) => Promise<ChapterSaveResponse>
+  loadChapterRevision?: (chapterNumber: number) => Promise<ChapterRevision>
 }
 
 const props = defineProps<Props>()
@@ -377,6 +449,12 @@ const emit = defineEmits([
 ])
 
 const novelStore = useNovelStore()
+const showRevisionHistory = ref(false)
+
+const handleHistoryRestored = () => {
+  // store 已将新快照响应写回当前章节；关闭弹窗避免作者继续看已过时的左右 Diff。
+  showRevisionHistory.value = false
+}
 const briefOpen = ref(false)
 const planningEditing = ref(false)
 const planningSaving = ref(false)
@@ -385,6 +463,15 @@ const mustNotText = ref('')
 const outlineEditing = ref(false)
 const outlineSaving = ref(false)
 const outlineDraft = ref({ title: '', summary: '' })
+
+const selectedChapterOutline = computed(() => {
+  if (!props.project?.blueprint?.chapter_outline || props.selectedChapterNumber === null) return null
+  return (
+    props.project.blueprint.chapter_outline.find(
+      (chapter) => chapter.chapter_number === props.selectedChapterNumber,
+    ) || null
+  )
+})
 
 const chapterPlanning = computed<ChapterPlanning>(() => selectedChapterOutline.value?.metadata?.planning || {})
 
@@ -536,6 +623,32 @@ const openPredictionPanel = async () => {
 const showEditModal = ref(false)
 const editingContent = ref('')
 const isSaving = ref(false)
+const initialEditContent = ref('')
+const editBaseline = ref<{ revisionId: number; contentHash: string } | null>(null)
+const editorStatus = ref('')
+const pendingRemoteRetry = ref(false)
+const isEditorOnline = ref(typeof navigator === 'undefined' ? true : navigator.onLine)
+const editConflict = ref<ChapterRevision | null>(null)
+const chapterDraft = useChapterDraft()
+
+const hasUnsavedEdit = computed(
+  () => showEditModal.value && editingContent.value !== initialEditContent.value,
+)
+
+const queueLocalDraft = () => {
+  if (!showEditModal.value || !hasUnsavedEdit.value || !props.project?.id || !props.selectedChapterNumber || !editBaseline.value) {
+    return
+  }
+  chapterDraft.schedule({
+    projectId: props.project.id,
+    chapterNumber: props.selectedChapterNumber,
+    content: editingContent.value,
+    baseRevisionId: editBaseline.value.revisionId,
+    baseContentHash: editBaseline.value.contentHash,
+  })
+}
+
+watch(editingContent, queueLocalDraft)
 
 // 清理版本内容的辅助函数
 const cleanVersionContent = (content: string): string => {
@@ -577,44 +690,206 @@ const cleanVersionContent = (content: string): string => {
   return cleaned
 }
 
-const openEditModal = () => {
-  if (selectedChapter.value?.content) {
-    editingContent.value = cleanVersionContent(selectedChapter.value.content)
-    showEditModal.value = true
+const setBaseline = (revision: Pick<ChapterRevision, 'revision_id' | 'content_hash'>) => {
+  editBaseline.value = {
+    revisionId: revision.revision_id,
+    contentHash: revision.content_hash,
   }
 }
 
-const closeEditModal = () => {
+const ensureEditBaseline = async () => {
+  if (editBaseline.value?.contentHash) return editBaseline.value
+  if (!props.selectedChapterNumber || !props.loadChapterRevision) return null
+  const revision = await props.loadChapterRevision(props.selectedChapterNumber)
+  setBaseline(revision)
+  return editBaseline.value
+}
+
+const openEditModal = async () => {
+  const chapter = selectedChapter.value
+  if (!chapter?.content || !props.project?.id || !props.selectedChapterNumber) return
+
+  const serverContent = cleanVersionContent(chapter.content)
+  editingContent.value = serverContent
+  initialEditContent.value = serverContent
+  editConflict.value = null
+  pendingRemoteRetry.value = false
+  editorStatus.value = ''
+  editBaseline.value = chapter.content_hash
+    ? { revisionId: chapter.revision_id || 0, contentHash: chapter.content_hash }
+    : null
+  showEditModal.value = true
+
+  try {
+    await ensureEditBaseline()
+    const draft = await chapterDraft.load(props.project.id, props.selectedChapterNumber)
+    if (draft && draft.content !== serverContent) {
+      editingContent.value = draft.content
+      editBaseline.value = {
+        revisionId: draft.baseRevisionId,
+        contentHash: draft.baseContentHash,
+      }
+      editorStatus.value = '已恢复此设备上的未保存草稿；保存时会校验远端版本。'
+    }
+  } catch (error) {
+    editorStatus.value = '未能读取本机草稿，当前内容仍可正常编辑。'
+    console.warn('读取章节本地草稿失败:', error)
+  }
+}
+
+const closeEditModal = async (force = false) => {
+  if (!force && hasUnsavedEdit.value) {
+    const confirmed = await globalAlert.showConfirm(
+      '未保存内容已持续保存在此设备。关闭后可再次打开本章继续编辑。',
+      '关闭编辑器？',
+    )
+    if (!confirmed) return
+  }
+  try {
+    await chapterDraft.flush()
+  } catch {
+    // 关闭编辑器不应因浏览器存储配额等问题被卡死，状态提示已由组合函数记录。
+  }
   showEditModal.value = false
-  editingContent.value = ''
   isSaving.value = false
+  editConflict.value = null
+}
+
+const loadConflictRevision = async () => {
+  if (!props.loadChapterRevision || !props.selectedChapterNumber) return
+  editConflict.value = await props.loadChapterRevision(props.selectedChapterNumber)
+  editorStatus.value = '远端正文已更新，请选择保留本地、采用远端，或另存为分支。'
 }
 
 const saveEditedContent = async () => {
   if (!props.selectedChapterNumber || !editingContent.value.trim()) return
-  
+  try {
+    await chapterDraft.flush()
+  } catch {
+    // 远端写入仍可继续；失败时编辑器会保留内存中的内容并提示作者。
+  }
+
+  if (!isEditorOnline.value) {
+    pendingRemoteRetry.value = true
+    editorStatus.value = '网络已断开：内容已保存在本机，恢复网络后会自动重试。'
+    return
+  }
+  if (!props.saveChapter) {
+    editorStatus.value = '保存服务未就绪，请刷新后重试。'
+    return
+  }
+
+  const baseline = await ensureEditBaseline()
+  if (!baseline) {
+    editorStatus.value = '无法获取当前版本基线，请刷新后重试。'
+    return
+  }
+
   isSaving.value = true
   try {
-    emit('editChapter', {
-      chapterNumber: props.selectedChapterNumber,
-      content: editingContent.value
+    const saved = await props.saveChapter({
+      chapter_number: props.selectedChapterNumber,
+      content: editingContent.value,
+      expected_revision_id: baseline.revisionId,
+      expected_content_hash: baseline.contentHash,
     })
-    closeEditModal()
+    setBaseline({ revision_id: saved.revision_id, content_hash: saved.content_hash })
+    initialEditContent.value = editingContent.value
+    pendingRemoteRetry.value = false
+    await chapterDraft.remove(props.project?.id || '', props.selectedChapterNumber)
+    editorStatus.value = ''
+    await closeEditModal(true)
+    globalAlert.showSuccess('章节内容已保存，新版本已创建。', '保存成功')
   } catch (error) {
-    console.error('保存章节内容失败:', error)
+    if (isVersionConflictError(error)) {
+      try {
+        await loadConflictRevision()
+      } catch (loadError) {
+        editorStatus.value = '检测到版本冲突，但远端正文暂时无法读取；本地草稿已保留。'
+        console.warn('读取冲突版本失败:', loadError)
+      }
+    } else {
+      pendingRemoteRetry.value = true
+      editorStatus.value = '远端保存失败：内容仍在本机草稿中，恢复网络后会自动重试。'
+      console.warn('保存章节内容失败:', error)
+    }
   } finally {
     isSaving.value = false
   }
 }
 
+const keepLocalDraft = () => {
+  if (!editConflict.value) return
+  setBaseline(editConflict.value)
+  editConflict.value = null
+  editorStatus.value = '已保留本地文本。再次保存即明确以当前远端版本为基线提交。'
+  queueLocalDraft()
+}
+
+const useRemoteDraft = async () => {
+  if (!editConflict.value || !props.project?.id || !props.selectedChapterNumber) return
+  editingContent.value = editConflict.value.content
+  initialEditContent.value = editConflict.value.content
+  setBaseline(editConflict.value)
+  editConflict.value = null
+  pendingRemoteRetry.value = false
+  await chapterDraft.remove(props.project.id, props.selectedChapterNumber)
+  editorStatus.value = '已采用远端正文。'
+}
+
+const saveConflictAsBranch = async () => {
+  if (!props.saveChapter || !props.selectedChapterNumber || !editBaseline.value) return
+  isSaving.value = true
+  try {
+    const saved = await props.saveChapter({
+      chapter_number: props.selectedChapterNumber,
+      content: editingContent.value,
+      expected_revision_id: editBaseline.value.revisionId,
+      expected_content_hash: editBaseline.value.contentHash,
+      mode: 'branch',
+    })
+    if (props.project?.id) await chapterDraft.remove(props.project.id, props.selectedChapterNumber)
+    editConflict.value = null
+    pendingRemoteRetry.value = false
+    await closeEditModal(true)
+    globalAlert.showSuccess(`本地文本已另存为分支（版本 #${saved.saved_version_id}）。`, '已保留')
+  } catch (error) {
+    editorStatus.value = '另存分支失败：本地草稿仍然保留，请稍后重试。'
+    console.warn('另存冲突分支失败:', error)
+  } finally {
+    isSaving.value = false
+  }
+}
+
+const handleEditorOnline = () => {
+  isEditorOnline.value = true
+  if (pendingRemoteRetry.value && showEditModal.value && hasUnsavedEdit.value && !editConflict.value) {
+    void saveEditedContent()
+  }
+}
+
+const handleEditorOffline = () => {
+  isEditorOnline.value = false
+  if (showEditModal.value) {
+    editorStatus.value = '网络已断开：内容已保存在本机，恢复网络后会自动重试。'
+  }
+}
+
+const persistBeforeLeave = (event: BeforeUnloadEvent) => {
+  if (!hasUnsavedEdit.value) return
+  queueLocalDraft()
+  chapterDraft.flushSafely()
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+const persistWhenHidden = () => {
+  if (document.visibilityState === 'hidden') chapterDraft.flushSafely()
+}
+
 const selectedChapter = computed(() => {
   if (!props.project || props.selectedChapterNumber === null) return null
   return props.project.chapters.find(ch => ch.chapter_number === props.selectedChapterNumber) || null
-})
-
-const selectedChapterOutline = computed(() => {
-  if (!props.project?.blueprint?.chapter_outline || props.selectedChapterNumber === null) return null
-  return props.project.blueprint.chapter_outline.find(ch => ch.chapter_number === props.selectedChapterNumber) || null
 })
 
 const revisionHintText = computed(() => formatRevisionHint(selectedChapterOutline.value?.metadata?.revision_hint))
@@ -744,8 +1019,20 @@ watch(
   }
 )
 
+onMounted(() => {
+  window.addEventListener('online', handleEditorOnline)
+  window.addEventListener('offline', handleEditorOffline)
+  window.addEventListener('beforeunload', persistBeforeLeave)
+  document.addEventListener('visibilitychange', persistWhenHidden)
+})
+
 onUnmounted(() => {
   stopPolling()
+  window.removeEventListener('online', handleEditorOnline)
+  window.removeEventListener('offline', handleEditorOffline)
+  window.removeEventListener('beforeunload', persistBeforeLeave)
+  document.removeEventListener('visibilitychange', persistWhenHidden)
+  chapterDraft.flushSafely()
 })
 
 const currentComponentProps = computed(() => {

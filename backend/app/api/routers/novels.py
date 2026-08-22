@@ -3,11 +3,13 @@ import asyncio
 import json
 import logging
 import traceback
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, UploadFile, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,11 +37,19 @@ from ...schemas.novel import (
     NovelSectionType,
 )
 from ...schemas.reference_novel import ReferenceNovelSelectRequest, ReferenceNovelSummary
+from ...schemas.world_state import (
+    WorldStateSeedResponse,
+    WorldStateSnapshotCreateRequest,
+    WorldStateSnapshotResponse,
+)
 from ...schemas.user import UserInDB
 from ...services.blueprint_generation_service import generate_blueprint_for_project
 from ...services.generation_billing_service import (
     blueprint_deep_price,
+    charge_cover_generation,
     charge_blueprint_deep,
+    cover_generation_price,
+    refund_generation,
     refund_blueprint_safely,
     should_charge_blueprint_deep,
 )
@@ -48,6 +58,10 @@ from ...services.config_service import ConfigService
 from ...services.import_service import ImportService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
+from ...services.cache_service import CacheService
+from ...services.cover_storage_service import cover_path, write_cover_atomically
+from ...services.volume_service import VolumeService
+from ...services.world_state_service import WorldStateService
 from ...services.prompt_service import PromptService
 from ...services.share_service import ShareService
 from ...services.manuscript_export_service import export_project
@@ -65,6 +79,9 @@ from ...core.feature_gating import (
     load_min_tiers,
     capabilities_for_tier,
 )
+from ...core.config import settings
+from ...core.error_codes import DomainErrorCode, api_error
+from ...core.roadmap_metrics import RoadmapMetric, emit_roadmap_metric
 from ...utils.json_utils import remove_think_tags, repair_json, sanitize_json_like_text, unwrap_markdown_json
 from ...models.writer_persona import WriterPersona
 
@@ -104,6 +121,29 @@ def _ensure_prompt(prompt: str | None, name: str) -> str:
 _CONVERSE_HISTORY_FALLBACK_CHARS = 500
 # is_complete 完全由 LLM 自报，最低轮次兜底：用户消息轮次（含本轮）不足该值时强制 False
 _CONVERSE_MIN_COMPLETE_USER_TURNS = 3
+
+
+class GenerateCoverRequest(BaseModel):
+    art_direction: str = "电影感东方幻想，克制高级，强主视觉，适合网络小说竖版封面"
+    quality: Literal["low", "medium", "high"] = "medium"
+    include_title: bool = True
+
+
+def _cover_path(project_id: str) -> Path:
+    try:
+        return cover_path(project_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="作品 ID 不合法")
+
+
+def _image_media_type(image_bytes: bytes) -> str:
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    raise HTTPException(status_code=502, detail="图片服务返回了不支持的格式")
 
 
 def _compact_history_for_llm(history_records: List[Any]) -> List[Dict[str, str]]:
@@ -454,6 +494,171 @@ async def set_novel_completed(
     return {"status": "success", "is_completed": is_completed}
 
 
+@router.get("/{project_id}/cover/options")
+async def get_novel_cover_options(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """返回封面生成的真实档位与积分门槛，前端不自行复制业务规则。"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
+    required_tier = min_tiers.get("cover_generation", "creator")
+    return {
+        "tier": tier,
+        "required_tier": required_tier,
+        "can_generate": tier_allows(tier, "cover_generation", min_tiers),
+        "credit_price": await cover_generation_price(session),
+    }
+
+
+@router.post("/{project_id}/cover/generate")
+async def generate_novel_cover(
+    project_id: str,
+    request: GenerateCoverRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """按档位门控、先扣后跑，并用 Redis 锁串行化同一用户的封面生成。"""
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+    tier = await get_user_tier(session, current_user.id)
+    min_tiers = await load_min_tiers(session)
+    required_tier = min_tiers.get("cover_generation", "creator")
+    if not tier_allows(tier, "cover_generation", min_tiers):
+        raise api_error(
+            status.HTTP_403_FORBIDDEN,
+            DomainErrorCode.FEATURE_NOT_AVAILABLE,
+            "AI 封面需要创作者版或更高套餐。",
+            meta={"feature": "cover_generation", "tier": tier, "required_tier": required_tier},
+        )
+
+    blueprint = project.blueprint
+    title = (project.title or "未命名作品").strip()
+    genre = (blueprint.genre if blueprint else "") or "类型小说"
+    summary = (
+        (blueprint.one_sentence_summary if blueprint else "")
+        or (blueprint.full_synopsis if blueprint else "")
+        or project.initial_prompt
+        or ""
+    )
+    art_direction = (request.art_direction or "").strip()[:800]
+    title_instruction = (
+        f"在画面上方或中部清晰排版中文书名《{title}》，字体与画面风格统一；"
+        if request.include_title
+        else "画面中不要出现任何文字、字母、水印或标志；"
+    )
+    prompt = (
+        "为一部中文网络小说设计可直接发布的竖版封面。"
+        f"类型：{genre}。核心故事：{summary[:900]}。"
+        f"艺术方向：{art_direction or '电影感东方幻想，克制高级，强主视觉'}。"
+        f"{title_instruction}"
+        "构图要求：1024×1536 竖版，主体焦点明确，小尺寸缩略图仍易识别；"
+        "保留适度留白，光影层次丰富，不使用现有影视、动漫或游戏角色，不模仿在世艺术家。"
+    )
+
+    # 按用户串行化封面生成：既阻止同一作品重复请求，也避免用户同时为多个作品
+    # 生成时并发读取同一积分余额造成超扣/负数。
+    lock_key = f"lock:cover-generation:user:{current_user.id}"
+    lock_token = uuid4().hex
+    cache = CacheService()
+    try:
+        acquired = await cache.acquire_distributed_lock(lock_key, lock_token, ttl_seconds=900)
+    except RuntimeError as exc:
+        raise api_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            DomainErrorCode.DEPENDENCY_UNAVAILABLE,
+            str(exc),
+        ) from exc
+    if not acquired:
+        raise api_error(
+            status.HTTP_409_CONFLICT,
+            DomainErrorCode.GENERATION_IN_PROGRESS,
+            "你已有封面正在生成，请等待完成后再试。",
+        )
+
+    ref_key = f"cover:{project_id}:{uuid4().hex}"
+    charged = 0
+    target = _cover_path(project_id)
+    previous_payload: bytes | None = None
+    file_replaced = False
+    try:
+        charged = await charge_cover_generation(session, current_user.id, ref_key=ref_key)
+        image_bytes, model = await LLMService(session).generate_image(
+            prompt,
+            user_id=current_user.id,
+            size="1024x1536",
+            quality=request.quality,
+        )
+        media_type = _image_media_type(image_bytes)
+        if target.is_file():
+            previous_payload = await asyncio.to_thread(target.read_bytes)
+        await asyncio.to_thread(write_cover_atomically, target, image_bytes)
+        file_replaced = True
+        updated_at = datetime.now(timezone.utc).isoformat()
+        cover_image = {
+            "model": model,
+            "size": "1024x1536",
+            "quality": request.quality,
+            "media_type": media_type,
+            "updated_at": updated_at,
+        }
+        await novel_service.set_cover_image(project_id, current_user.id, cover_image)
+        logger.info(
+            "用户 %s 为项目 %s 生成封面: model=%s quality=%s charged=%s",
+            current_user.id,
+            project_id,
+            model,
+            request.quality,
+            charged,
+        )
+        return {
+            "cover_image": cover_image,
+            "cover_url": f"/api/novels/{project_id}/cover?v={updated_at}",
+            "charged": charged,
+        }
+    except Exception:
+        # 文件已替换但元数据提交失败时恢复旧封面，避免“接口报错但封面暗中变化”。
+        if file_replaced:
+            try:
+                if previous_payload is None:
+                    await asyncio.to_thread(target.unlink, missing_ok=True)
+                else:
+                    await asyncio.to_thread(write_cover_atomically, target, previous_payload)
+            except Exception:
+                logger.exception("封面生成失败后的文件回滚失败: project_id=%s", project_id)
+        try:
+            # 即使扣费在提交后的 refresh 阶段抛错，按 ref 查询也能把已入账流水退回；
+            # 未扣费时 refund_generation 是 no-op。
+            await session.rollback()
+            await refund_generation(session, current_user.id, ref_key=ref_key)
+        except Exception:
+            logger.exception("封面生成失败后的积分退款失败: user=%s ref=%s", current_user.id, ref_key)
+        raise
+    finally:
+        await cache.release_distributed_lock(lock_key, lock_token)
+
+
+@router.get("/{project_id}/cover")
+async def get_novel_cover(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> FileResponse:
+    """返回属主作品封面；前端以带鉴权的 Blob 请求加载。"""
+    project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    target = _cover_path(project_id)
+    if not getattr(project, "cover_image", None) or not target.is_file():
+        raise HTTPException(status_code=404, detail="作品尚未生成封面")
+    media_type = project.cover_image.get("media_type") or "image/png"
+    return FileResponse(
+        target,
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
 # ---------------------------------------------------------------------------
 # 作品公开分享开关（owner 侧；免登录只读端点在 public_share.py）
 # 归属校验走 ShareService.ensure_share_owner：非属主与不存在统一 404（不泄露存在性），
@@ -507,24 +712,54 @@ def _content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
 
 
+async def _stream_export_payload(payload: bytes, chunk_size: int = 64 * 1024) -> AsyncIterator[bytes]:
+    """分块发送内存中的一次性导出内容；不写磁盘，也不保留服务器副本。"""
+    try:
+        for start in range(0, len(payload), chunk_size):
+            yield payload[start:start + chunk_size]
+    finally:
+        # 生成器退出后 payload 只剩本函数栈引用，交还给运行时回收。
+        payload = b""
+
+
 @router.get("/{project_id}/export")
 async def export_manuscript(
     project_id: str,
     format: str = Query("txt", alias="format"),
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
-) -> Response:
-    """导出已完稿章节（successful + selected_version）。属主专属。"""
+) -> StreamingResponse:
+    """导出已完稿章节：仅临时内存组装后流式下载，不在服务器保留文件。"""
     novel_service = NovelService(session)
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
     fmt = (format or "txt").strip().lower()
-    if fmt not in {"txt", "docx"}:
-        raise HTTPException(status_code=400, detail="format 必须是 txt 或 docx")
+    if fmt == "md":
+        fmt = "markdown"
+    if fmt not in {"txt", "markdown", "docx"}:
+        raise api_error(
+            400,
+            DomainErrorCode.INVALID_REQUEST,
+            "format 必须是 txt、markdown 或 docx。",
+        )
     filename, payload, media_type = await export_project(session, project, fmt)
-    return Response(
-        content=payload,
+    emit_roadmap_metric(
+        RoadmapMetric.MANUSCRIPT_EXPORTED,
+        project_id=project_id,
+        user_id=current_user.id,
+        format=fmt,
+        bytes=len(payload),
+        storage="memory_only",
+        success=True,
+    )
+    return StreamingResponse(
+        _stream_export_payload(payload),
         media_type=media_type,
-        headers={"Content-Disposition": _content_disposition(filename)},
+        headers={
+            "Content-Disposition": _content_disposition(filename),
+            "Content-Length": str(len(payload)),
+            "Cache-Control": "no-store",
+            "X-Export-Storage": "memory-only",
+        },
     )
 
 
@@ -1069,28 +1304,104 @@ async def list_volumes(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """分卷规划总览：原规划 + 卷级复盘 + 当前生效的重规划。
-
-    volumes 挂在 NovelBlueprint（主键即 project_id），原样返回 JSON，
-    前端据 `retrospective` / `replan` 是否存在决定展示。
-    """
+    """分卷规划总览：读取 M1 的一等实体，兼容返回既有 JSON 字段。"""
     novel_service = NovelService(session)
     await novel_service.ensure_project_owner(project_id, current_user.id)
 
-    from ...models.novel import NovelBlueprint
-
-    blueprint = await session.get(NovelBlueprint, project_id)
-    volumes = getattr(blueprint, "volumes", None) if blueprint else None
+    records = await VolumeService(session).list_or_backfill(project_id, commit=True)
+    volumes = [VolumeService.serialize(record) for record in records]
 
     # 一并返回档位与发散可用性：让前端把「换个方向」渲染成升级引导，
     # 而不是让用户点下去吃一个 403 报错（升级引导不该长得像故障）。
     user_tier = await get_user_tier(session, current_user.id)
     min_tiers = await load_min_tiers(session)
     return {
-        "volumes": volumes if isinstance(volumes, list) else [],
+        "volumes": volumes,
         "tier": user_tier,
         "can_diverge": tier_allows(user_tier, "muse_divergence", min_tiers),
     }
+
+
+def _world_state_validation_error(exc: ValidationError) -> HTTPException:
+    """避免在错误体回显作者输入或正文，仅返回字段路径和验证类型。"""
+    errors = [
+        {"field": ".".join(str(part) for part in item.get("loc", ())), "type": item.get("type")}
+        for item in exc.errors()
+    ]
+    return api_error(
+        422,
+        DomainErrorCode.WORLD_STATE_INVALID,
+        "世界状态结构或证据范围不合法。",
+        meta={"errors": errors},
+    )
+
+
+@router.get(
+    "/{project_id}/world-state/seed/{target_chapter_number}",
+    response_model=WorldStateSeedResponse,
+)
+async def get_world_state_seed(
+    project_id: str,
+    target_chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> WorldStateSeedResponse:
+    """读取目标章节可继承的最近确认状态；未有快照时返回空种子。"""
+    if target_chapter_number < 1:
+        raise api_error(400, DomainErrorCode.INVALID_REQUEST, "章节号必须大于 0。")
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    return await WorldStateService(session).seed_for_chapter(project_id, target_chapter_number)
+
+
+@router.get(
+    "/{project_id}/world-state/{chapter_number}",
+    response_model=WorldStateSnapshotResponse,
+)
+async def get_latest_world_state(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> WorldStateSnapshotResponse:
+    """获取某章最近一份已确认状态切片。"""
+    if chapter_number < 1:
+        raise api_error(400, DomainErrorCode.INVALID_REQUEST, "章节号必须大于 0。")
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    snapshot = await WorldStateService(session).latest_for_chapter(project_id, chapter_number)
+    if snapshot is None:
+        raise api_error(404, DomainErrorCode.WORLD_STATE_NOT_FOUND, "该章节尚未创建世界状态切片。")
+    return WorldStateService.serialize(snapshot)
+
+
+@router.post(
+    "/{project_id}/world-state/{chapter_number}",
+    response_model=WorldStateSnapshotResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_world_state(
+    project_id: str,
+    chapter_number: int,
+    payload: Any = Body(..., description="确认后的世界状态切片"),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> WorldStateSnapshotResponse:
+    """写入不可变的章节状态切片；自动抽取与冲突诊断由 M5 接入。"""
+    if chapter_number < 1:
+        raise api_error(400, DomainErrorCode.INVALID_REQUEST, "章节号必须大于 0。")
+    if not isinstance(payload, dict):
+        raise api_error(422, DomainErrorCode.WORLD_STATE_INVALID, "世界状态请求必须是对象。")
+    try:
+        request = WorldStateSnapshotCreateRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise _world_state_validation_error(exc) from exc
+
+    novel_service = NovelService(session)
+    await novel_service.ensure_project_owner(project_id, current_user.id)
+    snapshot = await WorldStateService(session).create_snapshot(project_id, chapter_number, request)
+    await session.commit()
+    return WorldStateService.serialize(snapshot)
 
 
 @router.post("/{project_id}/volumes/{volume_number}/diverge")

@@ -339,7 +339,18 @@ async function applyPreview() {
       return
     }
     const next = original.slice(0, range.start) + previewText.value + original.slice(range.end)
-    await NovelAPI.editChapterContent(props.projectId, props.selectedChapter.chapter_number, next)
+    const revision = props.selectedChapter.content_hash
+      ? {
+          revision_id: props.selectedChapter.revision_id || 0,
+          content_hash: props.selectedChapter.content_hash,
+        }
+      : await NovelAPI.getChapterRevision(props.projectId, props.selectedChapter.chapter_number)
+    await NovelAPI.saveChapterContent(props.projectId, {
+      chapter_number: props.selectedChapter.chapter_number,
+      content: next,
+      expected_revision_id: revision.revision_id,
+      expected_content_hash: revision.content_hash,
+    })
     await novelStore.loadChapter(props.selectedChapter.chapter_number)
     discardPreview()
     globalAlert.showSuccess('已写入本章，原文其余部分未动。', '选区已采用')
@@ -489,10 +500,18 @@ const applyOptimization = async () => {
   isApplying.value = true
 
   try {
+    const revision = props.selectedChapter.content_hash
+      ? {
+          revision_id: props.selectedChapter.revision_id || 0,
+          content_hash: props.selectedChapter.content_hash,
+        }
+      : await NovelAPI.getChapterRevision(props.projectId, props.selectedChapter.chapter_number)
     await OptimizerAPI.applyOptimization(
       props.projectId,
       props.selectedChapter.chapter_number,
-      optimizedContent.value
+      optimizedContent.value,
+      revision.revision_id,
+      revision.content_hash,
     )
 
     globalAlert.showSuccess('优化内容已应用')

@@ -11,6 +11,12 @@ AILIST NAME=foreshadowing_service.py|K=file|P=伏笔服务_伏笔管理业务逻
 AILIST NAME=import_service.py|K=file|P=导入服务_小说导入业务逻辑|E=ImportService|A=小说导入_格式转换
 AILIST NAME=llm_service.py|K=file|P=LLM服务_大模型调用封装|E=LLMService|A=API调用_流式生成
 AILIST NAME=novel_service.py|K=file|P=小说服务_小说管理业务逻辑|E=NovelService|A=小说CRUD_章节管理
+AILIST NAME=volume_service.py|K=file|P=M1分卷服务_实体与旧JSON兼容投影|E=VolumeService|A=分卷同步_章节归属_重规划写入
+AILIST NAME=world_state_service.py|K=file|P=M1世界状态服务_不可变切片和下一章状态种子|E=WorldStateService|A=状态快照创建_继承读取
+AILIST NAME=chapter_revision_service.py|K=file|P=M2章节可靠保存服务|E=ChapterRevisionService|A=乐观锁_版本快照_冲突保护
+AILIST NAME=chapter_history_service.py|K=file|P=M3章节历史服务|E=ChapterHistoryService|A=只读历史_父版本恢复_词级Diff
+AILIST NAME=cover_storage_service.py|K=file|P=小说封面文件存储|E=cover_path_write_cover_atomically_delete_cover_file|A=路径约束_原子写入_删除清理
+AILIST NAME=manuscript_export_service.py|K=file|P=M3专业全书导出|E=export_project|A=分卷Markdown_TXT_DOCX内存流式下载
 AILIST NAME=pacing_controller.py|K=file|P=节奏控制器_情绪曲线规划|E=PacingController|A=三幕结构_英雄之旅_曲线验证
 AILIST NAME=prompt_service.py|K=file|P=提示词服务_提示模板管理|E=PromptService|A=提示词加载_缓存
 AILIST NAME=story_trajectory_analyzer.py|K=file|P=故事轨迹分析_6种故事形状识别|E=StoryTrajectoryAnalyzer|A=形状识别_关键点检测

@@ -120,6 +120,10 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?请设置OPENAI_API_KEY}
       OPENAI_API_BASE_URL: ${OPENAI_API_BASE_URL:-https://api.openai.com/v1}
       OPENAI_MODEL_NAME: ${OPENAI_MODEL_NAME:-gpt-4o-mini}
+      # 图片生成使用独立通道；留空时仅在默认通道本身是 OpenAI 官方 API 时复用。
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_BASE_URL: ${IMAGE_BASE_URL:-}
+      IMAGE_MODEL: ${IMAGE_MODEL:-gpt-image-2}
       WRITER_CHAPTER_VERSION_COUNT: ${WRITER_CHAPTER_VERSION_COUNT:-1}
 
       # 质量回路灰度开关（均为 flagship 档独占，默认关；打开后才会真正触发）

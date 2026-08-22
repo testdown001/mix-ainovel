@@ -9,6 +9,23 @@ import { StreamInterruptedError } from '@/utils/streamInterruption'
 export const API_BASE_URL = ''
 export const API_PREFIX = '/api'
 
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly code?: string
+  readonly meta?: Record<string, unknown>
+
+  constructor(message: string, status: number, code?: string, meta?: Record<string, unknown>) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+    this.meta = meta
+  }
+}
+
+export const isVersionConflictError = (error: unknown): error is ApiRequestError =>
+  error instanceof ApiRequestError && error.code === 'VERSION_CONFLICT'
+
 // 统一的请求处理函数
 const request = async (url: string, options: RequestInit = {}) => {
   const authStore = useAuthStore()
@@ -37,11 +54,19 @@ const request = async (url: string, options: RequestInit = {}) => {
 
   if (!response.ok) {
     let detail = ''
+    let structuredCode: string | undefined
+    let structuredMeta: Record<string, unknown> | undefined
     const contentType = (response.headers.get('content-type') || '').toLowerCase()
 
     if (contentType.includes('application/json')) {
       const errorData = await response.json().catch(() => null as any)
-      if (typeof errorData?.detail === 'string' && errorData.detail.trim()) {
+      if (typeof errorData?.detail?.code === 'string') {
+        structuredCode = errorData.detail.code
+        structuredMeta = errorData.detail.meta && typeof errorData.detail.meta === 'object'
+          ? errorData.detail.meta
+          : undefined
+        detail = typeof errorData.detail.message === 'string' ? errorData.detail.message.trim() : ''
+      } else if (typeof errorData?.detail === 'string' && errorData.detail.trim()) {
         detail = errorData.detail.trim()
       } else if (typeof errorData?.message === 'string' && errorData.message.trim()) {
         detail = errorData.message.trim()
@@ -56,9 +81,14 @@ const request = async (url: string, options: RequestInit = {}) => {
 
     if (detail) {
       const clipped = detail.length > 600 ? `${detail.slice(0, 600)}...` : detail
-      throw new Error(`请求失败(${response.status}): ${clipped}`)
+      throw new ApiRequestError(
+        `请求失败(${response.status}): ${clipped}`,
+        response.status,
+        structuredCode,
+        structuredMeta,
+      )
     }
-    throw new Error(`请求失败，状态码: ${response.status}`)
+    throw new ApiRequestError(`请求失败，状态码: ${response.status}`, response.status, structuredCode, structuredMeta)
   }
 
   if (response.status === 204 || response.status === 205) {
@@ -80,6 +110,7 @@ export interface NovelProject {
   title: string
   initial_prompt: string
   is_completed?: boolean
+  cover_image?: NovelCoverInfo | null
   reference_novel_ids?: number[]
   blueprint?: Blueprint
   chapters: Chapter[]
@@ -93,7 +124,32 @@ export interface NovelProjectSummary {
   last_edited: string
   completed_chapters: number
   total_chapters: number
+  total_words: number
+  next_chapter_number?: number | null
+  next_chapter_title?: string | null
   is_completed?: boolean
+  cover_image?: NovelCoverInfo | null
+}
+
+export interface NovelCoverInfo {
+  model: string
+  size: string
+  quality: 'low' | 'medium' | 'high'
+  media_type: string
+  updated_at: string
+}
+
+export interface GenerateCoverPayload {
+  art_direction: string
+  quality: 'low' | 'medium' | 'high'
+  include_title: boolean
+}
+
+export interface CoverGenerationOptions {
+  tier: 'free' | 'creator' | 'flagship'
+  required_tier: 'free' | 'creator' | 'flagship'
+  can_generate: boolean
+  credit_price: number
 }
 
 export interface BlueprintVolume {
@@ -354,6 +410,83 @@ export interface Chapter {
   evaluation: string | null
   generation_status: 'not_generated' | 'generating' | 'evaluating' | 'selecting' | 'failed' | 'evaluation_failed' | 'waiting_for_confirm' | 'successful'
   word_count?: number  // 字数统计
+  revision_id?: number
+  content_hash?: string | null
+  selected_version_id?: number | null
+}
+
+export interface ChapterRevision {
+  chapter_number: number
+  revision_id: number
+  content_hash: string
+  selected_version_id: number | null
+  content: string
+}
+
+export interface ChapterSaveRequest {
+  chapter_number: number
+  content: string
+  expected_revision_id: number
+  expected_content_hash: string
+  mode?: 'save' | 'branch'
+}
+
+export interface ChapterSaveResponse {
+  status: 'saved' | 'branched'
+  chapter_number: number
+  revision_id: number
+  content_hash: string
+  selected_version_id: number | null
+  saved_version_id: number
+  chapter: Chapter
+}
+
+export interface ChapterVersionHistoryItem {
+  id: number
+  chapter_number: number
+  version_label?: string | null
+  source: string
+  source_label: string
+  parent_version_id?: number | null
+  content_hash: string
+  word_count: number
+  content_bytes: number
+  ai_assisted: boolean
+  change_note?: string | null
+  created_at?: string | null
+  created_by_user_id?: number | null
+  is_selected: boolean
+}
+
+export interface ChapterVersionHistoryPage {
+  items: ChapterVersionHistoryItem[]
+  total_count: number
+  total_content_bytes: number
+  has_more: boolean
+  next_before_id: number | null
+}
+
+export interface ChapterVersionDetail extends ChapterVersionHistoryItem {
+  content: string
+}
+
+export interface ChapterDiffSegment {
+  kind: 'equal' | 'insert' | 'delete'
+  text: string
+}
+
+export interface ChapterVersionDiff {
+  chapter_number: number
+  left_version_id: number
+  right_version_id: number
+  left_segments: ChapterDiffSegment[]
+  right_segments: ChapterDiffSegment[]
+}
+
+export interface RestoreChapterVersionRequest {
+  expected_revision_id: number
+  expected_content_hash: string
+  change_note?: string
 }
 
 export interface ConversationMessage {
@@ -666,6 +799,39 @@ export class NovelAPI {
 
   static async getNovel(projectId: string): Promise<NovelProject> {
     return request(`${NOVELS_BASE}/${projectId}`)
+  }
+
+  static async generateCover(
+    projectId: string,
+    payload: GenerateCoverPayload
+  ): Promise<{ cover_image: NovelCoverInfo; cover_url: string; charged: number }> {
+    return request(`${NOVELS_BASE}/${projectId}/cover/generate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    })
+  }
+
+  static async getCoverGenerationOptions(projectId: string): Promise<CoverGenerationOptions> {
+    return request(`${NOVELS_BASE}/${projectId}/cover/options`)
+  }
+
+  static async getCoverBlob(projectId: string): Promise<Blob> {
+    const authStore = useAuthStore()
+    const headers = new Headers()
+    if (authStore.isAuthenticated && authStore.token) {
+      headers.set('Authorization', `Bearer ${authStore.token}`)
+    }
+    const response = await fetch(`${NOVELS_BASE}/${projectId}/cover`, { headers })
+    if (response.status === 401) {
+      authStore.logout()
+      router.push('/login')
+      throw new Error('会话已过期，请重新登录')
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => null)
+      throw new Error(body?.detail || `封面加载失败(${response.status})`)
+    }
+    return response.blob()
   }
 
   static async getChapter(projectId: string, chapterNumber: number): Promise<Chapter> {
@@ -1278,7 +1444,7 @@ export class NovelAPI {
     return request(`${WRITER_BASE}/${projectId}/chapters/prediction-progress`)
   }
 
-  static async exportManuscript(projectId: string, format: 'txt' | 'docx'): Promise<void> {
+  static async exportManuscript(projectId: string, format: 'txt' | 'markdown' | 'docx'): Promise<void> {
     const authStore = useAuthStore()
     const response = await fetch(`${NOVELS_BASE}/${projectId}/export?format=${format}`, {
       headers: authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {},
@@ -1340,14 +1506,71 @@ export class NovelAPI {
   static async editChapterContent(
     projectId: string,
     chapterNumber: number,
-    content: string
-  ): Promise<Chapter> {
-    return request(`${WRITER_BASE}/${projectId}/chapters/edit-fast`, {
+    content: string,
+    expectedRevisionId: number,
+    expectedContentHash: string,
+  ): Promise<ChapterSaveResponse> {
+    // 保留方法名仅为了给未迁移插件一个明确的类型错误；实际请求仍走 M2 安全端点。
+    return NovelAPI.saveChapterContent(projectId, {
+      chapter_number: chapterNumber,
+      content,
+      expected_revision_id: expectedRevisionId,
+      expected_content_hash: expectedContentHash,
+    })
+  }
+
+  /** M2：带版本基线的正文保存，服务端拒绝静默覆盖。 */
+  static async saveChapterContent(
+    projectId: string,
+    payload: ChapterSaveRequest,
+  ): Promise<ChapterSaveResponse> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/save`, {
       method: 'POST',
-      body: JSON.stringify({
-        chapter_number: chapterNumber,
-        content: content
-      })
+      body: JSON.stringify(payload),
+    })
+  }
+
+  /** M2：冲突发生后显式读取远端当前正文。 */
+  static async getChapterRevision(projectId: string, chapterNumber: number): Promise<ChapterRevision> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/revision`)
+  }
+
+  /** M3：历史列表不加载正文，打开单条版本或比较时再按需读取。 */
+  static async listChapterVersionHistory(
+    projectId: string,
+    chapterNumber: number,
+    options: { limit?: number; beforeId?: number | null } = {},
+  ): Promise<ChapterVersionHistoryPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 30) })
+    if (options.beforeId) params.set('before_id', String(options.beforeId))
+    return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/versions?${params}`)
+  }
+
+  static async getChapterVersionDetail(
+    projectId: string,
+    versionId: number,
+  ): Promise<ChapterVersionDetail> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/versions/${versionId}`)
+  }
+
+  static async compareChapterVersions(
+    projectId: string,
+    leftVersionId: number,
+    rightVersionId: number,
+  ): Promise<ChapterVersionDiff> {
+    return request(
+      `${WRITER_BASE}/${projectId}/chapters/versions/${leftVersionId}/compare/${rightVersionId}`,
+    )
+  }
+
+  static async restoreChapterVersion(
+    projectId: string,
+    versionId: number,
+    payload: RestoreChapterVersionRequest,
+  ): Promise<ChapterSaveResponse> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/versions/${versionId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
     })
   }
 
@@ -1508,14 +1731,18 @@ export class OptimizerAPI {
   static async applyOptimization(
     projectId: string,
     chapterNumber: number,
-    optimizedContent: string
+    optimizedContent: string,
+    expectedRevisionId: number,
+    expectedContentHash: string,
   ): Promise<{ status: string; message: string }> {
     return request(`${OPTIMIZER_BASE}/apply-optimization`, {
       method: 'POST',
       body: JSON.stringify({
         project_id: projectId,
         chapter_number: chapterNumber,
-        optimized_content: optimizedContent
+        optimized_content: optimizedContent,
+        expected_revision_id: expectedRevisionId,
+        expected_content_hash: expectedContentHash,
       })
     })
   }

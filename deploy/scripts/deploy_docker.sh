@@ -7,7 +7,7 @@
 #
 #   可选环境变量：
 #     NO_CACHE=1        强制不复用构建缓存（默认复用，快很多；依赖清单变了会自动失效）
-#     RUN_MIGRATIONS=1  构建前先跑 Alembic 迁移（见 run_migrations.sh）
+#     RUN_MIGRATIONS=0  显式跳过 Alembic（默认执行；仅限已确认由外部流程迁移时）
 #     COMPOSE_FILE=...  换用其它 compose 文件（docker 原生变量，多文件用 : 分隔）
 # =============================================================================
 
@@ -65,13 +65,6 @@ fi
 
 dcp() { ( cd "$DEPLOY_DIR" && "${DCP[@]}" "$@" ); }
 
-# ---- 迁移（显式 opt-in；应用启动时的 init_db() 也会自愈结构）------------------
-if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
-    echo ""
-    info "执行数据库迁移…"
-    bash "$SCRIPT_DIR/run_migrations.sh"
-fi
-
 # ---- 停旧 / 构建 / 起新 -------------------------------------------------------
 echo ""
 info "停止旧容器…"
@@ -114,6 +107,19 @@ if [ "$HEALTHY" != true ]; then
     die "部署失败。常见原因：端口被占用 / 数据库连接配置错误 / 依赖安装失败"
 fi
 ok "健康检查通过"
+
+# ---- 数据库迁移 ---------------------------------------------------------------
+# 必须在新镜像启动且 init_db 完成后执行：旧顺序会调用旧容器里的 Alembic，导致新
+# revision 根本没有运行。默认执行；只有外部发布流水线已完成迁移时才显式关闭。
+if [ "${RUN_MIGRATIONS:-1}" = "1" ]; then
+    echo ""
+    info "使用新容器执行数据库迁移…"
+    bash "$SCRIPT_DIR/run_migrations.sh"
+    info "校验数据库版本与 ORM 结构…"
+    bash "$SCRIPT_DIR/verify_migration.sh"
+else
+    warn "RUN_MIGRATIONS=0：已跳过 Alembic 与结构校验，请确认外部迁移流程已完成"
+fi
 
 # ---- 完成 ---------------------------------------------------------------------
 echo ""

@@ -1,5 +1,7 @@
 # AIMETA P=LLM服务_大模型调用封装|R=API调用_流式生成|NR=不含业务逻辑|E=LLMService|X=internal|A=服务类|D=openai,httpx|S=net|RD=./README.ai
 import asyncio
+import base64
+import binascii
 import hashlib
 import inspect
 import json
@@ -246,6 +248,104 @@ class LLMService:
             top_p=top_p,
             fail_on_truncation=fail_on_truncation,
         )
+
+    async def generate_image(
+        self,
+        prompt: str,
+        *,
+        user_id: Optional[int] = None,
+        size: str = "1024x1536",
+        quality: str = "medium",
+        timeout: float = 300.0,
+    ) -> tuple[bytes, str]:
+        """通过 OpenAI Images API 生成图片，统一复用系统通道与用户限额。
+
+        可选的 image.api_key / image.base_url / image.model 会覆盖默认 llm.*；未配置时
+        只把模型切到 gpt-image-2。返回 PNG/JPEG 原始字节和实际模型名，落盘由业务层负责。
+        """
+        config = await self._resolve_image_config(user_id)
+        model = config["model"] or "gpt-image-2"
+        base_url = (config["base_url"] or "https://api.openai.com/v1").rstrip("/")
+        endpoint = f"{base_url}/images/generations"
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "size": size,
+            "quality": quality,
+            "n": 1,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                response = await client.post(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {config['api_key']}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                response.raise_for_status()
+                body = response.json()
+                data = body.get("data") if isinstance(body, dict) else None
+                item = data[0] if isinstance(data, list) and data else None
+                if not isinstance(item, dict):
+                    raise ValueError("图片服务未返回有效数据")
+                encoded = item.get("b64_json")
+                if encoded:
+                    image_bytes = base64.b64decode(encoded, validate=True)
+                elif item.get("url"):
+                    image_response = await client.get(item["url"])
+                    image_response.raise_for_status()
+                    image_bytes = image_response.content
+                else:
+                    raise ValueError("图片服务未返回图片内容")
+        except httpx.HTTPStatusError as exc:
+            detail = "图片生成服务请求失败"
+            try:
+                error_body = exc.response.json()
+                detail = (
+                    error_body.get("error", {}).get("message")
+                    or error_body.get("message")
+                    or detail
+                )
+            except Exception:
+                pass
+            logger.warning("Images API 请求失败: status=%s model=%s", exc.response.status_code, model)
+            raise HTTPException(status_code=503, detail=str(detail)[:400]) from exc
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            logger.warning("Images API 网络异常: model=%s error=%s", model, exc)
+            raise HTTPException(status_code=504, detail="图片生成超时，请稍后重试") from exc
+        except (ValueError, binascii.Error, json.JSONDecodeError) as exc:
+            logger.warning("Images API 响应异常: model=%s error=%s", model, exc)
+            raise HTTPException(status_code=502, detail="图片服务返回了无法识别的内容") from exc
+
+        if len(image_bytes) < 1024 or len(image_bytes) > 30 * 1024 * 1024:
+            raise HTTPException(status_code=502, detail="图片服务返回的文件大小异常")
+        return image_bytes, model
+
+    async def _resolve_image_config(self, user_id: Optional[int]) -> Dict[str, Optional[str]]:
+        """解析图片专用通道；读取默认通道时同时执行既有用户日限额检查。"""
+        default = await self._resolve_llm_config(user_id)
+        async with self._db_access_lock:
+            async with AsyncSessionLocal() as session:
+                api_key = await self._get_config_value_for_session(session, "image.api_key")
+                base_url = await self._get_config_value_for_session(session, "image.base_url")
+                model = await self._get_config_value_for_session(session, "image.model")
+        default_base_url = default.get("base_url") or ""
+        if not api_key and not base_url and "api.openai.com" not in default_base_url.lower():
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "图片生成通道尚未配置。当前文本通道不支持 Images API，请设置 "
+                    "IMAGE_API_KEY 和 IMAGE_BASE_URL（OpenAI 官方地址为 https://api.openai.com/v1）。"
+                ),
+            )
+        return {
+            "api_key": api_key or default.get("api_key"),
+            "base_url": self._normalize_base_url(base_url or default.get("base_url")),
+            "model": model or "gpt-image-2",
+        }
 
     async def generate_structured(
         self,

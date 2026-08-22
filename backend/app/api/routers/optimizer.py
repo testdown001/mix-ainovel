@@ -15,6 +15,7 @@ from ...core.dependencies import get_current_user
 from ...db.session import get_session
 from ...schemas.user import UserInDB
 from ...services.cache_service import CacheService
+from ...services.chapter_revision_service import ChapterRevisionService
 from ...services.llm_service import LLMService
 from ...services.novel_service import NovelService
 from ...services.prompt_service import PromptService
@@ -224,6 +225,8 @@ class ApplyOptimizationRequest(BaseModel):
     project_id: str = Field(..., description="项目ID")
     chapter_number: int = Field(..., description="章节编号")
     optimized_content: str = Field(..., description="优化后的内容")
+    expected_revision_id: int = Field(..., ge=0, description="开始优化时的章节修订号")
+    expected_content_hash: str = Field(..., min_length=64, max_length=64, description="开始优化时的正文哈希")
 
 
 @router.post("/apply-optimization")
@@ -241,21 +244,18 @@ async def apply_optimization(
     # 验证项目所有权
     project = await novel_service.ensure_project_owner(request.project_id, current_user.id)
 
-    # 获取章节
-    chapter = next(
-        (ch for ch in project.chapters if ch.chapter_number == request.chapter_number),
-        None
+    # 优化从发起到采纳可能跨越数分钟；必须走同一条件写入边界，避免旧优化结果
+    # 静默覆盖作者刚刚的手动编辑。
+    saved = await ChapterRevisionService(session).save(
+        project_id=request.project_id,
+        chapter_number=request.chapter_number,
+        content=request.optimized_content,
+        expected_revision_id=request.expected_revision_id,
+        expected_content_hash=request.expected_content_hash,
+        source="optimizer",
+        change_note="采纳章节优化建议",
+        actor_user_id=current_user.id,
     )
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
-
-    if not chapter.selected_version:
-        raise HTTPException(status_code=400, detail="章节尚未选择版本")
-
-    # 更新内容
-    chapter.selected_version.content = request.optimized_content
-    chapter.word_count = len(request.optimized_content or "")
-    await session.commit()
 
     # 清除项目序列化缓存
     try:
@@ -282,4 +282,8 @@ async def apply_optimization(
         request.chapter_number
     )
 
-    return {"status": "success", "message": "优化内容已应用"}
+    return {
+        "status": "success",
+        "message": "优化内容已应用",
+        "saved_version_id": saved.saved_version_id,
+    }

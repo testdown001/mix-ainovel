@@ -1,6 +1,6 @@
 # AIMETA P=小说模式_小说和章节请求响应|R=小说结构_章节结构|NR=不含业务逻辑|E=NovelSchema_ChapterSchema|X=internal|A=Pydantic模式|D=pydantic|S=none|RD=./README.ai
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -140,6 +140,9 @@ class Chapter(ChapterOutline):
     evaluation: Optional[str] = None
     generation_status: ChapterGenerationStatus = ChapterGenerationStatus.NOT_GENERATED
     word_count: Optional[int] = None
+    revision_id: int = 0
+    content_hash: Optional[str] = None
+    selected_version_id: Optional[int] = None
     updated_at: Optional[str] = None
     created_at: Optional[str] = None
 
@@ -202,6 +205,7 @@ class NovelProject(BaseModel):
     title: str
     initial_prompt: str
     is_completed: bool = False
+    cover_image: Optional[Dict[str, Any]] = None
     conversation_history: List[Dict[str, Any]] = []
     reference_novel_ids: List[int] = Field(default_factory=list)
     blueprint: Optional[Blueprint] = None
@@ -215,7 +219,11 @@ class NovelProjectSummary(BaseModel):
     last_edited: str
     completed_chapters: int
     total_chapters: int
+    total_words: int = 0
+    next_chapter_number: Optional[int] = None
+    next_chapter_title: Optional[str] = None
     is_completed: bool = False
+    cover_image: Optional[Dict[str, Any]] = None
 
 
 class BlueprintGenerationResponse(BaseModel):
@@ -410,11 +418,100 @@ class BlueprintPatch(BaseModel):
     relationships: Optional[List[Relationship]] = None
     chapter_outline: Optional[List[ChapterOutline]] = None
     foreshadowings: Optional[List[BlueprintForeshadowing]] = None
+    # M1：允许编辑器单独更新分卷；服务层会同步独立 Volume 实体并维护旧 JSON 投影。
+    volumes: Optional[List[Dict[str, Any]]] = None
 
 
 class EditChapterRequest(BaseModel):
+    """旧编辑入口的兼容请求。
+
+    M2 起服务端拒绝没有版本基线的写入；保留这个模型仅为平滑迁移旧 URL。
+    新客户端应使用 ChapterSaveRequest 和 /chapters/save。
+    """
+
     chapter_number: int
     content: str
+    expected_revision_id: Optional[int] = Field(default=None, ge=0)
+    expected_content_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
+
+
+class ChapterSaveRequest(BaseModel):
+    """M2 章节安全保存请求。"""
+
+    chapter_number: int = Field(..., ge=1)
+    content: str
+    expected_revision_id: int = Field(..., ge=0)
+    expected_content_hash: str = Field(..., min_length=64, max_length=64)
+    # branch 不替换作者当前选中的正文，只保留冲突中的本地文本供后续历史功能处理。
+    mode: Literal["save", "branch"] = "save"
+
+
+class ChapterRevisionResponse(BaseModel):
+    chapter_number: int
+    revision_id: int
+    content_hash: str
+    selected_version_id: Optional[int] = None
+    content: str = ""
+
+
+class ChapterSaveResponse(BaseModel):
+    status: Literal["saved", "branched"]
+    chapter_number: int
+    revision_id: int
+    content_hash: str
+    selected_version_id: Optional[int] = None
+    saved_version_id: int
+    chapter: Chapter
+
+
+class ChapterVersionHistoryItem(BaseModel):
+    """M3 修订历史列表项；正文只在详情端点返回。"""
+
+    id: int
+    chapter_number: int
+    version_label: Optional[str] = None
+    source: str
+    source_label: str
+    parent_version_id: Optional[int] = None
+    content_hash: str
+    word_count: int
+    content_bytes: int
+    ai_assisted: bool = False
+    change_note: Optional[str] = None
+    created_at: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    is_selected: bool = False
+
+
+class ChapterVersionHistoryPage(BaseModel):
+    items: List[ChapterVersionHistoryItem]
+    total_count: int
+    total_content_bytes: int
+    has_more: bool = False
+    next_before_id: Optional[int] = None
+
+
+class ChapterVersionDetail(ChapterVersionHistoryItem):
+    content: str
+
+
+class ChapterDiffSegment(BaseModel):
+    kind: Literal["equal", "insert", "delete"]
+    text: str
+
+
+class ChapterVersionDiffResponse(BaseModel):
+    chapter_number: int
+    left_version_id: int
+    right_version_id: int
+    left_segments: List[ChapterDiffSegment]
+    right_segments: List[ChapterDiffSegment]
+
+
+class RestoreChapterVersionRequest(BaseModel):
+    expected_revision_id: int = Field(..., ge=0)
+    expected_content_hash: str = Field(..., min_length=64, max_length=64)
+    change_note: Optional[str] = Field(default=None, max_length=500)
 
 
 class TransformTextRequest(BaseModel):
