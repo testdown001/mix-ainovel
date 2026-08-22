@@ -24,6 +24,7 @@ from app.api.routers import novels
 from app.core.dependencies import get_current_user
 from app.db.session import get_session
 from app.models.novel import NovelConversation, NovelProject
+from app.models.reference_novel import ReferenceNovel
 from app.schemas.user import UserInDB
 from app.services.reference_novel_library_service import ReferenceNovelLibraryService
 
@@ -405,6 +406,40 @@ async def test_converse_injects_recommend_compass_from_fusion_dna(db_session, mo
     assert "选项推荐罗盘" in prompt
     assert "核心底层逻辑：以压迫换升级" in prompt
     assert "当众打脸" in prompt
+
+
+@pytest.mark.asyncio
+async def test_converse_injects_all_bound_reference_novel_material(db_session, monkeypatch):
+    """构思不是只保存书名：两本已绑定书的大纲内容都会进入实际 LLM 系统提示词。"""
+    await _seed_project(db_session)
+    first = ReferenceNovel(
+        title="参考甲",
+        user_id=OWNER.id,
+        status="ready",
+        outline_content="甲书独有的身份错位结构",
+        memory_card={"main_conflict_pattern": "以弱抗强"},
+    )
+    second = ReferenceNovel(
+        title="参考乙",
+        user_id=OWNER.id,
+        status="ready",
+        outline_content="乙书独有的双线追凶结构",
+        memory_card={"main_conflict_pattern": "时间竞赛"},
+    )
+    db_session.add_all([first, second])
+    await db_session.flush()
+    project = await db_session.get(NovelProject, PROJECT_ID)
+    project.reference_novel_ids = [first.id, second.id]
+    await db_session.commit()
+    calls = _patch_services(monkeypatch, json.dumps(VALID_RESPONSE, ensure_ascii=False))
+
+    async with _build_client(db_session) as client:
+        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+        assert resp.status_code == 200
+
+    prompt = calls[0]["system_prompt"]
+    assert "参考甲" in prompt and "甲书独有的身份错位结构" in prompt
+    assert "参考乙" in prompt and "乙书独有的双线追凶结构" in prompt
 
 
 @pytest.mark.asyncio

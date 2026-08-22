@@ -52,7 +52,7 @@
           <svg class="select-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
           </svg>
-          从库中选择
+          {{ name ? (rows.length < 3 ? '从库中继续添加' : '从库中替换') : '从库中选择' }}
         </button>
       </div>
     </transition-group>
@@ -68,6 +68,7 @@
 
     <ReferenceNovelLibrary
       v-model:show="libraryVisible"
+      :selected-novel-ids="selectedNovelIds"
       @select="handleLibrarySelect"
     />
   </div>
@@ -77,6 +78,7 @@
 import { computed, ref, watch } from 'vue'
 import type { ReferenceNovelSummary } from '@/api/novel'
 import ReferenceNovelLibrary from './ReferenceNovelLibrary.vue'
+import { addLibraryReference } from '@/utils/referenceNovelSelection'
 
 type SearchStatus = 'idle' | 'searching' | 'success' | 'error' | 'skipped'
 
@@ -108,6 +110,9 @@ const rows = ref<string[]>([''])
 const librarySelections = ref<(number | null)[]>([null])
 const libraryVisible = ref(false)
 const libraryRowIndex = ref(0)
+const selectedNovelIds = computed(() =>
+  librarySelections.value.filter((id): id is number => id !== null),
+)
 
 const normalizeRows = (values: string[] | undefined): string[] => {
   const target = Array.isArray(values) ? values.slice(0, 3) : []
@@ -185,14 +190,13 @@ const openLibrary = (index: number) => {
 }
 
 const handleLibrarySelect = (novel: ReferenceNovelSummary) => {
-  const index = libraryRowIndex.value
-  if (index >= rows.value.length) {
-    rows.value.push(novel.title)
-    librarySelections.value.push(novel.id)
-  } else {
-    rows.value[index] = novel.title
-    librarySelections.value[index] = novel.id
-  }
+  const next = addLibraryReference(
+    { rows: rows.value, selectedIds: librarySelections.value },
+    libraryRowIndex.value,
+    novel,
+  )
+  rows.value = next.rows
+  librarySelections.value = next.selectedIds
   emitRows()
   emitLibrarySelection()
   libraryVisible.value = false

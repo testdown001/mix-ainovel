@@ -112,7 +112,10 @@
                   v-for="novel in filteredNovels"
                   :key="novel.id"
                   class="novel-card"
-                  :class="{ active: selectedNovelId === novel.id }"
+                  :class="{
+                    active: selectedNovelId === novel.id,
+                    bound: isNovelSelected(novel.id),
+                  }"
                   @click="selectedNovelId = novel.id"
                 >
                   <div class="card-top">
@@ -128,8 +131,13 @@
                     </span>
                   </div>
                   <div class="card-actions">
-                    <button class="action-primary" @click.stop="selectNovel(novel)">
-                      ✓ 选择绑定
+                    <button
+                      class="action-primary"
+                      :class="{ selected: isNovelSelected(novel.id) }"
+                      :disabled="isNovelSelected(novel.id)"
+                      @click.stop="selectNovel(novel)"
+                    >
+                      {{ isNovelSelected(novel.id) ? '✓ 已加入参考' : '+ 加入参考' }}
                     </button>
                     <button
                       v-if="novel.status !== 'ready' && novel.status !== 'analyzing'"
@@ -178,11 +186,12 @@ import {
 } from '@/api/novel'
 import ReferenceNovelDetail from '@/components/ReferenceNovelDetail.vue'
 
-const props = defineProps({
-  show: {
-    type: Boolean,
-    default: false
-  }
+const props = withDefaults(defineProps<{
+  show?: boolean
+  selectedNovelIds?: number[]
+}>(), {
+  show: false,
+  selectedNovelIds: () => [],
 })
 
 const emit = defineEmits<{
@@ -237,6 +246,8 @@ const filteredNovels = computed(() => {
   return novels.value.filter((novel) => novel.title.toLowerCase().includes(lower))
 })
 
+const isNovelSelected = (novelId: number) => props.selectedNovelIds.includes(novelId)
+
 const loadNovels = async () => {
   loading.value = true
   try {
@@ -270,8 +281,14 @@ const handleCreate = async () => {
     newAuthor.value = ''
     newGenre.value = ''
     showAddForm.value = false
+    // 新增前可能还保留着上一本文字筛选；先清空，否则新书会被过滤掉，
+    // 造成“书库里只能存在一本”的错觉。
+    searchTerm.value = ''
     await loadNovels()
     selectedNovelId.value = created.id
+    if (!isNovelSelected(created.id)) {
+      selectNovel(created)
+    }
   } finally {
     creating.value = false
   }
@@ -594,6 +611,7 @@ const statusLabel = (status: string) => {
 
 .novel-card:hover { border-color: #444; background: #222; }
 .novel-card.active { border-color: #FFE500; background: rgba(255, 229, 0, 0.04); }
+.novel-card.bound { box-shadow: inset 3px 0 0 #FFE500; }
 
 .card-top {
   display: flex;
@@ -656,6 +674,14 @@ const statusLabel = (status: string) => {
 }
 
 .action-primary:hover { opacity: 0.85; }
+.action-primary:disabled,
+.action-primary.selected {
+  background: rgba(255, 229, 0, 0.1);
+  color: #FFE500;
+  border: 1px solid rgba(255, 229, 0, 0.28);
+  cursor: default;
+  opacity: 1;
+}
 
 .action-warn {
   padding: 3px 10px;

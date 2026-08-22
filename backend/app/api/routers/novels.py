@@ -410,6 +410,15 @@ async def _background_generate_fusion_dna(project_id: str, reference_novel_ids: 
                 project = await session.get(NovelProject, project_id)
                 if not project:
                     return
+                current_ids = list(dict.fromkeys(project.reference_novel_ids or []))[:3]
+                if current_ids != reference_novel_ids:
+                    logger.info(
+                        "后台融合DNA：项目绑定已变化，丢弃过期任务 project=%s expected=%s actual=%s",
+                        project_id,
+                        reference_novel_ids,
+                        current_ids,
+                    )
+                    return
 
                 fusion_dna = await service.generate_fusion_dna(ready_novels, user_id)
                 project.fusion_dna = fusion_dna
@@ -1504,6 +1513,8 @@ async def bind_project_reference_novels(
     for rid in request.reference_novel_ids:
         if len(approved_ids) >= 3:
             break
+        if rid in approved_ids:
+            continue
         novel = await reference_service.get_by_id(rid)
         if not novel:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"参考小说 {rid} 不存在")
@@ -1511,9 +1522,11 @@ async def bind_project_reference_novels(
         if novel.status == "ready":
             ready_novels.append(novel)
     project.reference_novel_ids = approved_ids
+    # 绑定集合改变后，旧融合结果已经失效；在全部参考书就绪之前不能继续沿用。
+    project.fusion_dna = None
 
-    # 如果有已就绪的参考小说，立即生成融合DNA；否则后台等待分析完成后再生成
-    if ready_novels and len(ready_novels) >= 1:
+    # 全部就绪时立即融合；只要还有一本在分析，就等待完整集合，避免“第二本已绑定但未参与”。
+    if ready_novels and len(ready_novels) == len(approved_ids):
         try:
             fusion_dna = await reference_service.generate_fusion_dna(ready_novels, current_user.id)
             project.fusion_dna = fusion_dna

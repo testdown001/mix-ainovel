@@ -556,7 +556,11 @@ watch(
   () => novelStore.currentProject?.id,
   async (projectId) => {
     if (!projectId) {
-      librarySelections.value = []
+      // 重新开始时会短暂清空 currentProject，但参考书输入会被保留；此时也要保留
+      // 对应的书库 ID，供新项目在首轮构思前重新绑定。
+      if (!referenceNovels.value.some((name) => name && name.trim())) {
+        librarySelections.value = []
+      }
       return
     }
     try {
@@ -569,10 +573,10 @@ watch(
   { immediate: true }
 )
 
-const bindReferencesIfNeeded = async () => {
+const bindReferencesIfNeeded = async (referenceNovelIds = selectedReferenceNovelIds.value) => {
   const projectId = novelStore.currentProject?.id
   if (!projectId) return
-  const ids = selectedReferenceNovelIds.value
+  const ids = [...new Set(referenceNovelIds)].slice(0, 3)
   if (!ids.length) return
   try {
     await novelStore.bindProjectReferenceNovels(projectId, ids)
@@ -639,6 +643,9 @@ const backToConversation = () => {
 
 const startConversation = async () => {
   const selectedReferenceNovels = [...normalizedReferenceNovels.value]
+  // resetInspirationMode 会清空当前项目并触发监听器，必须在此之前保存书库 ID。
+  // 绑定要发生在首轮对话和蓝图生成之前，后端才能持续注入参考资料与融合 DNA。
+  const selectedReferenceIds = [...selectedReferenceNovelIds.value]
   const selectedInitialIdea = initialIdea.value.trim()
 
   resetInspirationMode({
@@ -651,6 +658,10 @@ const startConversation = async () => {
 
   try {
     await novelStore.createProject('未命名灵感', '开始灵感模式')
+
+    if (selectedReferenceIds.length > 0) {
+      await bindReferencesIfNeeded(selectedReferenceIds)
+    }
 
     if (selectedReferenceNovels.length > 0) {
       preparingStage.value = 'reference'
@@ -762,6 +773,9 @@ const handleUserInput = async (
 
     const mergedOptions = {
       ...options,
+      ...(normalizedReferenceNovels.value.length
+        ? { referenceNovels: [...normalizedReferenceNovels.value] }
+        : {}),
       ...(referenceContext.value.trim() ? { referenceContext: referenceContext.value.trim() } : {}),
       ...(exclusions.value.trim() ? { exclusions: exclusions.value.trim() } : {}),
       ...(canUsePersona.value && selectedPersona.value !== 'default' ? { musePersona: selectedPersona.value } : {}),
@@ -827,7 +841,6 @@ const handleBlueprintGenerated = async (response: any) => {
   blueprintMessage.value = response.ai_message
   showBlueprintConfirmation.value = false
   showBlueprint.value = true
-  await bindReferencesIfNeeded()
   await scrollToBottom()
 }
 
