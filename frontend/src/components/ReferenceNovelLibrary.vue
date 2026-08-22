@@ -11,7 +11,7 @@
               <svg class="modal-icon" fill="none" stroke="#FFE500" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
-              参考小说库
+              本书参考资料
             </div>
             <button class="modal-close" @click="visible = false">
               <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,15 +35,20 @@
                   <input
                     v-model="searchTerm"
                     class="search-input"
-                    placeholder="搜索参考小说..."
+                    placeholder="搜索本书参考资料..."
                     @input="loadNovelsDeferred"
                   />
                 </div>
-                <button class="btn-primary" @click="showAddForm = !showAddForm" :disabled="showAddForm">
+                <button
+                  class="btn-primary"
+                  @click="showAddForm = !showAddForm"
+                  :disabled="showAddForm || selectionLimitReached"
+                  :title="selectionLimitReached ? '本书最多可添加 3 本参考小说' : undefined"
+                >
                   <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4" />
                   </svg>
-                  添加
+                  {{ selectionLimitReached ? '已达上限' : '添加' }}
                 </button>
                 <button class="btn-ghost" @click="loadNovels" :disabled="loading">
                   <svg class="spin-icon" :class="{ spinning: loading }" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -55,7 +60,7 @@
 
               <!-- Inline add form -->
               <div v-if="showAddForm" class="add-form">
-                <p class="add-form-title">添加参考小说</p>
+                <p class="add-form-title">添加本书参考小说</p>
                 <input
                   ref="addTitleInputEl"
                   v-model="newTitle"
@@ -101,9 +106,13 @@
                   <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                   </svg>
-                  <p>{{ searchTerm ? '未找到匹配的参考小说' : '暂无参考小说' }}</p>
-                  <button v-if="!showAddForm && !searchTerm" class="btn-primary" @click="showAddForm = true">
-                    添加第一本参考小说
+                  <p>{{ searchTerm ? '本书没有匹配的参考小说' : '本书尚未添加参考小说' }}</p>
+                  <button
+                    v-if="!showAddForm && !searchTerm && !selectionLimitReached"
+                    class="btn-primary"
+                    @click="showAddForm = true"
+                  >
+                    添加本书第一本参考小说
                   </button>
                 </div>
 
@@ -137,7 +146,7 @@
                       :disabled="isNovelSelected(novel.id)"
                       @click.stop="selectNovel(novel)"
                     >
-                      {{ isNovelSelected(novel.id) ? '✓ 已加入参考' : '+ 加入参考' }}
+                      {{ isNovelSelected(novel.id) ? '✓ 本书已使用' : '+ 加入本书' }}
                     </button>
                     <button
                       v-if="novel.status !== 'ready' && novel.status !== 'analyzing'"
@@ -147,8 +156,12 @@
                     >
                       {{ loadingAnalyze === novel.id ? '分析中...' : '⚡ 分析' }}
                     </button>
-                    <button class="action-danger" @click.stop="handleDelete(novel.id)">
-                      删除
+                    <button
+                      v-if="isNovelSelected(novel.id)"
+                      class="action-danger"
+                      @click.stop="handleRemove(novel)"
+                    >
+                      移出本书
                     </button>
                   </div>
                 </div>
@@ -161,7 +174,7 @@
                 <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #2A2A2A; margin-bottom: 12px;">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <p>选择左侧小说后查看或编辑其档案。</p>
+                <p>选择左侧参考小说后查看其分析档案。</p>
               </div>
               <ReferenceNovelDetail
                 v-else
@@ -189,14 +202,17 @@ import ReferenceNovelDetail from '@/components/ReferenceNovelDetail.vue'
 const props = withDefaults(defineProps<{
   show?: boolean
   selectedNovelIds?: number[]
+  projectId?: string
 }>(), {
   show: false,
   selectedNovelIds: () => [],
+  projectId: '',
 })
 
 const emit = defineEmits<{
   'update:show': [boolean]
   select: [ReferenceNovelSummary]
+  remove: [number]
 }>()
 
 const visible = ref(false)
@@ -246,12 +262,18 @@ const filteredNovels = computed(() => {
   return novels.value.filter((novel) => novel.title.toLowerCase().includes(lower))
 })
 
+const selectionLimitReached = computed(() => props.selectedNovelIds.length >= 3)
+
 const isNovelSelected = (novelId: number) => props.selectedNovelIds.includes(novelId)
 
 const loadNovels = async () => {
   loading.value = true
   try {
-    novels.value = await NovelAPI.listReferenceNovelLibrary(searchTerm.value)
+    novels.value = await NovelAPI.listReferenceNovelLibrary({
+      search: searchTerm.value,
+      projectId: props.projectId || undefined,
+      novelIds: props.selectedNovelIds,
+    })
   } catch (err) {
     console.error(err)
   } finally {
@@ -268,7 +290,7 @@ const loadNovelsDeferred = () => {
 }
 
 const handleCreate = async () => {
-  if (!newTitle.value.trim()) return
+  if (!newTitle.value.trim() || selectionLimitReached.value) return
   const payload: ReferenceNovelCreatePayload = {
     title: newTitle.value.trim(),
     author: newAuthor.value.trim() || undefined,
@@ -301,11 +323,11 @@ const cancelAdd = () => {
   newGenre.value = ''
 }
 
-const handleDelete = async (novelId: number) => {
-  if (!confirm('确定删除该参考小说？')) return
-  await NovelAPI.deleteReferenceNovel(novelId)
-  novels.value = novels.value.filter((novel) => novel.id !== novelId)
-  if (selectedNovelId.value === novelId) {
+const handleRemove = (novel: ReferenceNovelSummary) => {
+  if (!confirm(`确定将《${novel.title}》移出本书参考资料？\n分析缓存会保留，不影响其他作品。`)) return
+  emit('remove', novel.id)
+  novels.value = novels.value.filter((item) => item.id !== novel.id)
+  if (selectedNovelId.value === novel.id) {
     selectedNovelId.value = null
   }
 }

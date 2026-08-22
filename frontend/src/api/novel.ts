@@ -945,9 +945,21 @@ export class NovelAPI {
     })
   }
 
-  static async listReferenceNovelLibrary(search?: string): Promise<ReferenceNovelSummary[]> {
-    const query = search ? `?search=${encodeURIComponent(search)}` : ''
-    return request(`${REFERENCE_LIBRARY_BASE}${query}`)
+  static async listReferenceNovelLibrary(options: {
+    search?: string
+    projectId?: string
+    novelIds?: number[]
+  } = {}): Promise<ReferenceNovelSummary[]> {
+    const query = new URLSearchParams()
+    if (options.search?.trim()) query.set('search', options.search.trim())
+    if (options.projectId) {
+      query.set('project_id', options.projectId)
+    } else {
+      const novelIds = [...new Set(options.novelIds || [])].slice(0, 3)
+      novelIds.forEach((id) => query.append('ids', String(id)))
+    }
+    const suffix = query.size ? `?${query.toString()}` : ''
+    return request(`${REFERENCE_LIBRARY_BASE}${suffix}`)
   }
 
   static async createReferenceNovel(payload: ReferenceNovelCreatePayload): Promise<ReferenceNovelSummary> {

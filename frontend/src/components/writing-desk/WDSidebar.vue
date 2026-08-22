@@ -74,7 +74,7 @@
         <div class="reference-panel flex-shrink-0">
           <div class="reference-panel-header">
             <div>
-              <p class="reference-panel-title">参考小说</p>
+              <p class="reference-panel-title">本书参考小说</p>
               <p class="reference-panel-subtitle">绑定后：构思引用桥段手法，正文按情境注入参考桥段与写法基准</p>
             </div>
             <div class="reference-panel-actions">
@@ -113,7 +113,7 @@
               </div>
             </div>
             <div v-else class="reference-panel-empty">
-              当前项目未绑定参考小说，可在灵感模式中选取并生成后自动绑定。
+              本书尚未添加参考小说，可在灵感模式中选取并生成后自动绑定。
             </div>
           </div>
         </div>
@@ -536,7 +536,13 @@
       </div>
     </div>
   </div>
-  <ReferenceNovelLibrary v-model:show="referenceLibraryVisible" @select="handleSelectReferenceNovel" />
+  <ReferenceNovelLibrary
+    v-model:show="referenceLibraryVisible"
+    :project-id="project.id"
+    :selected-novel-ids="boundReferenceNovelIds"
+    @select="handleSelectReferenceNovel"
+    @remove="handleRemoveReferenceNovel"
+  />
 </template>
 
 <script setup lang="ts">
@@ -697,6 +703,9 @@ const relationshipCount = computed(() => {
 })
 
 const boundReferenceNovels = computed(() => novelStore.projectReferenceNovels)
+const boundReferenceNovelIds = computed(() =>
+  boundReferenceNovels.value.map((novel) => novel.id),
+)
 const referencePanelLoading = computed(
   () => novelStore.referenceNovelsLoading || novelStore.bindingReferenceNovels
 )
@@ -993,13 +1002,30 @@ const handleSelectReferenceNovel = async (novel: ReferenceNovelSummary) => {
     await refreshReferenceNovels()
     return
   }
-  const newIds = [...currentIds, novel.id].slice(0, 3)
+  if (currentIds.length >= 3) {
+    globalAlert.showError('本书最多可添加 3 本参考小说，请先移出一本后再添加。', '已达上限')
+    return
+  }
+  const newIds = [...currentIds, novel.id]
   try {
     await novelStore.bindProjectReferenceNovels(props.project.id, newIds)
   } catch (err) {
     globalAlert.showError(
       `绑定参考小说失败: ${err instanceof Error ? err.message : '请稍后重试'}`,
       '绑定失败'
+    )
+  }
+}
+
+const handleRemoveReferenceNovel = async (novelId: number) => {
+  if (!props.project?.id) return
+  const remainingIds = boundReferenceNovelIds.value.filter((id) => id !== novelId)
+  try {
+    await novelStore.bindProjectReferenceNovels(props.project.id, remainingIds)
+  } catch (err) {
+    globalAlert.showError(
+      `移出本书失败: ${err instanceof Error ? err.message : '请稍后重试'}`,
+      '操作失败',
     )
   }
 }

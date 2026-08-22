@@ -18,6 +18,7 @@ from ...schemas.reference_novel import (
     ReferenceNovelUpdate,
 )
 from ...schemas.user import UserInDB
+from ...services.novel_service import NovelService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
 from ...models import ReferenceNovel
 
@@ -66,13 +67,35 @@ async def _background_analyze_reference_novel(novel_id: int, user_id: int) -> No
 
 @router.get("", response_model=List[ReferenceNovelSummary])
 async def list_reference_novels(
-    search: Optional[str] = Query(None, description="关键字模糊搜索"),
+    search: Optional[str] = Query(None, description="在本书参考资料中模糊搜索"),
+    project_id: Optional[str] = Query(None, description="当前小说项目 ID"),
+    ids: Optional[List[int]] = Query(None, description="尚未创建项目时，当前草稿已选的参考小说 ID"),
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> List[ReferenceNovelSummary]:
+    """只返回当前小说的参考资料，不暴露账号/系统级全局目录。
+
+    灵感模式在项目创建前使用 ``ids`` 维持当前草稿的最多三本选择；已有项目必须
+    使用 ``project_id``，并经过项目所有权校验后从绑定 ID 读取。底层分析记录可以
+    继续复用缓存，但产品层的“参考小说库”始终是本书作用域。
+    """
     service = ReferenceNovelLibraryService(session)
-    novels = await service.list_all(search=search)
-    return [ReferenceNovelSummary.model_validate(novel) for novel in novels]
+    if project_id:
+        project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+        scoped_ids = list(dict.fromkeys(project.reference_novel_ids or []))[:3]
+    else:
+        scoped_ids = list(dict.fromkeys(ids or []))[:3]
+
+    if not scoped_ids:
+        return []
+
+    novels = await service.get_by_ids(scoped_ids)
+    by_id = {novel.id: novel for novel in novels}
+    ordered = [by_id[novel_id] for novel_id in scoped_ids if novel_id in by_id]
+    normalized_search = (search or "").strip().casefold()
+    if normalized_search:
+        ordered = [novel for novel in ordered if normalized_search in novel.title.casefold()]
+    return [ReferenceNovelSummary.model_validate(novel) for novel in ordered]
 
 
 @router.post("", response_model=ReferenceNovelSummary, status_code=status.HTTP_201_CREATED)
