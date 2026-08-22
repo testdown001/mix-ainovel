@@ -23,9 +23,6 @@ AI_LEXICAL_PATTERNS: List[str] = [
     "换句话说", "毫无疑问", "不言而喻", "事实上", "从某种意义上说",
     "换言之", "由此可见", "正因如此", "总而言之", "需要指出的是",
     "不难发现", "显然", "众所周知",
-    # 情绪判断类（全知叙述标志）
-    "他知道", "他明白", "他意识到", "他感觉到", "他决定", "他清楚",
-    "她知道", "她明白", "她意识到", "她感觉到", "她决定", "她清楚",
     # 总结类
     "总之", "因此", "总的来说", "一切都", "这就是",
     # 修饰冗余类
@@ -82,11 +79,35 @@ SYMMETRIC_PATTERNS: List[re.Pattern] = [
 
 # 层2: 章末环境隐喻收束正则
 AI_ENDING_PATTERNS: List[re.Pattern] = [
-    re.compile(r"(?:仿佛|似乎|好像|像是|宛如|犹如).{0,15}(?:在回应|在呼应|回应着|呼应着)"),
+    re.compile(r"(?:风|雨|夜色|月光|灯光|影子|黑暗|火焰|烟雾|钟声|沉默).{0,15}(?:仿佛|似乎|好像|像是|宛如|犹如).{0,15}(?:回应|呼应)"),
     re.compile(r"(?:有什么|某种).{0,10}(?:正在|悄然|开始).{0,10}(?:苏醒|萌芽|觉醒|改变|生长|蠕动|涌动|震颤)"),
     re.compile(r"(?:随着|跟着|伴着).{0,10}(?:心跳|呼吸|脉搏|决心|意志).{0,15}(?:震颤|跳动|涌动|苏醒|燃烧)"),
-    re.compile(r"(?:在|而).{0,6}(?:黑暗|风声|夜色|沉默|寂静).{0,6}(?:中|里).{0,15}(?:悄然|正在|似乎|仿佛)"),
+    re.compile(r"(?:在|而).{0,6}(?:黑暗|风声|夜色|沉默|寂静).{0,6}(?:中|里).{0,15}(?:悄然|似乎|仿佛).{0,12}(?:苏醒|蔓延|等待|注视|回应|发酵)"),
     re.compile(r".{0,10}(?:像是在为|仿佛在为|似乎在为).{0,15}(?:送行|倒计时|预告|宣告|铺路)"),
+    re.compile(r"(?:命运|时代|历史).{0,10}(?:齿轮|车轮|洪流).{0,12}(?:转动|滚动|启动|开始)"),
+    re.compile(r"(?:风暴|浪潮|序幕|大幕).{0,12}(?:即将|将要|正在|已经|才).{0,10}(?:来临|逼近|拉开|掀起)"),
+    re.compile(r"(?:故事|一切|真正的.{0,8}).{0,10}(?:才刚刚开始|只是开始|即将开始)"),
+    re.compile(r"(?:种子|火种|裂缝).{0,12}(?:埋下|萌芽|燃起|蔓延|生根)"),
+    re.compile(r"(?:风|雨|夜色|月光|灯光|影子|黑暗|沉默|火焰|烟雾).{0,18}(?:仿佛|似乎|像是).{0,18}(?:预告|宣告|见证|吞没|回应|等待)"),
+]
+
+# 描写密度信号：不把单次正常使用判错，只在千字密度或同一套身体反应反复出现时扣分。
+FIGURATIVE_PATTERNS: List[re.Pattern] = [
+    re.compile(r"(?<![画影肖图好])像(?!素|样|章|机)"),
+    re.compile(r"仿佛|似乎|好像|宛如|犹如"),
+]
+
+BODY_REACTION_PATTERNS: Dict[str, re.Pattern] = {
+    "心跳/心脏": re.compile(r"心(?:跳|脏|口).{0,8}(?:加快|狂跳|骤停|一紧|发紧|擂鼓|收缩|沉下)"),
+    "呼吸/胸腔": re.compile(r"(?:呼吸|胸腔|胸口).{0,8}(?:一滞|发紧|起伏|发闷|收紧|堵|压|窒)"),
+    "手指/指尖/掌心": re.compile(r"(?:手指|指尖|指节|掌心).{0,8}(?:发白|发抖|颤|冰凉|出汗|沁出|攥|收紧|僵)"),
+    "喉咙/喉结": re.compile(r"(?:喉咙|喉头|喉结).{0,8}(?:发紧|滚动|干涩|一动|堵|哽)"),
+    "冷汗/汗毛": re.compile(r"(?:冷汗|汗毛|后颈).{0,8}(?:冒|沁|竖|凉|发麻|发紧)"),
+    "目光/眼神": re.compile(r"(?:目光|眼神).{0,8}(?:一凝|发冷|死死|锐利|闪烁|复杂|深邃)"),
+}
+
+EMPTY_INTENSIFIERS: List[str] = [
+    "极其", "极为", "无比", "格外", "异常地", "非常", "十分", "尤其地", "愈发", "越发",
 ]
 
 
@@ -407,6 +428,50 @@ class HumanizationService:
                 location="最后300字",
             ))
 
+        # 2f: 比喻/类比标记密度。单次修辞不扣分，连续堆叠才判 AI 式过度描写。
+        text_k = max(1.0, len(text) / 1000)
+        figurative_count = sum(len(pattern.findall(text)) for pattern in FIGURATIVE_PATTERNS)
+        figurative_density = figurative_count / text_k
+        if figurative_density > 6:
+            d = 10 if figurative_density > 10 else 6
+            total_deduction += d
+            report.issues.append(HumanizationIssue(
+                layer="structural",
+                category="figurative_density",
+                description=f"比喻/类比标记过密 ({figurative_density:.1f}/千字，建议≤6)，应只保留真正解释信息的意象",
+                severity=d,
+            ))
+
+        # 2g: 模板化身体反应。既看总密度，也看同一种反应是否反复出现。
+        body_counts = {label: len(pattern.findall(text)) for label, pattern in BODY_REACTION_PATTERNS.items()}
+        body_total = sum(body_counts.values())
+        body_density = body_total / text_k
+        repeated_body = {label: count for label, count in body_counts.items() if count >= 3}
+        if body_density > 5 or repeated_body:
+            d = 10 if body_density > 8 or repeated_body else 6
+            total_deduction += d
+            repeated_text = "、".join(f"{label}{count}次" for label, count in repeated_body.items())
+            detail = f"；重复项：{repeated_text}" if repeated_text else ""
+            report.issues.append(HumanizationIssue(
+                layer="structural",
+                category="body_reaction_stack",
+                description=f"身体反应描写过密 ({body_density:.1f}/千字){detail}，同一情绪节拍只留一个",
+                severity=d,
+            ))
+
+        # 2h: 空泛程度副词密度。
+        intensifier_count = sum(text.count(word) for word in EMPTY_INTENSIFIERS)
+        intensifier_density = intensifier_count / text_k
+        if intensifier_density > 4:
+            d = 8 if intensifier_density > 7 else 5
+            total_deduction += d
+            report.issues.append(HumanizationIssue(
+                layer="structural",
+                category="modifier_density",
+                description=f"程度副词过密 ({intensifier_density:.1f}/千字)，应改用精确名词、动词或直接删除",
+                severity=d,
+            ))
+
         report.structural_deduction = min(total_deduction, max_deduction)
 
     # -----------------------------------------------------------------------
@@ -527,21 +592,6 @@ class HumanizationService:
                     description=f"对话占比过低({d_ratio:.0%})——网文节奏感50%靠对话，当前叙述比重过大",
                     severity=d,
                 ))
-
-        short_non_dialogue = [
-            p for p in paragraphs
-            if len(p) < 60
-            and not p.startswith("\u201c") and not p.startswith("\u300c") and not p.startswith('"')
-        ]
-        if len(short_non_dialogue) < 2 and len(paragraphs) > 12:
-            d = 5
-            total_deduction += d
-            report.issues.append(HumanizationIssue(
-                layer="missing_human",
-                category="no_waste_details",
-                description="全文每段都在推剧情，缺少'有意义的废笔'（踢石子、看天、闻到饭香等不推剧情但推真实感的细节）",
-                severity=d,
-            ))
 
         # 独立记账：不并入 structural 桶（旧实现 += 会让 structural 实际可达 60，穿透其 40 上限，
         # to_dict 分层归因失真）

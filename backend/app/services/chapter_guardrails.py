@@ -62,6 +62,10 @@ class ChapterGuardrails:
         r"如果她知道",
         r"在他不知道的地方",
         r"在她不知道的地方",
+        r"没有人知道",
+        r"没人知道",
+        r"无人知道",
+        r"谁也不知道",
         r"远在.*的.*正在",
         r"而此刻.*却",
     ]
@@ -178,7 +182,8 @@ class ChapterGuardrails:
         self._check_forbidden_names(generated_text, expanded_forbidden, result)
 
         # B) 检测全知视角 cue（根据容忍度调整）
-        if omniscient_tolerance != "loose":
+        # 章节已指定 POV 时，题材的宽松容忍度不能覆盖明确的有限视角要求。
+        if pov or omniscient_tolerance != "loose":
             self._check_omniscient_cues(generated_text, result)
 
         # C) 检测新角色登场协议
@@ -386,6 +391,7 @@ class ChapterGuardrails:
         patched = text
         stripped_markdown = False
         trimmed_tail = False
+        trim_ai_ending = False
 
         for violation in result.violations:
             if violation.type == "forbidden_name":
@@ -395,7 +401,9 @@ class ChapterGuardrails:
             elif violation.type == "omniscient_cue":
                 cue = self._extract_quoted_token(violation.description)
                 if cue:
-                    patched = patched.replace(cue, "")
+                    # 只删 cue 会把幕后事实原样留下，仍然是上帝视角；本地无法可靠改写
+                    # 信息来源，因此删除整句，标准/精品链仍可在必要时交给 LLM 重写。
+                    patched = self._remove_sentence_containing(patched, cue)
             elif violation.type == "sudden_familiarity":
                 role_name = self._extract_quoted_token(violation.description)
                 if role_name:
@@ -413,8 +421,55 @@ class ChapterGuardrails:
                 if 0 < violation.position < len(patched):
                     patched = patched[:violation.position].rstrip()
                     trimmed_tail = True
+            elif violation.type == "ai_metaphor_ending":
+                trim_ai_ending = True
+
+        if trim_ai_ending:
+            patched = self._trim_ai_metaphor_ending(patched)
 
         return patched
+
+    @staticmethod
+    def _remove_sentence_containing(text: str, token: str) -> str:
+        """删除包含上帝视角 cue 的完整句子，避免只删连接词后仍保留越权事实。"""
+        if not text or not token:
+            return text
+        pattern = re.compile(
+            rf"[^。！？!?\n]*{re.escape(token)}[^。！？!?\n]*(?:[。！？!?]|$)\s*"
+        )
+        cleaned, count = pattern.subn("", text, count=1)
+        if not count or not cleaned.strip():
+            return text.replace(token, "")
+        return cleaned.strip()
+
+    @staticmethod
+    def _trim_ai_metaphor_ending(text: str) -> str:
+        """仅删除命中隐喻规则的最后一句；保留前面的具体剧情落点。"""
+        if not text:
+            return text
+        from .humanization_service import AI_ENDING_PATTERNS
+
+        current = text.rstrip()
+        # 连续两三句都在强行升华时逐句剥离，最多三次，避免误删正文。
+        for _ in range(3):
+            body_end = len(current)
+            while body_end > 0 and current[body_end - 1] in "。！？!?…\"'”’」』）) ":
+                body_end -= 1
+            if body_end <= 0:
+                break
+
+            sentence_start = 0
+            for delimiter in "。！？!?\n":
+                sentence_start = max(sentence_start, current.rfind(delimiter, 0, body_end) + 1)
+            last_sentence = current[sentence_start:]
+            if not any(pattern.search(last_sentence) for pattern in AI_ENDING_PATTERNS):
+                break
+
+            candidate = current[:sentence_start].rstrip()
+            if not candidate:
+                break
+            current = candidate
+        return current or text
 
     @staticmethod
     def _extract_quoted_token(description: str) -> Optional[str]:

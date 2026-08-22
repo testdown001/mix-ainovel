@@ -111,7 +111,10 @@ class SceneGenerationService:
             if is_first:
                 scene_instruction += "- 这是开篇，需要吸引读者\n"
             if is_last:
-                scene_instruction += "- 这是本章最后一个场景，结尾必须落在具体动作/画面上，戛然而止\n"
+                scene_instruction += (
+                    "- 这是本章最后一个场景：在当前 POV 可感知范围内，停在一个具体动作、台词、发现或尚未完成的决定上。"
+                    "不要补写总结、未来预告、环境象征或命运隐喻；不需要为了钩子故意用力戛然而止\n"
+                )
             scene_prompt_parts.append(scene_instruction)
 
             if voice_samples_text and is_first:
@@ -120,7 +123,8 @@ class SceneGenerationService:
             scene_prompt = "\n\n".join(scene_prompt_parts)
             resolved_temp = self.generation_policy_service.resolve_temperature(chapter_mission)
             if is_last:
-                resolved_temp = min(resolved_temp + 0.05, 0.95)
+                # 收尾需要比正文更克制；提高随机度会放大比喻、升华和强行断章。
+                resolved_temp = min(resolved_temp, 0.72)
 
             scene_call_kwargs: Dict[str, Any] = dict(
                 system_prompt=writer_prompt,

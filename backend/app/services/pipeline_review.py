@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # 质量检测 prompt（爽点密度/模式重复/阶段性胜利）。
 # 同步路径 _run_quality_detection 与后台 Stage B（generation_analysis_task_service）共用，
 # 勿再复制内联副本。占位符经 str.format 填充。
-QUALITY_DETECTION_PROMPT_TEMPLATE = """你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。
+QUALITY_DETECTION_PROMPT_TEMPLATE = """你是一位资深网文质量分析师。请分析以下章节的四个维度，输出JSON。
 
 ## 分析维度
 
@@ -43,6 +43,13 @@ QUALITY_DETECTION_PROMPT_TEMPLATE = """你是一位资深网文质量分析师�
 - milestone_victory_detected (true/false)：是否存在阶段性胜利
 - milestone_description：如果存在，一句话描述该阶段性胜利的内容
 
+### 4. 叙事克制度
+检查形容词/副词堆叠、同段多重比喻、重复身体反应、章末象征隐喻，以及超出当前 POV 认知的旁白。
+- prose_discipline_score (0-10)：10=语言准确克制、有限视角稳定、收尾自然
+- prose_discipline_issues：列出具体问题（最多5个）
+- pov_leak_detected (true/false)：是否出现上帝视角或镜头越权
+- metaphorical_ending_detected (true/false)：最后两段是否用隐喻、总结或未来预告收束
+
 [本章开头300字]
 {opening_300}
 
@@ -56,7 +63,7 @@ QUALITY_DETECTION_PROMPT_TEMPLATE = """你是一位资深网文质量分析师�
 {recent_patterns}
 
 输出严格JSON格式：
-{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": ""}}"""
+{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", "repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], "milestone_victory_detected": false, "milestone_description": "", "prose_discipline_score": 0, "prose_discipline_issues": [], "pov_leak_detected": false, "metaphorical_ending_detected": false}}"""
 
 
 class PipelineReviewMixin:
@@ -162,6 +169,8 @@ class PipelineReviewMixin:
 3. **文笔质量**：遣词造句是否恰当，是否存在重复表达或生硬措辞
 4. **节奏控制**：叙事松紧是否得当，铺垫和爆发是否合理分配
 5. **对话质量**：台词是否自然有个性，是否符合角色身份和语境
+6. **叙事克制**：是否堆叠形容词、比喻和身体反应，章末是否强行升华或使用象征隐喻
+7. **有限视角**：旁白是否只陈述当前 POV 可感知、可回忆或有证据可推断的信息
 """
 
         combined_prompt = f"""你是一位资深网文编辑，兼具批评眼光和修稿能力。请对以下章节进行一次性综合修订。
@@ -171,6 +180,10 @@ class PipelineReviewMixin:
 2. 保持原有字数规模，总字数不得超过 {max_word_count} 字
 3. 修改要自然融入，不能有明显修补痕迹
 4. 保持原文的叙事风格和语气{mission_hint}
+5. 优先精确名词和动词；一个句子只留一个主要意象，同一情绪节拍最多一个身体反应
+6. 当前 POV 的简短内心判断可以保留，不要机械改成心跳、冷汗、喉结、指尖或目光
+7. 最后两段只保留具体动作、台词、发现或决定，删除总结、未来预告和环境/命运隐喻
+8. 非 POV 角色的内心、幕后行动和未来结果不得由旁白确认，只能改成可观察线索或当前 POV 的推断
 {review_section}{critique_section}{character_context}{previous_summary_context}
 
 [原章节内容]
@@ -268,7 +281,7 @@ class PipelineReviewMixin:
         next_dim = 6
         if include_polish:
             extra_dimensions += f"""
-{next_dim}. **文学性润色**：优化遣词造句，增强画面感和沉浸感，强化感官描写，打磨对话个性"""
+{next_dim}. **文学性润色**：优化遣词造句，保留必要画面；删去装饰性修辞和重复感官描写，打磨对话个性"""
             next_dim += 1
         if include_density:
             extra_dimensions += f"""
@@ -282,8 +295,8 @@ class PipelineReviewMixin:
 
 **优化维度（同时处理）：**
 1. **对话优化**：让角色台词更有个性、更符合身份，增强潜台词和冲突感
-2. **环境描写**：补充视觉、听觉、触觉等感官细节，增强沉浸感
-3. **心理描写**：用生理反应替代抽象情绪词（"他很愤怒"→具体生理反应），深化内心冲突
+2. **环境描写**：只保留会影响动作、判断或冲突的场景细节，删除天气/光影替人物抒情的段落
+3. **心理描写**：简单情绪允许直陈；优先通过选择、台词和行为后果体现，同一情绪节拍最多一个身体反应
 4. **节奏优化**：调整段落长短、松紧交替，确保铺垫→爆发→余韵的节奏感
 5. **爽点强化**：识别并强化爽点结构（30%铺垫/40%兑现/30%微反转），增加信息差和情绪张力{extra_dimensions}
 
@@ -291,6 +304,9 @@ class PipelineReviewMixin:
 - 保持情节走向、人物关系、对话内容完全不变
 {word_count_principle}
 - 优化要自然融入，不能有明显修补痕迹
+- 优先精确名词和动词；一个句子只留一个主要意象，一个自然段原则上不超过一次比喻
+- 严格保持当前 POV，只写其可感知、可回忆或有证据可推断的信息，不确认其他角色内心或幕后事实
+- 最后两段删除总结、未来预告和命运/环境象征，保留由具体事件形成的自然尾钩
 - optimized_content 字段必须只填写小说正文，禁止包含分析任务、原文本分析、人物分析、氛围分析、优化说明、标题或任何编辑备注
 - optimization_notes 字段只填写简短优化说明，不得混入 optimized_content
 
@@ -365,12 +381,15 @@ class PipelineReviewMixin:
 
 **润色原则：**
 1. 保持情节走向、人物关系、对话内容完全不变
-2. 提升文学性：优化遣词造句，增强画面感和沉浸感
-3. 强化感官描写：视觉、听觉、触觉等多感官细节
+2. 提升准确性：优先精确名词和动词，删除不提供新信息的形容词、副词和装饰性句子
+3. 克制感官描写：只保留会影响人物动作、判断或冲突的细节；一个自然段原则上不超过一次比喻
 4. 润色对话：使角色语言更有个性和感染力
 5. 打磨节奏：优化段落过渡和叙事节奏
 6. 保持原文字数规模，总字数不得超过 {max_word_count} 字，不增删情节
 7. 禁止输出分析任务、原文本分析、人物分析、氛围分析、优化说明、标题或任何编辑备注
+8. 简单情绪允许直陈；同一情绪节拍最多一个身体反应，禁止心跳、冷汗、喉结、指尖、胸腔、目光成套堆叠
+9. 严格保持当前 POV，不确认其他角色内心、幕后行动或未来结果
+10. 最后两段不得新增或保留总结、未来预告、环境/命运隐喻；尾钩必须来自具体事件
 
 [原章节内容]
 {chapter_content}

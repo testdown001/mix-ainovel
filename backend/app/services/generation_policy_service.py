@@ -38,9 +38,9 @@ class GenerationPolicyService:
             if isinstance(hints, list) and hints:
                 return hints[:version_count]
         return [
-            "情绪更细腻，节奏更慢，多写内心戏和感官描写",
+            "人物选择更细腻，节奏稍缓；感官细节只留在关键处，不堆身体反应和修饰语",
             "冲突更强，节奏更快，多写动作和对话",
-            "悬念更重，多埋伏笔，结尾钩子更强",
+            "悬念更清晰，用具体事实留下后续问题；结尾自然收住，不强行升华或使用象征隐喻",
         ][:version_count]
 
     @staticmethod

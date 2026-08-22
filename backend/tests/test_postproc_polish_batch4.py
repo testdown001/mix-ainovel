@@ -225,7 +225,10 @@ def test_quality_detection_prompt_shared_and_no_cr():
     template = pipeline_review_module.QUALITY_DETECTION_PROMPT_TEMPLATE
     assert "\r" not in template
     # 快照锁定关键内容（除 \r 外与去重前一致）
-    assert template.startswith("你是一位资深网文质量分析师。请分析以下章节的三个维度，输出JSON。")
+    assert template.startswith("你是一位资深网文质量分析师。请分析以下章节的四个维度，输出JSON。")
+    assert "prose_discipline_score" in template
+    assert "pov_leak_detected" in template
+    assert "metaphorical_ending_detected" in template
     assert "### 1. 爽点密度" in template
     assert "### 2. 模式重复" in template
     assert "### 3. 阶段性胜利 (Milestone Victory)" in template
@@ -236,7 +239,9 @@ def test_quality_detection_prompt_shared_and_no_cr():
     assert (
         '{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", '
         '"repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], '
-        '"milestone_victory_detected": false, "milestone_description": ""}}'
+        '"milestone_victory_detected": false, "milestone_description": "", '
+        '"prose_discipline_score": 0, "prose_discipline_issues": [], '
+        '"pov_leak_detected": false, "metaphorical_ending_detected": false}}'
     ) in template
 
 
