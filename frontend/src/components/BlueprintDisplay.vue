@@ -52,6 +52,11 @@
 import { ref, computed } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import type { Blueprint } from '@/api/novel'
+import {
+  formatReviewTarget,
+  localizeReviewText,
+  reviewDimensionLabel,
+} from '@/utils/blueprintReviewLocalization'
 
 interface DisplayField {
   label: string;
@@ -303,16 +308,6 @@ const formattedBlueprint = computed(() => {
     return html || '<p class="bp-muted">暂无世界设定详细信息</p>'
   }
 
-  const REVIEW_DIMENSION_LABELS: Record<string, string> = {
-    opening_strength: '开局强度',
-    first_coolpoint_timing: '首个爽点时机',
-    hook_chain: '章末钩子链',
-    volume_escalation: '卷结构升级',
-    foreshadowing_payoff: '伏笔兑现',
-    anticipation_delivery: '期待感兑现',
-    toxic_recheck: '毒点复查'
-  }
-
   const scoreClass = (n: number) => (n >= 70 ? 'bp-score-ok' : n >= 55 ? 'bp-score-mid' : 'bp-score-bad')
 
   const severityClass = (severity: string) => {
@@ -328,7 +323,7 @@ const formattedBlueprint = computed(() => {
       .filter(([, v]) => typeof v === 'number')
       .map(([k, v]) => `
         <div class="bp-metric">
-          <div class="bp-metric-label">${REVIEW_DIMENSION_LABELS[k] || k}</div>
+          <div class="bp-metric-label">${reviewDimensionLabel(k)}</div>
           <div class="bp-metric-score ${scoreClass(Number(v))}">${v}</div>
         </div>
       `).join('')
@@ -338,16 +333,16 @@ const formattedBlueprint = computed(() => {
         <div class="bp-issue ${sev}">
           <div class="bp-issue-meta">
             <span class="bp-issue-badge">${issue.severity || '低'}</span>
-            <span class="bp-muted">${issue.target || ''}</span>
-            <span class="bp-muted">${issue.dimension || ''}</span>
+            <span class="bp-muted">${formatReviewTarget(issue.target)}</span>
+            <span class="bp-muted">${issue.dimension ? reviewDimensionLabel(issue.dimension) : ''}</span>
           </div>
-          <p class="bp-text">${issue.problem || ''}</p>
-          ${issue.fix_hint ? `<p class="bp-hint">修订方向：${issue.fix_hint}</p>` : ''}
+          <p class="bp-text">${localizeReviewText(issue.problem)}</p>
+          ${issue.fix_hint ? `<p class="bp-hint">修订方向：${localizeReviewText(issue.fix_hint)}</p>` : ''}
         </div>
       `
     }).join('')
     const strengths = (report.strengths || []).length
-      ? `<div class="bp-block"><h4 class="bp-label">亮点</h4>${(report.strengths || []).map((s: string) => `<p class="bp-strength">· ${s}</p>`).join('')}</div>`
+      ? `<div class="bp-block"><h4 class="bp-label">亮点</h4>${(report.strengths || []).map((s: string) => `<p class="bp-strength">· ${localizeReviewText(s)}</p>`).join('')}</div>`
       : ''
     return `
       <div class="bp-review-head">
@@ -357,7 +352,7 @@ const formattedBlueprint = computed(() => {
         </div>
         <div class="bp-review-verdict">
           ${report.revised ? '<span class="bp-chip bp-chip-gold">已经过一轮定向修订</span>' : ''}
-          <p class="bp-text">${report.verdict || ''}</p>
+          <p class="bp-text">${localizeReviewText(report.verdict)}</p>
         </div>
       </div>
       ${dims ? `<div class="bp-metrics">${dims}</div>` : ''}

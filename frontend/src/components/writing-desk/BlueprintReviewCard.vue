@@ -5,7 +5,7 @@
       <div class="review-score" :style="{ color: scoreColor }">{{ score }}</div>
       <div class="review-verdict">
         <span v-if="report.revised" class="review-chip">已经过一轮定向修订</span>
-        <p>{{ report.verdict || '暂无总评' }}</p>
+        <p>{{ localizeReviewText(report.verdict) || '暂无总评' }}</p>
       </div>
     </div>
     <div v-if="dimEntries.length" class="review-dims">
@@ -19,15 +19,16 @@
       <div v-for="(issue, i) in report.issues" :key="i" class="review-issue">
         <div class="review-issue-meta">
           <span class="review-chip" :class="severityClass(issue.severity)">{{ issue.severity || '低' }}</span>
-          <span>{{ issue.target }}</span>
+          <span>{{ formatReviewTarget(issue.target) }}</span>
+          <span v-if="issue.dimension">{{ reviewDimensionLabel(issue.dimension) }}</span>
         </div>
-        <p>{{ issue.problem }}</p>
-        <p v-if="issue.fix_hint" class="review-hint">修订方向：{{ issue.fix_hint }}</p>
+        <p>{{ localizeReviewText(issue.problem) }}</p>
+        <p v-if="issue.fix_hint" class="review-hint">修订方向：{{ localizeReviewText(issue.fix_hint) }}</p>
       </div>
     </div>
     <div v-if="report.strengths?.length" class="review-strengths">
       <h4>亮点</h4>
-      <p v-for="(s, i) in report.strengths" :key="i">· {{ s }}</p>
+      <p v-for="(s, i) in report.strengths" :key="i">· {{ localizeReviewText(s) }}</p>
     </div>
   </div>
   <p v-else class="review-empty">快速成纲未跑审稿，深度打磨后会出现商业量表报告。</p>
@@ -36,20 +37,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { BlueprintReviewReport } from '@/api/novel'
+import {
+  formatReviewTarget,
+  localizeReviewText,
+  reviewDimensionLabel,
+} from '@/utils/blueprintReviewLocalization'
 
 const props = defineProps<{ report?: BlueprintReviewReport | null }>()
-
-const LABELS: Record<string, string> = {
-  hook: '开篇钩子',
-  coolpoint_density: '爽点密度',
-  conflict_sustain: '冲突可持续',
-  character_want: '人物欲望',
-  golden_finger: '金手指',
-  foreshadow: '伏笔',
-  volume_rhythm: '分卷节奏',
-  anticipation_delivery: '期待感兑现',
-  toxic_recheck: '毒点复查',
-}
 
 const score = computed(() => Number(props.report?.total_score) || 0)
 const scoreColor = computed(() => numColor(score.value))
@@ -58,7 +52,7 @@ const dimEntries = computed(() =>
 )
 
 function dimLabel(key: string) {
-  return LABELS[key] || key
+  return reviewDimensionLabel(key)
 }
 function numColor(n: number) {
   if (n >= 70) return '#34d399'
