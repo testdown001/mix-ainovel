@@ -1404,31 +1404,36 @@ const confirmPredictionRequest = async () => {
     return
   }
 
-  predictionGeneratingChapter.value = predictionTargetChapter.value
+  const targetChapter = predictionTargetChapter.value
+  const exclusions = predictionExclusions.value.trim() || undefined
+  predictionGeneratingChapter.value = targetChapter
+  // 任务提交后立即让作者回到规划页查看进度；失败时再恢复弹窗，保留原输入便于重试。
+  showPredictionRequestModal.value = false
   try {
     const result = await NovelAPI.generatePrediction(
       project.value.id,
-      predictionTargetChapter.value,
-      predictionExclusions.value.trim() || undefined,
+      targetChapter,
+      exclusions,
     )
 
     const targetOutline = project.value.blueprint?.chapter_outline?.find(
-      (outline) => outline.chapter_number === predictionTargetChapter.value,
+      (outline) => outline.chapter_number === targetChapter,
     )
     if (targetOutline) {
       targetOutline.metadata = { ...targetOutline.metadata, prediction: result }
     }
 
-    if (selectedChapterNumber.value === predictionTargetChapter.value) {
+    if (selectedChapterNumber.value === targetChapter) {
       openPredictionTick.value += 1
     }
 
     lastSavedAt.value = new Date()
     stageOverride.value = null
-    showPredictionRequestModal.value = false
-    globalAlert.showSuccess(`第 ${predictionTargetChapter.value} 章剧情推演已更新`, '推演完成')
+    globalAlert.showSuccess(`第 ${targetChapter} 章剧情推演已更新`, '推演完成')
   } catch (error) {
     console.error('剧情推演失败:', error)
+    predictionTargetChapter.value = targetChapter
+    showPredictionRequestModal.value = true
     globalAlert.showError(
       `剧情推演失败: ${error instanceof Error ? error.message : '未知错误'}`,
       '推演失败',
