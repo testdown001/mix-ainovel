@@ -19,19 +19,38 @@
             </span>
             <h3 class="md-title-small md-on-surface truncate max-w-[42vw]">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
             <button
-              class="md-btn md-btn-text !px-2 !py-0 text-xs"
+              type="button"
+              class="wd-brief-toggle"
+              :aria-expanded="briefOpen"
               @click="briefOpen = !briefOpen"
             >
+              <svg
+                class="wd-brief-toggle__chevron"
+                :class="{ 'is-open': briefOpen }"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+              </svg>
               {{ briefOpen ? '收起要点' : '本章要点' }}
             </button>
             <span
               v-if="!briefOpen && chapterPlanning.coolpoint"
-              class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0"
-            >{{ chapterPlanning.coolpoint }}</span>
+              class="wd-planning-glance wd-planning-glance--accent"
+              :title="chapterPlanning.coolpoint"
+            >
+              <span class="wd-planning-glance__label">爽点</span>
+              <span class="wd-planning-glance__text">{{ chapterPlanning.coolpoint }}</span>
+            </span>
             <span
               v-if="!briefOpen && chapterPlanning.chapter_function"
-              class="md-chip !text-[10px] !px-1.5 !py-0"
-            >{{ chapterPlanning.chapter_function }}</span>
+              class="wd-planning-glance"
+              :title="chapterPlanning.chapter_function"
+            >
+              <span class="wd-planning-glance__label">功能</span>
+              <span class="wd-planning-glance__text">{{ chapterPlanning.chapter_function }}</span>
+            </span>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
@@ -122,55 +141,139 @@
           </div>
           <button v-else class="md-btn md-btn-text !px-2 !py-0 text-xs mt-2" @click="startOutlineEdit">编辑大纲</button>
 
-          <div v-if="selectedChapterOutline" class="mt-3 md-card md-card-outlined p-3" style="border-radius: var(--md-radius-lg);">
-            <div class="flex items-center justify-between mb-2">
-              <h4 class="md-label-large font-semibold">本章规划</h4>
-              <button class="md-btn md-btn-text !px-2 !py-0 text-xs" @click="planningEditing = !planningEditing">
-                {{ planningEditing ? '收起' : '编辑' }}
+          <section v-if="selectedChapterOutline" class="wd-planning-card mt-3">
+            <div class="wd-planning-card__header">
+              <button
+                type="button"
+                class="wd-planning-card__toggle"
+                :aria-expanded="planningDetailsOpen || planningEditing"
+                aria-controls="chapter-planning-details"
+                @click="planningDetailsOpen = !planningDetailsOpen"
+              >
+                <span class="wd-planning-card__icon" aria-hidden="true">规</span>
+                <span class="wd-planning-card__heading">
+                  <span class="wd-planning-card__title">本章规划</span>
+                  <span class="wd-planning-card__meta">
+                    {{ planningFieldCount ? `已填写 ${planningFieldCount} 项约束` : '尚未填写，起草时将仅参考章纲' }}
+                  </span>
+                </span>
+                <svg
+                  class="wd-planning-card__chevron"
+                  :class="{ 'is-open': planningDetailsOpen || planningEditing }"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="wd-planning-card__edit"
+                @click="togglePlanningEdit"
+              >
+                {{ planningEditing ? '取消' : '编辑' }}
               </button>
             </div>
-            <div v-if="!planningEditing" class="flex flex-wrap gap-1.5">
-              <span v-if="chapterPlanning.chapter_function" class="md-chip !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.chapter_function }}</span>
-              <span v-if="chapterPlanning.hook_type" class="md-chip !text-[10px] !px-1.5 !py-0">钩子 {{ chapterPlanning.hook_type }}</span>
-              <span v-if="chapterPlanning.coolpoint" class="md-chip m3-chip-success !text-[10px] !px-1.5 !py-0">{{ chapterPlanning.coolpoint }}</span>
-              <span v-if="!chapterPlanning.chapter_function && !chapterPlanning.coolpoint" class="md-body-small md-on-surface-variant">尚未填写章功能 / 爽点 / 禁写</span>
-            </div>
-            <p v-if="!planningEditing && chapterPlanning.must_not_include?.length" class="md-body-small md-on-surface-variant mt-1">
-              禁写：{{ chapterPlanning.must_not_include.join('、') }}
-            </p>
-            <div v-else-if="planningEditing" class="space-y-2">
-              <input v-model="planningDraft.chapter_function" class="md-input w-full" placeholder="章功能：铺垫 / 爽点 / 转折 / 收束" />
-              <input v-model="planningDraft.hook_type" class="md-input w-full" placeholder="钩子类型" />
-              <input v-model="planningDraft.coolpoint" class="md-input w-full" placeholder="本章爽点" />
-              <textarea v-model="mustNotText" rows="2" class="md-textarea w-full" placeholder="禁写，每行一条" />
-              <button class="md-btn md-btn-filled" :disabled="planningSaving" @click="saveChapterPlanning">
-                {{ planningSaving ? '保存中…' : '保存规划' }}
-              </button>
-            </div>
-          </div>
 
-          <div v-if="canShowPredictionPanel" class="mt-2 flex items-center gap-2">
-            <button
-              @click="showPrediction = !showPrediction"
-              class="md-btn md-btn-text md-ripple flex items-center gap-1 !px-2 !py-1"
-              style="font-size: 0.8125rem;"
+            <p
+              v-if="!planningDetailsOpen && !planningEditing && planningPreview"
+              class="wd-planning-card__preview"
+              :title="planningPreview"
             >
+              {{ planningPreview }}
+            </p>
+
+            <div
+              v-if="planningDetailsOpen || planningEditing"
+              id="chapter-planning-details"
+              class="wd-planning-card__body"
+            >
+              <div v-if="!planningEditing && hasChapterPlanning" class="wd-planning-grid">
+                <div v-if="chapterPlanning.chapter_function" class="wd-planning-item">
+                  <span class="wd-planning-item__label">章功能</span>
+                  <p>{{ chapterPlanning.chapter_function }}</p>
+                </div>
+                <div v-if="chapterPlanning.hook_type" class="wd-planning-item">
+                  <span class="wd-planning-item__label">章末钩子</span>
+                  <p>{{ chapterPlanning.hook_type }}</p>
+                </div>
+                <div v-if="chapterPlanning.coolpoint" class="wd-planning-item wd-planning-item--accent wd-planning-item--wide">
+                  <span class="wd-planning-item__label">核心爽点</span>
+                  <p>{{ chapterPlanning.coolpoint }}</p>
+                </div>
+                <div v-if="chapterPlanning.foreshadowing_ops?.length" class="wd-planning-item wd-planning-item--wide">
+                  <span class="wd-planning-item__label">伏笔安排</span>
+                  <div class="wd-planning-tags">
+                    <span v-for="(item, index) in chapterPlanning.foreshadowing_ops" :key="`${item.op}-${item.name}-${index}`">
+                      {{ foreshadowingOperationLabel(item.op) }} · {{ item.name }}
+                    </span>
+                  </div>
+                </div>
+                <div v-if="chapterPlanning.must_not_include?.length" class="wd-planning-item wd-planning-item--warning wd-planning-item--wide">
+                  <span class="wd-planning-item__label">禁写提醒</span>
+                  <ul>
+                    <li v-for="(item, index) in chapterPlanning.must_not_include" :key="`${item}-${index}`">{{ item }}</li>
+                  </ul>
+                </div>
+              </div>
+              <div v-else-if="!planningEditing" class="wd-planning-empty">
+                暂无额外约束。您可以保持为空，AI 将按章节概要起草。
+              </div>
+              <div v-else class="space-y-2">
+                <label class="wd-planning-field">
+                  <span>章功能</span>
+                  <input v-model="planningDraft.chapter_function" class="md-input w-full" placeholder="例如：铺垫 / 爽点 / 转折 / 收束" />
+                </label>
+                <label class="wd-planning-field">
+                  <span>章末钩子</span>
+                  <input v-model="planningDraft.hook_type" class="md-input w-full" placeholder="例如：新危机、身份揭晓、线索反转" />
+                </label>
+                <label class="wd-planning-field">
+                  <span>核心爽点</span>
+                  <input v-model="planningDraft.coolpoint" class="md-input w-full" placeholder="本章最需要兑现的情绪价值" />
+                </label>
+                <label class="wd-planning-field">
+                  <span>禁写提醒</span>
+                  <textarea v-model="mustNotText" rows="2" class="md-textarea w-full" placeholder="每行一条；不需要可留空" />
+                </label>
+                <div class="flex justify-end">
+                  <button class="md-btn md-btn-filled" :disabled="planningSaving" @click="saveChapterPlanning">
+                    {{ planningSaving ? '保存中…' : '保存规划' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div v-if="canShowPredictionPanel" class="wd-prediction-row mt-2">
+            <button
+              type="button"
+              @click="showPrediction = !showPrediction"
+              :disabled="!outlinePrediction"
+              class="wd-prediction-row__toggle md-ripple"
+              :aria-expanded="showPrediction"
+            >
+              <span class="wd-prediction-row__icon" aria-hidden="true">演</span>
+              <span class="wd-prediction-row__heading">
+                <span>剧情推演</span>
+                <small>{{ outlinePrediction ? '已生成，可展开查看章节节拍' : '尚未生成' }}</small>
+              </span>
               <svg
-                class="w-4 h-4 transition-transform"
-                :class="showPrediction ? 'rotate-90' : ''"
+                class="wd-prediction-row__chevron"
+                :class="{ 'is-open': showPrediction }"
                 fill="currentColor" viewBox="0 0 20 20"
+                aria-hidden="true"
               >
                 <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"></path>
               </svg>
-              剧情推演
-              <span v-if="outlinePrediction" class="md-body-small md-on-surface-variant ml-1">(已有)</span>
             </button>
             <button
               v-if="isChapterCompleted(selectedChapterNumber)"
+              type="button"
               @click="handleGeneratePrediction"
               :disabled="generatingPrediction"
-              class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-2 !py-1 disabled:opacity-50"
-              style="font-size: 0.8125rem;"
+              class="md-btn md-btn-tonal md-ripple flex items-center gap-1 !px-3 !py-1.5 disabled:opacity-50 whitespace-nowrap"
             >
               <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
@@ -456,6 +559,7 @@ const handleHistoryRestored = () => {
   showRevisionHistory.value = false
 }
 const briefOpen = ref(false)
+const planningDetailsOpen = ref(false)
 const planningEditing = ref(false)
 const planningSaving = ref(false)
 const planningDraft = ref<ChapterPlanning>({})
@@ -474,12 +578,67 @@ const selectedChapterOutline = computed(() => {
 })
 
 const chapterPlanning = computed<ChapterPlanning>(() => selectedChapterOutline.value?.metadata?.planning || {})
+const hasChapterPlanning = computed(() => {
+  const planning = chapterPlanning.value
+  return Boolean(
+    planning.chapter_function?.trim()
+    || planning.hook_type?.trim()
+    || planning.coolpoint?.trim()
+    || planning.foreshadowing_ops?.length
+    || planning.must_not_include?.length,
+  )
+})
+const planningFieldCount = computed(() => {
+  const planning = chapterPlanning.value
+  return [
+    planning.chapter_function?.trim(),
+    planning.hook_type?.trim(),
+    planning.coolpoint?.trim(),
+    planning.foreshadowing_ops?.length,
+    planning.must_not_include?.length,
+  ].filter(Boolean).length
+})
+const planningPreview = computed(() => {
+  const planning = chapterPlanning.value
+  const parts = [
+    planning.chapter_function?.trim() ? `功能：${planning.chapter_function.trim()}` : '',
+    planning.coolpoint?.trim() ? `爽点：${planning.coolpoint.trim()}` : '',
+    planning.must_not_include?.length ? `禁写 ${planning.must_not_include.length} 条` : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
+})
+
+const foreshadowingOperationLabels: Record<string, string> = {
+  plant: '埋设',
+  reinforce: '强化',
+  payoff: '回收',
+  resolve: '收束',
+}
+const foreshadowingOperationLabel = (operation: string) => (
+  foreshadowingOperationLabels[operation.toLowerCase()] || operation
+)
+
+function resetPlanningDraft() {
+  const planning = selectedChapterOutline.value?.metadata?.planning || {}
+  planningDraft.value = { ...planning }
+  mustNotText.value = (planning.must_not_include || []).join('\n')
+}
+
+function togglePlanningEdit() {
+  if (planningEditing.value) {
+    resetPlanningDraft()
+    planningEditing.value = false
+    return
+  }
+  resetPlanningDraft()
+  planningDetailsOpen.value = true
+  planningEditing.value = true
+}
 
 watch(
   () => selectedChapterOutline.value,
   (outline) => {
-    planningDraft.value = { ...(outline?.metadata?.planning || {}) }
-    mustNotText.value = (outline?.metadata?.planning?.must_not_include || []).join('\n')
+    resetPlanningDraft()
     outlineDraft.value = { title: outline?.title || '', summary: outline?.summary || '' }
     outlineEditing.value = false
   },
@@ -526,6 +685,7 @@ async function saveChapterPlanning() {
       metadata: { ...(outline.metadata || {}), planning },
     })
     planningEditing.value = false
+    planningDetailsOpen.value = true
     globalAlert.showSuccess('本章规划已写入，下次起草会作为约束。', '规划已保存')
   } catch (err) {
     globalAlert.showError(err instanceof Error ? err.message : '保存失败', '本章规划')
@@ -902,10 +1062,26 @@ const isChapterCompleted = (chapterNumber: number) => {
 
 watch(
   () => props.selectedChapterNumber,
-  (n) => {
-    briefOpen.value = n != null && !isChapterCompleted(n)
+  () => {
+    briefOpen.value = false
+    planningDetailsOpen.value = false
     outlineEditing.value = false
     planningEditing.value = false
+    showPrediction.value = false
+  },
+  { immediate: true },
+)
+
+watch(
+  () => selectedChapter.value?.generation_status,
+  (status) => {
+    if (status === 'generating' || status === 'evaluating' || status === 'selecting') {
+      briefOpen.value = false
+      planningDetailsOpen.value = false
+      planningEditing.value = false
+      outlineEditing.value = false
+      showPrediction.value = false
+    }
   },
   { immediate: true },
 )
@@ -1098,6 +1274,295 @@ const currentComponentProps = computed(() => {
   margin-top: 10px;
   padding-top: 10px;
   border-top: 1px solid var(--md-outline-variant, #2a2a2a);
+}
+
+.wd-brief-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.wd-brief-toggle:hover {
+  color: var(--md-on-surface);
+  background: var(--md-surface-container-high);
+}
+
+.wd-brief-toggle__chevron,
+.wd-planning-card__chevron,
+.wd-prediction-row__chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  transition: transform 0.2s ease;
+}
+
+.wd-brief-toggle__chevron.is-open,
+.wd-planning-card__chevron.is-open,
+.wd-prediction-row__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.wd-planning-glance {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: min(280px, 22vw);
+  padding: 3px 7px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  background: var(--md-surface-container);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
+.wd-planning-glance--accent {
+  border-color: color-mix(in srgb, var(--md-success) 30%, transparent);
+  background: color-mix(in srgb, var(--md-success) 10%, transparent);
+}
+
+.wd-planning-glance__label {
+  flex: 0 0 auto;
+  color: var(--md-primary);
+  font-weight: 700;
+}
+
+.wd-planning-glance__text {
+  overflow: hidden;
+  color: var(--md-on-surface-variant);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wd-planning-card,
+.wd-prediction-row {
+  overflow: hidden;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--md-radius-lg);
+  background: color-mix(in srgb, var(--md-surface-container) 72%, transparent);
+}
+
+.wd-planning-card__header,
+.wd-prediction-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wd-planning-card__toggle,
+.wd-prediction-row__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--md-on-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wd-planning-card__toggle:hover,
+.wd-prediction-row__toggle:not(:disabled):hover {
+  background: var(--md-surface-container-high);
+}
+
+.wd-prediction-row__toggle:disabled {
+  cursor: default;
+}
+
+.wd-planning-card__icon,
+.wd-prediction-row__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--md-primary) 38%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--md-primary) 12%, transparent);
+  color: var(--md-primary);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.wd-prediction-row__icon {
+  border-color: color-mix(in srgb, var(--md-success) 38%, transparent);
+  background: color-mix(in srgb, var(--md-success) 12%, transparent);
+  color: var(--md-success);
+}
+
+.wd-planning-card__heading,
+.wd-prediction-row__heading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wd-planning-card__title,
+.wd-prediction-row__heading > span {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.wd-planning-card__meta,
+.wd-prediction-row__heading small {
+  overflow: hidden;
+  color: var(--md-on-surface-variant);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wd-planning-card__chevron,
+.wd-prediction-row__chevron {
+  color: var(--md-on-surface-variant);
+}
+
+.wd-planning-card__edit {
+  flex: 0 0 auto;
+  margin-right: 10px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--md-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wd-planning-card__edit:hover {
+  background: color-mix(in srgb, var(--md-primary) 10%, transparent);
+}
+
+.wd-planning-card__preview {
+  overflow: hidden;
+  margin: -2px 12px 10px 52px;
+  color: var(--md-on-surface-variant);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wd-planning-card__body {
+  padding: 12px;
+  border-top: 1px solid var(--md-outline-variant);
+  animation: m3-slide-down 0.2s ease-out both;
+}
+
+.wd-planning-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wd-planning-item {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px;
+  background: var(--md-surface-container-low);
+}
+
+.wd-planning-item--wide {
+  grid-column: 1 / -1;
+}
+
+.wd-planning-item--accent {
+  border-color: color-mix(in srgb, var(--md-success) 30%, var(--md-outline-variant));
+  background: color-mix(in srgb, var(--md-success) 8%, var(--md-surface-container-low));
+}
+
+.wd-planning-item--warning {
+  border-color: color-mix(in srgb, var(--md-error) 28%, var(--md-outline-variant));
+  background: color-mix(in srgb, var(--md-error) 7%, var(--md-surface-container-low));
+}
+
+.wd-planning-item__label,
+.wd-planning-field > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--md-primary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}
+
+.wd-planning-item p,
+.wd-planning-item li {
+  color: var(--md-on-surface);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.wd-planning-item ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.wd-planning-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wd-planning-tags span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+  font-size: 0.75rem;
+}
+
+.wd-planning-empty {
+  padding: 14px;
+  border: 1px dashed var(--md-outline-variant);
+  border-radius: 10px;
+  color: var(--md-on-surface-variant);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+.wd-planning-field {
+  display: block;
+}
+
+.wd-prediction-row {
+  padding-right: 8px;
+}
+
+@media (max-width: 960px) {
+  .wd-planning-glance {
+    display: none;
+  }
+
+  .wd-planning-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wd-planning-item--wide {
+    grid-column: auto;
+  }
 }
 
 .m3-chip-success {
