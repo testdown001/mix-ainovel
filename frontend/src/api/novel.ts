@@ -795,6 +795,10 @@ export interface OutlineGenerationTask {
   chapter_numbers: number[]
   completed_numbers: number[]
   failed_numbers: number[]
+  generate_chapters: boolean
+  body_completed_numbers: number[]
+  body_failed_numbers: number[]
+  current_body_chapter?: number | null
   current_batch_start?: number | null
   current_batch_end?: number | null
   progress_percent: number
@@ -1417,6 +1421,8 @@ export class NovelAPI {
     numChapters: number,
     estimatedTotalChapters?: number,
     userPrompt?: string,
+    generateChapters: boolean = false,
+    chapterGenerationConfig?: Partial<AdvancedGenerateFlowConfig>,
   ): Promise<OutlineGenerationTask> {
     const body: Record<string, any> = {
       start_chapter: startChapter,
@@ -1426,6 +1432,10 @@ export class NovelAPI {
       body.estimated_total_chapters = estimatedTotalChapters
     }
     if (userPrompt?.trim()) body.user_prompt = userPrompt.trim()
+    body.generate_chapters = generateChapters
+    if (generateChapters && chapterGenerationConfig) {
+      body.chapter_generation_config = chapterGenerationConfig
+    }
     return request(`${WRITER_BASE}/${projectId}/chapters/outline-tasks`, {
       method: 'POST',
       body: JSON.stringify(body),

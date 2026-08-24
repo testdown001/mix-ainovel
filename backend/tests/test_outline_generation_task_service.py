@@ -55,6 +55,30 @@ async def test_outline_task_lifecycle_and_failed_retry(db_session):
 
 
 @pytest.mark.asyncio
+async def test_body_failure_retry_reuses_saved_outline_and_generation_config(db_session):
+    service = OutlineGenerationTaskService(db_session)
+    task = await service.create_task(
+        project_id="project-body-retry",
+        user_id=17,
+        chapter_numbers=[7, 8],
+        generate_chapters=True,
+        chapter_generation_config={"preset": "standard", "enable_polish": True},
+    )
+    task.status = "partial"
+    task.completed_numbers = [7, 8]
+    task.body_completed_numbers = [7]
+    task.body_failed_numbers = [8]
+    await db_session.commit()
+
+    retry = await service.create_retry_task(task)
+
+    assert retry.chapter_numbers == [8]
+    assert retry.completed_numbers == [8]
+    assert retry.generate_chapters is True
+    assert retry.chapter_generation_config == {"preset": "standard", "enable_polish": True}
+
+
+@pytest.mark.asyncio
 async def test_cancel_only_marks_future_batches(db_session):
     service = OutlineGenerationTaskService(db_session)
     task = await service.create_task(
@@ -68,7 +92,7 @@ async def test_cancel_only_marks_future_batches(db_session):
     cancelled = await service.request_cancel(task)
     assert cancelled.cancel_requested is True
     assert cancelled.status == "cancelling"
-    assert "当前批次" in cancelled.message
+    assert "当前步骤" in cancelled.message
 
 
 @pytest.mark.asyncio
@@ -105,3 +129,88 @@ async def test_background_runner_persists_real_batch_progress(db_session, monkey
     assert task.progress_percent == 100
     assert task.completed_numbers == list(range(7, 19))
     assert task.failed_numbers == []
+
+
+@pytest.mark.asyncio
+async def test_background_runner_executes_outline_then_body_and_tracks_both(db_session, monkeypatch):
+    service = OutlineGenerationTaskService(db_session)
+    task = await service.create_task(
+        project_id="project-two-stage",
+        user_id=19,
+        chapter_numbers=[3, 4],
+        generate_chapters=True,
+        chapter_generation_config={"preset": "fast"},
+    )
+    session_factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    monkeypatch.setattr(task_service_module, "AsyncSessionLocal", session_factory)
+    body_calls = []
+
+    async def fake_generate_range(*, session, project_id, start_chapter, num_chapters, **_kwargs):
+        for number in range(start_chapter, start_chapter + num_chapters):
+            session.add(
+                ChapterOutline(
+                    project_id=project_id,
+                    chapter_number=number,
+                    sort_key=number * 1000,
+                    title=f"第{number}章",
+                    summary="两阶段测试章纲",
+                )
+            )
+        await session.commit()
+
+    async def fake_generate_body(**kwargs):
+        body_calls.append((kwargs["chapter_number"], kwargs["generation_config"]))
+        return {"status": "success"}
+
+    await OutlineGenerationTaskService.run_background(
+        task.id,
+        fake_generate_range,
+        fake_generate_body,
+    )
+    await db_session.refresh(task)
+
+    assert body_calls == [(3, {"preset": "fast"}), (4, {"preset": "fast"})]
+    assert task.completed_numbers == [3, 4]
+    assert task.body_completed_numbers == [3, 4]
+    assert task.body_failed_numbers == []
+    assert task.status == "completed"
+    assert task.progress_percent == 100
+
+
+@pytest.mark.asyncio
+async def test_permanent_body_failure_stops_following_charges(db_session, monkeypatch):
+    service = OutlineGenerationTaskService(db_session)
+    task = await service.create_task(
+        project_id="project-body-gate",
+        user_id=20,
+        chapter_numbers=[1, 2, 3],
+        generate_chapters=True,
+    )
+    session_factory = async_sessionmaker(bind=db_session.bind, expire_on_commit=False)
+    monkeypatch.setattr(task_service_module, "AsyncSessionLocal", session_factory)
+    body_calls = []
+
+    async def fake_generate_range(*, session, project_id, start_chapter, num_chapters, **_kwargs):
+        for number in range(start_chapter, start_chapter + num_chapters):
+            session.add(
+                ChapterOutline(
+                    project_id=project_id,
+                    chapter_number=number,
+                    sort_key=number * 1000,
+                    title=f"第{number}章",
+                    summary="测试章纲",
+                )
+            )
+        await session.commit()
+
+    async def reject_body(**kwargs):
+        body_calls.append(kwargs["chapter_number"])
+        return {"status": "failed", "error": "积分不足", "permanent": True}
+
+    await OutlineGenerationTaskService.run_background(task.id, fake_generate_range, reject_body)
+    await db_session.refresh(task)
+
+    assert body_calls == [1]
+    assert task.body_completed_numbers == []
+    assert task.body_failed_numbers == [1, 2, 3]
+    assert task.status == "partial"

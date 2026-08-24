@@ -235,6 +235,7 @@
       />
       <WDGenerateOutlineModal
         :show="showGenerateOutlineModal"
+        :selected-preset="selectedPreset"
         @close="showGenerateOutlineModal = false"
         @generate="handleGenerateOutline"
       />
@@ -674,6 +675,7 @@ const outlineGenerationTask = ref<OutlineGenerationTask | null>(null)
 let outlineTaskPollTimer: ReturnType<typeof setInterval> | null = null
 let outlineTaskPollInFlight = false
 let outlineTaskLastCompletedCount = 0
+let outlineTaskLastBodyCompletedCount = 0
 const outlineTaskNotified = new Set<string>()
 const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
@@ -1983,11 +1985,20 @@ const notifyOutlineTaskFinished = (task: OutlineGenerationTask) => {
   if (outlineTaskNotified.has(task.id)) return
   outlineTaskNotified.add(task.id)
   if (task.status === 'completed') {
-    globalAlert.showSuccess(`已生成 ${task.completed_numbers.length} 章后续大纲`, '章纲生成完成')
+    if (task.generate_chapters) {
+      globalAlert.showSuccess(
+        `已规划 ${task.completed_numbers.length} 章，并完成 ${task.body_completed_numbers.length} 章正文`,
+        '两阶段生成完成',
+      )
+    } else {
+      globalAlert.showSuccess(`已生成 ${task.completed_numbers.length} 章后续大纲`, '章纲生成完成')
+    }
   } else if (task.status === 'partial') {
     globalAlert.showError(
-      `已完成 ${task.completed_numbers.length} 章，另有 ${task.failed_numbers.length} 章可在任务详情中重试。`,
-      '章纲部分完成',
+      task.generate_chapters
+        ? `章纲完成 ${task.completed_numbers.length} 章，正文完成 ${task.body_completed_numbers.length} 章；还有 ${task.failed_numbers.length + task.body_failed_numbers.length} 章可重试。`
+        : `已完成 ${task.completed_numbers.length} 章，另有 ${task.failed_numbers.length} 章可在任务详情中重试。`,
+      task.generate_chapters ? '两阶段任务部分完成' : '章纲部分完成',
     )
   } else if (task.status === 'cancelled') {
     globalAlert.showSuccess(
@@ -2001,11 +2012,17 @@ const notifyOutlineTaskFinished = (task: OutlineGenerationTask) => {
 
 const applyOutlineTaskUpdate = async (task: OutlineGenerationTask, notify = true) => {
   const completedCount = task.completed_numbers?.length || 0
+  const bodyCompletedCount = task.body_completed_numbers?.length || 0
   outlineGenerationTask.value = task
   isGeneratingOutline.value = activeOutlineTaskStatuses.has(task.status)
 
-  if (completedCount !== outlineTaskLastCompletedCount && project.value) {
+  if (
+    (completedCount !== outlineTaskLastCompletedCount ||
+      bodyCompletedCount !== outlineTaskLastBodyCompletedCount) &&
+    project.value
+  ) {
     outlineTaskLastCompletedCount = completedCount
+    outlineTaskLastBodyCompletedCount = bodyCompletedCount
     await novelStore.loadProject(project.value.id, true).catch(() => undefined)
   }
 
@@ -2042,6 +2059,7 @@ const restoreOutlineGenerationTask = async () => {
     const result = await NovelAPI.getActiveOutlineGenerationTask(project.value.id)
     if (!result.task) return
     outlineTaskLastCompletedCount = result.task.completed_numbers?.length || 0
+    outlineTaskLastBodyCompletedCount = result.task.body_completed_numbers?.length || 0
     outlineGenerationTask.value = result.task
     isGeneratingOutline.value = true
     startOutlineTaskPolling()
@@ -2068,10 +2086,12 @@ const cancelOutlineGenerationTask = async () => {
 
 const retryOutlineGenerationTask = async () => {
   const task = outlineGenerationTask.value
-  if (!task || !project.value || !task.failed_numbers.length) return
+  if (!task || !project.value || task.failed_numbers.length + task.body_failed_numbers.length === 0)
+    return
   try {
     const retryTask = await NovelAPI.retryOutlineGenerationTask(project.value.id, task.id)
     outlineTaskLastCompletedCount = 0
+    outlineTaskLastBodyCompletedCount = 0
     outlineGenerationTask.value = retryTask
     isGeneratingOutline.value = true
     globalAlert.showSuccess(`正在重试 ${retryTask.total_chapters} 个失败章节`, '任务已进入后台')
@@ -2121,6 +2141,7 @@ const handleGenerateOutline = async (
   numChapters: number,
   estimatedTotalChapters?: number,
   userPrompt?: string,
+  generateChapters: boolean = false,
 ) => {
   if (!project.value) return
   isGeneratingOutline.value = true
@@ -2135,11 +2156,19 @@ const handleGenerateOutline = async (
       numChapters,
       estimatedTotalChapters,
       userPrompt,
+      generateChapters,
+      {
+        preset: selectedPreset.value,
+        ...(agentFlowConfigOverrides.value || {}),
+      },
     )
     outlineTaskLastCompletedCount = 0
+    outlineTaskLastBodyCompletedCount = 0
     outlineGenerationTask.value = task
     globalAlert.showSuccess(
-      `正在后台生成第 ${startChapter}～${startChapter + numChapters - 1} 章大纲，可继续使用写作台。`,
+      generateChapters
+        ? `将先规划第 ${startChapter}～${startChapter + numChapters - 1} 章，再自动逐章生成正文。`
+        : `正在后台生成第 ${startChapter}～${startChapter + numChapters - 1} 章大纲，可继续使用写作台。`,
       '任务已开始',
     )
     startOutlineTaskPolling()
@@ -2156,6 +2185,7 @@ const handleGenerateOutline = async (
       if (recovered) {
         outlineGenerationTask.value = recovered
         outlineTaskLastCompletedCount = recovered.completed_numbers?.length || 0
+        outlineTaskLastBodyCompletedCount = recovered.body_completed_numbers?.length || 0
         startOutlineTaskPolling()
         globalAlert.showSuccess('已恢复当前正在运行的章纲任务。', '任务正在进行')
         return

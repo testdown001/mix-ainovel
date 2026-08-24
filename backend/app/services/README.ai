@@ -34,4 +34,4 @@ AILIST NAME=inspiration_spark.py|K=file|P=灵感扰动卡_概念对话每轮随�
 AILIST NAME=muse_persona.py|K=file|P=缪斯人格皮肤_概念对话人格注入|E=build_persona_injection|A=人格列表_注入文案
 AILIST NAME=muse_material_service.py|K=file|P=跨界素材服务_一次性联网搜索|E=MuseMaterialService|A=素材搜索_失败返None降级
 AILIST NAME=concept_divergence_service.py|K=file|P=概念发散服务_N路狂点子生成评分|E=ConceptDivergenceService|A=发散种子_三轴评分_TopK
-AILIST NAME=outline_generation_task_service.py|K=file|P=批量章纲后台任务服务|E=OutlineGenerationTaskService|A=分批执行_真实进度_停止_失败重试
+AILIST NAME=outline_generation_task_service.py|K=file|P=章纲与可选正文两阶段后台任务|E=OutlineGenerationTaskService|A=分批执行_两阶段进度_停止_失败重试

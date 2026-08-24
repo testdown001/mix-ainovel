@@ -18,7 +18,7 @@ import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from ...core.safe_task import safe_create_task
 
@@ -1552,6 +1552,58 @@ async def _generate_outline_range_for_task(
     )
 
 
+async def _generate_chapter_body_for_outline_task(
+    *,
+    task_id: str,
+    project_id: str,
+    user_id: int,
+    chapter_number: int,
+    generation_config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """复用内部异步 worker 的门控、计费、退款、生成和自动选版语义。"""
+    from . import task_worker
+
+    config = dict(generation_config or {})
+    preset = str(config.pop("preset", "fast") or "fast")
+    use_agent = bool(config.pop("use_agent", False))
+    rag_mode = str(config.pop("rag_mode", "simple") or "simple")
+    body_task_id = str(uuid5(NAMESPACE_URL, f"outline-body:{task_id}:{chapter_number}"))
+    request = task_worker.WorkerTaskRequest(
+        task_id=body_task_id,
+        task_type="chapter:generate",
+        project_id=project_id,
+        chapter_number=chapter_number,
+        user_id=user_id,
+        config=task_worker.TaskConfig(
+            preset=preset,
+            use_agent_system=use_agent,
+            rag_mode=rag_mode,
+            auto_select=True,
+            extra=config,
+        ),
+    )
+    try:
+        response = await task_worker.execute_task(
+            request,
+            x_internal_secret=settings.task_dispatcher_internal_callback_secret,
+        )
+    except HTTPException as exc:
+        # 内部密钥缺失等配置错误不会因逐章重试自行恢复；立即停止后续章节，
+        # 避免一个确定性故障制造整批重复请求。
+        return {
+            "status": "failed",
+            "error": str(exc.detail),
+            "permanent": True,
+        }
+    if response.status == "completed":
+        return {"status": "success", "result": response.result}
+    return {
+        "status": "failed",
+        "error": response.error or "正文生成失败",
+        "permanent": response.permanent,
+    }
+
+
 @router.post(
     "/novels/{project_id}/chapters/outline-tasks",
     response_model=OutlineGenerationTaskResponse,
@@ -1568,6 +1620,8 @@ async def create_outline_generation_task(
     await NovelService(session).ensure_project_owner(project_id, current_user.id)
     if request.start_chapter < 1 or request.num_chapters < 1 or request.num_chapters > 200:
         raise HTTPException(status_code=400, detail="本次生成章数必须在 1～200 之间")
+    if request.generate_chapters and request.num_chapters > 20:
+        raise HTTPException(status_code=400, detail="自动生成正文单次最多 20 章")
 
     service = OutlineGenerationTaskService(session)
     try:
@@ -1577,6 +1631,12 @@ async def create_outline_generation_task(
             chapter_numbers=range(request.start_chapter, request.start_chapter + request.num_chapters),
             estimated_total_chapters=request.estimated_total_chapters,
             user_prompt=request.user_prompt,
+            generate_chapters=request.generate_chapters,
+            chapter_generation_config=(
+                request.chapter_generation_config.model_dump(exclude_none=True)
+                if request.chapter_generation_config
+                else None
+            ),
         )
     except ValueError as exc:
         active_task_id = str(exc)
@@ -1595,6 +1655,7 @@ async def create_outline_generation_task(
         OutlineGenerationTaskService.run_background,
         task.id,
         _generate_outline_range_for_task,
+        _generate_chapter_body_for_outline_task,
     )
     return task
 
@@ -1681,6 +1742,7 @@ async def retry_outline_generation_task(
         OutlineGenerationTaskService.run_background,
         retry_task.id,
         _generate_outline_range_for_task,
+        _generate_chapter_body_for_outline_task,
     )
     return retry_task
 

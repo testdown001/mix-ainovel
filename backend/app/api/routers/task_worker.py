@@ -59,6 +59,7 @@ class TaskConfig(BaseModel):
     rag_mode: str = "simple"
     writing_notes: str = ""
     depth: str = "deep"
+    auto_select: bool = False
     extra: Dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="before")
@@ -293,6 +294,13 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
 
         if req.task_type == "chapter:generate":
             result = await _execute_chapter_generate(req, reporter)
+            if req.config.auto_select and req.chapter_number is not None:
+                selected_version_id = await _select_batch_generated_chapter(
+                    req,
+                    req.chapter_number,
+                    int(result.get("best_version_index", 0) or 0),
+                )
+                result["selected_version_id"] = selected_version_id
         elif req.task_type == "chapter:batch_generate":
             result = await _execute_batch_generate(req, reporter)
         elif req.task_type == "blueprint:generate":

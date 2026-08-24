@@ -32,6 +32,11 @@ class OutlineGenerationTask(Base):
     chapter_numbers: Mapped[List[int]] = mapped_column(JSON, nullable=False)
     completed_numbers: Mapped[List[int]] = mapped_column(JSON, nullable=False, default=list)
     failed_numbers: Mapped[List[int]] = mapped_column(JSON, nullable=False, default=list)
+    generate_chapters: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    chapter_generation_config: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    body_completed_numbers: Mapped[List[int]] = mapped_column(JSON, nullable=False, default=list)
+    body_failed_numbers: Mapped[List[int]] = mapped_column(JSON, nullable=False, default=list)
+    current_body_chapter: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     current_batch_start: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     current_batch_end: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

@@ -1,4 +1,4 @@
-<!-- AIMETA P=批量章纲任务卡_真实进度与详情|R=后台任务摘要_逐章状态_停止重试|NR=不发起轮询|E=component:WDOutlineTaskCard|X=ui|A=章纲任务进度|D=vue,headlessui|S=dom|RD=./README.ai -->
+<!-- AIMETA P=章纲与正文两阶段任务卡|R=后台任务摘要_双阶段逐章状态_停止重试|NR=不发起轮询|E=component:WDOutlineTaskCard|X=ui|A=两阶段任务进度|D=vue,headlessui|S=dom|RD=./README.ai -->
 <template>
   <section class="outline-task-card" :data-status="task.status" aria-live="polite">
     <div class="task-card-head">
@@ -29,10 +29,11 @@
     </div>
 
     <div class="task-numbers">
-      <strong>{{ completedCount }} / {{ task.total_chapters }} 章</strong>
-      <span v-if="task.failed_numbers.length" class="failed-copy"
-        >{{ task.failed_numbers.length }} 章待重试</span
+      <strong v-if="task.generate_chapters"
+        >正文 {{ bodyCompletedCount }} / {{ task.total_chapters }} 章</strong
       >
+      <strong v-else>章纲 {{ completedCount }} / {{ task.total_chapters }} 章</strong>
+      <span v-if="retryCount" class="failed-copy">{{ retryCount }} 章待重试</span>
       <span v-else>{{ etaText }}</span>
     </div>
     <div
@@ -47,9 +48,7 @@
     <div class="task-card-foot">
       <span>{{ currentRange || stageLabel }}</span>
       <button v-if="isActive" type="button" @click="emit('cancel')">停止后续批次</button>
-      <button v-else-if="task.failed_numbers.length" type="button" @click="emit('retry')">
-        重试失败章节
-      </button>
+      <button v-else-if="retryCount" type="button" @click="emit('retry')">重试失败章节</button>
       <button v-else type="button" @click="emit('dismiss')">知道了</button>
     </div>
   </section>
@@ -82,8 +81,10 @@
               <DialogPanel class="task-dialog">
                 <div class="dialog-head">
                   <div>
-                    <p>BATCH OUTLINE</p>
-                    <DialogTitle as="h3">批量章纲生成进度</DialogTitle>
+                    <p>{{ task.generate_chapters ? 'OUTLINE → MANUSCRIPT' : 'BATCH OUTLINE' }}</p>
+                    <DialogTitle as="h3">
+                      {{ task.generate_chapters ? '章纲与正文生成进度' : '批量章纲生成进度' }}
+                    </DialogTitle>
                     <span
                       >第{{ firstChapter }}～{{ lastChapter }}章 · 共
                       {{ task.total_chapters }} 章</span
@@ -95,14 +96,14 @@
                 <div class="dialog-summary">
                   <div class="summary-number">
                     <strong>{{ completedCount }}</strong
-                    ><span>已完成</span>
+                    ><span>章纲完成</span>
                   </div>
                   <div class="summary-number">
-                    <strong>{{ pendingCount }}</strong
-                    ><span>等待中</span>
+                    <strong>{{ task.generate_chapters ? bodyCompletedCount : pendingCount }}</strong
+                    ><span>{{ task.generate_chapters ? '正文完成' : '等待中' }}</span>
                   </div>
                   <div class="summary-number is-failed">
-                    <strong>{{ task.failed_numbers.length }}</strong
+                    <strong>{{ retryCount }}</strong
                     ><span>失败</span>
                   </div>
                   <div class="summary-stage">
@@ -148,7 +149,13 @@
                       <span v-else>{{ String(number).padStart(2, '0') }}</span>
                     </span>
                     <span class="chapter-label">第 {{ number }} 章</span>
-                    <strong>{{ chapterStateLabel(number) }}</strong>
+                    <span v-if="task.generate_chapters" class="phase-statuses">
+                      <em :data-state="outlineState(number)"
+                        >章纲 {{ outlineStateLabel(number) }}</em
+                      >
+                      <em :data-state="bodyState(number)">正文 {{ bodyStateLabel(number) }}</em>
+                    </span>
+                    <strong v-else>{{ chapterStateLabel(number) }}</strong>
                   </div>
                 </div>
 
@@ -163,21 +170,14 @@
                     停止后续批次
                   </button>
                   <button
-                    v-else-if="task.failed_numbers.length"
+                    v-else-if="retryCount"
                     type="button"
                     class="primary"
                     @click="emit('retry')"
                   >
                     重试失败章节
                   </button>
-                  <button
-                    v-else
-                    type="button"
-                    class="primary"
-                    @click="finishDetails"
-                  >
-                    完成
-                  </button>
+                  <button v-else type="button" class="primary" @click="finishDetails">完成</button>
                 </div>
               </DialogPanel>
             </TransitionChild>
@@ -200,10 +200,20 @@ const detailsOpen = ref(false)
 const activeStatuses = new Set(['queued', 'running', 'cancelling'])
 const completedSet = computed(() => new Set(props.task.completed_numbers || []))
 const failedSet = computed(() => new Set(props.task.failed_numbers || []))
+const bodyCompletedSet = computed(() => new Set(props.task.body_completed_numbers || []))
+const bodyFailedSet = computed(() => new Set(props.task.body_failed_numbers || []))
+const retrySet = computed(() => new Set([...failedSet.value, ...bodyFailedSet.value]))
 const isActive = computed(() => activeStatuses.has(props.task.status))
 const completedCount = computed(() => props.task.completed_numbers?.length || 0)
+const bodyCompletedCount = computed(() => props.task.body_completed_numbers?.length || 0)
+const retryCount = computed(() => retrySet.value.size)
 const pendingCount = computed(() =>
-  Math.max(0, props.task.total_chapters - completedCount.value - failedSet.value.size),
+  Math.max(
+    0,
+    props.task.total_chapters -
+      (props.task.generate_chapters ? bodyCompletedCount.value : completedCount.value) -
+      retryCount.value,
+  ),
 )
 const taskPercent = computed(() => Math.max(0, Math.min(100, props.task.progress_percent || 0)))
 const firstChapter = computed(() => props.task.chapter_numbers[0] ?? props.task.start_chapter)
@@ -213,11 +223,17 @@ const lastChapter = computed(() => {
 })
 
 const title = computed(() => {
-  if (props.task.status === 'completed') return '章纲生成完成'
-  if (props.task.status === 'partial') return '部分章纲需要重试'
-  if (props.task.status === 'failed') return '章纲生成失败'
-  if (props.task.status === 'cancelled') return '章纲生成已停止'
+  if (props.task.status === 'completed')
+    return props.task.generate_chapters ? '章纲与正文生成完成' : '章纲生成完成'
+  if (props.task.status === 'partial') return '部分章节需要重试'
+  if (props.task.status === 'failed')
+    return props.task.generate_chapters ? '两阶段生成失败' : '章纲生成失败'
+  if (props.task.status === 'cancelled')
+    return props.task.generate_chapters ? '两阶段任务已停止' : '章纲生成已停止'
   if (props.task.status === 'cancelling') return '正在停止任务'
+  if (props.task.stage === 'body_generating' || props.task.stage === 'body_saving') {
+    return '正在生成章节正文'
+  }
   return '正在生成后续章纲'
 })
 
@@ -228,6 +244,8 @@ const stageLabel = computed(
       preparing: '准备故事上下文',
       generating: 'AI 正在生成章纲',
       saving: '校验并保存结果',
+      body_generating: 'AI 正在撰写正文',
+      body_saving: '确认最佳正文版本',
       cancelling: '等待当前批次结束',
       completed: '任务已结束',
       failed: '任务执行失败',
@@ -236,6 +254,9 @@ const stageLabel = computed(
 )
 
 const currentRange = computed(() => {
+  if (props.task.current_body_chapter) {
+    return `正在撰写第 ${props.task.current_body_chapter} 章正文`
+  }
   const start = props.task.current_batch_start
   const end = props.task.current_batch_end
   if (!start || !end) return ''
@@ -252,6 +273,22 @@ const etaText = computed(() => {
 })
 
 function chapterState(number: number): 'completed' | 'failed' | 'running' | 'pending' {
+  if (props.task.generate_chapters && bodyCompletedSet.value.has(number)) return 'completed'
+  if (!props.task.generate_chapters && completedSet.value.has(number)) return 'completed'
+  if (retrySet.value.has(number)) return 'failed'
+  if (isActive.value && props.task.current_body_chapter === number) return 'running'
+  if (
+    isActive.value &&
+    props.task.current_batch_start != null &&
+    props.task.current_batch_end != null &&
+    number >= props.task.current_batch_start &&
+    number <= props.task.current_batch_end
+  )
+    return 'running'
+  return 'pending'
+}
+
+function outlineState(number: number): 'completed' | 'failed' | 'running' | 'pending' {
   if (completedSet.value.has(number)) return 'completed'
   if (failedSet.value.has(number)) return 'failed'
   if (
@@ -263,6 +300,30 @@ function chapterState(number: number): 'completed' | 'failed' | 'running' | 'pen
   )
     return 'running'
   return 'pending'
+}
+
+function bodyState(number: number): 'completed' | 'failed' | 'running' | 'pending' | 'blocked' {
+  if (bodyCompletedSet.value.has(number)) return 'completed'
+  if (bodyFailedSet.value.has(number)) return 'failed'
+  if (isActive.value && props.task.current_body_chapter === number) return 'running'
+  if (failedSet.value.has(number) || !completedSet.value.has(number)) return 'blocked'
+  return 'pending'
+}
+
+function outlineStateLabel(number: number): string {
+  return { completed: '已完成', failed: '失败', running: '生成中', pending: '等待中' }[
+    outlineState(number)
+  ]
+}
+
+function bodyStateLabel(number: number): string {
+  return {
+    completed: '已完成',
+    failed: '失败',
+    running: '生成中',
+    pending: '待生成',
+    blocked: '等待章纲',
+  }[bodyState(number)]
 }
 
 function chapterStateLabel(number: number): string {
@@ -482,7 +543,7 @@ function finishDetails(): void {
 }
 .chapter-status-row {
   display: grid;
-  grid-template-columns: 28px 1fr auto;
+  grid-template-columns: 28px minmax(70px, 1fr) auto;
   align-items: center;
   gap: 9px;
   padding: 9px 10px;
@@ -523,6 +584,27 @@ function finishDetails(): void {
 .chapter-status-row strong {
   color: #73766f;
   font-size: 9px;
+}
+.phase-statuses {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.phase-statuses em {
+  color: #73766f;
+  font-size: 8px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.phase-statuses em[data-state='completed'] {
+  color: #36d885;
+}
+.phase-statuses em[data-state='running'] {
+  color: #ffe500;
+}
+.phase-statuses em[data-state='failed'] {
+  color: #ff8181;
 }
 .task-error {
   margin: 0 26px 18px;

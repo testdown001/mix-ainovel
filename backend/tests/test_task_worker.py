@@ -3,7 +3,7 @@ import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from app.api.routers import task_worker
+from app.api.routers import task_worker, writer
 
 
 @pytest.fixture(autouse=True)
@@ -139,6 +139,36 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
     assert result["results"][1]["status"] == "failed"
 
 
+def test_single_generation_auto_selects_when_requested(monkeypatch):
+    monkeypatch.setattr(task_worker, "AsyncSessionLocal", lambda: _SessionContext(SimpleNamespace()))
+    monkeypatch.setattr(task_worker, "get_user_tier", AsyncMock(return_value="free"))
+    monkeypatch.setattr(task_worker, "ensure_generation_preset_allowed", AsyncMock())
+    monkeypatch.setattr(task_worker, "ensure_flow_overrides_allowed", AsyncMock())
+    monkeypatch.setattr(task_worker, "ensure_model_allowed", AsyncMock())
+    monkeypatch.setattr(task_worker, "charge_generation", AsyncMock(return_value=0))
+    generate = AsyncMock(
+        return_value={"chapter_number": 9, "best_version_index": 1, "status": "completed"}
+    )
+    select = AsyncMock(return_value=901)
+    monkeypatch.setattr(task_worker, "_execute_chapter_generate", generate)
+    monkeypatch.setattr(task_worker, "_select_batch_generated_chapter", select)
+
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-auto-select",
+        task_type="chapter:generate",
+        project_id="project-1",
+        chapter_number=9,
+        user_id=12,
+        config=task_worker.TaskConfig(preset="fast", auto_select=True),
+    )
+
+    response = asyncio.run(task_worker.execute_task(req, x_internal_secret="s3cret"))
+
+    assert response.status == "completed"
+    assert response.result["selected_version_id"] == 901
+    select.assert_awaited_once_with(req, 9, 1)
+
+
 def test_progress_reporter_sends_internal_secret(monkeypatch):
     captured = {}
 
@@ -253,3 +283,38 @@ def test_task_config_tolerates_null_fields_from_gateway():
     )
     assert req.config.extra == {}
     assert req.config.preset == "fast"
+
+
+def test_outline_body_wrapper_reuses_worker_and_auto_selects(monkeypatch):
+    execute = AsyncMock(
+        return_value=task_worker.WorkerTaskResponse(
+            status="completed",
+            result={"selected_version_id": 88},
+        )
+    )
+    monkeypatch.setattr(task_worker, "execute_task", execute)
+
+    result = asyncio.run(
+        writer._generate_chapter_body_for_outline_task(
+            task_id="outline-task-1",
+            project_id="project-1",
+            user_id=12,
+            chapter_number=7,
+            generation_config={
+                "preset": "standard",
+                "use_agent": True,
+                "rag_mode": "two_stage",
+                "enable_polish": True,
+            },
+        )
+    )
+
+    assert result == {"status": "success", "result": {"selected_version_id": 88}}
+    request = execute.await_args.args[0]
+    assert request.task_type == "chapter:generate"
+    assert request.chapter_number == 7
+    assert request.config.preset == "standard"
+    assert request.config.use_agent_system is True
+    assert request.config.rag_mode == "two_stage"
+    assert request.config.auto_select is True
+    assert request.config.extra == {"enable_polish": True}

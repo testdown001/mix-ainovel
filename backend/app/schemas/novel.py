@@ -398,6 +398,11 @@ class GenerateOutlineRequest(BaseModel):
         max_length=4000,
         description="用户附加的剧情提示",
     )
+    generate_chapters: bool = Field(default=False, description="章纲完成后继续生成对应正文")
+    chapter_generation_config: Optional[FlowConfig] = Field(
+        default=None,
+        description="自动正文使用的写作档位与受控生成选项",
+    )
 
 
 class OutlineGenerationTaskResponse(BaseModel):
@@ -415,6 +420,10 @@ class OutlineGenerationTaskResponse(BaseModel):
     chapter_numbers: List[int]
     completed_numbers: List[int] = Field(default_factory=list)
     failed_numbers: List[int] = Field(default_factory=list)
+    generate_chapters: bool = False
+    body_completed_numbers: List[int] = Field(default_factory=list)
+    body_failed_numbers: List[int] = Field(default_factory=list)
+    current_body_chapter: Optional[int] = None
     current_batch_start: Optional[int] = None
     current_batch_end: Optional[int] = None
     progress_percent: int = 0
