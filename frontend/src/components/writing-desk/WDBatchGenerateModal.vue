@@ -1,4 +1,4 @@
-<!-- AIMETA P=连续生成弹窗_批量生成配置|R=连续生成表单|NR=不含生成逻辑|E=component:WDBatchGenerateModal|X=ui|A=连续生成弹窗|D=vue|S=dom|RD=./README.ai -->
+<!-- AIMETA P=批量生成正文弹窗_顺序生成配置|R=生成数量_统一写作指令|NR=不含生成逻辑|E=component:WDBatchGenerateModal|X=ui|A=批量正文弹窗|D=vue|S=dom|RD=./README.ai -->
 <template>
   <TransitionRoot as="template" :show="show">
     <Dialog as="div" class="relative z-50" @close="$emit('close')">
@@ -18,9 +18,9 @@
                     </svg>
                   </div>
                   <div class="text-center sm:flex-1 sm:text-left">
-                    <DialogTitle as="h3" class="md-headline-small font-semibold leading-7">连续生成</DialogTitle>
+                    <DialogTitle as="h3" class="md-headline-small font-semibold leading-7">批量生成正文</DialogTitle>
                     <div class="mt-2">
-                      <p class="md-body-medium md-on-surface-variant">系统将自动逐章生成并选版，无需手动操作。</p>
+                      <p class="md-body-medium md-on-surface-variant">系统将从首个未完成章节开始，按故事顺序生成并自动选版。</p>
                     </div>
                   </div>
                 </div>
@@ -55,7 +55,7 @@
                 </div>
               </div>
               <div class="px-6 py-4 sm:flex sm:flex-row-reverse sm:px-8" style="background-color: var(--md-surface-container-low);">
-                <button type="button" class="md-btn md-btn-filled md-ripple sm:ml-3 sm:w-auto w-full justify-center" :disabled="count < 1 || maxCount < 1" @click="handleStart">开始连续生成</button>
+                <button type="button" class="md-btn md-btn-filled md-ripple sm:ml-3 sm:w-auto w-full justify-center" :disabled="count < 1 || maxCount < 1" @click="handleStart">开始批量生成</button>
                 <button type="button" class="md-btn md-btn-outlined md-ripple sm:mt-0 sm:ml-3 sm:w-auto w-full justify-center mt-3" @click="$emit('close')">取消</button>
               </div>
             </DialogPanel>

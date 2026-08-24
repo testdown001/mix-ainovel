@@ -232,7 +232,7 @@
                 @click="$emit('batchGenerate')"
               >
                 <span class="tool-action-icon">↻</span>
-                <span><strong>连续生成</strong><small>批量生成章节正文</small></span>
+                <span><strong>批量写正文</strong><small>按章纲顺序连续生成</small></span>
               </button>
               <button
                 v-else
@@ -385,6 +385,32 @@
               >
                 <span>快捷定位</span><strong>下一未完成</strong>
               </button>
+            </div>
+            <div
+              v-if="props.batchGenerating || incompleteChapterCount > 0"
+              class="compact-batch-entry"
+              :class="{ running: props.batchGenerating }"
+              :aria-live="props.batchGenerating ? 'polite' : undefined"
+            >
+              <div>
+                <small>{{ props.batchGenerating ? '正在批量生成正文' : `待写正文 ${incompleteChapterCount} 章` }}</small>
+                <strong v-if="props.batchGenerating">
+                  {{ props.batchProgress?.current || 0 }} / {{ props.batchProgress?.total || incompleteChapterCount }} 章
+                </strong>
+                <strong v-else>从第 {{ firstIncompleteChapter?.chapter_number || 1 }} 章按顺序生成</strong>
+              </div>
+              <button
+                v-if="props.batchGenerating"
+                type="button"
+                class="stop"
+                @click="$emit('cancelBatch')"
+              >
+                停止
+              </button>
+              <button v-else type="button" @click="$emit('batchGenerate')">批量生成</button>
+              <span v-if="props.batchGenerating" class="compact-batch-progress">
+                <i :style="{ width: compactBatchProgressPercent + '%' }"></i>
+              </span>
             </div>
             <select v-if="volumeOptions.length" v-model="selectedVolume" class="compact-volume-select">
               <option value="all">全部分卷</option>
@@ -1019,6 +1045,18 @@ const totalChapters = computed(() => {
 
 const completedChapters = computed(() => {
   return props.project?.chapters?.filter(ch => ch.generation_status === 'successful').length || 0
+})
+
+const incompleteChapterCount = computed(() =>
+  (props.project?.blueprint?.chapter_outline || []).filter(
+    chapter => !isChapterCompleted(chapter.chapter_number)
+  ).length
+)
+
+const compactBatchProgressPercent = computed(() => {
+  const total = props.batchProgress?.total || incompleteChapterCount.value
+  if (!total) return 0
+  return Math.min(100, Math.round(((props.batchProgress?.current || 0) / total) * 100))
 })
 
 const firstIncompleteChapter = computed(() => {
@@ -1742,6 +1780,86 @@ const canGenerateChapter = (chapterNumber: number) => {
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.compact-batch-entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  padding: 9px 9px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 229, 0, 0.2);
+  border-radius: 9px;
+  background: rgba(255, 229, 0, 0.045);
+}
+
+.compact-batch-entry.running {
+  padding-bottom: 13px;
+}
+
+.compact-batch-entry > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compact-batch-entry small,
+.compact-batch-entry strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-batch-entry small {
+  color: #ffe500;
+  font-size: 8px;
+  font-weight: 780;
+}
+
+.compact-batch-entry strong {
+  color: #b6b8b0;
+  font-size: 9px;
+  font-weight: 620;
+}
+
+.compact-batch-entry > button {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #11120f;
+  background: #ffe500;
+  font-size: 9px;
+  font-weight: 820;
+}
+
+.compact-batch-entry > button.stop {
+  border: 1px solid rgba(242, 112, 112, 0.25);
+  color: #ef8585;
+  background: rgba(151, 48, 48, 0.09);
+}
+
+.compact-batch-progress {
+  position: absolute;
+  right: 9px;
+  bottom: 6px;
+  left: 9px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #303129;
+}
+
+.compact-batch-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #ffe500;
+  transition: width 0.3s ease;
 }
 
 .compact-volume-select {

@@ -3,9 +3,10 @@ AILIST NAME=workspace|K=dir|P=工作区子组件_章节编辑子组件|E=-|A=-
 AILIST NAME=WDEditChapterModal.vue|K=file|P=编辑章节弹窗_章节信息编辑|E=component:WDEditChapterModal|A=章节编辑表单
 AILIST NAME=WDEvaluationDetailModal.vue|K=file|P=评审详情弹窗_章节评审展示|E=component:WDEvaluationDetailModal|A=评审结果展示
 AILIST NAME=WDGenerateOutlineModal.vue|K=file|P=章纲与可选正文生成弹窗|E=component:WDGenerateOutlineModal|A=章纲数量_两阶段自动生成开关
+AILIST NAME=WDBatchGenerateModal.vue|K=file|P=批量生成正文弹窗_顺序生成配置|E=component:WDBatchGenerateModal|A=生成数量_统一写作指令
 AILIST NAME=WDOutlineTaskCard.vue|K=file|P=章纲与正文两阶段后台任务卡|E=component:WDOutlineTaskCard|A=真实进度_双状态_停止重试
 AILIST NAME=WDHeader.vue|K=file|P=写作台头部_创作工作流导航|E=component:WDHeader|A=项目元信息_阶段切换_预览_设置_更多操作
-AILIST NAME=WDChapterRail.vue|K=file|P=写作台章节轨_紧凑章节导航|E=component:WDChapterRail|A=章节选择_状态展示_工具入口
+AILIST NAME=WDChapterRail.vue|K=file|P=写作台章节轨_紧凑章节导航|E=component:WDChapterRail|A=章节选择_状态展示_批量正文入口_实时进度
 AILIST NAME=chapterRailStatus.ts|K=file|P=章节轨状态语义_区分章纲与正文完成|E=resolveChapterRailStatus|A=状态标签_状态样式分类
 AILIST NAME=WDPlanningCanvas.vue|K=file|P=写作台章节规划画布|E=component:WDPlanningCanvas|A=目标约束_情节拍_引用_推进工作流
 AILIST NAME=WDContextRail.vue|K=file|P=写作台本章上下文栏|E=component:WDContextRail|A=人物_设定_伏笔引用_AI协作

@@ -1,4 +1,4 @@
-<!-- AIMETA P=写作台章节轨_紧凑章节导航|R=章节选择_状态展示_工具入口|NR=不含章节编辑|E=component:WDChapterRail|X=ui|A=导航组件|D=vue|S=dom|RD=./README.ai -->
+<!-- AIMETA P=写作台章节轨_紧凑章节导航|R=章节选择_状态展示_批量正文入口_实时进度|NR=不含章节编辑|E=component:WDChapterRail|X=ui|A=导航组件|D=vue|S=dom|RD=./README.ai -->
 <template>
   <aside class="chapter-rail">
     <div class="rail-head">
@@ -25,6 +25,54 @@
           </svg>
         </button>
       </div>
+    </div>
+
+    <div
+      v-if="batchGenerating || pendingCount > 0"
+      class="rail-batch-entry"
+      :class="{ running: batchGenerating }"
+      :aria-live="batchGenerating ? 'polite' : undefined"
+    >
+      <template v-if="batchGenerating">
+        <div class="rail-batch-copy">
+          <span class="rail-batch-icon is-running">
+            <svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 12a8 8 0 1 1-2.35-5.65" />
+              <path d="M20 5v7h-7" />
+            </svg>
+          </span>
+          <span>
+            <small>正在批量生成正文</small>
+            <strong>{{ batchCurrent }} / {{ batchTotal }} 章</strong>
+          </span>
+        </div>
+        <button type="button" class="rail-batch-stop" @click="emit('cancelBatch')">停止</button>
+        <div class="rail-batch-progress" aria-label="批量生成进度">
+          <span :style="{ width: batchProgressPercent + '%' }"></span>
+        </div>
+      </template>
+      <template v-else>
+        <div class="rail-batch-copy">
+          <span class="rail-batch-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+              <path d="M13 3 5 14h6l-1 7 8-11h-6l1-7Z" />
+            </svg>
+          </span>
+          <span>
+            <small>待写正文 {{ pendingCount }} 章</small>
+            <strong>从第 {{ nextPendingChapter }} 章按顺序生成</strong>
+          </span>
+        </div>
+        <button
+          type="button"
+          class="rail-batch-start"
+          :disabled="batchStartDisabled"
+          title="选择生成数量与统一写作指令"
+          @click="emit('batchGenerate')"
+        >
+          批量生成
+        </button>
+      </template>
     </div>
 
     <div ref="listEl" class="rail-list">
@@ -114,6 +162,8 @@ const props = defineProps<{
   generatingChapter: number | null
   evaluatingChapter: number | null
   outlineTask?: OutlineGenerationTask | null
+  batchGenerating: boolean
+  batchProgress: { current: number; total: number } | null
 }>()
 
 const emit = defineEmits<{
@@ -123,6 +173,8 @@ const emit = defineEmits<{
   cancelOutlineTask: []
   retryOutlineTask: []
   dismissOutlineTask: []
+  batchGenerate: []
+  cancelBatch: []
 }>()
 
 const expanded = ref(false)
@@ -155,6 +207,27 @@ const outlineTaskActive = computed(() =>
   Boolean(
     props.outlineTask && ['queued', 'running', 'cancelling'].includes(props.outlineTask.status),
   ),
+)
+const pendingChapterNumbers = computed(() =>
+  outlines.value
+    .filter((outline) => chapterOf(outline.chapter_number)?.generation_status !== 'successful')
+    .map((outline) => outline.chapter_number),
+)
+const pendingCount = computed(() => pendingChapterNumbers.value.length)
+const nextPendingChapter = computed(() => pendingChapterNumbers.value[0] || 1)
+const batchCurrent = computed(() => props.batchProgress?.current || 0)
+const batchTotal = computed(() => props.batchProgress?.total || pendingCount.value)
+const batchProgressPercent = computed(() =>
+  batchTotal.value > 0
+    ? Math.min(100, Math.round((batchCurrent.value / batchTotal.value) * 100))
+    : 0,
+)
+const batchStartDisabled = computed(
+  () =>
+    outlineTaskActive.value ||
+    props.generatingChapter !== null ||
+    props.evaluatingChapter !== null ||
+    pendingCount.value === 0,
 )
 const progress = computed(() =>
   outlines.value.length ? Math.round((completedCount.value / outlines.value.length) * 100) : 0,
@@ -260,6 +333,119 @@ watch(
 .rail-actions svg {
   width: 16px;
   height: 16px;
+}
+.rail-batch-entry {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin: 0 10px 8px;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 229, 0, 0.2);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 229, 0, 0.1), transparent 52%),
+    #171813;
+}
+.rail-batch-entry.running {
+  padding-bottom: 14px;
+}
+.rail-batch-copy {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+.rail-batch-copy > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-batch-copy small,
+.rail-batch-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-batch-copy small {
+  color: #ffe500;
+  font-size: 9px;
+  font-weight: 750;
+}
+.rail-batch-copy strong {
+  color: #d6d7cf;
+  font-size: 10px;
+  font-weight: 620;
+}
+.rail-batch-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid rgba(255, 229, 0, 0.22);
+  border-radius: 9px;
+  color: #ffe500;
+  background: rgba(255, 229, 0, 0.07);
+}
+.rail-batch-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.rail-batch-icon.is-running {
+  color: #11120f;
+  background: #ffe500;
+}
+.rail-batch-start,
+.rail-batch-stop {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 800;
+  transition: 0.18s ease;
+}
+.rail-batch-start {
+  border: 0;
+  color: #11120f;
+  background: #ffe500;
+}
+.rail-batch-start:hover:not(:disabled) {
+  background: #ffed4a;
+  transform: translateY(-1px);
+}
+.rail-batch-start:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+.rail-batch-stop {
+  border: 1px solid rgba(241, 106, 106, 0.25);
+  color: #ef8585;
+  background: rgba(151, 48, 48, 0.08);
+}
+.rail-batch-stop:hover {
+  border-color: rgba(241, 106, 106, 0.42);
+  background: rgba(151, 48, 48, 0.14);
+}
+.rail-batch-progress {
+  position: absolute;
+  right: 10px;
+  bottom: 7px;
+  left: 10px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: #303129;
+}
+.rail-batch-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #ffe500;
+  transition: width 0.3s ease;
 }
 .rail-list {
   flex: 1;
