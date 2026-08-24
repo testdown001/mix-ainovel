@@ -166,7 +166,7 @@ func DefaultConfig() *Config {
 		MaxConcurrency:    20,
 		MaxPerUser:        3,
 		DefaultTimeout:    10 * time.Minute,
-		BatchTimeout:      60 * time.Minute,
+		BatchTimeout:      360 * time.Minute,
 		BlueprintTimeout:  15 * time.Minute,
 		MaxRetries:        3,
 		RetryDelay:        5 * time.Second,
@@ -538,6 +538,9 @@ func (d *Dispatcher) handleTaskSuccess(ctx context.Context, task *Task, result j
 	task.CompletedAt = &now
 	task.Progress = 100
 	task.Result = result
+	// 任务可能在一次可恢复的传输错误后重试成功；成功终态不能继续携带旧错误，
+	// 否则状态接口会同时返回 completed 与 error，前端无从判断真实结果。
+	task.Error = ""
 	task.ensureMetadata()
 	task.Metadata["duration_ms"] = fmt.Sprintf("%d", duration.Milliseconds())
 

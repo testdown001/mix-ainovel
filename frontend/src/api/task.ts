@@ -233,7 +233,7 @@ export class TaskAPI {
     taskId: string,
     onProgress?: (status: TaskStatus) => void,
     intervalMs: number = 2000,
-    timeoutMs: number = 600000,
+    timeoutMs: number | null = null,
   ): Promise<TaskStatus> {
     const startTime = Date.now()
     const MAX_POLL_CONSECUTIVE_ERRORS = 3
@@ -241,7 +241,7 @@ export class TaskAPI {
 
     return new Promise((resolve, reject) => {
       const poll = async () => {
-        if (Date.now() - startTime > timeoutMs) {
+        if (timeoutMs !== null && timeoutMs > 0 && Date.now() - startTime > timeoutMs) {
           reject(new Error('任务超时'))
           return
         }

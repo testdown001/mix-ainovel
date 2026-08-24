@@ -139,14 +139,7 @@ export function useAsyncGeneration() {
       let unsubscribe: (() => void) | null = null
       let checkInterval: ReturnType<typeof setInterval> | null = null
 
-      // 超时保护
-      const timeout = setTimeout(() => {
-        cleanup()
-        reject(new Error('任务超时（10分钟）'))
-      }, 600000)
-
       const cleanup = () => {
-        clearTimeout(timeout)
         if (checkInterval) {
           clearInterval(checkInterval)
           checkInterval = null
@@ -219,7 +212,9 @@ export function useAsyncGeneration() {
         onProgress?.(state.value)
       },
       2000,
-      600000,
+      // 客户端不根据耗时臆测任务失败。单章、蓝图和批量任务各有不同的服务端
+      // 截止时间；只有服务端返回 completed / failed / cancelled 才进入终态。
+      null,
     )
   }
 

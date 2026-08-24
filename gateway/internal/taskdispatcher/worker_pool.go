@@ -49,8 +49,13 @@ type WorkerInfo struct {
 // NewWorkerPool 创建 Worker Pool
 func NewWorkerPool(cfg *Config) *WorkerPool {
 	// HTTP 客户端超时是全局上限（逐任务超时由 dispatcher 的 per-task context 约束），
-	// 须覆盖耗时最长的单次 /execute 调用：蓝图任务超时可能大于默认任务超时。
+	// 须覆盖耗时最长的单次 /execute 调用。批量任务会在一个请求里顺序生成多章，
+	// 通常远长于单章和蓝图；漏掉 BatchTimeout 会让 HTTP 客户端先于任务上下文断开，
+	// 随后触发整批重试，既误报失败又可能重复消耗模型额度。
 	clientTimeout := cfg.DefaultTimeout
+	if cfg.BatchTimeout > clientTimeout {
+		clientTimeout = cfg.BatchTimeout
+	}
 	if cfg.BlueprintTimeout > clientTimeout {
 		clientTimeout = cfg.BlueprintTimeout
 	}
@@ -271,10 +276,10 @@ func (p *WorkerPool) executeBlueprintGenerate(ctx context.Context, worker *Worke
 	}
 
 	workerReq := &WorkerTaskRequest{
-		TaskID:    task.ID,
-		TaskType:  string(task.Type),
-		ProjectID: payload.ProjectID,
-		UserID:    payload.UserID,
+		TaskID:      task.ID,
+		TaskType:    string(task.Type),
+		ProjectID:   payload.ProjectID,
+		UserID:      payload.UserID,
 		Config:      json.RawMessage(configJSON),
 		CallbackURL: fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
 	}

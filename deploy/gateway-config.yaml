@@ -69,7 +69,8 @@ task_dispatcher:
   # 网关报 500。Python 侧每个 LLM 调用自带 ~180s 超时会快速掐掉真卡死的调用，故宽松上限
   # 不会让"快模型/失败"傻等，只给慢的思考模型留足时间。需要更久可继续调大。
   default_timeout: 30m
-  batch_timeout: 120m
+  # 连续生成支持 25/50 章，按 2~4 分钟/章预留 6 小时。
+  batch_timeout: 360m
   blueprint_timeout: 15m     # 蓝图生成任务超时（两段式 LLM，通常 5~12min）
   max_retries: 3
   retry_delay: 5s
