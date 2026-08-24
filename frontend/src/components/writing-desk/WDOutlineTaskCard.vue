@@ -174,10 +174,7 @@
                     v-else
                     type="button"
                     class="primary"
-                    @click="
-                      emit('dismiss')
-                      detailsOpen = false
-                    "
+                    @click="finishDetails"
                   >
                     完成
                   </button>
@@ -274,6 +271,11 @@ function chapterStateLabel(number: number): string {
   if (state === 'failed') return '生成失败'
   if (state === 'running') return '生成中'
   return '等待生成'
+}
+
+function finishDetails(): void {
+  emit('dismiss')
+  detailsOpen.value = false
 }
 </script>
 
