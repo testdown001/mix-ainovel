@@ -27,6 +27,7 @@ from ...core.feature_gating import (
     ensure_model_allowed,
     get_user_tier,
 )
+from ...core.safe_task import safe_create_task
 from ...db.session import AsyncSessionLocal
 from ...models.novel import Chapter
 from ...services.blueprint_generation_service import generate_blueprint_for_project
@@ -39,6 +40,8 @@ from ...services.generation_billing_service import (
     refund_polish_surcharge,
     should_charge_blueprint_deep,
 )
+from ...services.generation_write_task_service import GenerationWriteTaskService
+from ...services.mission_pregen_service import pregen_next_chapter_mission
 from ...services.novel_service import NovelService
 
 logger = logging.getLogger(__name__)
@@ -567,6 +570,12 @@ async def _execute_batch_generate(
 
             single_reporter = ProgressReporter(None, req.task_id)
             result = await _execute_chapter_generate(single_req, single_reporter)
+            selected_version_id = await _select_batch_generated_chapter(
+                req,
+                chapter_number,
+                int(result.get("best_version_index", 0) or 0),
+            )
+            result["selected_version_id"] = selected_version_id
             results.append({
                 "chapter_number": chapter_number,
                 "status": "success",
@@ -581,12 +590,54 @@ async def _execute_batch_generate(
                 "error": str(e),
             })
 
+    completed = sum(1 for item in results if item["status"] == "success")
+    failed = total - completed
     return {
         "project_id": req.project_id,
         "total": total,
+        "completed": completed,
+        "failed": failed,
         "results": results,
-        "status": "completed",
+        "status": "completed" if failed == 0 else "partial",
     }
+
+
+async def _select_batch_generated_chapter(
+    req: WorkerTaskRequest,
+    chapter_number: int,
+    version_index: int,
+) -> int:
+    """批量正文采用无人值守语义：生成后自动确认管线推荐的最佳版本。
+
+    单章生成保留多版本待用户选择；连续生成若不自动选版，会把 worker 的“成功”与
+    Chapter.waiting_for_confirm 留库状态割裂，下一章也读不到已落定正文。
+    """
+    async with AsyncSessionLocal() as session:
+        novel_service = NovelService(session)
+        await novel_service.ensure_project_owner(req.project_id, req.user_id)
+        chapter = await novel_service.get_or_create_chapter(req.project_id, chapter_number)
+        selected = await novel_service.select_chapter_version(chapter, version_index)
+        content_snapshot = selected.content or ""
+        selected_version_id = selected.id
+
+    await CacheService.invalidate_project_schema_safely(req.project_id)
+
+    # 与同步连续生成的选版接口保持同样的后处理副作用；均为降级型后台任务，
+    # 不阻塞下一章正文生成。
+    safe_create_task(
+        GenerationWriteTaskService().run_chapter_post_processor(
+            project_id=req.project_id,
+            chapter_number=chapter_number,
+            content=content_snapshot,
+            user_id=req.user_id,
+        ),
+        name=f"post-process-{req.project_id}-ch{chapter_number}",
+    )
+    safe_create_task(
+        pregen_next_chapter_mission(req.project_id, chapter_number, req.user_id),
+        name=f"pregen-mission-{req.project_id}-ch{chapter_number + 1}",
+    )
+    return selected_version_id
 
 
 async def _execute_blueprint_generate(

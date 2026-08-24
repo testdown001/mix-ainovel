@@ -106,6 +106,7 @@
 import { computed, nextTick, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { Chapter, ChapterOutline, NovelProject, OutlineGenerationTask } from '@/api/novel'
 import WDOutlineTaskCard from './WDOutlineTaskCard.vue'
+import { resolveChapterRailStatus, type ChapterRailStatusKind } from './chapterRailStatus'
 
 const props = defineProps<{
   project: NovelProject
@@ -163,28 +164,23 @@ function chapterOf(chapterNumber: number): Chapter | undefined {
   return props.project.chapters.find((chapter) => chapter.chapter_number === chapterNumber)
 }
 
-function statusOf(chapterNumber: number): 'done' | 'working' | 'predicted' | 'planned' {
+function statusOf(chapterNumber: number): ChapterRailStatusKind {
+  return statusFor(chapterNumber).kind
+}
+
+function statusFor(chapterNumber: number) {
   const chapter = chapterOf(chapterNumber)
-  if (chapter?.generation_status === 'successful') return 'done'
-  if (
-    props.generatingChapter === chapterNumber ||
-    props.evaluatingChapter === chapterNumber ||
-    ['generating', 'evaluating', 'selecting', 'waiting_for_confirm'].includes(
-      chapter?.generation_status || '',
-    )
-  ) {
-    return 'working'
-  }
   const outline = outlines.value.find((item) => item.chapter_number === chapterNumber)
-  return outline?.metadata?.prediction ? 'predicted' : 'planned'
+  return resolveChapterRailStatus({
+    generationStatus: chapter?.generation_status,
+    generating: props.generatingChapter === chapterNumber,
+    evaluating: props.evaluatingChapter === chapterNumber,
+    hasPrediction: Boolean(outline?.metadata?.prediction),
+  })
 }
 
 function statusLabel(chapterNumber: number): string {
-  const status = statusOf(chapterNumber)
-  if (status === 'done') return '已完成'
-  if (status === 'working') return '进行中'
-  if (status === 'predicted') return '已推演'
-  return '规划中'
+  return statusFor(chapterNumber).label
 }
 
 function statusClass(chapterNumber: number): string {
@@ -338,6 +334,16 @@ watch(
   color: #ffe500;
   background: rgba(255, 229, 0, 0.08);
 }
+.chapter-index.is-confirm {
+  border-color: rgba(255, 184, 77, 0.28);
+  color: #ffbd56;
+  background: rgba(255, 184, 77, 0.09);
+}
+.chapter-index.is-failed {
+  border-color: rgba(244, 97, 97, 0.3);
+  color: #f27575;
+  background: rgba(185, 50, 50, 0.1);
+}
 .chapter-row.active .chapter-index.is-planned,
 .chapter-row.active .chapter-index.is-predicted {
   border-color: #ffe500;
@@ -383,6 +389,12 @@ watch(
 .chapter-state.is-working,
 .chapter-state.is-predicted {
   color: #d5c61d;
+}
+.chapter-state.is-confirm {
+  color: #e6a94e;
+}
+.chapter-state.is-failed {
+  color: #ef7676;
 }
 .expand-button {
   display: flex;

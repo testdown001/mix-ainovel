@@ -108,6 +108,37 @@ def test_task_worker_uses_hybrid_executor_contract(monkeypatch):
     }
 
 
+def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatch):
+    generate = AsyncMock(
+        side_effect=[
+            {"chapter_number": 7, "best_version_index": 2, "status": "completed"},
+            RuntimeError("上游超时"),
+        ]
+    )
+    select = AsyncMock(return_value=701)
+    monkeypatch.setattr(task_worker, "_execute_chapter_generate", generate)
+    monkeypatch.setattr(task_worker, "_select_batch_generated_chapter", select)
+
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-batch",
+        task_type="chapter:batch_generate",
+        project_id="project-1",
+        chapter_numbers=[7, 8],
+        user_id=12,
+        config=task_worker.TaskConfig(preset="fast"),
+    )
+
+    result = asyncio.run(task_worker._execute_batch_generate(req, _NoopReporter()))
+
+    select.assert_awaited_once_with(req, 7, 2)
+    assert result["status"] == "partial"
+    assert result["total"] == 2
+    assert result["completed"] == 1
+    assert result["failed"] == 1
+    assert result["results"][0]["result"]["selected_version_id"] == 701
+    assert result["results"][1]["status"] == "failed"
+
+
 def test_progress_reporter_sends_internal_secret(monkeypatch):
     captured = {}
 

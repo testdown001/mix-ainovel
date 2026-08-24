@@ -6,6 +6,7 @@ AILIST NAME=WDGenerateOutlineModal.vue|K=file|P=生成大纲弹窗_大纲生成�
 AILIST NAME=WDOutlineTaskCard.vue|K=file|P=批量章纲后台任务卡|E=component:WDOutlineTaskCard|A=真实进度_逐章状态_停止重试
 AILIST NAME=WDHeader.vue|K=file|P=写作台头部_创作工作流导航|E=component:WDHeader|A=项目元信息_阶段切换_预览_设置_更多操作
 AILIST NAME=WDChapterRail.vue|K=file|P=写作台章节轨_紧凑章节导航|E=component:WDChapterRail|A=章节选择_状态展示_工具入口
+AILIST NAME=chapterRailStatus.ts|K=file|P=章节轨状态语义_区分章纲与正文完成|E=resolveChapterRailStatus|A=状态标签_状态样式分类
 AILIST NAME=WDPlanningCanvas.vue|K=file|P=写作台章节规划画布|E=component:WDPlanningCanvas|A=目标约束_情节拍_引用_推进工作流
 AILIST NAME=WDContextRail.vue|K=file|P=写作台本章上下文栏|E=component:WDContextRail|A=人物_设定_伏笔引用_AI协作
 AILIST NAME=WDSidebar.vue|K=file|P=写作台高级工具抽屉|E=component:WDSidebar|A=批量生成_预设_诊断_章节管理

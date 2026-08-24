@@ -2346,8 +2346,28 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
       )
 
       if (result.status === 'completed') {
-        completedCount = targetChapters.length
-        globalAlert.showSuccess(`批量生成完成，共 ${completedCount} 章`, '连续生成')
+        const batchResult = result.result as {
+          completed?: number
+          failed?: number
+          results?: Array<{ status?: string }>
+        } | null
+        completedCount =
+          batchResult?.completed ??
+          batchResult?.results?.filter((item) => item.status === 'success').length ??
+          targetChapters.length
+        failedCount =
+          batchResult?.failed ??
+          batchResult?.results?.filter((item) => item.status === 'failed').length ??
+          0
+
+        if (failedCount > 0) {
+          globalAlert.showError(
+            `连续生成部分完成：成功 ${completedCount} 章，失败 ${failedCount} 章`,
+            '连续生成异常',
+          )
+        } else {
+          globalAlert.showSuccess(`批量生成完成，共 ${completedCount} 章`, '连续生成')
+        }
       }
     } catch (error) {
       console.error('批量异步生成失败:', error)
