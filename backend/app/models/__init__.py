@@ -85,6 +85,7 @@ from .faction import (
 )
 from .user_quota import UserQuota
 from .writer_persona import WriterPersona
+from .outline_generation_task import OutlineGenerationTask
 
 __all__ = [
     # 基础模型
@@ -157,4 +158,5 @@ __all__ = [
     "FactionRelationshipHistory",
     "UserQuota",
     "WriterPersona",
+    "OutlineGenerationTask",
 ]

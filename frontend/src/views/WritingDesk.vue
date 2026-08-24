@@ -69,9 +69,13 @@
             :selected-chapter-number="selectedChapterNumber"
             :generating-chapter="generatingChapter"
             :evaluating-chapter="evaluatingChapter"
+            :outline-task="outlineGenerationTask"
             @select-chapter="selectChapter"
             @generate-outline="generateOutline"
             @open-tools="sidebarOpen = true"
+            @cancel-outline-task="cancelOutlineGenerationTask"
+            @retry-outline-task="retryOutlineGenerationTask"
+            @dismiss-outline-task="dismissOutlineGenerationTask"
           />
 
           <div class="relative flex flex-1 min-w-0">
@@ -146,8 +150,21 @@
         </div>
       </div>
 
+      <WDOutlineTaskCard
+        v-if="outlineGenerationTask"
+        class="outline-task-mobile lg:hidden"
+        :task="outlineGenerationTask"
+        @cancel="cancelOutlineGenerationTask"
+        @retry="retryOutlineGenerationTask"
+        @dismiss="dismissOutlineGenerationTask"
+      />
+
       <n-drawer v-model:show="sidebarOpen" :width="372" placement="left">
-        <n-drawer-content title="写作台工具" closable body-content-style="padding: 12px; overflow: hidden;">
+        <n-drawer-content
+          title="写作台工具"
+          closable
+          body-content-style="padding: 12px; overflow: hidden;"
+        >
           <WDSidebar
             v-if="project"
             embedded
@@ -519,7 +536,7 @@ import {
 } from 'naive-ui'
 import { useNovelStore } from '@/stores/novel'
 import { useAuthStore } from '@/stores/auth'
-import { NovelAPI } from '@/api/novel'
+import { ApiRequestError, NovelAPI } from '@/api/novel'
 import type {
   Chapter,
   ChapterOutline,
@@ -527,6 +544,7 @@ import type {
   ChapterVersion,
   AdvancedGenerateResponse,
   AdvancedGenerateFlowConfig,
+  OutlineGenerationTask,
 } from '@/api/novel'
 import { TaskAPI } from '@/api/task'
 import { AdminAPI } from '@/api/admin'
@@ -546,6 +564,7 @@ import WDEvaluationDetailModal from '@/components/writing-desk/WDEvaluationDetai
 import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue'
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
 import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal.vue'
+import WDOutlineTaskCard from '@/components/writing-desk/WDOutlineTaskCard.vue'
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 import ArchiveViewer from '@/components/writing-desk/ArchiveViewer.vue'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
@@ -651,6 +670,11 @@ const showEvaluationDetailModal = ref(false)
 const showEditChapterModal = ref(false)
 const editingChapter = ref<ChapterOutline | null>(null)
 const isGeneratingOutline = ref(false)
+const outlineGenerationTask = ref<OutlineGenerationTask | null>(null)
+let outlineTaskPollTimer: ReturnType<typeof setInterval> | null = null
+let outlineTaskPollInFlight = false
+let outlineTaskLastCompletedCount = 0
+const outlineTaskNotified = new Set<string>()
 const isRebuildingRag = ref(false)
 const showGenerateOutlineModal = ref(false)
 const codexPanelOpen = ref(false)
@@ -754,7 +778,14 @@ const agentToolCalls = ref(0)
 let _agentStartTime = 0
 const agentNodes = ref<AgentNode[]>([
   { id: 'taizi', name: '需求智能体', role: '目标提取', icon: '👶', status: 'pending', logs: [] },
-  { id: 'zhongshu', name: '规划智能体', role: '上下文规划', icon: '📜', status: 'pending', logs: [] },
+  {
+    id: 'zhongshu',
+    name: '规划智能体',
+    role: '上下文规划',
+    icon: '📜',
+    status: 'pending',
+    logs: [],
+  },
   { id: 'shangshu', name: '协调智能体', role: '流程编排', icon: '🏛️', status: 'pending', logs: [] },
   { id: 'bingbu', name: '生成智能体', role: '章节生成', icon: '⚔️', status: 'pending', logs: [] },
   { id: 'libu', name: '一致性智能体', role: '角色一致性', icon: '📋', status: 'pending', logs: [] },
@@ -1223,9 +1254,7 @@ const loadProject = async () => {
  * 还是「卡死了」。选中它同时让 WDWorkspace 的 10 秒轮询接管，完成即自动出现。
  */
 const noticeBackgroundGeneration = () => {
-  const inFlight = project.value?.chapters?.find(
-    (ch) => ch.generation_status === 'generating',
-  )
+  const inFlight = project.value?.chapters?.find((ch) => ch.generation_status === 'generating')
   if (!inFlight) return
   selectChapter(inFlight.chapter_number)
   globalAlert.showAlert(
@@ -1410,11 +1439,7 @@ const confirmPredictionRequest = async () => {
   // 任务提交后立即让作者回到规划页查看进度；失败时再恢复弹窗，保留原输入便于重试。
   showPredictionRequestModal.value = false
   try {
-    const result = await NovelAPI.generatePrediction(
-      project.value.id,
-      targetChapter,
-      exclusions,
-    )
+    const result = await NovelAPI.generatePrediction(project.value.id, targetChapter, exclusions)
 
     const targetOutline = project.value.blueprint?.chapter_outline?.find(
       (outline) => outline.chapter_number === targetChapter,
@@ -1945,6 +1970,126 @@ const generateOutline = async () => {
   showGenerateOutlineModal.value = true
 }
 
+const activeOutlineTaskStatuses = new Set(['queued', 'running', 'cancelling'])
+
+const stopOutlineTaskPolling = () => {
+  if (outlineTaskPollTimer) {
+    clearInterval(outlineTaskPollTimer)
+    outlineTaskPollTimer = null
+  }
+}
+
+const notifyOutlineTaskFinished = (task: OutlineGenerationTask) => {
+  if (outlineTaskNotified.has(task.id)) return
+  outlineTaskNotified.add(task.id)
+  if (task.status === 'completed') {
+    globalAlert.showSuccess(`已生成 ${task.completed_numbers.length} 章后续大纲`, '章纲生成完成')
+  } else if (task.status === 'partial') {
+    globalAlert.showError(
+      `已完成 ${task.completed_numbers.length} 章，另有 ${task.failed_numbers.length} 章可在任务详情中重试。`,
+      '章纲部分完成',
+    )
+  } else if (task.status === 'cancelled') {
+    globalAlert.showSuccess(
+      `任务已停止，已保留生成完成的 ${task.completed_numbers.length} 章。`,
+      '章纲生成已停止',
+    )
+  } else if (task.status === 'failed') {
+    globalAlert.showError(task.error_message || '章纲生成失败，请重试。', '章纲生成失败')
+  }
+}
+
+const applyOutlineTaskUpdate = async (task: OutlineGenerationTask, notify = true) => {
+  const completedCount = task.completed_numbers?.length || 0
+  outlineGenerationTask.value = task
+  isGeneratingOutline.value = activeOutlineTaskStatuses.has(task.status)
+
+  if (completedCount !== outlineTaskLastCompletedCount && project.value) {
+    outlineTaskLastCompletedCount = completedCount
+    await novelStore.loadProject(project.value.id, true).catch(() => undefined)
+  }
+
+  if (!activeOutlineTaskStatuses.has(task.status)) {
+    stopOutlineTaskPolling()
+    if (project.value) await novelStore.loadProject(project.value.id, true).catch(() => undefined)
+    if (notify) notifyOutlineTaskFinished(task)
+  }
+}
+
+const pollOutlineGenerationTask = async () => {
+  const task = outlineGenerationTask.value
+  if (!task || !project.value || outlineTaskPollInFlight) return
+  outlineTaskPollInFlight = true
+  try {
+    const latest = await NovelAPI.getOutlineGenerationTask(project.value.id, task.id)
+    await applyOutlineTaskUpdate(latest)
+  } catch (error) {
+    console.warn('读取章纲生成进度失败，将继续重试:', error)
+  } finally {
+    outlineTaskPollInFlight = false
+  }
+}
+
+const startOutlineTaskPolling = () => {
+  stopOutlineTaskPolling()
+  void pollOutlineGenerationTask()
+  outlineTaskPollTimer = setInterval(() => void pollOutlineGenerationTask(), 2000)
+}
+
+const restoreOutlineGenerationTask = async () => {
+  if (!project.value) return
+  try {
+    const result = await NovelAPI.getActiveOutlineGenerationTask(project.value.id)
+    if (!result.task) return
+    outlineTaskLastCompletedCount = result.task.completed_numbers?.length || 0
+    outlineGenerationTask.value = result.task
+    isGeneratingOutline.value = true
+    startOutlineTaskPolling()
+  } catch (error) {
+    console.warn('恢复章纲后台任务失败:', error)
+  }
+}
+
+const cancelOutlineGenerationTask = async () => {
+  const task = outlineGenerationTask.value
+  if (!task || !project.value || !activeOutlineTaskStatuses.has(task.status)) return
+  const confirmed = await globalAlert.showConfirm(
+    '当前正在调用模型的批次会继续完成，系统只停止尚未开始的后续批次。',
+    '停止后续章纲生成',
+  )
+  if (!confirmed) return
+  try {
+    const updated = await NovelAPI.cancelOutlineGenerationTask(project.value.id, task.id)
+    await applyOutlineTaskUpdate(updated, false)
+  } catch (error) {
+    globalAlert.showError(error instanceof Error ? error.message : '停止任务失败', '章纲生成')
+  }
+}
+
+const retryOutlineGenerationTask = async () => {
+  const task = outlineGenerationTask.value
+  if (!task || !project.value || !task.failed_numbers.length) return
+  try {
+    const retryTask = await NovelAPI.retryOutlineGenerationTask(project.value.id, task.id)
+    outlineTaskLastCompletedCount = 0
+    outlineGenerationTask.value = retryTask
+    isGeneratingOutline.value = true
+    globalAlert.showSuccess(`正在重试 ${retryTask.total_chapters} 个失败章节`, '任务已进入后台')
+    startOutlineTaskPolling()
+  } catch (error) {
+    globalAlert.showError(error instanceof Error ? error.message : '重试任务失败', '章纲生成')
+  }
+}
+
+const dismissOutlineGenerationTask = () => {
+  if (
+    outlineGenerationTask.value &&
+    !activeOutlineTaskStatuses.has(outlineGenerationTask.value.status)
+  ) {
+    outlineGenerationTask.value = null
+  }
+}
+
 const editChapterContent = async (data: { chapterNumber: number; content: string }) => {
   if (!project.value) return false
 
@@ -1980,22 +2125,54 @@ const handleGenerateOutline = async (
   if (!project.value) return
   isGeneratingOutline.value = true
   try {
-    const startChapter = (project.value.blueprint?.chapter_outline?.length || 0) + 1
-    await novelStore.generateChapterOutline(
+    const existingNumbers = (project.value.blueprint?.chapter_outline || []).map(
+      (outline) => outline.chapter_number,
+    )
+    const startChapter = Math.max(0, ...existingNumbers) + 1
+    const task = await NovelAPI.startOutlineGenerationTask(
+      project.value.id,
       startChapter,
       numChapters,
       estimatedTotalChapters,
       userPrompt,
     )
-    globalAlert.showSuccess('新的章节大纲已生成', '操作成功')
+    outlineTaskLastCompletedCount = 0
+    outlineGenerationTask.value = task
+    globalAlert.showSuccess(
+      `正在后台生成第 ${startChapter}～${startChapter + numChapters - 1} 章大纲，可继续使用写作台。`,
+      '任务已开始',
+    )
+    startOutlineTaskPolling()
   } catch (error) {
+    if (error instanceof ApiRequestError && error.code === 'OUTLINE_TASK_ACTIVE' && project.value) {
+      const taskId = typeof error.meta?.task_id === 'string' ? error.meta.task_id : ''
+      const recovered = taskId
+        ? await NovelAPI.getOutlineGenerationTask(project.value.id, taskId).catch(() => null)
+        : (
+            await NovelAPI.getActiveOutlineGenerationTask(project.value.id).catch(() => ({
+              task: null,
+            }))
+          ).task
+      if (recovered) {
+        outlineGenerationTask.value = recovered
+        outlineTaskLastCompletedCount = recovered.completed_numbers?.length || 0
+        startOutlineTaskPolling()
+        globalAlert.showSuccess('已恢复当前正在运行的章纲任务。', '任务正在进行')
+        return
+      }
+    }
     console.error('生成大纲失败:', error)
     globalAlert.showError(
       `生成大纲失败: ${error instanceof Error ? error.message : '未知错误'}`,
       '生成失败',
     )
   } finally {
-    isGeneratingOutline.value = false
+    if (
+      !outlineGenerationTask.value ||
+      !activeOutlineTaskStatuses.has(outlineGenerationTask.value.status)
+    ) {
+      isGeneratingOutline.value = false
+    }
   }
 }
 
@@ -2015,10 +2192,7 @@ const regenerateOutlines = async () => {
       '大纲已重排',
     )
   } catch (error) {
-    globalAlert.showError(
-      error instanceof Error ? error.message : '重排失败',
-      '大纲重排',
-    )
+    globalAlert.showError(error instanceof Error ? error.message : '重排失败', '大纲重排')
   } finally {
     isGeneratingOutline.value = false
   }
@@ -2311,9 +2485,10 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   document.body.classList.add('m3-novel')
-  loadProject()
+  await loadProject()
+  await restoreOutlineGenerationTask()
   fetchAgentSetting()
 
   // 连接 WebSocket（Go Gateway 实时推送）
@@ -2330,6 +2505,7 @@ onUnmounted(() => {
   if (batchGenerating.value) {
     batchCancelled.value = true
   }
+  stopOutlineTaskPolling()
 
   // 断开 WebSocket
   const { disconnect: wsDisconnect } = useWebSocket()
@@ -2354,16 +2530,31 @@ onUnmounted(() => {
   background:
     radial-gradient(circle at 85% -20%, rgba(255, 229, 0, 0.055), transparent 36%),
     linear-gradient(#141411 1px, transparent 1px),
-    linear-gradient(90deg, #141411 1px, transparent 1px),
-    #090909;
-  background-size: auto, 56px 56px, 56px 56px, auto;
+    linear-gradient(90deg, #141411 1px, transparent 1px), #090909;
+  background-size:
+    auto,
+    56px 56px,
+    56px 56px,
+    auto;
   color: var(--md-on-surface);
   font-family: var(--md-font-family);
   animation: m3-fade 0.6s ease-out both;
 }
 
-.wd-desk-body { position: relative; }
-.wd-desk-layout { max-width: 1880px; margin: 0 auto; }
+.wd-desk-body {
+  position: relative;
+}
+.wd-desk-layout {
+  max-width: 1880px;
+  margin: 0 auto;
+}
+.outline-task-mobile {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  z-index: 65;
+}
 
 .model-settings-popover {
   position: absolute;
@@ -2387,11 +2578,33 @@ onUnmounted(() => {
   padding: 1px 3px 10px;
 }
 
-.model-settings-head div { display: flex; flex-direction: column; gap: 2px; }
-.model-settings-head small { color: #756d20; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; }
-.model-settings-head strong { color: #e4e5de; font-size: 12px; }
-.model-settings-head button { border: 0; color: #777a72; font-size: 20px; line-height: 1; background: transparent; }
-.model-settings-popover :deep(.model-picker) { margin-bottom: 0; border-color: #2d2f29; background: #11120f; }
+.model-settings-head div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.model-settings-head small {
+  color: #756d20;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.model-settings-head strong {
+  color: #e4e5de;
+  font-size: 12px;
+}
+.model-settings-head button {
+  border: 0;
+  color: #777a72;
+  font-size: 20px;
+  line-height: 1;
+  background: transparent;
+}
+.model-settings-popover :deep(.model-picker) {
+  margin-bottom: 0;
+  border-color: #2d2f29;
+  background: #11120f;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .m3-shell {

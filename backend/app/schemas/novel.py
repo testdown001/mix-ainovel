@@ -1,4 +1,5 @@
 # AIMETA P=小说模式_小说和章节请求响应|R=小说结构_章节结构|NR=不含业务逻辑|E=NovelSchema_ChapterSchema|X=internal|A=Pydantic模式|D=pydantic|S=none|RD=./README.ai
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
@@ -392,7 +393,41 @@ class GenerateOutlineRequest(BaseModel):
     start_chapter: int
     num_chapters: int
     estimated_total_chapters: Optional[int] = Field(default=None, description="预计总章节数，用于指导LLM控制故事进度")
-    user_prompt: Optional[str] = Field(default=None, description="用户附加的剧情提示")
+    user_prompt: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="用户附加的剧情提示",
+    )
+
+
+class OutlineGenerationTaskResponse(BaseModel):
+    """批量章纲后台任务的用户可见状态。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    status: str
+    stage: str
+    message: str
+    start_chapter: int
+    total_chapters: int
+    chapter_numbers: List[int]
+    completed_numbers: List[int] = Field(default_factory=list)
+    failed_numbers: List[int] = Field(default_factory=list)
+    current_batch_start: Optional[int] = None
+    current_batch_end: Optional[int] = None
+    progress_percent: int = 0
+    estimated_remaining_seconds: Optional[int] = None
+    cancel_requested: bool = False
+    error_message: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
+class OutlineGenerationTaskEnvelope(BaseModel):
+    task: Optional[OutlineGenerationTaskResponse] = None
 
 
 class RegenerateOutlinesRequest(BaseModel):

@@ -31,7 +31,7 @@ const request = async (url: string, options: RequestInit = {}) => {
   const authStore = useAuthStore()
   const headers = new Headers({
     'Content-Type': 'application/json',
-    ...options.headers
+    ...options.headers,
   })
 
   // 如果 body 是 FormData，删除 Content-Type header，让浏览器自动设置（包含 boundary）
@@ -62,9 +62,10 @@ const request = async (url: string, options: RequestInit = {}) => {
       const errorData = await response.json().catch(() => null as any)
       if (typeof errorData?.detail?.code === 'string') {
         structuredCode = errorData.detail.code
-        structuredMeta = errorData.detail.meta && typeof errorData.detail.meta === 'object'
-          ? errorData.detail.meta
-          : undefined
+        structuredMeta =
+          errorData.detail.meta && typeof errorData.detail.meta === 'object'
+            ? errorData.detail.meta
+            : undefined
         detail = typeof errorData.detail.message === 'string' ? errorData.detail.message.trim() : ''
       } else if (typeof errorData?.detail === 'string' && errorData.detail.trim()) {
         detail = errorData.detail.trim()
@@ -88,7 +89,12 @@ const request = async (url: string, options: RequestInit = {}) => {
         structuredMeta,
       )
     }
-    throw new ApiRequestError(`请求失败，状态码: ${response.status}`, response.status, structuredCode, structuredMeta)
+    throw new ApiRequestError(
+      `请求失败，状态码: ${response.status}`,
+      response.status,
+      structuredCode,
+      structuredMeta,
+    )
   }
 
   if (response.status === 204 || response.status === 205) {
@@ -404,12 +410,20 @@ export interface Chapter {
   title: string
   summary: string
   content: string | null
-  versions: string[] | null  // versions是字符串数组，不是对象数组
+  versions: string[] | null // versions是字符串数组，不是对象数组
   version_metadata?: ChapterVersionMetadata[] | null
   recommended_version_index?: number | null
   evaluation: string | null
-  generation_status: 'not_generated' | 'generating' | 'evaluating' | 'selecting' | 'failed' | 'evaluation_failed' | 'waiting_for_confirm' | 'successful'
-  word_count?: number  // 字数统计
+  generation_status:
+    | 'not_generated'
+    | 'generating'
+    | 'evaluating'
+    | 'selecting'
+    | 'failed'
+    | 'evaluation_failed'
+    | 'waiting_for_confirm'
+    | 'successful'
+  word_count?: number // 字数统计
   revision_id?: number
   content_hash?: string | null
   selected_version_id?: number | null
@@ -499,7 +513,7 @@ export interface ConverseResponse {
   ui_control: UIControl
   conversation_state: any
   is_complete: boolean
-  ready_for_blueprint?: boolean  // 新增：表示准备生成蓝图
+  ready_for_blueprint?: boolean // 新增：表示准备生成蓝图
 }
 
 export interface ReferenceSearchResponse {
@@ -667,7 +681,16 @@ export interface AdvancedGenerateFlowConfig {
     capability_name?: string
     params?: Record<string, unknown>
   }>
-  preset?: 'fast' | 'standard' | 'premium' | 'basic' | 'enhanced' | 'ultimate' | 'platinum' | 'literary' | 'custom'
+  preset?:
+    | 'fast'
+    | 'standard'
+    | 'premium'
+    | 'basic'
+    | 'enhanced'
+    | 'ultimate'
+    | 'platinum'
+    | 'literary'
+    | 'custom'
   model_code?: string
   enable_polish?: boolean
   versions?: number
@@ -752,13 +775,54 @@ export interface BatchGenerateResponse {
   results: BatchGenerateChapterResult[]
 }
 
+export type OutlineGenerationTaskStatus =
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'cancelled'
+
+export interface OutlineGenerationTask {
+  id: string
+  project_id: string
+  status: OutlineGenerationTaskStatus
+  stage: string
+  message: string
+  start_chapter: number
+  total_chapters: number
+  chapter_numbers: number[]
+  completed_numbers: number[]
+  failed_numbers: number[]
+  current_batch_start?: number | null
+  current_batch_end?: number | null
+  progress_percent: number
+  estimated_remaining_seconds?: number | null
+  cancel_requested: boolean
+  error_message?: string | null
+  started_at?: string | null
+  completed_at?: string | null
+  created_at?: string | null
+}
+
+export interface OutlineGenerationTaskEnvelope {
+  task: OutlineGenerationTask | null
+}
+
 export interface DeleteNovelsResponse {
   status: string
   message: string
 }
 
 // 内容型Section（对应后端NovelSectionType枚举）
-export type NovelSectionType = 'overview' | 'world_setting' | 'characters' | 'relationships' | 'chapter_outline' | 'chapters'
+export type NovelSectionType =
+  | 'overview'
+  | 'world_setting'
+  | 'characters'
+  | 'relationships'
+  | 'chapter_outline'
+  | 'chapters'
 
 // 分析型Section（不属于NovelSectionType，使用独立的analytics API）
 export type AnalysisSectionType = 'emotion_curve' | 'foreshadowing'
@@ -781,7 +845,7 @@ export class NovelAPI {
   static async createNovel(title: string, initialPrompt: string): Promise<NovelProject> {
     return request(NOVELS_BASE, {
       method: 'POST',
-      body: JSON.stringify({ title, initial_prompt: initialPrompt })
+      body: JSON.stringify({ title, initial_prompt: initialPrompt }),
     })
   }
 
@@ -793,7 +857,7 @@ export class NovelAPI {
       body: formData,
       headers: {
         // 让 browser 自动设置 Content-Type 为 multipart/form-data，不手动设置
-      }
+      },
     })
   }
 
@@ -803,11 +867,11 @@ export class NovelAPI {
 
   static async generateCover(
     projectId: string,
-    payload: GenerateCoverPayload
+    payload: GenerateCoverPayload,
   ): Promise<{ cover_image: NovelCoverInfo; cover_url: string; charged: number }> {
     return request(`${NOVELS_BASE}/${projectId}/cover/generate`, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
   }
 
@@ -838,7 +902,10 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/chapters/${chapterNumber}`)
   }
 
-  static async getSection(projectId: string, section: NovelSectionType): Promise<NovelSectionResponse> {
+  static async getSection(
+    projectId: string,
+    section: NovelSectionType,
+  ): Promise<NovelSectionResponse> {
     return request(`${NOVELS_BASE}/${projectId}/sections/${section}`)
   }
 
@@ -853,12 +920,12 @@ export class NovelAPI {
       musePersona?: string
       disableSpark?: boolean
       disableMuseSearch?: boolean
-    } = {}
+    } = {},
   ): Promise<ConverseResponse> {
     const formattedUserInput = userInput || { id: null, value: null }
     const payload: Record<string, any> = {
       user_input: formattedUserInput,
-      conversation_state: conversationState
+      conversation_state: conversationState,
     }
     if (options.musePersona && options.musePersona !== 'default') {
       payload.muse_persona = options.musePersona
@@ -880,7 +947,7 @@ export class NovelAPI {
     }
     return request(`${NOVELS_BASE}/${projectId}/concept/converse`, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
   }
 
@@ -897,20 +964,20 @@ export class NovelAPI {
   /** 分块编辑立项书（只提交改动的顶层键）。 */
   static async patchConceptDossier(
     projectId: string,
-    partial: Record<string, any>
+    partial: Record<string, any>,
   ): Promise<{ status: string; dossier: ConceptDossier }> {
     return request(`${NOVELS_BASE}/${projectId}/concept/dossier`, {
       method: 'PATCH',
-      body: JSON.stringify({ dossier: partial })
+      body: JSON.stringify({ dossier: partial }),
     })
   }
 
   /** 采纳压力推演的修复建议：一轮 LLM 修订写回立项书。 */
   static async applyDossierFixes(
-    projectId: string
+    projectId: string,
   ): Promise<{ status: string; dossier: ConceptDossier; stress_report: StressReport }> {
     return request(`${NOVELS_BASE}/${projectId}/concept/dossier/apply-fixes`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 
@@ -918,7 +985,7 @@ export class NovelAPI {
   static async divergeConcepts(
     projectId: string,
     seedTopic: string,
-    options: { exclusions?: string; n?: number; keep?: number } = {}
+    options: { exclusions?: string; n?: number; keep?: number } = {},
   ): Promise<DivergeResponse> {
     return request(`${NOVELS_BASE}/${projectId}/concept/diverge`, {
       method: 'POST',
@@ -926,14 +993,14 @@ export class NovelAPI {
         seed_topic: seedTopic,
         exclusions: options.exclusions || undefined,
         n: options.n ?? 5,
-        keep: options.keep ?? 3
-      })
+        keep: options.keep ?? 3,
+      }),
     })
   }
 
   static async searchReferenceNovels(
     projectId: string,
-    novelNames: string[]
+    novelNames: string[],
   ): Promise<ReferenceSearchResponse> {
     const normalized = (novelNames || [])
       .map((name) => (name || '').trim())
@@ -941,15 +1008,17 @@ export class NovelAPI {
       .slice(0, 3)
     return request(`${NOVELS_BASE}/${projectId}/reference-search`, {
       method: 'POST',
-      body: JSON.stringify({ novel_names: normalized })
+      body: JSON.stringify({ novel_names: normalized }),
     })
   }
 
-  static async listReferenceNovelLibrary(options: {
-    search?: string
-    projectId?: string
-    novelIds?: number[]
-  } = {}): Promise<ReferenceNovelSummary[]> {
+  static async listReferenceNovelLibrary(
+    options: {
+      search?: string
+      projectId?: string
+      novelIds?: number[]
+    } = {},
+  ): Promise<ReferenceNovelSummary[]> {
     const query = new URLSearchParams()
     if (options.search?.trim()) query.set('search', options.search.trim())
     if (options.projectId) {
@@ -962,10 +1031,12 @@ export class NovelAPI {
     return request(`${REFERENCE_LIBRARY_BASE}${suffix}`)
   }
 
-  static async createReferenceNovel(payload: ReferenceNovelCreatePayload): Promise<ReferenceNovelSummary> {
+  static async createReferenceNovel(
+    payload: ReferenceNovelCreatePayload,
+  ): Promise<ReferenceNovelSummary> {
     return request(REFERENCE_LIBRARY_BASE, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
   }
 
@@ -973,22 +1044,25 @@ export class NovelAPI {
     return request(`${REFERENCE_LIBRARY_BASE}/${novelId}`)
   }
 
-  static async updateReferenceNovel(novelId: number, payload: ReferenceNovelUpdatePayload): Promise<ReferenceNovelDetail> {
+  static async updateReferenceNovel(
+    novelId: number,
+    payload: ReferenceNovelUpdatePayload,
+  ): Promise<ReferenceNovelDetail> {
     return request(`${REFERENCE_LIBRARY_BASE}/${novelId}`, {
       method: 'PUT',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
   }
 
   static async deleteReferenceNovel(novelId: number): Promise<void> {
     await request(`${REFERENCE_LIBRARY_BASE}/${novelId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
     })
   }
 
   static async analyzeReferenceNovel(novelId: number): Promise<ReferenceNovelDetail> {
     return request(`${REFERENCE_LIBRARY_BASE}/${novelId}/analyze`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 
@@ -996,16 +1070,19 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/reference-novels`)
   }
 
-  static async bindProjectReferenceNovels(projectId: string, payload: ReferenceNovelBindPayload): Promise<{ status: string; bound_ids: number[] }> {
+  static async bindProjectReferenceNovels(
+    projectId: string,
+    payload: ReferenceNovelBindPayload,
+  ): Promise<{ status: string; bound_ids: number[] }> {
     return request(`${NOVELS_BASE}/${projectId}/reference-novels/bind`, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
   }
 
   static async generateBlueprint(
     projectId: string,
-    depth: BlueprintDepth = 'deep'
+    depth: BlueprintDepth = 'deep',
   ): Promise<BlueprintGenerationResponse> {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 2_100_000) // 35 分钟超时（thinking 模式下蓝图生成可能需要 20-30 分钟）
@@ -1028,7 +1105,7 @@ export class NovelAPI {
   static async saveBlueprint(projectId: string, blueprint: Blueprint): Promise<NovelProject> {
     return request(`${NOVELS_BASE}/${projectId}/blueprint/save`, {
       method: 'POST',
-      body: JSON.stringify(blueprint)
+      body: JSON.stringify(blueprint),
     })
   }
 
@@ -1037,18 +1114,18 @@ export class NovelAPI {
     chapterNumber: number,
     writingNotes?: string,
     preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
-    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>
+    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>,
   ): Promise<NovelProject> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset, ...flowConfigOverrides }
+      flow_config: { preset, ...flowConfigOverrides },
     }
 
     await request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
 
     return this.getNovel(projectId)
@@ -1062,18 +1139,18 @@ export class NovelAPI {
     chapterNumber: number,
     writingNotes?: string,
     preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
-    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>
+    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>,
   ): Promise<AdvancedGenerateResponse> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset, ...flowConfigOverrides }
+      flow_config: { preset, ...flowConfigOverrides },
     }
 
     return request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate`, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
   }
 
@@ -1083,18 +1160,18 @@ export class NovelAPI {
     writingNotes?: string,
     preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
     callbacks: AdvancedGenerateStreamCallbacks = {},
-    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>
+    flowConfigOverrides?: Partial<AdvancedGenerateFlowConfig>,
   ): Promise<AdvancedGenerateResponse> {
     const payload: AdvancedGenerateRequest = {
       project_id: projectId,
       chapter_number: chapterNumber,
       ...(writingNotes ? { writing_notes: writingNotes } : {}),
-      flow_config: { preset, ...flowConfigOverrides }
+      flow_config: { preset, ...flowConfigOverrides },
     }
 
     const authStore = useAuthStore()
     const headers = new Headers({
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     })
     if (authStore.isAuthenticated && authStore.token) {
       headers.set('Authorization', `Bearer ${authStore.token}`)
@@ -1103,7 +1180,7 @@ export class NovelAPI {
     const response = await fetch(`${API_BASE_URL}${WRITER_PREFIX}/advanced/generate/stream`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     })
 
     if (response.status === 401) {
@@ -1121,7 +1198,10 @@ export class NovelAPI {
           detail = errorData.detail.trim()
         } else if (typeof errorData?.message === 'string' && errorData.message.trim()) {
           detail = errorData.message.trim()
-        } else if (typeof errorData?.error?.message === 'string' && errorData.error.message.trim()) {
+        } else if (
+          typeof errorData?.error?.message === 'string' &&
+          errorData.error.message.trim()
+        ) {
           detail = errorData.error.message.trim()
         } else if (errorData) {
           detail = JSON.stringify(errorData)
@@ -1246,7 +1326,7 @@ export class NovelAPI {
     projectId: string,
     chapterNumbers: number[],
     writingNotes?: string,
-    preset: AdvancedGenerateFlowConfig['preset'] = 'fast'
+    preset: AdvancedGenerateFlowConfig['preset'] = 'fast',
   ): Promise<BatchGenerateResponse> {
     return request(`${API_BASE_URL}${WRITER_PREFIX}/advanced/batch-generate`, {
       method: 'POST',
@@ -1254,29 +1334,29 @@ export class NovelAPI {
         project_id: projectId,
         chapter_numbers: chapterNumbers,
         ...(writingNotes ? { writing_notes: writingNotes } : {}),
-        flow_config: { preset }
-      })
+        flow_config: { preset },
+      }),
     })
   }
 
   static async evaluateChapter(projectId: string, chapterNumber: number): Promise<NovelProject> {
     return request(`${WRITER_BASE}/${projectId}/chapters/evaluate`, {
       method: 'POST',
-      body: JSON.stringify({ chapter_number: chapterNumber })
+      body: JSON.stringify({ chapter_number: chapterNumber }),
     })
   }
 
   static async selectChapterVersion(
     projectId: string,
     chapterNumber: number,
-    versionIndex: number
+    versionIndex: number,
   ): Promise<NovelProject> {
     return request(`${WRITER_BASE}/${projectId}/chapters/select`, {
       method: 'POST',
       body: JSON.stringify({
         chapter_number: chapterNumber,
-        version_index: versionIndex
-      })
+        version_index: versionIndex,
+      }),
     })
   }
 
@@ -1287,27 +1367,24 @@ export class NovelAPI {
   static async deleteNovels(projectIds: string[]): Promise<DeleteNovelsResponse> {
     return request(NOVELS_BASE, {
       method: 'DELETE',
-      body: JSON.stringify(projectIds)
+      body: JSON.stringify(projectIds),
     })
   }
 
   static async updateChapterOutline(
     projectId: string,
-    chapterOutline: ChapterOutline
+    chapterOutline: ChapterOutline,
   ): Promise<NovelProject> {
     return request(`${WRITER_BASE}/${projectId}/chapters/update-outline`, {
       method: 'POST',
-      body: JSON.stringify(chapterOutline)
+      body: JSON.stringify(chapterOutline),
     })
   }
 
-  static async deleteChapter(
-    projectId: string,
-    chapterNumbers: number[]
-  ): Promise<NovelProject> {
+  static async deleteChapter(projectId: string, chapterNumbers: number[]): Promise<NovelProject> {
     return request(`${WRITER_BASE}/${projectId}/chapters/delete`, {
       method: 'POST',
-      body: JSON.stringify({ chapter_numbers: chapterNumbers })
+      body: JSON.stringify({ chapter_numbers: chapterNumbers }),
     })
   }
 
@@ -1316,11 +1393,11 @@ export class NovelAPI {
     startChapter: number,
     numChapters: number,
     estimatedTotalChapters?: number,
-    userPrompt?: string
+    userPrompt?: string,
   ): Promise<NovelProject> {
     const body: Record<string, any> = {
       start_chapter: startChapter,
-      num_chapters: numChapters
+      num_chapters: numChapters,
     }
     if (estimatedTotalChapters && estimatedTotalChapters > 0) {
       body.estimated_total_chapters = estimatedTotalChapters
@@ -1330,39 +1407,99 @@ export class NovelAPI {
     }
     return request(`${WRITER_BASE}/${projectId}/chapters/outline`, {
       method: 'POST',
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+    })
+  }
+
+  static async startOutlineGenerationTask(
+    projectId: string,
+    startChapter: number,
+    numChapters: number,
+    estimatedTotalChapters?: number,
+    userPrompt?: string,
+  ): Promise<OutlineGenerationTask> {
+    const body: Record<string, any> = {
+      start_chapter: startChapter,
+      num_chapters: numChapters,
+    }
+    if (estimatedTotalChapters && estimatedTotalChapters > 0) {
+      body.estimated_total_chapters = estimatedTotalChapters
+    }
+    if (userPrompt?.trim()) body.user_prompt = userPrompt.trim()
+    return request(`${WRITER_BASE}/${projectId}/chapters/outline-tasks`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+  }
+
+  static async getActiveOutlineGenerationTask(
+    projectId: string,
+  ): Promise<OutlineGenerationTaskEnvelope> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/outline-tasks/active`)
+  }
+
+  static async getOutlineGenerationTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<OutlineGenerationTask> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/outline-tasks/${taskId}`)
+  }
+
+  static async cancelOutlineGenerationTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<OutlineGenerationTask> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/outline-tasks/${taskId}/cancel`, {
+      method: 'POST',
+    })
+  }
+
+  static async retryOutlineGenerationTask(
+    projectId: string,
+    taskId: string,
+  ): Promise<OutlineGenerationTask> {
+    return request(`${WRITER_BASE}/${projectId}/chapters/outline-tasks/${taskId}/retry`, {
+      method: 'POST',
     })
   }
 
   static async regenerateOutlines(
     projectId: string,
     chapterNumbers?: number[],
-    totalChapters?: number
+    totalChapters?: number,
   ): Promise<RegenerateOutlinesResponse> {
     const body: Record<string, any> = {}
     if (chapterNumbers) body.chapter_numbers = chapterNumbers
     if (totalChapters) body.total_chapters = totalChapters
     return request(`${WRITER_BASE}/${projectId}/chapters/regenerate-outlines`, {
       method: 'POST',
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
     })
   }
 
-  static async updateBlueprint(projectId: string, data: Record<string, any>): Promise<NovelProject> {
+  static async updateBlueprint(
+    projectId: string,
+    data: Record<string, any>,
+  ): Promise<NovelProject> {
     return request(`${NOVELS_BASE}/${projectId}/blueprint`, {
       method: 'PATCH',
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     })
   }
 
-  static async setCompleted(projectId: string, isCompleted: boolean): Promise<{ status: string; is_completed: boolean }> {
+  static async setCompleted(
+    projectId: string,
+    isCompleted: boolean,
+  ): Promise<{ status: string; is_completed: boolean }> {
     return request(`${NOVELS_BASE}/${projectId}/completed`, {
       method: 'PATCH',
-      body: JSON.stringify({ is_completed: isCompleted })
+      body: JSON.stringify({ is_completed: isCompleted }),
     })
   }
 
-  static async generateForeshadowings(projectId: string): Promise<{ status: string; message: string; total: number }> {
+  static async generateForeshadowings(
+    projectId: string,
+  ): Promise<{ status: string; message: string; total: number }> {
     return request(`${NOVELS_BASE}/${projectId}/foreshadowings/generate`, { method: 'POST' })
   }
 
@@ -1402,29 +1539,47 @@ export class NovelAPI {
     })
   }
 
-  static async rebuildRag(projectId: string, forceFull: boolean = false): Promise<{ indexed_chapters: number; skipped_chapters: number; removed_chapters: number }> {
-    return request(`${WRITER_BASE}/${projectId}/rag/rebuild?force_full=${forceFull}`, { method: 'POST' })
+  static async rebuildRag(
+    projectId: string,
+    forceFull: boolean = false,
+  ): Promise<{ indexed_chapters: number; skipped_chapters: number; removed_chapters: number }> {
+    return request(`${WRITER_BASE}/${projectId}/rag/rebuild?force_full=${forceFull}`, {
+      method: 'POST',
+    })
   }
 
   static async previewContextPlan(
     projectId: string,
     chapterNumber: number,
-    params: { writing_notes?: string; preset?: string; selected_skills?: any[] }
+    params: { writing_notes?: string; preset?: string; selected_skills?: any[] },
   ): Promise<any> {
     return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/preview-plan`, {
       method: 'POST',
-      body: JSON.stringify(params)
+      body: JSON.stringify(params),
     })
   }
 
-  static async rebuildVolumeSummaries(projectId: string, force: boolean = false): Promise<{ updated: number; skipped: number; total_volumes: number; mode: string }> {
+  static async rebuildVolumeSummaries(
+    projectId: string,
+    force: boolean = false,
+  ): Promise<{ updated: number; skipped: number; total_volumes: number; mode: string }> {
     return request(`${WRITER_BASE}/${projectId}/volumes/rebuild-summaries`, {
       method: 'POST',
-      body: JSON.stringify({ force })
+      body: JSON.stringify({ force }),
     })
   }
 
-  static async getVolumeSummaries(projectId: string): Promise<Array<{ volume_number: number; title: string; chapter_start: number; chapter_end: number; chapter_count: number; summary: string; updated_at: string | null }>> {
+  static async getVolumeSummaries(projectId: string): Promise<
+    Array<{
+      volume_number: number
+      title: string
+      chapter_start: number
+      chapter_end: number
+      chapter_count: number
+      summary: string
+      updated_at: string | null
+    }>
+  > {
     return request(`${WRITER_BASE}/${projectId}/volumes/summaries`)
   }
 
@@ -1432,31 +1587,45 @@ export class NovelAPI {
     return request(`${WRITER_BASE}/${projectId}/book-summary`)
   }
 
-  static async rebuildBookSummary(projectId: string, force: boolean = false): Promise<{ summary: string | null; mode: string }> {
+  static async rebuildBookSummary(
+    projectId: string,
+    force: boolean = false,
+  ): Promise<{ summary: string | null; mode: string }> {
     return request(`${WRITER_BASE}/${projectId}/book-summary/rebuild`, {
       method: 'POST',
-      body: JSON.stringify({ force })
+      body: JSON.stringify({ force }),
     })
   }
 
-  static async generatePrediction(projectId: string, chapterNumber: number, exclusions?: string): Promise<ChapterPrediction> {
+  static async generatePrediction(
+    projectId: string,
+    chapterNumber: number,
+    exclusions?: string,
+  ): Promise<ChapterPrediction> {
     return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/prediction`, {
       method: 'POST',
-      body: JSON.stringify({ exclusions: exclusions || '' })
+      body: JSON.stringify({ exclusions: exclusions || '' }),
     })
   }
 
-  static async batchGeneratePredictions(projectId: string): Promise<{ queued: number; chapter_numbers: number[]; message: string }> {
+  static async batchGeneratePredictions(
+    projectId: string,
+  ): Promise<{ queued: number; chapter_numbers: number[]; message: string }> {
     return request(`${WRITER_BASE}/${projectId}/chapters/batch-prediction`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 
-  static async getPredictionProgress(projectId: string): Promise<{ running: boolean; total: number; completed: number; failed: number }> {
+  static async getPredictionProgress(
+    projectId: string,
+  ): Promise<{ running: boolean; total: number; completed: number; failed: number }> {
     return request(`${WRITER_BASE}/${projectId}/chapters/prediction-progress`)
   }
 
-  static async exportManuscript(projectId: string, format: 'txt' | 'markdown' | 'docx'): Promise<void> {
+  static async exportManuscript(
+    projectId: string,
+    format: 'txt' | 'markdown' | 'docx',
+  ): Promise<void> {
     const authStore = useAuthStore()
     const response = await fetch(`${NOVELS_BASE}/${projectId}/export?format=${format}`, {
       headers: authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {},
@@ -1552,7 +1721,10 @@ export class NovelAPI {
   }
 
   /** M2：冲突发生后显式读取远端当前正文。 */
-  static async getChapterRevision(projectId: string, chapterNumber: number): Promise<ChapterRevision> {
+  static async getChapterRevision(
+    projectId: string,
+    chapterNumber: number,
+  ): Promise<ChapterRevision> {
     return request(`${WRITER_BASE}/${projectId}/chapters/${chapterNumber}/revision`)
   }
 
@@ -1601,49 +1773,56 @@ export class NovelAPI {
   static async generateCharacterDNA(
     projectId: string,
     characterNames?: string[],
-    overwrite: boolean = false
+    overwrite: boolean = false,
   ): Promise<{ status: string; message: string; updated_characters: string[] }> {
     return request(`${NOVELS_BASE}/${projectId}/characters/generate-dna`, {
       method: 'POST',
       body: JSON.stringify({
         character_names: characterNames || null,
-        overwrite
-      })
+        overwrite,
+      }),
     })
   }
 
   static async syncCharactersFromChapters(
-    projectId: string
+    projectId: string,
   ): Promise<{ status: string; message: string; new_characters: any[] }> {
     return request(`${NOVELS_BASE}/${projectId}/characters/sync-from-chapters`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 
   static async syncRelationshipsFromChapters(
-    projectId: string
+    projectId: string,
   ): Promise<{ status: string; message: string; new_relationships: any[] }> {
     return request(`${NOVELS_BASE}/${projectId}/relationships/sync-from-chapters`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 
   // ---- 场景管理 API ----
 
-  static async getChapterScenes(projectId: string, chapterNumber: number): Promise<{ chapter_number: number; scenes: any[] }> {
+  static async getChapterScenes(
+    projectId: string,
+    chapterNumber: number,
+  ): Promise<{ chapter_number: number; scenes: any[] }> {
     return request(`${NOVELS_BASE}/${projectId}/outlines/${chapterNumber}/scenes`)
   }
 
-  static async updateChapterScenes(projectId: string, chapterNumber: number, scenes: any[]): Promise<any> {
+  static async updateChapterScenes(
+    projectId: string,
+    chapterNumber: number,
+    scenes: any[],
+  ): Promise<any> {
     return request(`${NOVELS_BASE}/${projectId}/outlines/${chapterNumber}/scenes`, {
       method: 'PUT',
-      body: JSON.stringify({ scenes })
+      body: JSON.stringify({ scenes }),
     })
   }
 
   static async generateChapterScenes(projectId: string, chapterNumber: number): Promise<any> {
     return request(`${NOVELS_BASE}/${projectId}/outlines/${chapterNumber}/scenes/generate`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 }
@@ -1668,41 +1847,50 @@ export class ConceptAPI {
     return request(`${NOVELS_BASE}/${projectId}/concepts${params}`)
   }
 
-  static async create(projectId: string, data: {
-    entity_type: string
-    canonical_name: string
-    description?: string
-    properties?: Record<string, any>
-    aliases?: string[]
-  }): Promise<{ id: number; message: string }> {
+  static async create(
+    projectId: string,
+    data: {
+      entity_type: string
+      canonical_name: string
+      description?: string
+      properties?: Record<string, any>
+      aliases?: string[]
+    },
+  ): Promise<{ id: number; message: string }> {
     return request(`${NOVELS_BASE}/${projectId}/concepts`, {
       method: 'POST',
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     })
   }
 
-  static async update(projectId: string, conceptId: number, data: {
-    entity_type?: string
-    canonical_name?: string
-    description?: string
-    properties?: Record<string, any>
-    aliases?: string[]
-  }): Promise<{ message: string }> {
+  static async update(
+    projectId: string,
+    conceptId: number,
+    data: {
+      entity_type?: string
+      canonical_name?: string
+      description?: string
+      properties?: Record<string, any>
+      aliases?: string[]
+    },
+  ): Promise<{ message: string }> {
     return request(`${NOVELS_BASE}/${projectId}/concepts/${conceptId}`, {
       method: 'PUT',
-      body: JSON.stringify(data)
+      body: JSON.stringify(data),
     })
   }
 
   static async delete(projectId: string, conceptId: number): Promise<{ message: string }> {
     return request(`${NOVELS_BASE}/${projectId}/concepts/${conceptId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
     })
   }
 
-  static async generate(projectId: string): Promise<{ status: string; message: string; count: number }> {
+  static async generate(
+    projectId: string,
+  ): Promise<{ status: string; message: string; count: number }> {
     return request(`${NOVELS_BASE}/${projectId}/concepts/generate`, {
-      method: 'POST'
+      method: 'POST',
     })
   }
 }
@@ -1742,7 +1930,7 @@ export class OptimizerAPI {
   static async optimizeChapter(optimizeReq: OptimizeRequest): Promise<OptimizeResponse> {
     return request(`${OPTIMIZER_BASE}/optimize`, {
       method: 'POST',
-      body: JSON.stringify(optimizeReq)
+      body: JSON.stringify(optimizeReq),
     })
   }
 
@@ -1764,7 +1952,7 @@ export class OptimizerAPI {
         optimized_content: optimizedContent,
         expected_revision_id: expectedRevisionId,
         expected_content_hash: expectedContentHash,
-      })
+      }),
     })
   }
 }
@@ -1808,7 +1996,9 @@ export interface ArchiveStats {
 export const archiveApi = {
   // 获取项目所有档案列表
   async getProjectArchives(projectId: string, limit = 50, offset = 0): Promise<WritingArchive[]> {
-    return request(`${API_PREFIX}/writer/novels/${projectId}/archives?limit=${limit}&offset=${offset}`)
+    return request(
+      `${API_PREFIX}/writer/novels/${projectId}/archives?limit=${limit}&offset=${offset}`,
+    )
   },
 
   // 获取单个档案详情
@@ -1818,7 +2008,9 @@ export const archiveApi = {
 
   // 获取章节最新档案
   async getLatestArchive(projectId: string, chapterNumber: number): Promise<WritingArchive> {
-    return request(`${API_PREFIX}/writer/novels/${projectId}/archives/chapter/${chapterNumber}/latest`)
+    return request(
+      `${API_PREFIX}/writer/novels/${projectId}/archives/chapter/${chapterNumber}/latest`,
+    )
   },
 
   // 获取项目写作统计
@@ -1827,12 +2019,16 @@ export const archiveApi = {
   },
 
   // 为档案评分
-  async rateArchive(projectId: string, archiveId: number, rating: number): Promise<{ id: number; user_rating: number }> {
+  async rateArchive(
+    projectId: string,
+    archiveId: number,
+    rating: number,
+  ): Promise<{ id: number; user_rating: number }> {
     return request(`${API_PREFIX}/writer/novels/${projectId}/archives/${archiveId}/rate`, {
       method: 'POST',
-      body: JSON.stringify(rating)
+      body: JSON.stringify(rating),
     })
-  }
+  },
 }
 
 // ---- 诊断 API ----

@@ -47,6 +47,7 @@ from ...services.generation_billing_service import (
 )
 from ...db.session import AsyncSessionLocal, get_session
 from ...models.novel import Chapter, ChapterOutline, ChapterVersion, NovelProject
+from ...models.outline_generation_task import OutlineGenerationTask
 from ...models.writing_archive import WritingArchive
 from ...schemas.novel import (
     Chapter as ChapterSchema,
@@ -69,6 +70,8 @@ from ...schemas.novel import (
     FinalizeChapterResponse,
     GenerateChapterRequest,
     GenerateOutlineRequest,
+    OutlineGenerationTaskEnvelope,
+    OutlineGenerationTaskResponse,
     NovelProject as NovelProjectSchema,
     RegenerateOutlinesRequest,
     RegenerateOutlinesResponse,
@@ -88,6 +91,7 @@ from ...services.batch_generation_service import BatchGenerationService
 from ...services.llm_service import LLMService
 from ...services.mission_pregen_service import pregen_next_chapter_mission
 from ...services.novel_service import NovelService
+from ...services.outline_generation_task_service import OutlineGenerationTaskService
 from ...services.prompt_service import PromptService
 from ...services.writer_context_builder import default_context_builder
 from ...services.chapter_guardrails import default_guardrails
@@ -1521,6 +1525,164 @@ async def generate_chapters_outline(
 
     await CacheService().invalidate_project_schema(project_id)
     return await _load_project_schema(novel_service, project_id, current_user.id)
+
+
+async def _generate_outline_range_for_task(
+    *,
+    session: AsyncSession,
+    project_id: str,
+    user_id: int,
+    start_chapter: int,
+    num_chapters: int,
+    estimated_total_chapters: Optional[int],
+    user_prompt: Optional[str],
+) -> None:
+    """后台任务复用现有单区间生成能力，避免同步/异步两套提示词发生漂移。"""
+    task_user = type("OutlineTaskUser", (), {"id": user_id})()
+    await generate_chapters_outline(
+        project_id=project_id,
+        request=GenerateOutlineRequest(
+            start_chapter=start_chapter,
+            num_chapters=num_chapters,
+            estimated_total_chapters=estimated_total_chapters,
+            user_prompt=user_prompt,
+        ),
+        session=session,
+        current_user=task_user,
+    )
+
+
+@router.post(
+    "/novels/{project_id}/chapters/outline-tasks",
+    response_model=OutlineGenerationTaskResponse,
+    status_code=202,
+)
+async def create_outline_generation_task(
+    project_id: str,
+    request: GenerateOutlineRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> OutlineGenerationTask:
+    """创建可恢复的批量章纲后台任务。"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    if request.start_chapter < 1 or request.num_chapters < 1 or request.num_chapters > 200:
+        raise HTTPException(status_code=400, detail="本次生成章数必须在 1～200 之间")
+
+    service = OutlineGenerationTaskService(session)
+    try:
+        task = await service.create_task(
+            project_id=project_id,
+            user_id=current_user.id,
+            chapter_numbers=range(request.start_chapter, request.start_chapter + request.num_chapters),
+            estimated_total_chapters=request.estimated_total_chapters,
+            user_prompt=request.user_prompt,
+        )
+    except ValueError as exc:
+        active_task_id = str(exc)
+        if active_task_id not in {"empty", ""}:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "OUTLINE_TASK_ACTIVE",
+                    "message": "当前小说已有章纲生成任务正在运行",
+                    "meta": {"task_id": active_task_id},
+                },
+            ) from exc
+        raise HTTPException(status_code=400, detail="没有可生成的章节") from exc
+
+    background_tasks.add_task(
+        OutlineGenerationTaskService.run_background,
+        task.id,
+        _generate_outline_range_for_task,
+    )
+    return task
+
+
+@router.get(
+    "/novels/{project_id}/chapters/outline-tasks/active",
+    response_model=OutlineGenerationTaskEnvelope,
+)
+async def get_active_outline_generation_task(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> OutlineGenerationTaskEnvelope:
+    """页面刷新后恢复当前正在运行的任务。"""
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    task = await OutlineGenerationTaskService(session).get_active_task(project_id, current_user.id)
+    return OutlineGenerationTaskEnvelope(task=task)
+
+
+@router.get(
+    "/novels/{project_id}/chapters/outline-tasks/{task_id}",
+    response_model=OutlineGenerationTaskResponse,
+)
+async def get_outline_generation_task(
+    project_id: str,
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> OutlineGenerationTask:
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    task = await OutlineGenerationTaskService(session).get_owned_task(
+        task_id,
+        project_id=project_id,
+        user_id=current_user.id,
+    )
+    if task is None:
+        raise HTTPException(status_code=404, detail="章纲生成任务不存在")
+    return task
+
+
+@router.post(
+    "/novels/{project_id}/chapters/outline-tasks/{task_id}/cancel",
+    response_model=OutlineGenerationTaskResponse,
+)
+async def cancel_outline_generation_task(
+    project_id: str,
+    task_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> OutlineGenerationTask:
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    service = OutlineGenerationTaskService(session)
+    task = await service.get_owned_task(task_id, project_id=project_id, user_id=current_user.id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="章纲生成任务不存在")
+    return await service.request_cancel(task)
+
+
+@router.post(
+    "/novels/{project_id}/chapters/outline-tasks/{task_id}/retry",
+    response_model=OutlineGenerationTaskResponse,
+    status_code=202,
+)
+async def retry_outline_generation_task(
+    project_id: str,
+    task_id: str,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> OutlineGenerationTask:
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    service = OutlineGenerationTaskService(session)
+    source = await service.get_owned_task(task_id, project_id=project_id, user_id=current_user.id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="章纲生成任务不存在")
+    try:
+        retry_task = await service.create_retry_task(source)
+    except ValueError as exc:
+        if str(exc) == "not_retryable":
+            raise HTTPException(status_code=400, detail="当前任务没有可重试的失败章节") from exc
+        raise HTTPException(status_code=409, detail="当前小说已有章纲生成任务正在运行") from exc
+
+    background_tasks.add_task(
+        OutlineGenerationTaskService.run_background,
+        retry_task.id,
+        _generate_outline_range_for_task,
+    )
+    return retry_task
 
 
 async def _run_rolling_outline_review(
