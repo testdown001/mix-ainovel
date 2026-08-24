@@ -32,7 +32,7 @@
           <div v-if="moreOpen" class="more-menu">
             <button type="button" @click="openExport"><span>导出全书</span><small>MD / TXT / DOCX</small></button>
             <button type="button" @click="openPrecheck"><span>投稿预检</span><small>敏感词扫描</small></button>
-            <button type="button" @click="emit('openTools'); moreOpen = false"><span>写作台工具</span><small>批量、预设与诊断</small></button>
+            <button type="button" @click="emit('openTools'); moreOpen = false"><span>创作工具</span><small>批量、预设与诊断</small></button>
             <i></i>
             <button type="button" class="logout-item" @click="handleLogout"><span>退出登录</span></button>
           </div>

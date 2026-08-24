@@ -9,7 +9,7 @@ AILIST NAME=WDChapterRail.vue|K=file|P=写作台章节轨_紧凑章节导航|E=c
 AILIST NAME=chapterRailStatus.ts|K=file|P=章节轨状态语义_区分章纲与正文完成|E=resolveChapterRailStatus|A=状态标签_状态样式分类
 AILIST NAME=WDPlanningCanvas.vue|K=file|P=写作台章节规划画布|E=component:WDPlanningCanvas|A=目标约束_情节拍_引用_推进工作流
 AILIST NAME=WDContextRail.vue|K=file|P=写作台本章上下文栏|E=component:WDContextRail|A=人物_设定_伏笔引用_AI协作
-AILIST NAME=WDSidebar.vue|K=file|P=写作台高级工具抽屉|E=component:WDSidebar|A=批量生成_预设_诊断_章节管理
+AILIST NAME=WDSidebar.vue|K=file|P=写作台章节与创作工具抽屉|E=component:WDSidebar|A=紧凑章节导航_批量生成_预设_诊断_独立滚动
 AILIST NAME=WDVersionDetailModal.vue|K=file|P=版本详情弹窗_版本信息展示|E=component:WDVersionDetailModal|A=版本对比_历史
 AILIST NAME=WDVersionHistoryModal.vue|K=file|P=M3版本历史弹窗|E=component:WDVersionHistoryModal|A=不可变历史_双栏Diff_恢复新快照
 AILIST NAME=WDWorkspace.vue|K=file|P=写作台工作区_主编辑区域|E=component:WDWorkspace|A=章节编辑_生成

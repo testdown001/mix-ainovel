@@ -159,11 +159,11 @@
         @dismiss="dismissOutlineGenerationTask"
       />
 
-      <n-drawer v-model:show="sidebarOpen" :width="372" placement="left">
+      <n-drawer v-model:show="sidebarOpen" width="min(420px, 94vw)" placement="left">
         <n-drawer-content
-          title="写作台工具"
+          title="章节与创作工具"
           closable
-          body-content-style="padding: 12px; overflow: hidden;"
+          body-content-style="height: 100%; min-height: 0; padding: 12px; overflow: hidden;"
         >
           <WDSidebar
             v-if="project"

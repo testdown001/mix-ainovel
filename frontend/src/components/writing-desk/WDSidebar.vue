@@ -1,6 +1,6 @@
-<!-- AIMETA P=写作台侧边栏_章节目录|R=章节列表_导航|NR=不含内容编辑|E=component:WDSidebar|X=ui|A=侧边栏|D=vue|S=dom|RD=./README.ai -->
+<!-- AIMETA P=写作台章节与创作工具抽屉|R=紧凑章节导航_创作工具分区_独立滚动|NR=不含正文编辑|E=component:WDSidebar|X=ui|A=章节与工具抽屉|D=vue|S=dom|RD=./README.ai -->
 <template>
-  <div>
+  <div class="wd-sidebar-shell h-full min-h-0" :class="{ 'is-embedded': embedded }">
     <!-- 侧边栏遮罩 (移动端) -->
     <div
       v-if="sidebarOpen && !embedded"
@@ -23,9 +23,35 @@
       ]"
       style="border-radius: var(--md-radius-xl);"
     >
-      <div class="h-full flex flex-col">
+      <div class="h-full min-h-0 flex flex-col overflow-hidden">
+        <div v-if="embedded" class="drawer-tabbar" role="tablist" aria-label="写作台抽屉">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="drawerTab === 'chapters'"
+            :class="{ active: drawerTab === 'chapters' }"
+            @click="drawerTab = 'chapters'"
+          >
+            <span>章节</span>
+            <small>{{ completedChapters }}/{{ totalChapters }}</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="drawerTab === 'tools'"
+            :class="{ active: drawerTab === 'tools' }"
+            @click="drawerTab = 'tools'"
+          >
+            <span>创作工具</span>
+            <small>{{ props.professionalMode ? '专业' : '主线' }}</small>
+          </button>
+        </div>
+
         <!-- 故事概览（可折叠）：蓝图 / 参考小说 / 创作主线。order-2 使其排在章节列表下方 -->
-        <div class="overview-collapsible flex-shrink-0 order-2">
+        <div
+          v-show="!embedded || drawerTab === 'tools'"
+          class="overview-collapsible flex-shrink-0 order-2"
+        >
           <button class="overview-toggle" type="button" @click="toggleOverview" :aria-expanded="!overviewCollapsed">
             <span class="overview-toggle-main">
               <svg class="overview-chevron" :class="{ 'rotate-90': !overviewCollapsed }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -166,9 +192,214 @@
           </div>
         </div>
 
+        <div
+          v-if="embedded && drawerTab === 'tools'"
+          class="drawer-tools-pane order-1"
+          role="tabpanel"
+        >
+          <section class="tool-hero">
+            <div>
+              <p>创作控制台</p>
+              <h3>{{ selectedOutline ? `第 ${selectedOutline.chapter_number} 章` : '尚未选择章节' }}</h3>
+              <span>{{ selectedOutline?.title || '先从章节页选择要继续创作的章节' }}</span>
+            </div>
+            <button type="button" @click="$emit('openPresetSelector')">
+              <small>当前档位</small>
+              <strong>{{ getPresetName(props.selectedPreset || 'fast') }}</strong>
+            </button>
+          </section>
+
+          <section class="tool-section">
+            <div class="tool-section-head">
+              <div><small>WORKFLOW</small><h4>推进创作</h4></div>
+              <span>{{ completedChapters }}/{{ totalChapters }} 章定稿</span>
+            </div>
+            <div class="tool-action-grid">
+              <button
+                type="button"
+                class="tool-action-card is-primary"
+                :disabled="props.isGeneratingOutline || props.batchGenerating"
+                @click="$emit('generateOutline')"
+              >
+                <span class="tool-action-icon">＋</span>
+                <span><strong>生成后续章纲</strong><small>继续规划故事章节</small></span>
+              </button>
+              <button
+                v-if="!props.batchGenerating"
+                type="button"
+                class="tool-action-card"
+                :disabled="props.isGeneratingOutline || !!props.generatingChapter"
+                @click="$emit('batchGenerate')"
+              >
+                <span class="tool-action-icon">↻</span>
+                <span><strong>连续生成</strong><small>批量生成章节正文</small></span>
+              </button>
+              <button
+                v-else
+                type="button"
+                class="tool-action-card is-danger"
+                @click="$emit('cancelBatch')"
+              >
+                <span class="tool-action-icon">■</span>
+                <span>
+                  <strong>停止连续生成</strong>
+                  <small>{{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }} 章</small>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="props.isGeneratingOutline || props.batchGenerating || !hasIncompleteChapters"
+                @click="$emit('regenerateOutlines')"
+              >
+                <span class="tool-action-icon">◇</span>
+                <span><strong>重排未完成章纲</strong><small>保留已经定稿的章节</small></span>
+              </button>
+              <button type="button" class="tool-action-card" @click="openReferenceLibrary">
+                <span class="tool-action-icon">书</span>
+                <span>
+                  <strong>参考小说</strong>
+                  <small>{{ boundReferenceNovels.length ? `已绑定 ${boundReferenceNovels.length} 本` : '添加本书参考' }}</small>
+                </span>
+              </button>
+            </div>
+          </section>
+
+          <section class="tool-section">
+            <div class="tool-section-head">
+              <div><small>CHAPTER</small><h4>当前章节</h4></div>
+              <span>{{ selectedChapterStatus }}</span>
+            </div>
+            <div class="tool-action-grid">
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="!selectedOutline || isChapterCompleted(selectedOutline.chapter_number)"
+                @click="selectedOutline && $emit('editChapter', selectedOutline)"
+              >
+                <span class="tool-action-icon">编</span>
+                <span><strong>编辑本章规划</strong><small>修改功能、爽点和禁写</small></span>
+              </button>
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="!selectedOutline || props.batchGenerating || !!props.generatingChapter"
+                @click="selectedOutline && confirmGenerateChapter(selectedOutline.chapter_number)"
+              >
+                <span class="tool-action-icon">写</span>
+                <span><strong>{{ selectedOutline && isChapterCompleted(selectedOutline.chapter_number) ? '重写本章正文' : '生成本章正文' }}</strong><small>使用当前档位起草</small></span>
+              </button>
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="!selectedOutline?.metadata?.prediction"
+                @click="selectedOutline && previewPrediction(selectedOutline.chapter_number)"
+              >
+                <span class="tool-action-icon">演</span>
+                <span><strong>查看剧情推演</strong><small>核对节拍与引用</small></span>
+              </button>
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="!selectedChapterNumber"
+                @click="$emit('previewContextPlan')"
+              >
+                <span class="tool-action-icon">据</span>
+                <span><strong>生成依据</strong><small>查看上下文计划</small></span>
+              </button>
+            </div>
+          </section>
+
+          <section class="tool-section">
+            <div class="tool-section-head">
+              <div><small>QUALITY & AI</small><h4>质量与高级工具</h4></div>
+              <button
+                type="button"
+                class="mode-pill"
+                :class="{ active: props.professionalMode }"
+                @click="$emit('update:professionalMode', !props.professionalMode)"
+              >
+                {{ props.professionalMode ? '专业模式' : '开启专业模式' }}
+              </button>
+            </div>
+            <div class="tool-action-grid compact">
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="props.isRebuildingRag"
+                @click="$emit('rebuildRag', false)"
+                @contextmenu.prevent="$emit('rebuildRag', true)"
+              >
+                <span class="tool-action-icon">忆</span>
+                <span><strong>{{ props.isRebuildingRag ? '刷新中…' : '刷新知识库' }}</strong><small>长篇记忆与检索</small></span>
+              </button>
+              <button type="button" class="tool-action-card" @click="$emit('openDiagnosticPanel')">
+                <span class="tool-action-icon">检</span>
+                <span><strong>章节体检</strong><small>质量与风险报告</small></span>
+              </button>
+              <button
+                type="button"
+                class="tool-action-card"
+                :disabled="!props.agentEnabled"
+                @click="$emit('openSkillSelector')"
+              >
+                <span class="tool-action-icon">技</span>
+                <span><strong>Agent 技能</strong><small>{{ props.selectedSkillCount ? `${props.selectedSkillCount} 个已选` : '起草时注入' }}</small></span>
+              </button>
+              <button type="button" class="tool-action-card" @click="$emit('openMiddleProductViewer')">
+                <span class="tool-action-icon">析</span>
+                <span><strong>中间产物</strong><small>上下文与证据</small></span>
+              </button>
+              <button type="button" class="tool-action-card" @click="$emit('openAgentVisualizer')">
+                <span class="tool-action-icon">协</span>
+                <span><strong>Agent 协作</strong><small>查看生成流程</small></span>
+              </button>
+              <button type="button" class="tool-action-card" @click="$emit('openArchives')">
+                <span class="tool-action-icon">档</span>
+                <span><strong>任务档案</strong><small>生成记录与奏折</small></span>
+              </button>
+            </div>
+          </section>
+        </div>
+
         <!-- 章节列表（order-1 提到最上面；故事概览折叠区在其下方） -->
-        <div ref="listContainer" class="flex-1 overflow-y-auto min-h-0 order-1">
-          <div class="p-6 pb-4">
+        <div
+          v-show="!embedded || drawerTab === 'chapters'"
+          ref="listContainer"
+          class="chapter-drawer-pane flex-1 overflow-y-auto min-h-0 order-1"
+          role="tabpanel"
+        >
+          <div v-if="embedded" class="compact-chapter-head">
+            <div class="compact-chapter-title">
+              <div><small>MANUSCRIPT</small><h3>章节目录</h3></div>
+              <strong>{{ visibleOutlines.length }}/{{ totalChapters }}</strong>
+            </div>
+            <div class="compact-chapter-controls">
+              <button type="button" @click.stop="$emit('openPresetSelector')">
+                <span>写作档位</span><strong>{{ getPresetName(props.selectedPreset || 'fast') }}</strong>
+              </button>
+              <button
+                v-if="hasIncompleteChapters"
+                type="button"
+                @click.stop="scrollToFirstIncompleteChapter"
+              >
+                <span>快捷定位</span><strong>下一未完成</strong>
+              </button>
+            </div>
+            <select v-if="volumeOptions.length" v-model="selectedVolume" class="compact-volume-select">
+              <option value="all">全部分卷</option>
+              <option v-for="vol in volumeOptions" :key="vol.key" :value="vol.key">
+                {{ vol.label }}
+              </option>
+            </select>
+            <div v-if="activeLoopLabels.length" class="compact-loop-labels">
+              <span v-for="label in activeLoopLabels" :key="label">{{ label }}</span>
+            </div>
+            <p v-else-if="qualityLoops" class="compact-loop-empty">
+              当前档位未启用额外质量回路。
+            </p>
+          </div>
+          <div v-else class="p-6 pb-4">
             <div class="flex items-center justify-between mb-4">
               <h3 class="md-title-medium font-semibold">章节大纲</h3>
               <div class="flex items-center gap-2">
@@ -219,8 +450,48 @@
             />
           </div>
 
-          <div class="px-6 pb-6">
-            <div v-if="visibleOutlines.length" class="space-y-3">
+          <div :class="embedded ? 'compact-chapter-list' : 'px-6 pb-6'">
+            <div v-if="embedded && visibleOutlines.length" class="compact-chapter-rows">
+              <button
+                v-for="chapter in visibleOutlines"
+                :key="chapter.chapter_number"
+                :ref="el => setChapterRef(chapter.chapter_number, el)"
+                type="button"
+                class="compact-chapter-row"
+                :class="{
+                  active: selectedChapterNumber === chapter.chapter_number,
+                  done: isChapterCompleted(chapter.chapter_number),
+                }"
+                @click="handleSelectChapter(chapter)"
+              >
+                <span class="compact-row-accent"></span>
+                <span class="compact-row-index">
+                  <svg
+                    v-if="isChapterCompleted(chapter.chapter_number)"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                  >
+                    <path d="m6.5 12.5 3.3 3.3 7.7-8" />
+                  </svg>
+                  <span v-else>{{ String(chapter.chapter_number).padStart(2, '0') }}</span>
+                </span>
+                <span class="compact-row-copy">
+                  <strong>第{{ chapter.chapter_number }}章 · {{ chapter.title }}</strong>
+                  <small>{{ chapter.summary || '尚未填写章节摘要' }}</small>
+                  <span v-if="chapter.metadata?.prediction" class="compact-rhythm-tags">
+                    <i v-if="chapter.metadata.prediction.cool_points?.length">爽</i>
+                    <i v-if="chapter.metadata.prediction.foreshadowing_hooks?.length">伏</i>
+                    <i v-if="chapter.metadata.prediction.foreshadowing_targets?.length">收</i>
+                  </span>
+                </span>
+                <em :data-state="compactChapterState(chapter.chapter_number)">
+                  {{ compactChapterStatus(chapter.chapter_number) }}
+                </em>
+              </button>
+            </div>
+            <div v-else-if="visibleOutlines.length" class="space-y-3">
               <div
                 v-for="(chapter, index) in visibleOutlines"
                 :key="chapter.chapter_number"
@@ -400,6 +671,7 @@
                 <span>删除选中的 {{ selectedForDeletion.length }} 章</span>
               </button>
             </div>
+            <template v-if="!embedded">
             <div class="mt-4">
               <button
                 @click="$emit('generateOutline')"
@@ -531,6 +803,7 @@
                 </button>
               </div>
             </div>
+            </template>
           </div>
         </div>
       </div>
@@ -644,6 +917,29 @@ const referenceLibraryVisible = ref(false)
 const showProfessionalTools = ref(!!props.professionalMode)
 const selectedVolume = ref('all')
 const qualityLoops = ref<QualityLoopsResponse | null>(null)
+type DrawerTab = 'chapters' | 'tools'
+const drawerTab = ref<DrawerTab>(
+  typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+    ? 'tools'
+    : 'chapters',
+)
+
+const selectedOutline = computed(() =>
+  props.project.blueprint?.chapter_outline?.find(
+    (outline) => outline.chapter_number === props.selectedChapterNumber,
+  ),
+)
+
+const selectedChapterStatus = computed(() => {
+  const chapterNumber = props.selectedChapterNumber
+  if (!chapterNumber) return '未选择'
+  if (isChapterGenerating(chapterNumber)) return '生成中'
+  if (isChapterEvaluating(chapterNumber)) return '评审中'
+  if (isChapterFailed(chapterNumber)) return '生成失败'
+  if (hasChapterInProgress(chapterNumber)) return '等待选版'
+  if (isChapterCompleted(chapterNumber)) return '已定稿'
+  return '未开始'
+})
 
 const volumeOptions = computed(() =>
   (props.project.blueprint?.volumes || []).map((vol, i) => ({
@@ -1078,6 +1374,27 @@ const isChapterSelecting = (chapterNumber: number) => {
   return chapter && chapter.generation_status === 'selecting'
 }
 
+const compactChapterState = (chapterNumber: number) => {
+  if (isChapterGenerating(chapterNumber) || isChapterSelecting(chapterNumber)) return 'working'
+  if (isChapterEvaluating(chapterNumber)) return 'evaluating'
+  if (isChapterFailed(chapterNumber)) return 'failed'
+  if (hasChapterInProgress(chapterNumber)) return 'confirm'
+  if (isChapterCompleted(chapterNumber)) return 'done'
+  return 'planned'
+}
+
+const compactChapterStatus = (chapterNumber: number) => {
+  const labels: Record<string, string> = {
+    working: '生成中',
+    evaluating: '评审中',
+    failed: '失败',
+    confirm: '待选版',
+    done: '已完成',
+    planned: '规划中',
+  }
+  return labels[compactChapterState(chapterNumber)]
+}
+
 const canGenerateChapter = (chapterNumber: number) => {
   if (!props.project?.blueprint?.chapter_outline) return false
 
@@ -1102,6 +1419,507 @@ const canGenerateChapter = (chapterNumber: number) => {
 </script>
 
 <style scoped>
+.wd-sidebar-shell,
+.wd-sidebar-shell > div:not(.fixed) {
+  min-height: 0;
+}
+
+.drawer-tabbar {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin: 0 14px 10px;
+  padding: 4px;
+  border: 1px solid #292b26;
+  border-radius: 12px;
+  background: #0e0f0d;
+}
+
+.drawer-tabbar button {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  color: #777a73;
+  background: transparent;
+  cursor: pointer;
+  transition: 0.18s ease;
+}
+
+.drawer-tabbar button:hover {
+  color: #f2f2ec;
+  background: #171815;
+}
+
+.drawer-tabbar button.active {
+  color: #11120f;
+  background: #ffe500;
+  box-shadow: 0 8px 25px rgba(255, 229, 0, 0.12);
+}
+
+.drawer-tabbar span {
+  font-size: 13px;
+  font-weight: 780;
+}
+
+.drawer-tabbar small {
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.drawer-tools-pane,
+.chapter-drawer-pane {
+  min-height: 0;
+  scrollbar-color: #383a34 transparent;
+  scrollbar-width: thin;
+}
+
+.drawer-tools-pane {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 14px 20px;
+}
+
+.tool-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #292b26;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(255, 229, 0, 0.09), transparent 42%),
+    #151613;
+}
+
+.tool-hero p,
+.tool-hero h3,
+.tool-hero span,
+.tool-section-head h4,
+.tool-section-head small {
+  margin: 0;
+}
+
+.tool-hero p,
+.tool-section-head small {
+  color: #676a62;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.16em;
+}
+
+.tool-hero h3 {
+  margin-top: 5px;
+  color: #f5f5ef;
+  font-size: 17px;
+  font-weight: 780;
+}
+
+.tool-hero > div > span {
+  display: block;
+  max-width: 210px;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #858880;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-hero > button {
+  display: flex;
+  flex: 0 0 auto;
+  min-width: 86px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid rgba(255, 229, 0, 0.23);
+  border-radius: 10px;
+  color: #ffe500;
+  background: rgba(255, 229, 0, 0.06);
+}
+
+.tool-hero > button small {
+  color: #777a72;
+  font-size: 8px;
+}
+
+.tool-hero > button strong {
+  font-size: 11px;
+}
+
+.tool-section {
+  margin-top: 18px;
+}
+
+.tool-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 2px 9px;
+}
+
+.tool-section-head h4 {
+  margin-top: 3px;
+  color: #f0f0eb;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.tool-section-head > span {
+  color: #777a72;
+  font-size: 9px;
+}
+
+.tool-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.tool-action-card {
+  display: flex;
+  min-width: 0;
+  min-height: 70px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid #292b26;
+  border-radius: 12px;
+  color: #f2f2ed;
+  text-align: left;
+  background: #151613;
+  cursor: pointer;
+  transition: 0.18s ease;
+}
+
+.tool-action-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #4a4d43;
+  background: #1a1b17;
+}
+
+.tool-action-card.is-primary {
+  border-color: rgba(255, 229, 0, 0.3);
+  background: rgba(255, 229, 0, 0.065);
+}
+
+.tool-action-card.is-danger {
+  border-color: rgba(242, 94, 94, 0.28);
+  color: #ff8989;
+  background: rgba(170, 45, 45, 0.08);
+}
+
+.tool-action-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.tool-action-card > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tool-action-card strong,
+.tool-action-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-action-card strong {
+  font-size: 11px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.tool-action-card small {
+  color: #6f726b;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.tool-action-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid #34362f;
+  border-radius: 9px;
+  color: #ffe500;
+  font-size: 10px;
+  font-weight: 850;
+  background: #20211d;
+}
+
+.mode-pill {
+  padding: 5px 8px;
+  border: 1px solid #34362f;
+  border-radius: 999px;
+  color: #8a8d85;
+  background: #171815;
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.mode-pill.active {
+  border-color: rgba(255, 229, 0, 0.25);
+  color: #ffe500;
+  background: rgba(255, 229, 0, 0.05);
+}
+
+.compact-chapter-head {
+  padding: 5px 16px 11px;
+}
+
+.compact-chapter-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.compact-chapter-title small {
+  color: #5f625b;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.17em;
+}
+
+.compact-chapter-title h3 {
+  margin: 3px 0 0;
+  color: #f5f5ef;
+  font-size: 17px;
+  font-weight: 760;
+}
+
+.compact-chapter-title > strong {
+  color: #ffe500;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.compact-chapter-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.compact-chapter-controls button {
+  display: flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid #292b26;
+  border-radius: 9px;
+  color: #71746c;
+  background: #151613;
+}
+
+.compact-chapter-controls span {
+  font-size: 8px;
+}
+
+.compact-chapter-controls strong {
+  overflow: hidden;
+  color: #e7e8e1;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-volume-select {
+  width: 100%;
+  height: 36px;
+  margin-top: 7px;
+  padding: 0 10px;
+  border: 1px solid #292b26;
+  border-radius: 9px;
+  outline: none;
+  color: #b4b6af;
+  background: #151613;
+  font-size: 10px;
+}
+
+.compact-loop-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.compact-loop-labels span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: #888b83;
+  background: #1b1c19;
+  font-size: 8px;
+}
+
+.compact-loop-empty {
+  margin: 7px 2px 0;
+  color: #62655e;
+  font-size: 8px;
+}
+
+.compact-chapter-list {
+  padding: 0 10px 18px;
+}
+
+.compact-chapter-rows {
+  display: grid;
+  gap: 4px;
+}
+
+.compact-chapter-row {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 78px;
+  grid-template-columns: 35px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 10px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  transition: 0.18s ease;
+}
+
+.compact-chapter-row:hover {
+  background: #181916;
+}
+
+.compact-chapter-row.active {
+  border-color: #31332d;
+  background: #20211d;
+}
+
+.compact-row-accent {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: transparent;
+}
+
+.compact-chapter-row.active .compact-row-accent {
+  background: #ffe500;
+}
+
+.compact-row-index {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #343630;
+  border-radius: 50%;
+  color: #858880;
+  font-size: 10px;
+  font-weight: 760;
+  background: #20211e;
+}
+
+.compact-row-index svg {
+  width: 16px;
+  color: #36d885;
+}
+
+.compact-chapter-row.active:not(.done) .compact-row-index {
+  border-color: #ffe500;
+  color: #10110e;
+  background: #ffe500;
+}
+
+.compact-row-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compact-row-copy strong,
+.compact-row-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-row-copy strong {
+  color: #f0f0eb;
+  font-size: 11px;
+  font-weight: 740;
+}
+
+.compact-row-copy small {
+  color: #6f726b;
+  font-size: 9px;
+}
+
+.compact-chapter-row > em {
+  align-self: start;
+  margin-top: 3px;
+  color: #6e7169;
+  font-size: 8px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.compact-chapter-row > em[data-state='done'] {
+  color: #36d885;
+}
+
+.compact-chapter-row > em[data-state='working'],
+.compact-chapter-row > em[data-state='evaluating'] {
+  color: #ffe500;
+}
+
+.compact-chapter-row > em[data-state='failed'] {
+  color: #ff8181;
+}
+
+.compact-chapter-row > em[data-state='confirm'] {
+  color: #ffbd56;
+}
+
+.compact-rhythm-tags {
+  display: flex;
+  gap: 3px;
+}
+
+.compact-rhythm-tags i {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border-radius: 4px;
+  color: #ffe500;
+  background: rgba(255, 229, 0, 0.08);
+  font-size: 7px;
+  font-style: normal;
+}
+
 .overview-collapsible {
   border-top: 1px solid #2A2A2A;
 }

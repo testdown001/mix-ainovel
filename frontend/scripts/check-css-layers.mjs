@@ -10,8 +10,11 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const distAssets = new URL('../dist/assets/', import.meta.url).pathname
+// URL.pathname 在 Windows 会得到 `/D:/...`，Node 文件 API 无法识别；转成本机路径后
+// 本地与 Linux 构建容器才能使用同一条产物校验命令。
+const distAssets = fileURLToPath(new URL('../dist/assets/', import.meta.url))
 const PROBE = '.md-btn-filled' // 只在 m3-components.css 里定义，不会与 scoped 样式混淆
 
 let files
