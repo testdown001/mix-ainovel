@@ -29,20 +29,26 @@ def effective_chapter_status(
     updated_at: Optional[datetime],
     *,
     now: Optional[datetime] = None,
+    has_selected_version: bool = False,
 ) -> str:
-    """把超过保鲜期的 generating 呈现为 failed，其余状态原样返回。"""
+    """计算章节对外状态，并保护已经选版成功的正文。
+
+    生成重试可以失败，但不能抹掉此前已确认的正文。数据库若因旧任务/进程中断留下
+    ``failed``（或超时的 ``generating``），只要仍有选中版本，对外就应算已完成。
+    """
     resolved = status or ChapterGenerationStatus.NOT_GENERATED.value
-    if resolved != ChapterGenerationStatus.GENERATING.value or updated_at is None:
-        return resolved
+    if resolved == ChapterGenerationStatus.GENERATING.value and updated_at is not None:
+        # updated_at 的时区取决于驱动（MySQL 常为 naive、SQLite 为 naive、部分驱动带 tz），
+        # 统一到 aware 再比较，避免 naive/aware 相减直接 TypeError 把整个章节读取打挂
+        reference = now or datetime.now(timezone.utc)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
 
-    # updated_at 的时区取决于驱动（MySQL 常为 naive、SQLite 为 naive、部分驱动带 tz），
-    # 统一到 aware 再比较，避免 naive/aware 相减直接 TypeError 把整个章节读取打挂
-    reference = now or datetime.now(timezone.utc)
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
+        if reference - updated_at > STALE_GENERATING_AFTER:
+            resolved = ChapterGenerationStatus.FAILED.value
 
-    if reference - updated_at > STALE_GENERATING_AFTER:
-        return ChapterGenerationStatus.FAILED.value
+    if resolved == ChapterGenerationStatus.FAILED.value and has_selected_version:
+        return ChapterGenerationStatus.SUCCESSFUL.value
     return resolved

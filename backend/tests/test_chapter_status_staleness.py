@@ -45,6 +45,12 @@ def test_empty_status_falls_back_to_not_generated():
     assert effective_chapter_status(None, None) == "not_generated"
 
 
+def test_failed_or_stale_generation_keeps_selected_body_successful():
+    ancient = datetime.utcnow() - STALE_GENERATING_AFTER - timedelta(minutes=1)
+    assert effective_chapter_status("failed", ancient, has_selected_version=True) == "successful"
+    assert effective_chapter_status("generating", ancient, has_selected_version=True) == "successful"
+
+
 def test_explicit_now_is_respected():
     updated = datetime(2026, 1, 1, 0, 0, 0)
     assert effective_chapter_status("generating", updated, now=datetime(2026, 1, 1, 0, 10, 0)) == "generating"

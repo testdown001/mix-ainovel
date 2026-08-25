@@ -2383,7 +2383,8 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
         const batchResult = result.result as {
           completed?: number
           failed?: number
-          results?: Array<{ status?: string }>
+          reused?: number
+          results?: Array<{ chapter_number?: number; status?: string; reused?: boolean }>
         } | null
         completedCount =
           batchResult?.completed ??
@@ -2395,9 +2396,15 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
           0
 
         if (failedCount > 0) {
+          const failedChapters = (batchResult?.results || [])
+            .filter((item) => item.status === 'failed' && item.chapter_number != null)
+            .map((item) => item.chapter_number)
+          const failedDetail = failedChapters.length
+            ? `；失败章节：第 ${failedChapters.join('、')} 章，可单独重试`
+            : '，失败章节可单独重试'
           globalAlert.showError(
-            `连续生成部分完成：成功 ${completedCount} 章，失败 ${failedCount} 章`,
-            '连续生成异常',
+            `批量生成部分完成：成功 ${completedCount} 章，失败 ${failedCount} 章${failedDetail}`,
+            '部分章节生成失败',
           )
         } else {
           globalAlert.showSuccess(`批量生成完成，共 ${completedCount} 章`, '连续生成')

@@ -5,12 +5,13 @@
 """
 import contextlib
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
 
 import app.models  # noqa: F401  触发全部 mapper 注册
-from app.models.novel import Chapter
+from app.models.novel import Chapter, ChapterVersion
 from app.api.routers import task_worker
 from app.api.routers.task_worker import _reset_generating_chapters_to_failed
 
@@ -86,3 +87,79 @@ async def test_reset_batch_and_noop_paths(db_session, monkeypatch):
         await db_session.execute(select(Chapter).where(Chapter.project_id == "p2"))
     ).scalars().all()
     assert all(r.status == "failed" for r in rows)
+
+
+@pytest.mark.asyncio
+async def test_reset_restores_success_when_selected_body_exists(db_session, monkeypatch):
+    chapter = Chapter(project_id="p3", chapter_number=7, status="generating")
+    db_session.add(chapter)
+    await db_session.flush()
+    version = ChapterVersion(chapter_id=chapter.id, content="已经生成并确认的正文")
+    db_session.add(version)
+    await db_session.flush()
+    chapter.selected_version_id = version.id
+    await db_session.commit()
+
+    @contextlib.asynccontextmanager
+    async def fake_factory():
+        yield db_session
+
+    monkeypatch.setattr("app.api.routers.task_worker.AsyncSessionLocal", fake_factory)
+    await _reset_generating_chapters_to_failed(
+        SimpleNamespace(
+            task_id="t3",
+            task_type="chapter:generate",
+            project_id="p3",
+            chapter_number=7,
+            chapter_numbers=None,
+        )
+    )
+
+    row = (
+        await db_session.execute(
+            select(Chapter).where(Chapter.project_id == "p3", Chapter.chapter_number == 7)
+        )
+    ).scalar_one()
+    assert row.status == "successful"
+
+
+@pytest.mark.asyncio
+async def test_batch_preflight_repairs_and_reuses_selected_body(db_session, monkeypatch):
+    chapter = Chapter(project_id="p4", chapter_number=9, status="failed", word_count=18)
+    db_session.add(chapter)
+    await db_session.flush()
+    version = ChapterVersion(chapter_id=chapter.id, content="已经成功落库但状态被旧批次覆盖")
+    db_session.add(version)
+    await db_session.flush()
+    chapter.selected_version_id = version.id
+    await db_session.commit()
+
+    @contextlib.asynccontextmanager
+    async def fake_factory():
+        yield db_session
+
+    owner_check = AsyncMock()
+    monkeypatch.setattr("app.api.routers.task_worker.AsyncSessionLocal", fake_factory)
+    monkeypatch.setattr(
+        "app.api.routers.task_worker.NovelService",
+        lambda session: SimpleNamespace(ensure_project_owner=owner_check),
+    )
+
+    completed = await task_worker._load_completed_batch_chapters(
+        task_worker.WorkerTaskRequest(
+            task_id="batch-retry",
+            task_type="chapter:batch_generate",
+            project_id="p4",
+            chapter_numbers=[9, 10],
+            user_id=42,
+        )
+    )
+
+    owner_check.assert_awaited_once_with("p4", 42)
+    assert completed[9]["selected_version_id"] == version.id
+    repaired = (
+        await db_session.execute(
+            select(Chapter).where(Chapter.project_id == "p4", Chapter.chapter_number == 9)
+        )
+    ).scalar_one()
+    assert repaired.status == "successful"

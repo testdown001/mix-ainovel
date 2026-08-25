@@ -526,8 +526,16 @@ async def _set_chapter_failed_status(
     result = await session.execute(stmt)
     chapter = result.scalars().first()
     if chapter:
-        chapter.status = ChapterGenerationStatus.FAILED.value
-        await session.commit()
+        # 重写/重试失败不等于旧正文也失败。已有选中版本时恢复 completed 语义；
+        # 没有选中版本时也只收束本次留下的 generating，不覆盖待选候选。
+        next_status = None
+        if chapter.selected_version_id:
+            next_status = ChapterGenerationStatus.SUCCESSFUL.value
+        elif chapter.status == ChapterGenerationStatus.GENERATING.value:
+            next_status = ChapterGenerationStatus.FAILED.value
+        if next_status is not None and chapter.status != next_status:
+            chapter.status = next_status
+            await session.commit()
         # 与置 generating 同理：不作废缓存，前端在 TTL 内仍会看到「生成中」的旧快照
         await CacheService.invalidate_project_schema_safely(project_id)
 

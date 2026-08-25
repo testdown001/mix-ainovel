@@ -1854,7 +1854,9 @@ class NovelService:
             # serializer 不能触发隐式 IO，否则会抛 MissingGreenlet。未加载时保守不判过期。
             chapter_updated_at = vars(chapter).get("updated_at")
             status_value = effective_chapter_status(
-                chapter.status, chapter_updated_at
+                chapter.status,
+                chapter_updated_at,
+                has_selected_version=bool(chapter.selected_version_id),
             )
             word_count = chapter.word_count or 0
 

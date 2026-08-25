@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import update
+from sqlalchemy import case, select, update
 
 from ...agents.hybrid_executor import HybridExecutor
 from ...core.config import settings
@@ -217,10 +217,12 @@ def _verify_internal_secret(provided):
 
 
 async def _reset_generating_chapters_to_failed(req: "WorkerTaskRequest") -> None:
-    """任务失败时，把本任务相关、仍停在 generating 的章节回写 failed（独立 session、
-    best-effort）。异步路径下 worker 抛错只会向网关返回 failed，**不写章节表**——若不回写，
-    章节会永久卡在 generating，前端一直显示"等待生成"。只更新仍 generating 的行，
-    不覆盖已成功/待选状态，也不创建新行。"""
+    """任务失败时，逐章收束本任务留下的 ``generating`` 状态。
+
+    已经有选中正文的章节仍然是可交付成果，后续重试失败不能把它降级成“生成失败”；
+    这类行恢复为 ``successful``。只有从未产出选中正文的章节才落 ``failed``。
+    SQL 的条件与 CASE 在同一条 UPDATE 中执行，避免先读后写覆盖并发选版结果。
+    """
     if req.task_type not in ("chapter:generate", "chapter:batch_generate"):
         return
     numbers = set()
@@ -239,10 +241,16 @@ async def _reset_generating_chapters_to_failed(req: "WorkerTaskRequest") -> None
                     Chapter.chapter_number.in_(numbers),
                     Chapter.status == "generating",
                 )
-                .values(status="failed")
+                .values(
+                    status=case(
+                        (Chapter.selected_version_id.is_not(None), "successful"),
+                        else_="failed",
+                    )
+                )
             )
             await session.commit()
-        logger.info("任务 %s 失败，已将仍在 generating 的章节 %s 回写 failed", req.task_id, sorted(numbers))
+        await CacheService.invalidate_project_schema_safely(req.project_id)
+        logger.info("任务 %s 失败，已逐章收束 generating 状态: %s", req.task_id, sorted(numbers))
     except Exception as exc:  # pragma: no cover - 回写失败不影响主流程
         logger.warning("回写章节 failed 状态失败(已忽略): %s", exc)
 
@@ -400,7 +408,10 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         # (CancelledError)，复位也能跑完；并吞掉取消导致的二次抛出——否则在已取消的
         # 任务里再 await 会立刻重抛 CancelledError，逃逸成 HTTP 500。
         try:
-            await asyncio.shield(_reset_generating_chapters_to_failed(req))
+            # 批量循环会在每一章自己的异常边界内收束状态。这里不能再拿整个章节列表
+            # 做批次级覆盖，否则一个基础设施异常会把其它章节的结果一起判失败。
+            if req.task_type != "chapter:batch_generate":
+                await asyncio.shield(_reset_generating_chapters_to_failed(req))
         except BaseException:  # noqa: BLE001 - 复位失败/取消都不应阻断优雅返回
             pass
 
@@ -555,8 +566,18 @@ async def _execute_batch_generate(
     """执行批量生成"""
     results = []
     total = len(req.chapter_numbers or [])
+    completed_chapters = await _load_completed_batch_chapters(req)
 
     for idx, chapter_number in enumerate(req.chapter_numbers or []):
+        single_req = WorkerTaskRequest(
+            task_id=req.task_id,
+            task_type="chapter:generate",
+            project_id=req.project_id,
+            chapter_number=chapter_number,
+            user_id=req.user_id,
+            config=req.config,
+            callback_url=None,
+        )
         try:
             progress = int((idx / total) * 100)
             await reporter.report(
@@ -565,16 +586,17 @@ async def _execute_batch_generate(
                 f"正在生成第 {chapter_number} 章 ({idx + 1}/{total})",
             )
 
-            # 创建单章请求
-            single_req = WorkerTaskRequest(
-                task_id=req.task_id,
-                task_type="chapter:generate",
-                project_id=req.project_id,
-                chapter_number=chapter_number,
-                user_id=req.user_id,
-                config=req.config,
-                callback_url=None,  # 批量任务由外层统一报告
-            )
+            # 网关重试的是同一个批次。前一次尝试已经选版成功的章节必须直接复用，
+            # 不能重置为 generating 后再跑一遍，更不能因后续章节失败而降级。
+            existing = completed_chapters.get(chapter_number)
+            if existing is not None:
+                results.append({
+                    "chapter_number": chapter_number,
+                    "status": "success",
+                    "reused": True,
+                    "result": existing,
+                })
+                continue
 
             single_reporter = ProgressReporter(None, req.task_id)
             result = await _execute_chapter_generate(single_req, single_reporter)
@@ -590,8 +612,17 @@ async def _execute_batch_generate(
                 "result": result,
             })
 
+        except asyncio.CancelledError:
+            # 取消只收束当前原子章节；已完成和尚未开始的章节都不动。
+            try:
+                await asyncio.shield(_reset_generating_chapters_to_failed(single_req))
+            except BaseException:  # noqa: BLE001
+                pass
+            raise
         except Exception as e:
             logger.error(f"章节 {chapter_number} 生成失败: {e}")
+            # 每章独立提交失败状态，批量结果只做汇总，不反向覆盖其它章节。
+            await _reset_generating_chapters_to_failed(single_req)
             results.append({
                 "chapter_number": chapter_number,
                 "status": "failed",
@@ -600,14 +631,58 @@ async def _execute_batch_generate(
 
     completed = sum(1 for item in results if item["status"] == "success")
     failed = total - completed
+    reused = sum(1 for item in results if item.get("reused") is True)
     return {
         "project_id": req.project_id,
         "total": total,
         "completed": completed,
         "failed": failed,
+        "reused": reused,
         "results": results,
         "status": "completed" if failed == 0 else "partial",
     }
+
+
+async def _load_completed_batch_chapters(
+    req: WorkerTaskRequest,
+) -> Dict[int, Dict[str, Any]]:
+    """读取并修复批量任务中已经有选中正文的章节，用于幂等续跑。"""
+    numbers = sorted(set(req.chapter_numbers or []))
+    if not numbers:
+        return {}
+
+    repaired = False
+    async with AsyncSessionLocal() as session:
+        novel_service = NovelService(session)
+        await novel_service.ensure_project_owner(req.project_id, req.user_id)
+        rows = await session.execute(
+            select(Chapter).where(
+                Chapter.project_id == req.project_id,
+                Chapter.chapter_number.in_(numbers),
+                Chapter.selected_version_id.is_not(None),
+            )
+        )
+        chapters = rows.scalars().all()
+        completed: Dict[int, Dict[str, Any]] = {}
+        for chapter in chapters:
+            # selected_version_id 只能由非空版本的选版流程写入，因此它是“正文已交付”的
+            # 数据库事实。修复旧超时任务留下的 generating/failed 状态。
+            if chapter.status in {"generating", "failed"}:
+                chapter.status = "successful"
+                repaired = True
+            completed[chapter.chapter_number] = {
+                "chapter_id": chapter.id,
+                "chapter_number": chapter.chapter_number,
+                "status": "already_completed",
+                "selected_version_id": chapter.selected_version_id,
+                "word_count": chapter.word_count or 0,
+            }
+        if repaired:
+            await session.commit()
+
+    if repaired:
+        await CacheService.invalidate_project_schema_safely(req.project_id)
+    return completed
 
 
 async def _select_batch_generated_chapter(

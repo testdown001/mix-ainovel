@@ -118,6 +118,9 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
     select = AsyncMock(return_value=701)
     monkeypatch.setattr(task_worker, "_execute_chapter_generate", generate)
     monkeypatch.setattr(task_worker, "_select_batch_generated_chapter", select)
+    monkeypatch.setattr(task_worker, "_load_completed_batch_chapters", AsyncMock(return_value={}))
+    reset = AsyncMock()
+    monkeypatch.setattr(task_worker, "_reset_generating_chapters_to_failed", reset)
 
     req = task_worker.WorkerTaskRequest(
         task_id="task-batch",
@@ -135,8 +138,51 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
     assert result["total"] == 2
     assert result["completed"] == 1
     assert result["failed"] == 1
+    assert result["reused"] == 0
     assert result["results"][0]["result"]["selected_version_id"] == 701
     assert result["results"][1]["status"] == "failed"
+    assert reset.await_count == 1
+    assert reset.await_args.args[0].chapter_number == 8
+
+
+def test_batch_generate_reuses_completed_chapter_without_regenerating(monkeypatch):
+    generate = AsyncMock(return_value={"chapter_number": 8, "best_version_index": 0})
+    select = AsyncMock(return_value=801)
+    monkeypatch.setattr(task_worker, "_execute_chapter_generate", generate)
+    monkeypatch.setattr(task_worker, "_select_batch_generated_chapter", select)
+    monkeypatch.setattr(
+        task_worker,
+        "_load_completed_batch_chapters",
+        AsyncMock(
+            return_value={
+                7: {
+                    "chapter_id": 70,
+                    "chapter_number": 7,
+                    "status": "already_completed",
+                    "selected_version_id": 701,
+                    "word_count": 3200,
+                }
+            }
+        ),
+    )
+
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-retry",
+        task_type="chapter:batch_generate",
+        project_id="project-1",
+        chapter_numbers=[7, 8],
+        user_id=12,
+        config=task_worker.TaskConfig(preset="fast"),
+    )
+
+    result = asyncio.run(task_worker._execute_batch_generate(req, _NoopReporter()))
+
+    assert [call.args[0].chapter_number for call in generate.await_args_list] == [8]
+    select.assert_awaited_once_with(req, 8, 0)
+    assert result["completed"] == 2
+    assert result["failed"] == 0
+    assert result["reused"] == 1
+    assert result["results"][0]["reused"] is True
 
 
 def test_single_generation_auto_selects_when_requested(monkeypatch):
