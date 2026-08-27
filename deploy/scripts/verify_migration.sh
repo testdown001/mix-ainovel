@@ -42,8 +42,13 @@ FAILED=0
 # ---- 1. Alembic 版本 ---------------------------------------------------------
 echo ""
 info "1. Alembic 版本"
-CURRENT="$(app_exec alembic current </dev/null 2>/dev/null | grep -oE '^[0-9a-f]{6,}' | head -n 1 || true)"
-HEADS="$(app_exec alembic heads </dev/null 2>/dev/null | grep -oE '^[0-9a-f]{6,}' || true)"
+# Alembic revision ids are not limited to hexadecimal characters.  This
+# project intentionally uses readable ids such as `i3d4e5f6g7h8`, so parsing
+# only `[0-9a-f]` would report a false "no alembic_version" even after a
+# successful upgrade.  Accept the id characters Alembic emits while keeping
+# the match anchored to the beginning of the line.
+CURRENT="$(app_exec alembic current </dev/null 2>/dev/null | grep -oE '^[[:alnum:]_-]{6,}' | head -n 1 || true)"
+HEADS="$(app_exec alembic heads </dev/null 2>/dev/null | grep -oE '^[[:alnum:]_-]{6,}' || true)"
 HEAD_COUNT="$(printf '%s\n' "$HEADS" | grep -c . || true)"
 
 if [ -z "$CURRENT" ]; then
