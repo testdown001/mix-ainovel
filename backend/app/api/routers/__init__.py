@@ -29,6 +29,7 @@ from .model_catalog import router as model_catalog_router
 from .api_usage import router as api_usage_router
 from .payment import router as payment_router
 from .public_share import router as public_share_router
+from .creative_memory import router as creative_memory_router
 
 
 api_router = APIRouter()
@@ -96,3 +97,6 @@ api_router.include_router(payment_router, tags=["Payment"])
 
 # 作品公开分享（免登录只读）- public_share.py 已经定义了 prefix="/api/public/shared"
 api_router.include_router(public_share_router, tags=["PublicShare"])
+
+# 创作记忆 - 候选偏好确认、分级规则和生成使用回执
+api_router.include_router(creative_memory_router, tags=["CreativeMemories"])

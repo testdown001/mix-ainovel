@@ -408,6 +408,7 @@ class PromptAssemblyService:
         volume_summary_context: Optional[str] = None,
         book_summary_context: Optional[str] = None,
         name_lock_text: Optional[str] = None,
+        creative_memory_context: Optional[str] = None,
     ) -> List[Tuple[str, str]]:
         blueprint_text = self.build_blueprint_digest(writer_blueprint)
         forbidden_text = json.dumps(forbidden_characters, ensure_ascii=False) if forbidden_characters else "无"
@@ -467,6 +468,13 @@ class PromptAssemblyService:
             sections.append(("[项目长期记忆](摘要/剧情线)", project_memory_text))
         if memory_context:
             sections.append(("[记忆层上下文]", memory_context))
+        if creative_memory_context:
+            sections.append(
+                (
+                    "[已确认创作记忆](作者确认的分级写作规则，必须遵守；不得擅自扩展为剧情事实)",
+                    creative_memory_context,
+                )
+            )
         if rag_context:
             rag_chunks_text = "\n\n".join(rag_context.get("chunks", [])) or "未检索到章节片段"
             rag_summaries_text = "\n".join(rag_context.get("summaries", [])) or "未检索到章节摘要"

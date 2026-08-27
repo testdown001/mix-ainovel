@@ -84,6 +84,7 @@ class GenerationPromptStageService:
         reference_service: Any,
         enhanced_context: Dict[str, Any],
         name_lock_text: Optional[str] = None,
+        creative_memory_context: Optional[str] = None,
     ) -> PromptStageResult:
         prompt_sections = self.prompt_assembly_service.build_prompt_sections(
             writer_blueprint=writer_blueprint,
@@ -123,6 +124,7 @@ class GenerationPromptStageService:
             volume_replan_context=volume_replan_context,
             significance_context=significance_context,
             name_lock_text=name_lock_text,
+            creative_memory_context=creative_memory_context,
         )
         prompt_sections, prompt_compile_summary = self.prompt_compiler.compile(
             plan=context_plan,

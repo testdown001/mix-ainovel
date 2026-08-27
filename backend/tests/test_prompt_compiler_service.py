@@ -85,3 +85,21 @@ def test_prompt_compiler_filters_scene_prompt_data():
     assert "mission_brief" not in compiled
     assert "previous_summary" not in compiled
     assert compiled["reference_prose"] == "范文"
+
+
+def test_prompt_compiler_keeps_confirmed_creative_memory_for_scene_generation():
+    service = PromptCompilerService()
+    plan = ContextPlan.from_dict(
+        {
+            "intent": {},
+            "chapter_phase": "development",
+            "prompt_modules": ["creative_memory"],
+        }
+    )
+
+    compiled = service.compile_scene_prompt_data(
+        plan=plan,
+        prompt_sections_data={"creative_memory": "[已确认创作记忆] 保持限知视角"},
+    )
+
+    assert compiled["creative_memory"] == "[已确认创作记忆] 保持限知视角"

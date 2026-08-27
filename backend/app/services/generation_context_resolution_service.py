@@ -16,6 +16,8 @@ class ResolvedPrefetchContext:
     writer_prompt: Optional[str] = None
     volume_summaries_text: Optional[str] = None
     book_summary_text: Optional[str] = None
+    creative_memory_context: Optional[str] = None
+    creative_memory_receipt: Dict[str, Any] = field(default_factory=dict)
 
 
 class GenerationContextResolutionService:
@@ -115,6 +117,17 @@ class GenerationContextResolutionService:
         if not writer_prompt:
             raise HTTPException(status_code=500, detail="缺少写作提示词，请联系管理员配置")
 
+        creative_memory_context: Optional[str] = None
+        creative_memory_receipt: Dict[str, Any] = {}
+        creative_memory_task = getattr(prefetch_tasks, "creative_memory_task", None)
+        if creative_memory_task is not None:
+            result = await creative_memory_task
+            if isinstance(result, dict):
+                creative_memory_context = result.get("prompt") or None
+                creative_memory_receipt = result
+                if creative_memory_receipt:
+                    await telemetry.emit_creative_memory_receipt(creative_memory_receipt)
+
         return ResolvedPrefetchContext(
             enhanced_context=enhanced_context,
             project_memory_text=project_memory_text,
@@ -123,4 +136,6 @@ class GenerationContextResolutionService:
             writer_prompt=writer_prompt,
             volume_summaries_text=volume_summaries_text,
             book_summary_text=book_summary_text,
+            creative_memory_context=creative_memory_context,
+            creative_memory_receipt=creative_memory_receipt,
         )

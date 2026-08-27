@@ -24,6 +24,8 @@ class ResolvedEvidenceStage:
     foreshadowing_structured: Optional[Dict[str, Any]] = None
     retrieval_evidence_summary: Dict[str, Any] = field(default_factory=dict)
     writing_strategy: Any = None
+    creative_memory_context: Optional[str] = None
+    creative_memory_receipt: Dict[str, Any] = field(default_factory=dict)
 
 
 class GenerationEvidenceStageService:
@@ -185,6 +187,8 @@ class GenerationEvidenceStageService:
             foreshadowing_structured=foreshadowing_structured,
             retrieval_evidence_summary=retrieval_evidence_summary,
             writing_strategy=writing_strategy,
+            creative_memory_context=getattr(resolved_prefetch, "creative_memory_context", None),
+            creative_memory_receipt=getattr(resolved_prefetch, "creative_memory_receipt", {}) or {},
         )
 
     @staticmethod

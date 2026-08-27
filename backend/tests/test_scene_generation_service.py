@@ -15,6 +15,7 @@ def test_scene_generation_service_build_slim_context_and_compress():
             "chapter_goals": "目标",
             "mission_brief": "任务书",
             "writer_blueprint": "蓝图",
+            "creative_memory": "[已确认创作记忆]\n保持克制的第三人称限知视角",
             "forbidden_characters": "禁角",
         }
     )
@@ -22,6 +23,7 @@ def test_scene_generation_service_build_slim_context_and_compress():
     # 叙事性上下文（可压缩）只含叙事项；硬约束已移入 build_hard_constraints 固定段
     assert "任务书" in context
     assert "蓝图" in context
+    assert "保持克制的第三人称限知视角" in context
     assert "目标" not in context
     assert "禁角" not in context
 

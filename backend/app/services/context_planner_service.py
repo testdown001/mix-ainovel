@@ -621,7 +621,7 @@ class ContextPlannerService:
         skill_policies: Sequence[SkillPolicy],
         is_fast_path: bool,
     ) -> List[str]:
-        modules = ["chapter_goal", "word_count_rule", "world_blueprint"]
+        modules = ["chapter_goal", "word_count_rule", "world_blueprint", "creative_memory"]
         if flow_config.get("enable_mission_brief"):
             modules.append("mission_brief")
         else:

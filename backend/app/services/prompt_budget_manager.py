@@ -80,6 +80,8 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "卷级前情": SectionBudget(priority=2, max_tokens=800),
     "全书脉络": SectionBudget(priority=2, max_tokens=600),
     "追更钩子连续性": SectionBudget(priority=2, max_tokens=600),
+    # 已由作者确认的规则优先于一般参考资料，但仍限制长度，避免挤占正文任务。
+    "已确认创作记忆": SectionBudget(priority=2, max_tokens=900),
 
     # TIER 2.5: RAG 检索 — 可压缩
     "RAG精筛上下文": SectionBudget(priority=2, max_tokens=1500),

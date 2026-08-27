@@ -839,6 +839,55 @@ export interface NovelSectionResponse {
   data: Record<string, any>
 }
 
+export type CreativeMemoryScope = 'author' | 'novel' | 'volume' | 'chapter'
+export type CreativeMemoryStatus = 'candidate' | 'active' | 'rejected' | 'archived'
+export type CreativeMemoryCategory =
+  | 'style'
+  | 'viewpoint'
+  | 'rhetoric'
+  | 'dialogue'
+  | 'pacing'
+  | 'structure'
+  | 'taboo'
+
+export interface CreativeMemoryItem {
+  id: number
+  user_id: number
+  project_id: string | null
+  source_project_id: string | null
+  scope: CreativeMemoryScope
+  volume_number: number | null
+  chapter_number: number | null
+  category: CreativeMemoryCategory
+  title: string
+  content: string
+  rationale: string | null
+  status: CreativeMemoryStatus
+  confidence: number
+  pinned: boolean
+  source_type: string
+  source_version_id: number | null
+  evidence?: Record<string, unknown> | null
+  use_count: number
+  last_used_at: string | null
+}
+
+export interface CreativeMemoryReceipt {
+  id: string
+  project_id: string
+  chapter_number: number
+  memory_ids: number[]
+  items: Array<Pick<CreativeMemoryItem, 'id' | 'scope' | 'category' | 'title' | 'content'>>
+  created_at: string | null
+}
+
+export interface CreativeMemoryListResponse {
+  items: CreativeMemoryItem[]
+  latest_receipt: CreativeMemoryReceipt | null
+  candidate_count: number
+  active_count: number
+}
+
 // API 函数
 const NOVELS_BASE = `${API_BASE_URL}${API_PREFIX}/novels`
 const REFERENCE_LIBRARY_BASE = `${API_BASE_URL}${API_PREFIX}/reference-novels`
@@ -1835,6 +1884,33 @@ export class NovelAPI {
       method: 'POST',
     })
   }
+}
+
+// 创作记忆 API：候选默认不生效，只有显式确认后才会进入生成上下文。
+export const creativeMemoryApi = {
+  async list(
+    projectId: string,
+    chapterNumber?: number | null,
+  ): Promise<CreativeMemoryListResponse> {
+    const query = chapterNumber != null ? `?chapter_number=${chapterNumber}` : ''
+    return request(`${API_PREFIX}/creative-memories/${projectId}${query}`)
+  },
+
+  async update(
+    projectId: string,
+    memoryId: number,
+    payload: Partial<Pick<CreativeMemoryItem, 'status' | 'scope' | 'pinned' | 'category'>> &
+      Partial<Pick<CreativeMemoryItem, 'title' | 'content' | 'volume_number' | 'chapter_number'>>,
+  ): Promise<CreativeMemoryItem> {
+    return request(`${API_PREFIX}/creative-memories/${projectId}/${memoryId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    })
+  },
+
+  async archive(projectId: string, memoryId: number): Promise<void> {
+    await request(`${API_PREFIX}/creative-memories/${projectId}/${memoryId}`, { method: 'DELETE' })
+  },
 }
 
 // ---- 概念库 / 设定百科 API ----

@@ -111,6 +111,10 @@ class GenerationTelemetryService:
     async def emit_prompt_compile_summary(self, summary: Dict[str, Any]) -> None:
         await self._emit_middle_product("prompt_compile_summary", summary)
 
+    async def emit_creative_memory_receipt(self, receipt: Dict[str, Any]) -> None:
+        """记录本次生成实际采用的已确认创作记忆，便于前端解释与审计。"""
+        await self._emit_middle_product("creative_memory_receipt", receipt)
+
     async def emit_verification_report(self, report: Dict[str, Any]) -> None:
         await self._emit_middle_product("verification_report", report)
 

@@ -23,6 +23,8 @@ class GenerationPrefetchTasks:
     volume_replan_task: Optional[asyncio.Task] = None
     significance_task: Optional[asyncio.Task] = None
     long_range_memory_task: Optional[asyncio.Task] = None
+    # 只读取已确认创作记忆，并生成一次可追溯 receipt；候选规则不会被该任务读取。
+    creative_memory_task: Optional[asyncio.Task] = None
 
 
 class GenerationPrefetchService:
@@ -213,6 +215,19 @@ class GenerationPrefetchService:
                 )
             )
 
+        creative_memory_task = asyncio.create_task(
+            self.async_task_service.run_with_timeout(
+                self._prefetch_creative_memory(
+                    user_id=user_id,
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                ),
+                timeout_sec=5,
+                task_name="creative_memory",
+                fallback={},
+            )
+        )
+
         user_style_task = asyncio.create_task(
             self.async_task_service.run_with_timeout(
                 self.user_style_service.prefetch_user_style(user_id),
@@ -259,6 +274,19 @@ class GenerationPrefetchService:
             volume_replan_task=volume_replan_task,
             significance_task=significance_task,
             long_range_memory_task=long_range_memory_task,
+            creative_memory_task=creative_memory_task,
+        )
+
+    @staticmethod
+    async def _prefetch_creative_memory(
+        *, user_id: int, project_id: str, chapter_number: int
+    ) -> Dict[str, Any]:
+        from .creative_memory_service import CreativeMemoryService
+
+        return await CreativeMemoryService.prefetch_generation_context(
+            user_id=user_id,
+            project_id=project_id,
+            chapter_number=chapter_number,
         )
 
     async def _prefetch_long_range_memory(

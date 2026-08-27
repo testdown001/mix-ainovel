@@ -294,6 +294,7 @@ class SceneGenerationService:
             "skill_instructions",
             "scene_plan", "context_strategy",
             "writer_blueprint",
+            "creative_memory",
             "reference_prose", "fusion_dna",
         ]
         parts = []

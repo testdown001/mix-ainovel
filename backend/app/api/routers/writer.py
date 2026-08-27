@@ -123,6 +123,11 @@ from ...services.writer_shared import (
     rewrite_with_guardrails,
 )
 from ...services.pipeline_orchestrator import PipelineOrchestrator
+from ...services.creative_memory_service import (
+    review_creative_memory_revision,
+    review_creative_memory_selection,
+    review_creative_memory_transform,
+)
 
 router = APIRouter(prefix="/api/writer", tags=["Writer"])
 logger = logging.getLogger(__name__)
@@ -1090,6 +1095,17 @@ async def finalize_chapter(
     chapter.content_hash = hash_chapter_content(selected_version.content)
     await session.commit()
 
+    # 选版是明确的作者偏好信号；候选学习在独立会话后台执行，不阻塞定稿响应。
+    safe_create_task(
+        review_creative_memory_selection(
+            user_id=current_user.id,
+            project_id=request.project_id,
+            chapter_number=chapter_number,
+            selected_version_id=selected_version.id,
+        ),
+        name=f"learn-creative-memory-selection-{request.project_id}-ch{chapter_number}",
+    )
+
     # 本章落定 → 后台预生成下一章使命，下次点生成免掉 ~2 分钟的规划等待。
     # 内部预付成本（同 async followups），不向用户计费；失败仅记日志
     safe_create_task(
@@ -1159,6 +1175,17 @@ async def select_chapter_version(
     safe_create_task(
         pregen_next_chapter_mission(project_id, request.chapter_number, current_user.id),
         name=f"pregen-mission-{project_id}-ch{request.chapter_number + 1}",
+    )
+
+    # 选版是明确的作者偏好信号；只创建候选，不会自动注入后续章节。
+    safe_create_task(
+        review_creative_memory_selection(
+            user_id=current_user.id,
+            project_id=project_id,
+            chapter_number=request.chapter_number,
+            selected_version_id=selected_version.id,
+        ),
+        name=f"learn-creative-memory-selection-{project_id}-ch{request.chapter_number}",
     )
 
     await CacheService().invalidate_project_schema(project_id)
@@ -1558,7 +1585,6 @@ async def _generate_outline_range_for_task(
         session=session,
         current_user=task_user,
     )
-
 
 async def _generate_chapter_body_for_outline_task(
     *,
@@ -2343,6 +2369,14 @@ async def _save_chapter_with_revision(
             current_user.id,
             mode="edit",
         )
+        if result.saved_version_id:
+            background_tasks.add_task(
+                review_creative_memory_revision,
+                user_id=current_user.id,
+                project_id=project_id,
+                chapter_number=request.chapter_number,
+                version_id=result.saved_version_id,
+            )
 
     return ChapterSaveResponse(
         status=result.status,
@@ -2615,6 +2649,20 @@ async def transform_chapter_selection(
         await session.commit()
         if applied:
             await CacheService().invalidate_project_schema(project_id)
+            if version is not None:
+                # 选区改写的指令 + 采纳结果是最强的显式偏好信号之一；学习失败不影响正文。
+                safe_create_task(
+                    review_creative_memory_transform(
+                        user_id=current_user.id,
+                        project_id=project_id,
+                        chapter_number=request.chapter_number,
+                        version_id=version.id,
+                        instruction=request.instruction or "",
+                        original_text=selected,
+                        transformed_text=result_text,
+                    ),
+                    name=f"learn-creative-memory-transform-{project_id}-ch{request.chapter_number}",
+                )
         return {
             "action": action,
             "result_text": result_text,

@@ -400,6 +400,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
             )
             pcc.context_plan = context_plan.to_dict()
         context_plan_payload = context_plan.to_dict()
+        # 旧的预收集计划可能没有新模块；升级为兼容计划，确保已确认创作记忆不被编译器误删。
+        if "creative_memory" not in context_plan.prompt_modules:
+            context_plan.prompt_modules.append("creative_memory")
+            context_plan_payload = context_plan.to_dict()
         await telemetry.emit_context_plan(context_plan_payload)
         fast_rag_queries = self.generation_support_service.build_fast_rag_queries(
             outline_title=outline_title,
@@ -636,6 +640,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
         rag_context = resolved_prefetch.rag_context
         rag_stats = resolved_prefetch.rag_stats
         writer_prompt = resolved_prefetch.writer_prompt
+        creative_memory_context = resolved_prefetch.creative_memory_context
+        creative_memory_receipt = resolved_prefetch.creative_memory_receipt
         _mark_stage("prepare_context", stage_started)
 
         allowed_new_characters = chapter_mission.get("allowed_new_characters", []) if chapter_mission else []
@@ -770,6 +776,11 @@ class PipelineOrchestrator(PipelineReviewMixin):
         foreshadowing_structured = evidence_stage.foreshadowing_structured
         retrieval_evidence_summary = evidence_stage.retrieval_evidence_summary
         writing_strategy = evidence_stage.writing_strategy
+        creative_memory_context = evidence_stage.creative_memory_context
+        creative_memory_receipt = evidence_stage.creative_memory_receipt
+        if creative_memory_receipt:
+            # debug_metadata 会随生成结果返回，前端可解释“本章用了哪些确认规则”。
+            context_plan_payload["creative_memory_receipt"] = creative_memory_receipt
         if writing_strategy.warnings:
             logger.info("写作策略冲突: %s", "; ".join(writing_strategy.warnings))
 
@@ -816,6 +827,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             reference_service=reference_service,
             enhanced_context=enhanced_context,
             name_lock_text=name_lock_text,
+            creative_memory_context=creative_memory_context,
         )
         prompt_sections = prompt_stage.prompt_sections
         prompt_compile_summary = prompt_stage.prompt_compile_summary
@@ -851,6 +863,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     "forbidden_characters": ", ".join(forbidden_characters) if forbidden_characters else "",
                     "reference_prose": reference_prose_text,
                     "fusion_dna": fusion_dna_text,
+                    "creative_memory": creative_memory_context or "",
                 },
                 writer_prompt=writer_prompt,
                 chapter_mission=chapter_mission,
