@@ -128,6 +128,15 @@ class HubuAgent(BaseAgent):
             )
 
         try:
+            from ..services.writing_skill_registry_service import WritingSkillRegistryService
+
+            if self.session is not None:
+                selected_skills = await WritingSkillRegistryService().resolve_selection(
+                    self.session,
+                    selected_skills,
+                    project_id=context.project_id,
+                    user_id=context.metadata.get("user_id"),
+                )
             skill_service = self._create_skill_service()
             resolved_skills = []
             skill_policies = []
@@ -145,10 +154,40 @@ class HubuAgent(BaseAgent):
                     continue
 
                 skill = await skill_service.get_skill(skill_id)
+                params = item.get("params") if isinstance(item.get("params"), dict) else {}
+                snapshot = item.get("version_snapshot") if isinstance(item.get("version_snapshot"), dict) else {}
+                # 约束型技能没有运行时 Python 转换器，直接把经人工发布的
+                # 声明式版本转成策略；草稿不会被 resolve_selection 传到这里。
+                if not skill and snapshot:
+                    from ..services.context_planner_service import SkillPolicy
+
+                    policy = SkillPolicy.from_dict({
+                        "skill_id": skill_id,
+                        **snapshot,
+                        "params": params,
+                        "execution_mode": item.get("execution_mode") or "policy",
+                    })
+                    name = str(item.get("skill_name") or skill_id)
+                    resolved_skills.append({
+                        "skill_id": skill_id,
+                        "name": name,
+                        "description": name,
+                        "category": "policy",
+                        "version_id": snapshot.get("id"),
+                        "version": snapshot.get("version_label"),
+                        "execution_mode": "policy",
+                        "params": params,
+                    })
+                    skill_policies.append(policy)
+                    prompt_lines.append(f"- {name}（{snapshot.get('version_label') or '已发布'}）：声明式写作约束")
+                    for rule in policy.rules:
+                        prompt_lines.append(f"  必须：{rule}")
+                    for prohibition in policy.prohibitions:
+                        prompt_lines.append(f"  避免：{prohibition}")
+                    continue
                 if not skill:
                     continue
 
-                params = item.get("params") if isinstance(item.get("params"), dict) else {}
                 capability_name = item.get("capability_name")
                 if not capability_name and skill.definition.capabilities:
                     capability_name = skill.definition.capabilities[0].name
@@ -172,6 +211,15 @@ class HubuAgent(BaseAgent):
                     capability_name=capability_name,
                     params=params,
                 )
+                if snapshot:
+                    policy.update({
+                        "version_id": snapshot.get("id") or item.get("version_id"),
+                        "version_label": snapshot.get("version_label"),
+                        "rules": snapshot.get("rules") or [],
+                        "prohibitions": snapshot.get("prohibitions") or [],
+                        "checker_keys": snapshot.get("checker_keys") or [],
+                        "execution_mode": item.get("execution_mode") or "transform",
+                    })
 
                 # 兼容 category 为 str 或 SkillCategory 枚举两种形态（同 skill_base 的防御写法）
                 category = skill.definition.category
@@ -189,6 +237,8 @@ class HubuAgent(BaseAgent):
                             "intensity": intensity,
                             "preserve_original": preserve_original,
                         },
+                        "version_id": snapshot.get("id") or item.get("version_id"),
+                        "version": snapshot.get("version_label"),
                     }
                 )
                 skill_policies.append(policy)

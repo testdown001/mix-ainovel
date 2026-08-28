@@ -18,6 +18,40 @@ export interface SkillInfo {
     default: string
     preserve_original: boolean
   }
+  scope?: 'system' | 'author' | 'project' | string
+  version_id?: number
+  status?: 'draft' | 'published' | 'retired' | 'unpublished' | string
+  execution_mode?: 'transform' | 'policy' | string
+  version_snapshot?: SkillVersion
+  metrics?: SkillMetrics
+}
+
+export interface SkillVersion {
+  id: number
+  version_number: number
+  version_label: string
+  status: string
+  phase: string
+  rules: string[]
+  prohibitions: string[]
+  checker_keys: string[]
+  retrieval_hints: string[]
+  prompt_hints: string[]
+  verify_hints: string[]
+  change_note?: string
+  source?: string
+  parent_version_id?: number
+  created_at?: string
+  published_at?: string
+}
+
+export interface SkillMetrics {
+  usage_count: number
+  accepted_count?: number
+  acceptance_rate?: number | null
+  changed_rate?: number | null
+  avg_before_score?: number | null
+  avg_after_score?: number | null
 }
 
 export interface SkillExecuteRequest {
@@ -41,7 +75,7 @@ export interface SkillExecuteResponse {
   transformed_content: string
   success: boolean
   error?: string
-  metadata: Record<string, unknown>
+  metadata: Record<string, unknown> & { usage_id?: number }
   changed: boolean
 }
 
@@ -49,6 +83,54 @@ export async function listSkills(category?: string): Promise<SkillInfo[]> {
   const params = category ? `?category=${encodeURIComponent(category)}` : ''
   const res = await http.get(`/api/skills${params}`)
   return res.data
+}
+
+export async function listSkillCatalog(projectId?: string): Promise<SkillInfo[]> {
+  const params = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+  const res = await http.get(`/api/skills/catalog${params}`)
+  return res.data
+}
+
+export async function listSkillVersions(skillId: string): Promise<SkillVersion[]> {
+  const res = await http.get(`/api/skills/${encodeURIComponent(skillId)}/versions`)
+  return res.data.versions
+}
+
+export async function createSkillDraft(
+  skillId: string,
+  payload: Omit<SkillDraftPayload, 'change_note'> & { change_note?: string }
+): Promise<SkillVersion> {
+  const res = await http.post(`/api/skills/${encodeURIComponent(skillId)}/improvement-draft`, payload)
+  return res.data
+}
+
+export async function publishSkillVersion(skillId: string, versionId: number): Promise<SkillVersion> {
+  const res = await http.post(`/api/skills/${encodeURIComponent(skillId)}/publish`, { version_id: versionId })
+  return res.data
+}
+
+export async function rollbackSkillVersion(skillId: string, versionId: number): Promise<SkillVersion> {
+  const res = await http.post(`/api/skills/${encodeURIComponent(skillId)}/rollback`, { version_id: versionId })
+  return res.data
+}
+
+export async function updateSkillUsageFeedback(
+  usageId: number,
+  payload: { accepted: boolean; after_score?: number; feedback?: string }
+): Promise<{ id: number; accepted: boolean; after_score?: number; feedback?: string }> {
+  const res = await http.post(`/api/skills/usages/${usageId}/feedback`, payload)
+  return res.data
+}
+
+export interface SkillDraftPayload {
+  phase: string
+  rules: string[]
+  prohibitions: string[]
+  checker_keys: string[]
+  retrieval_hints: string[]
+  prompt_hints: string[]
+  verify_hints: string[]
+  change_note?: string
 }
 
 export async function getSkillCategories(): Promise<string[]> {

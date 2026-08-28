@@ -91,6 +91,7 @@ from .creative_memory import (
     CreativeMemoryLearningEvent,
     CreativeMemoryReceipt,
 )
+from .writing_skill import WritingSkill, WritingSkillVersion, WritingSkillUsage
 
 __all__ = [
     # 基础模型
@@ -167,4 +168,7 @@ __all__ = [
     "CreativeMemoryItem",
     "CreativeMemoryLearningEvent",
     "CreativeMemoryReceipt",
+    "WritingSkill",
+    "WritingSkillVersion",
+    "WritingSkillUsage",
 ]

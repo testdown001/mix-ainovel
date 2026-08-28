@@ -208,6 +208,7 @@ class WritingAgentSystem:
                         metadata={
                             "action": "build_skill_context",
                             "selected_skills": selected_skills,
+                            "user_id": user_id,
                         },
                     )
                     hubu_result = await hubu.process(hubu_context)

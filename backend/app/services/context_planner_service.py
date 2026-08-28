@@ -39,6 +39,12 @@ class SkillPolicy:
     retrieval_hints: List[str] = field(default_factory=list)
     prompt_hints: List[str] = field(default_factory=list)
     verify_hints: List[str] = field(default_factory=list)
+    version_id: Optional[int] = None
+    version_label: Optional[str] = None
+    rules: List[str] = field(default_factory=list)
+    prohibitions: List[str] = field(default_factory=list)
+    checker_keys: List[str] = field(default_factory=list)
+    execution_mode: str = "policy"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -53,6 +59,12 @@ class SkillPolicy:
             retrieval_hints=[str(item) for item in (payload.get("retrieval_hints") or []) if item],
             prompt_hints=[str(item) for item in (payload.get("prompt_hints") or []) if item],
             verify_hints=[str(item) for item in (payload.get("verify_hints") or []) if item],
+            version_id=payload.get("version_id"),
+            version_label=payload.get("version_label"),
+            rules=[str(item) for item in (payload.get("rules") or []) if item],
+            prohibitions=[str(item) for item in (payload.get("prohibitions") or []) if item],
+            checker_keys=[str(item) for item in (payload.get("checker_keys") or []) if item],
+            execution_mode=str(payload.get("execution_mode") or "policy"),
         )
 
 
@@ -384,6 +396,10 @@ class ContextPlannerService:
             if not skill_id:
                 continue
             hint_config = self._SKILL_HINTS.get(skill_id, {})
+            snapshot = item.get("version_snapshot") if isinstance(item.get("version_snapshot"), dict) else {}
+            hint_config = {**hint_config, **{key: snapshot[key] for key in (
+                "phase", "retrieval_hints", "prompt_hints", "verify_hints"
+            ) if snapshot.get(key) is not None}}
             params = item.get("params") if isinstance(item.get("params"), dict) else {}
             policies.append(
                 SkillPolicy(
@@ -393,6 +409,12 @@ class ContextPlannerService:
                     retrieval_hints=list(hint_config.get("retrieval_hints") or []),
                     prompt_hints=list(hint_config.get("prompt_hints") or []),
                     verify_hints=list(hint_config.get("verify_hints") or []),
+                    version_id=snapshot.get("id") or item.get("version_id"),
+                    version_label=snapshot.get("version_label"),
+                    rules=[str(value) for value in (snapshot.get("rules") or []) if value],
+                    prohibitions=[str(value) for value in (snapshot.get("prohibitions") or []) if value],
+                    checker_keys=[str(value) for value in (snapshot.get("checker_keys") or []) if value],
+                    execution_mode=str(item.get("execution_mode") or "policy"),
                 )
             )
         return policies
@@ -678,6 +700,8 @@ class ContextPlannerService:
             tasks.append("commercial_hook_check")
         if any(policy.verify_hints for policy in skill_policies):
             tasks.append("skill_policy_check")
+        for checker_key in sorted({key for policy in skill_policies for key in policy.checker_keys if key}):
+            tasks.append(f"skill_checker:{checker_key}")
         return tasks
 
     def _build_budgets(

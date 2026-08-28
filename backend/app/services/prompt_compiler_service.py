@@ -86,14 +86,21 @@ class PromptCompilerService:
 
         lines: List[str] = ["[技能策略执行要求]"]
         for policy in plan.skill_policies:
-            header = f"- {policy.skill_id} ({policy.phase})"
+            version = f" {policy.version_label}" if policy.version_label else ""
+            header = f"- {policy.skill_id}{version}（阶段：{policy.phase}）"
             hints: List[str] = []
+            if policy.rules:
+                hints.append("必须做到：" + "；".join(policy.rules))
+            if policy.prohibitions:
+                hints.append("明确避免：" + "；".join(policy.prohibitions))
+            if policy.checker_keys:
+                hints.append("启用检查：" + " / ".join(policy.checker_keys))
             if policy.prompt_hints:
-                hints.append("Prompt: " + " / ".join(policy.prompt_hints))
+                hints.append("写作提示：" + " / ".join(policy.prompt_hints))
             if policy.verify_hints:
-                hints.append("Verify: " + " / ".join(policy.verify_hints))
+                hints.append("检查：" + " / ".join(policy.verify_hints))
             if policy.retrieval_hints:
-                hints.append("Retrieve: " + " / ".join(policy.retrieval_hints))
+                hints.append("参考：" + " / ".join(policy.retrieval_hints))
             if policy.params:
                 compact_params = ", ".join(f"{key}={value}" for key, value in policy.params.items())
                 hints.append("Params: " + compact_params)

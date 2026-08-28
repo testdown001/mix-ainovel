@@ -51,7 +51,9 @@
           <div class="skill-name">{{ skill.name }}</div>
           <div class="skill-desc">{{ skill.description }}</div>
           <div class="skill-meta">
-            <span class="skill-category">{{ skill.category }}</span>
+            <span class="skill-category">{{ getCategoryLabel(skill.category) }}</span>
+            <span v-if="skill.version" class="skill-version">{{ skill.version }}</span>
+            <span v-if="skill.execution_mode === 'policy'" class="skill-mode">生成约束</span>
           </div>
         </div>
         <div class="skill-toggle">
@@ -116,7 +118,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { listSkills, getSkillCategories, executeSkill, type SkillInfo, type SkillExecuteResponse } from '@/api/skill'
+import { listSkillCatalog, getSkillCategories, executeSkill, type SkillInfo, type SkillExecuteResponse } from '@/api/skill'
 
 interface SelectedSkillConfig {
   skill_id: string
@@ -173,7 +175,8 @@ const categoryLabels: Record<string, string> = {
   consistency: '一致性',
   foreshadowing: '伏笔',
   structure: '结构',
-  style: '风格'
+  style: '风格',
+  narrative: '叙事'
 }
 
 const categoryIcons: Record<string, string> = {
@@ -253,11 +256,11 @@ function hydrateSelection() {
 onMounted(async () => {
   try {
     const [skillsData, categoriesData] = await Promise.all([
-      listSkills(),
+      listSkillCatalog(props.projectId),
       getSkillCategories()
     ])
     skills.value = skillsData
-    categories.value = categoriesData
+    categories.value = Array.from(new Set([...categoriesData, ...skillsData.map(item => item.category)]))
     hydrateSelection()
   } catch (e) {
     console.error('Failed to load skills:', e)
@@ -310,7 +313,8 @@ function toggleSkill(skillId: string) {
 
 // 能否应用
 const canApply = computed(() => {
-  return selectedSkills.value.length > 0
+  if (props.selectionOnly) return selectedSkills.value.length > 0
+  return selectedSkills.value.some(skillId => skills.value.find(skill => skill.id === skillId)?.execution_mode !== 'policy')
 })
 
 // 应用技能
@@ -328,6 +332,11 @@ async function handleApply() {
 
   try {
     for (const skillId of selectedSkills.value) {
+      const selected = skills.value.find(skill => skill.id === skillId)
+      if (selected?.execution_mode === 'policy') {
+        emit('error', `${selected.name}是生成约束，只能在生成时注入，不能直接改写正文`)
+        continue
+      }
       try {
         const response = await executeSkill(skillId, {
           project_id: props.projectId,
@@ -505,6 +514,19 @@ async function handleApply() {
   background: var(--md-surface-container-high, #f5f5f5);
   padding: 2px 8px;
   border-radius: 4px;
+}
+
+.skill-version,
+.skill-mode {
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #a9a9a9;
+  background: #252525;
+}
+
+.skill-mode {
+  color: #ffe500;
+  background: rgba(255, 229, 0, 0.08);
 }
 
 .skill-toggle {

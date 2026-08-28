@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from ..core.config import settings
 from ..core.security import hash_password
 from ..models import Plan, Prompt, SystemConfig, User, WritingTemplate
+from ..services.writing_skill_registry_service import WritingSkillRegistryService
 from .base import Base
 from .system_config_defaults import SYSTEM_CONFIG_DEFAULTS
 from .session import AsyncSessionLocal, engine
@@ -116,6 +117,10 @@ async def init_db() -> None:
         await _ensure_default_plans(session)
 
         await _ensure_default_models(session)
+
+        # 第二阶段：初始化可审计的版本化写作技能卡。技能改进只会创建草稿，
+        # 不会在启动时自动发布或覆盖作者选择。
+        await WritingSkillRegistryService().ensure_defaults(session)
 
         await session.commit()
 

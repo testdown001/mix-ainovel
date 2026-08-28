@@ -68,6 +68,7 @@ from ..services.generation_support_service import GenerationSupportService
 from ..services.generation_prefetch_service import GenerationPrefetchService
 from ..services.user_style_service import UserStyleService
 from ..services.fingerprint_service import FingerprintService
+from ..services.writing_skill_registry_service import WritingSkillRegistryService
 from ..services.trajectory_analysis_service import TrajectoryAnalysisService
 from ..services.generation_state import PreCollectedContext
 from ..services.writer_prompt_service import WriterPromptService
@@ -355,9 +356,20 @@ class PipelineOrchestrator(PipelineReviewMixin):
         has_writing_notes = bool((writing_notes or "").strip())
         writing_notes = writing_notes or "无额外写作指令"
         chapter_blueprint = await self.generation_support_service.load_chapter_blueprint(project_id, chapter_number)
+        skill_registry = WritingSkillRegistryService()
+        raw_selected_skills = list(raw_flow_config.get("selected_skills") or [])
+        try:
+            # 每次生成都固定当前已发布版本的快照，避免长任务期间后台发布新版本
+            # 导致同一章前后使用不同策略；草稿不会通过此解析器进入 Prompt。
+            resolved_selected_skills = await skill_registry.resolve_selection(
+                self.session, raw_selected_skills, project_id=project_id, user_id=user_id
+            )
+        except Exception as exc:
+            logger.warning("技能版本解析失败，沿用旧技能配置: %s", exc)
+            resolved_selected_skills = raw_selected_skills
         planner_flow_config = {
             "preset": config.preset,
-            "selected_skills": list(raw_flow_config.get("selected_skills") or []),
+            "selected_skills": resolved_selected_skills,
             "skill_policies": list(raw_flow_config.get("skill_policies") or []),
             "enable_rag": config.enable_rag,
             "enable_memory": config.enable_memory,
@@ -381,6 +393,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
         pre_context_plan = pcc.context_plan
         if isinstance(pre_context_plan, dict) and pre_context_plan:
             context_plan = ContextPlan.from_dict(pre_context_plan)
+            if resolved_selected_skills:
+                # 预收集计划可能来自版本发布前；保留其检索规划，但用本次
+                # 解析出的已发布技能快照重建技能策略，避免旧草稿/旧版本漏入。
+                context_plan.skill_policies = self.context_planner._build_skill_policies(resolved_selected_skills)
+                if "skill_instructions" not in context_plan.prompt_modules:
+                    context_plan.prompt_modules.append("skill_instructions")
         else:
             context_plan = await self.context_planner.build_plan(
                 project_id=project_id,
@@ -400,6 +418,25 @@ class PipelineOrchestrator(PipelineReviewMixin):
             )
             pcc.context_plan = context_plan.to_dict()
         context_plan_payload = context_plan.to_dict()
+        for selected_skill in resolved_selected_skills:
+            if not isinstance(selected_skill, dict):
+                continue
+            skill_key = str(selected_skill.get("skill_id") or "").strip()
+            if not skill_key:
+                continue
+            try:
+                await skill_registry.record_usage(
+                    self.session,
+                    skill_key=skill_key,
+                    version_id=selected_skill.get("version_id"),
+                    user_id=user_id,
+                    project_id=project_id,
+                    chapter_number=chapter_number,
+                    source="generation",
+                    metadata={"preset": config.preset, "plan_version": context_plan.metadata.get("plan_version")},
+                )
+            except Exception as exc:
+                logger.warning("技能使用回执写入失败（不阻断正文生成）: %s", exc)
         # 旧的预收集计划可能没有新模块；升级为兼容计划，确保已确认创作记忆不被编译器误删。
         if "creative_memory" not in context_plan.prompt_modules:
             context_plan.prompt_modules.append("creative_memory")

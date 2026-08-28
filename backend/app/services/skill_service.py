@@ -67,8 +67,9 @@ class SkillService:
         },
     }
 
-    def __init__(self, llm_service: LLMService):
+    def __init__(self, llm_service: LLMService, session: Any = None):
         self.llm_service = llm_service
+        self.session = session
         self._skill_instances: Dict[str, Any] = {}
         self._initialized = False
 
