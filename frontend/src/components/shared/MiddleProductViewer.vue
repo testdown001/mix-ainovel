@@ -395,13 +395,20 @@
               v-for="task in verificationReportData.tasks"
               :key="task.task"
               class="rag-chunk"
-            >
-              <div class="chunk-header">
-                <span class="chunk-title">{{ task.task }}</span>
-                <span class="chunk-score">{{ task.status }}</span>
+              >
+                <div class="chunk-header">
+                  <span class="chunk-title">{{ task.task }}</span>
+                  <span class="chunk-score">{{ task.status }}</span>
+                </div>
+                <p class="chunk-content">{{ task.summary }}</p>
+                <div v-if="task.details?.evidence?.length" class="checker-evidence">
+                  <div v-for="item in task.details.evidence" :key="`${item.char_start}-${item.char_end}`" class="evidence-item">
+                    <span>第 {{ item.char_start }}–{{ item.char_end }} 字</span>
+                    <em>{{ item.reason }}</em>
+                    <p>“{{ item.excerpt }}”</p>
+                  </div>
+                </div>
               </div>
-              <p class="chunk-content">{{ task.summary }}</p>
-            </div>
           </div>
         </div>
         <div v-else class="panel-empty">
@@ -524,6 +531,14 @@ interface VerificationReportData {
     task: string
     status: string
     summary: string
+    details?: {
+      evidence?: Array<{
+        char_start: number
+        char_end: number
+        excerpt: string
+        reason: string
+      }>
+    }
   }>
 }
 
@@ -784,6 +799,23 @@ const tabs = computed(() => [
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+.checker-evidence {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.evidence-item {
+  padding: 6px 8px;
+  border-left: 2px solid #d7a600;
+  background: rgba(215, 166, 0, 0.08);
+  font-size: 11px;
+}
+
+.evidence-item > span { color: #c79500; }
+.evidence-item em { margin-left: 8px; color: #888; font-style: normal; }
+.evidence-item p { margin: 3px 0 0; color: #aaa; }
 
 .event-list {
   margin: 4px 0 0 0;

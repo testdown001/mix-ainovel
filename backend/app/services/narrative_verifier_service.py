@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional, Sequence
 
 from .context_planner_service import ContextPlan
@@ -81,6 +82,10 @@ class NarrativeVerifierService:
             return self._evaluate_structured_task("six_dimension_review", review_summaries.get("six_dimension"))
         if task_name == "skill_policy_check":
             return self._evaluate_skill_policies(plan)
+        if task_name.startswith("skill_checker:"):
+            return self._evaluate_skill_checker(
+                checker_key=task_name.split(":", 1)[1], chapter_text=chapter_text, plan=plan
+            )
         return {
             "task": task_name,
             "status": "pending",
@@ -251,6 +256,78 @@ class NarrativeVerifierService:
             "status": "passed",
             "summary": f"已加载 {len(plan.skill_policies)} 条技能策略",
             "details": {"skills": [policy.skill_id for policy in plan.skill_policies]},
+        }
+
+    def _evaluate_skill_checker(self, *, checker_key: str, chapter_text: str, plan: ContextPlan) -> Dict[str, Any]:
+        """Run safe, deterministic checker keys and retain text-range evidence.
+
+        Checker keys are allow-listed here; skill versions can request a key but
+        cannot execute arbitrary code stored in the database.
+        """
+        text = chapter_text or ""
+        evidence: List[Dict[str, Any]] = []
+
+        def add_match(match: re.Match[str], reason: str, severity: str = "warning") -> None:
+            start, end = match.span()
+            evidence.append({
+                "char_start": start,
+                "char_end": end,
+                "excerpt": text[max(0, start - 24):min(len(text), end + 40)],
+                "reason": reason,
+                "severity": severity,
+            })
+
+        if checker_key == "limited_pov":
+            for pattern in (r"殊不知", r"他不知道的是", r"与此同时，[^。！？]{0,36}的内心", r"作者认为"):
+                for match in re.finditer(pattern, text):
+                    add_match(match, "疑似越过当前视角直接解释未知信息")
+        elif checker_key in {"rhetoric_density", "adjective_stack"}:
+            if checker_key == "rhetoric_density":
+                for match in re.finditer(r"仿佛|如同|宛如|像是|似乎", text):
+                    add_match(match, "检测到可能以比喻替代具体行动")
+            else:
+                # 连续三个以上“X的Y”结构是可解释的保守告警，不直接判定为错误。
+                for match in re.finditer(r"(?:[^，。！？\n]{1,8}的){3,}[^，。！？\n]{1,12}", text):
+                    add_match(match, "连续修饰结构较密，建议删减形容词")
+        elif checker_key in {"natural_ending", "omniscient_summary"}:
+            tail_start = max(0, len(text) - 260)
+            tail = text[tail_start:]
+            patterns = (r"这一刻", r"从此", r"命运", r"注定", r"仿佛", r"如同", r"无人知道")
+            for pattern in patterns:
+                for match in re.finditer(pattern, tail):
+                    # 将尾部相对位置转换为全文位置，避免把证据锚到错误段落。
+                    start = tail_start + match.start()
+                    end = tail_start + match.end()
+                    evidence.append({
+                        "char_start": start,
+                        "char_end": end,
+                        "excerpt": text[max(0, start - 24):min(len(text), end + 40)],
+                        "reason": "结尾疑似使用旁白总结或象征性升华",
+                        "severity": "warning",
+                    })
+        else:
+            return {
+                "task": f"skill_checker:{checker_key}",
+                "status": "pending",
+                "summary": "该技能检查器尚未接入安全检查器白名单",
+                "details": {"checker_key": checker_key, "evidence": []},
+            }
+
+        # 同一命中最多保留 12 条，报告可直接用于前端定位且不会膨胀上下文。
+        evidence = evidence[:12]
+        status = "warning" if evidence else "passed"
+        labels = {
+            "limited_pov": "视角边界",
+            "rhetoric_density": "比喻密度",
+            "adjective_stack": "修饰堆叠",
+            "natural_ending": "自然收束",
+            "omniscient_summary": "全知旁白",
+        }
+        return {
+            "task": f"skill_checker:{checker_key}",
+            "status": status,
+            "summary": f"{labels.get(checker_key, checker_key)}检查发现 {len(evidence)} 条提示" if evidence else f"{labels.get(checker_key, checker_key)}检查通过",
+            "details": {"checker_key": checker_key, "hit_count": len(evidence), "evidence": evidence},
         }
 
     def _build_summary(

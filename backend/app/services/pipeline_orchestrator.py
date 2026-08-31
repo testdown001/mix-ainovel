@@ -418,6 +418,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             )
             pcc.context_plan = context_plan.to_dict()
         context_plan_payload = context_plan.to_dict()
+        skill_usage_ids: List[int] = []
         for selected_skill in resolved_selected_skills:
             if not isinstance(selected_skill, dict):
                 continue
@@ -425,7 +426,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             if not skill_key:
                 continue
             try:
-                await skill_registry.record_usage(
+                usage = await skill_registry.record_usage(
                     self.session,
                     skill_key=skill_key,
                     version_id=selected_skill.get("version_id"),
@@ -435,8 +436,38 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     source="generation",
                     metadata={"preset": config.preset, "plan_version": context_plan.metadata.get("plan_version")},
                 )
+                if usage.id is not None:
+                    skill_usage_ids.append(int(usage.id))
             except Exception as exc:
                 logger.warning("技能使用回执写入失败（不阻断正文生成）: %s", exc)
+
+        async def _record_skill_quality(verification_report: Dict[str, Any]) -> None:
+            """将本次章节验证结果回写到本次精确的技能使用回执。"""
+            if not skill_usage_ids:
+                return
+            counts = verification_report.get("status_counts") or {}
+            total = sum(int(counts.get(key) or 0) for key in ("passed", "warning", "failed", "pending"))
+            if total <= 0:
+                return
+            quality_score = round(
+                100 * (
+                    int(counts.get("passed") or 0)
+                    + int(counts.get("warning") or 0) * 0.65
+                    + int(counts.get("pending") or 0) * 0.45
+                ) / total,
+                2,
+            )
+            await skill_registry.update_usage_feedback(
+                self.session,
+                skill_usage_ids,
+                after_score=quality_score,
+                metadata={
+                    "quality_score": quality_score,
+                    "verification_status_counts": dict(counts),
+                    "verification_summary": verification_report.get("summary"),
+                },
+            )
+            await self.session.commit()
         # 旧的预收集计划可能没有新模块；升级为兼容计划，确保已确认创作记忆不被编译器误删。
         if "creative_memory" not in context_plan.prompt_modules:
             context_plan.prompt_modules.append("creative_memory")
@@ -997,6 +1028,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 prompt_compile_summary=prompt_compile_summary,
                 stage_timings_ms=telemetry.stage_timings_ms,
                 strategy_warnings=writing_strategy.warnings,
+                skill_usage_feedback=_record_skill_quality,
             )
 
         if config.enable_fast_path:
@@ -1103,6 +1135,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 prompt_compile_summary=prompt_compile_summary,
                 stage_timings_ms=telemetry.stage_timings_ms,
                 strategy_warnings=writing_strategy.warnings,
+                skill_usage_feedback=_record_skill_quality,
             )
 
         # ========== 标准模式：多版本并行生成 ==========
@@ -1228,6 +1261,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             prompt_compile_summary=prompt_compile_summary,
             stage_timings_ms=telemetry.stage_timings_ms,
             strategy_warnings=writing_strategy.warnings,
+            skill_usage_feedback=_record_skill_quality,
         )
 
 __all__ = ["PipelineOrchestrator", "PipelineConfig"]

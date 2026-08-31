@@ -71,3 +71,35 @@ def test_narrative_verifier_detects_weak_commercial_hook():
     hook_task = report["tasks"][0]
     assert hook_task["task"] == "commercial_hook_check"
     assert hook_task["status"] == "warning"
+
+
+def test_narrative_verifier_returns_skill_checker_evidence_ranges():
+    service = NarrativeVerifierService()
+    plan = ContextPlan.from_dict(
+        {
+            "intent": {},
+            "chapter_phase": "development",
+            "retrieval_tasks": [],
+            "skill_policies": [{
+                "skill_id": "natural_closing",
+                "checker_keys": ["natural_ending"],
+                "verify_hints": ["章节结尾自然度"],
+            }],
+            "prompt_modules": [],
+            "verification_tasks": ["skill_checker:natural_ending"],
+            "budgets": {},
+            "is_fast_path": False,
+            "metadata": {},
+        }
+    )
+    report = service.verify(
+        plan=plan,
+        chapter_text="他关上门，命运从此改变。",
+        review_summaries={},
+        evidence_summary={},
+    )
+    task = report["tasks"][0]
+    assert task["status"] == "warning"
+    evidence = task["details"]["evidence"]
+    assert evidence and evidence[0]["char_start"] < evidence[0]["char_end"]
+    assert "命运" in evidence[0]["excerpt"]

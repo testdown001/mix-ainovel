@@ -2,6 +2,7 @@ import { http } from '@/api/http'
 
 export interface SkillInfo {
   id: string
+  skill_id?: number
   name: string
   description: string
   version: string
@@ -24,6 +25,10 @@ export interface SkillInfo {
   execution_mode?: 'transform' | 'policy' | string
   version_snapshot?: SkillVersion
   metrics?: SkillMetrics
+  project_id?: string
+  base_skill_id?: number
+  base_version_id?: number
+  is_project_copy?: boolean
 }
 
 export interface SkillVersion {
@@ -131,6 +136,20 @@ export interface SkillDraftPayload {
   prompt_hints: string[]
   verify_hints: string[]
   change_note?: string
+}
+
+export interface SkillForkPayload extends SkillDraftPayload {
+  project_id: string
+  name?: string
+  description?: string
+}
+
+export async function createProjectSkillCopy(
+  skillId: string,
+  payload: SkillForkPayload
+): Promise<{ id: string; version_snapshot?: SkillVersion; base_skill_id?: number; base_version_id?: number }> {
+  const res = await http.post(`/api/skills/${encodeURIComponent(skillId)}/project-copy`, payload)
+  return res.data
 }
 
 export async function getSkillCategories(): Promise<string[]> {

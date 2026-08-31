@@ -44,6 +44,10 @@ class SkillInfoResponse(BaseModel):
     execution_mode: Optional[str] = None
     version_snapshot: Optional[dict] = None
     metrics: Optional[dict] = None
+    project_id: Optional[str] = None
+    base_skill_id: Optional[int] = None
+    base_version_id: Optional[int] = None
+    is_project_copy: bool = False
 
 
 class SkillDraftRequest(BaseModel):
@@ -69,6 +73,12 @@ class SkillFeedbackRequest(BaseModel):
     accepted: bool
     after_score: Optional[float] = Field(default=None, ge=0, le=100)
     feedback: Optional[str] = None
+
+
+class SkillForkRequest(SkillDraftRequest):
+    project_id: str
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class SkillExecuteRequest(BaseModel):
@@ -122,7 +132,9 @@ async def list_skills(
                 capabilities=item.get("capabilities") or [], config=item.get("config") or {},
                 scope=item.get("scope"), version_id=item.get("version_id"), status=item.get("status"),
                 execution_mode=item.get("execution_mode"), version_snapshot=item.get("version_snapshot"),
-                metrics=item.get("metrics"),
+                metrics=item.get("metrics"), project_id=item.get("project_id"),
+                base_skill_id=item.get("base_skill_id"), base_version_id=item.get("base_version_id"),
+                is_project_copy=bool(item.get("is_project_copy")),
             )
             for item in cards
         ]
@@ -168,6 +180,29 @@ async def list_skill_catalog(
         await NovelService(db).assert_project_owner(project_id, current_user.id)
     registry = WritingSkillRegistryService()
     return await registry.catalog(db, user_id=current_user.id if current_user else None, project_id=project_id)
+
+
+@router.post("/{skill_id}/project-copy")
+async def create_project_skill_copy(
+    skill_id: str,
+    request: SkillForkRequest,
+    db: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    """为当前小说创建专属技能副本，并以首个已发布版本启用。"""
+    await NovelService(db).assert_project_owner(request.project_id, current_user.id)
+    data = request.model_dump()
+    data.pop("project_id", None)
+    try:
+        result = await WritingSkillRegistryService().fork_for_project(
+            db, skill_id, project_id=request.project_id, user_id=current_user.id, payload=data
+        )
+        await db.commit()
+        return result
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/{skill_id}/versions")

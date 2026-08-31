@@ -262,6 +262,7 @@ class GenerationFinalizeService:
         prompt_compile_summary: Dict[str, Any],
         stage_timings_ms: Dict[str, int],
         strategy_warnings: List[str],
+        skill_usage_feedback: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
     ) -> Dict[str, Any]:
         verification_report = self.narrative_verifier.verify(
             plan=plan,
@@ -275,6 +276,12 @@ class GenerationFinalizeService:
             variants=variants,
             best_version_index=best_version_index,
         )
+        if skill_usage_feedback:
+            try:
+                await skill_usage_feedback(verification_report)
+            except Exception as exc:
+                # 效果指标是旁路能力，不能让正文生成因埋点失败而失败。
+                logger.warning("技能质量回执写入失败: %s", exc)
         await telemetry.emit_verification_report(verification_report)
         await emit_completed()
 

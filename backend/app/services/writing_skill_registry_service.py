@@ -156,7 +156,7 @@ class WritingSkillRegistryService:
         for skill in skills:
             if skill.scope == "author" and skill.owner_user_id != user_id:
                 continue
-            if skill.scope == "project" and skill.project_id != project_id:
+            if skill.scope == "project" and (skill.project_id != project_id or skill.owner_user_id != user_id):
                 continue
             active = await self._active_version(session, skill.id)
             records = grouped.get(skill.skill_key, [])
@@ -168,6 +168,8 @@ class WritingSkillRegistryService:
                 "execution_mode": skill.execution_mode, "version": active.version_label if active else None,
                 "version_id": active.id if active else None, "status": active.status if active else "unpublished",
                 "version_snapshot": self._version_dict(active) if active else None,
+                "base_skill_id": skill.base_skill_id, "base_version_id": skill.base_version_id,
+                "is_project_copy": skill.scope == "project" and skill.base_skill_id is not None,
                 "capabilities": ([{"name": skill.name, "description": skill.description}] if skill.execution_mode == "transform" else []),
                 "config": {"intensity": ["subtle", "moderate", "strong"], "default": "moderate", "preserve_original": True},
                 "metrics": {
@@ -211,7 +213,7 @@ class WritingSkillRegistryService:
             if not key or key in seen:
                 continue
             skill = await self.get_skill(session, key)
-            if not skill or (skill.scope == "project" and skill.project_id != project_id) or (skill.scope == "author" and skill.owner_user_id != user_id):
+            if not skill or (skill.scope == "project" and (skill.project_id != project_id or skill.owner_user_id != user_id)) or (skill.scope == "author" and skill.owner_user_id != user_id):
                 continue
             version = await self._active_version(session, skill.id)
             if not version:
@@ -225,6 +227,123 @@ class WritingSkillRegistryService:
             entry["skill_name"] = skill.name
             resolved.append(entry)
         return resolved
+
+    async def fork_for_project(
+        self,
+        session: AsyncSession,
+        skill_key: str,
+        *,
+        project_id: str,
+        user_id: int,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Create one project-scoped copy from the published base snapshot.
+
+        The copy is immediately published because the author explicitly asked
+        to customize it. Future edits still go through draft + publish and
+        retain the source skill/version for a transparent diff.
+        """
+        base = await self.get_skill(session, skill_key)
+        if not base:
+            raise ValueError("技能不存在")
+        if base.scope == "project" and base.project_id != project_id:
+            raise PermissionError("无权复制该技能")
+        if base.scope == "author" and base.owner_user_id != user_id:
+            raise PermissionError("无权复制该技能")
+        active = await self._active_version(session, base.id)
+        if not active:
+            raise ValueError("技能没有可复制的已发布版本")
+        existing = await session.scalar(
+            select(WritingSkill).where(
+                WritingSkill.project_id == project_id,
+                WritingSkill.base_skill_id == base.id,
+            ).limit(1)
+        )
+        if existing:
+            current = await self._active_version(session, existing.id)
+            return {
+                "id": existing.skill_key,
+                "skill_id": existing.id,
+                "name": existing.name,
+                "description": existing.description,
+                "scope": existing.scope,
+                "project_id": existing.project_id,
+                "version_snapshot": self._version_dict(current) if current else None,
+                "base_skill_id": existing.base_skill_id,
+                "base_version_id": existing.base_version_id,
+                "is_project_copy": True,
+            }
+
+        # Keep the public skill id URL-safe and under the model's 100-char cap.
+        project_token = hashlib.sha1(project_id.encode("utf-8")).hexdigest()[:10]
+        copy_key = f"project_{project_token}_{base.skill_key}"[:100]
+        data = dict(payload or {})
+        version_payload = self._version_payload({**self._version_dict(active), **data})
+        copy = WritingSkill(
+            skill_key=copy_key,
+            name=str(data.get("name") or f"{base.name}（本书版）"),
+            description=str(data.get("description") or base.description),
+            category=base.category,
+            icon=base.icon,
+            scope="project",
+            owner_user_id=user_id,
+            project_id=project_id,
+            base_skill_id=base.id,
+            base_version_id=active.id,
+            is_builtin=False,
+            execution_mode=base.execution_mode,
+        )
+        session.add(copy)
+        await session.flush()
+        version = WritingSkillVersion(
+            skill_id=copy.id,
+            version_number=1,
+            version_label="v1.0.0",
+            status="published",
+            source="project_fork",
+            change_note="从系统技能复制并创建本书专属版本",
+            parent_version_id=active.id,
+            created_by_user_id=user_id,
+            published_by_user_id=user_id,
+            published_at=datetime.now(timezone.utc),
+            checksum=_checksum(version_payload),
+            **version_payload,
+        )
+        session.add(version)
+        await session.flush()
+        return {
+            "id": copy.skill_key,
+            "skill_id": copy.id,
+            "name": copy.name,
+            "description": copy.description,
+            "scope": copy.scope,
+            "project_id": copy.project_id,
+            "version_snapshot": self._version_dict(version),
+            "base_skill_id": copy.base_skill_id,
+            "base_version_id": copy.base_version_id,
+            "is_project_copy": True,
+        }
+
+    async def update_usage_feedback(
+        self,
+        session: AsyncSession,
+        usage_ids: Iterable[int],
+        *,
+        after_score: Optional[float],
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> int:
+        """Attach post-generation quality evidence to exact usage receipts."""
+        ids = [int(item) for item in usage_ids if item is not None]
+        if not ids:
+            return 0
+        rows = list((await session.scalars(select(WritingSkillUsage).where(WritingSkillUsage.id.in_(ids)))).all())
+        for row in rows:
+            row.after_score = after_score
+            merged = dict(row.metadata_ or {})
+            merged.update(metadata or {})
+            row.metadata_ = merged
+        await session.flush()
+        return len(rows)
 
     async def create_draft(self, session: AsyncSession, skill_key: str, *, user_id: int, payload: Optional[dict[str, Any]] = None, source: str = "author", change_note: Optional[str] = None) -> dict[str, Any]:
         skill = await self.get_skill(session, skill_key)

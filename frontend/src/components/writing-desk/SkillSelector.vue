@@ -54,6 +54,9 @@
             <span class="skill-category">{{ getCategoryLabel(skill.category) }}</span>
             <span v-if="skill.version" class="skill-version">{{ skill.version }}</span>
             <span v-if="skill.execution_mode === 'policy'" class="skill-mode">生成约束</span>
+            <button class="customize-button" type="button" @click.stop="startCustomize(skill)">
+              {{ projectCopyFor(skill) ? '编辑本书版' : '定制本书' }}
+            </button>
           </div>
         </div>
         <div class="skill-toggle">
@@ -71,6 +74,36 @@
         <span>暂无技能</span>
       </div>
     </div>
+
+    <section v-if="customizingSkill" class="skill-custom-editor">
+      <div class="custom-editor-head">
+        <div>
+          <strong>{{ customizingSkill.name }} · {{ projectCopyFor(customizingSkill) ? '本书版本' : '本书专属副本' }}</strong>
+          <p>只影响当前小说，系统版本保持不变。保存后会生成新的可追溯版本。</p>
+        </div>
+        <button type="button" class="custom-editor-close" @click="customizingSkill = null">关闭</button>
+      </div>
+      <div class="custom-diff">
+        <span>系统基线：{{ baseSnapshot?.rules?.length || 0 }} 条规则 / {{ baseSnapshot?.prohibitions?.length || 0 }} 条禁用</span>
+        <span>本书版本：{{ customRules.length }} 条规则 / {{ customProhibitions.length }} 条禁用</span>
+      </div>
+      <div class="diff-columns">
+        <div><small>新增规则</small><span v-if="!diff.addedRules.length" class="diff-empty">无</span><em v-for="item in diff.addedRules" :key="`r+${item}`">+ {{ item }}</em></div>
+        <div><small>移除规则</small><span v-if="!diff.removedRules.length" class="diff-empty">无</span><em v-for="item in diff.removedRules" :key="`r-${item}`">− {{ item }}</em></div>
+        <div><small>新增禁止事项</small><span v-if="!diff.addedProhibitions.length" class="diff-empty">无</span><em v-for="item in diff.addedProhibitions" :key="`p+${item}`">+ {{ item }}</em></div>
+        <div><small>移除禁止事项</small><span v-if="!diff.removedProhibitions.length" class="diff-empty">无</span><em v-for="item in diff.removedProhibitions" :key="`p-${item}`">− {{ item }}</em></div>
+      </div>
+      <div class="custom-editor-grid">
+        <label>执行规则（每行一条）<textarea v-model="customRulesText" rows="5" /></label>
+        <label>禁止事项（每行一条）<textarea v-model="customProhibitionsText" rows="5" /></label>
+      </div>
+      <div class="custom-editor-actions">
+        <button type="button" class="btn-cancel" @click="customizingSkill = null">取消</button>
+        <button type="button" class="btn-apply" :disabled="customizingBusy" @click="saveCustomization">
+          {{ customizingBusy ? '保存中...' : '保存并发布本书版本' }}
+        </button>
+      </div>
+    </section>
 
     <!-- 技能配置 -->
     <div v-if="selectedSkills.length" class="skill-config">
@@ -118,7 +151,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { listSkillCatalog, getSkillCategories, executeSkill, type SkillInfo, type SkillExecuteResponse } from '@/api/skill'
+import { listSkillCatalog, getSkillCategories, executeSkill, createProjectSkillCopy, createSkillDraft, publishSkillVersion, type SkillInfo, type SkillExecuteResponse, type SkillVersion } from '@/api/skill'
 
 interface SelectedSkillConfig {
   skill_id: string
@@ -166,6 +199,25 @@ const searchQuery = ref('')
 const selectedSkills = ref<string[]>([])
 const skillParams = ref<Record<string, { intensity: string; preserve_original: boolean }>>({})
 const isApplying = ref(false)
+const customizingSkill = ref<SkillInfo | null>(null)
+const customizingBusy = ref(false)
+const customRulesText = ref('')
+const customProhibitionsText = ref('')
+const baseSnapshot = ref<SkillVersion | null>(null)
+const customRules = computed(() => customRulesText.value.split('\n').map(item => item.trim()).filter(Boolean))
+const customProhibitions = computed(() => customProhibitionsText.value.split('\n').map(item => item.trim()).filter(Boolean))
+const diff = computed(() => {
+  const baseRules = new Set(baseSnapshot.value?.rules || [])
+  const baseProhibitions = new Set(baseSnapshot.value?.prohibitions || [])
+  const currentRules = new Set(customRules.value)
+  const currentProhibitions = new Set(customProhibitions.value)
+  return {
+    addedRules: customRules.value.filter(item => !baseRules.has(item)),
+    removedRules: (baseSnapshot.value?.rules || []).filter(item => !currentRules.has(item)),
+    addedProhibitions: customProhibitions.value.filter(item => !baseProhibitions.has(item)),
+    removedProhibitions: (baseSnapshot.value?.prohibitions || []).filter(item => !currentProhibitions.has(item))
+  }
+})
 // 分类映射
 const categoryLabels: Record<string, string> = {
   polish: '润色',
@@ -206,6 +258,57 @@ function getSkillIcon(skillId: string): string {
 function getSkillName(skillId: string): string {
   const skill = skills.value.find(s => s.id === skillId)
   return skill?.name || skillId
+}
+
+function projectCopyFor(skill: SkillInfo): SkillInfo | undefined {
+  if (skill.scope === 'project') return skill
+  return skills.value.find(item => item.scope === 'project' && item.base_skill_id === skill.skill_id)
+}
+
+function startCustomize(skill: SkillInfo) {
+  const existing = projectCopyFor(skill)
+  customizingSkill.value = existing || skill
+  const snapshot = existing?.version_snapshot || skill.version_snapshot
+  const base = skill.scope === 'project'
+    ? skills.value.find(item => item.skill_id === skill.base_skill_id && item.scope !== 'project')
+    : skill
+  baseSnapshot.value = base?.version_snapshot || null
+  customRulesText.value = (snapshot?.rules || []).join('\n')
+  customProhibitionsText.value = (snapshot?.prohibitions || []).join('\n')
+}
+
+async function saveCustomization() {
+  if (!customizingSkill.value || customizingBusy.value) return
+  customizingBusy.value = true
+  const skill = customizingSkill.value
+  const payload = {
+    phase: skill.version_snapshot?.phase || 'pre_prompt',
+    rules: customRules.value,
+    prohibitions: customProhibitions.value,
+    checker_keys: skill.version_snapshot?.checker_keys || [],
+    retrieval_hints: skill.version_snapshot?.retrieval_hints || [],
+    prompt_hints: skill.version_snapshot?.prompt_hints || [],
+    verify_hints: skill.version_snapshot?.verify_hints || [],
+    change_note: '作者为当前小说定制技能规则'
+  }
+  try {
+    let selectedId = skill.id
+    if (skill.scope === 'project') {
+      const draft = await createSkillDraft(skill.id, payload)
+      await publishSkillVersion(skill.id, draft.id)
+    } else {
+      const copy = await createProjectSkillCopy(skill.id, { ...payload, project_id: props.projectId })
+      selectedId = copy.id
+    }
+    const refreshed = await listSkillCatalog(props.projectId)
+    skills.value = refreshed
+    if (!selectedSkills.value.includes(selectedId)) selectedSkills.value.push(selectedId)
+    customizingSkill.value = null
+  } catch (e) {
+    emit('error', '本书技能版本保存失败，请稍后重试')
+  } finally {
+    customizingBusy.value = false
+  }
 }
 
 const selectorSubtitle = computed(() =>
@@ -527,6 +630,53 @@ async function handleApply() {
 .skill-mode {
   color: #ffe500;
   background: rgba(255, 229, 0, 0.08);
+}
+
+.customize-button {
+  border: 1px solid #4b4300;
+  border-radius: 4px;
+  padding: 2px 7px;
+  color: #ffe500;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.customize-button:hover { background: rgba(255, 229, 0, 0.12); }
+
+.skill-custom-editor {
+  margin: 0 0 20px;
+  padding: 16px;
+  border: 1px solid rgba(255, 229, 0, 0.35);
+  border-radius: 12px;
+  background: rgba(255, 229, 0, 0.06);
+}
+
+.custom-editor-head,
+.custom-editor-actions,
+.custom-diff {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.custom-editor-head p { margin: 5px 0 0; color: #999; font-size: 12px; }
+.custom-editor-close { border: 0; background: transparent; color: #aaa; cursor: pointer; }
+.custom-diff { justify-content: flex-start; margin: 14px 0; color: #ffe500; font-size: 12px; }
+.diff-columns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+.diff-columns > div { display: flex; flex-direction: column; gap: 4px; padding: 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.16); }
+.diff-columns small { color: #aaa; }
+.diff-columns em { color: #d7f7bf; font-size: 12px; font-style: normal; line-height: 1.4; }
+.diff-empty { color: #666; font-size: 12px; }
+.custom-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.custom-editor-grid label { color: #bbb; font-size: 12px; }
+.custom-editor-grid textarea { display: block; width: 100%; margin-top: 6px; padding: 10px; resize: vertical; border: 1px solid #363636; border-radius: 8px; background: #161616; color: #eee; }
+.custom-editor-actions { justify-content: flex-end; margin-top: 14px; }
+
+@media (max-width: 640px) {
+  .diff-columns { grid-template-columns: 1fr; }
+  .custom-editor-grid { grid-template-columns: 1fr; }
 }
 
 .skill-toggle {

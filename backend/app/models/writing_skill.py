@@ -34,6 +34,9 @@ class WritingSkill(Base):
     scope: Mapped[str] = mapped_column(String(16), nullable=False, default="system", server_default="system")
     owner_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     project_id: Mapped[Optional[str]] = mapped_column(ForeignKey("novel_projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    # 项目级技能副本的来源。保留来源版本可在作者编辑时展示可解释的差异。
+    base_skill_id: Mapped[Optional[int]] = mapped_column(ForeignKey("writing_skills.id", ondelete="SET NULL"), nullable=True, index=True)
+    base_version_id: Mapped[Optional[int]] = mapped_column(ForeignKey("writing_skill_versions.id", ondelete="SET NULL"), nullable=True, index=True)
     is_builtin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     execution_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="policy", server_default="policy")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

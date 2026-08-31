@@ -71,3 +71,27 @@ async def test_usage_metrics_capture_acceptance(db_session):
     assert metrics["usage_count"] == 2
     assert metrics["accepted_count"] == 1
     assert metrics["acceptance_rate"] == 0.5
+
+
+@pytest.mark.asyncio
+async def test_project_copy_is_scoped_and_resolves_its_published_snapshot(db_session):
+    registry = WritingSkillRegistryService()
+    await registry.ensure_defaults(db_session)
+    copy = await registry.fork_for_project(
+        db_session,
+        "restrained_prose",
+        project_id="project-a",
+        user_id=7,
+        payload={"rules": ["每段至少一个动作"]},
+    )
+    await db_session.commit()
+    assert copy["scope"] == "project"
+    assert copy["is_project_copy"] is True
+    resolved = await registry.resolve_selection(
+        db_session, [{"skill_id": copy["id"]}], project_id="project-a", user_id=7
+    )
+    assert resolved[0]["skill_id"] == copy["id"]
+    denied = await registry.resolve_selection(
+        db_session, [{"skill_id": copy["id"]}], project_id="project-a", user_id=8
+    )
+    assert denied == []
