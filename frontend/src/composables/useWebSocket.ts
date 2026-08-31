@@ -18,6 +18,13 @@ export interface TaskProgressEvent {
   user_id: number
   project_id: string
   timestamp: number
+  checkpoint?: {
+    kind?: string
+    last_chapter?: number
+    completed_chapters?: number[]
+    failed_chapters?: number[]
+    total?: number
+  }
 }
 
 export type ProgressCallback = (event: TaskProgressEvent) => void

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -78,26 +79,30 @@ const (
 
 // Task 任务定义
 type Task struct {
-	ID          string            `json:"id"`
-	Type        TaskType          `json:"type"`
-	Priority    Priority          `json:"priority"`
-	Payload     json.RawMessage   `json:"payload"`
-	Status      TaskStatus        `json:"status"`
-	Progress    int               `json:"progress"` // 0-100
-	Stage       string            `json:"stage"`    // 当前阶段
-	Message     string            `json:"message"`  // 状态消息
-	UserID      int               `json:"user_id"`
-	ProjectID   string            `json:"project_id"`
-	MaxRetries  int               `json:"max_retries"`
-	RetryCount  int               `json:"retry_count"`
-	Timeout     time.Duration     `json:"timeout"`
-	CreatedAt   time.Time         `json:"created_at"`
-	StartedAt   *time.Time        `json:"started_at,omitempty"`
-	CompletedAt *time.Time        `json:"completed_at,omitempty"`
-	Result      json.RawMessage   `json:"result,omitempty"`
-	Error       string            `json:"error,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	ID           string            `json:"id"`
+	Type         TaskType          `json:"type"`
+	Priority     Priority          `json:"priority"`
+	Payload      json.RawMessage   `json:"payload"`
+	Status       TaskStatus        `json:"status"`
+	Progress     int               `json:"progress"` // 0-100
+	Stage        string            `json:"stage"`    // 当前阶段
+	Message      string            `json:"message"`  // 状态消息
+	UserID       int               `json:"user_id"`
+	ProjectID    string            `json:"project_id"`
+	MaxRetries   int               `json:"max_retries"`
+	RetryCount   int               `json:"retry_count"`
+	Timeout      time.Duration     `json:"timeout"`
+	CreatedAt    time.Time         `json:"created_at"`
+	StartedAt    *time.Time        `json:"started_at,omitempty"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"`
+	Result       json.RawMessage   `json:"result,omitempty"`
+	Checkpoint   json.RawMessage   `json:"checkpoint,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	ParentTaskID string            `json:"parent_task_id,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 }
+
+const taskRetention = 7 * 24 * time.Hour
 
 // ChapterGeneratePayload 章节生成任务载荷
 type ChapterGeneratePayload struct {
@@ -209,6 +214,12 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	ctx, d.cancel = context.WithCancel(ctx)
 	d.running.Store(true)
 
+	// Redis 中的任务比网关进程活得更久。服务重启后把中断的任务重新放回队列；
+	// 批量正文 worker 会读取已经选版的章节作为检查点，因此不会重复生成已交付正文。
+	if err := d.recoverInterruptedTasks(ctx); err != nil {
+		logger.Warn("Recover interrupted tasks failed", zap.Error(err))
+	}
+
 	// 初始化 Worker 连接池
 	d.workerPool = NewWorkerPool(d.config)
 
@@ -290,7 +301,7 @@ func (d *Dispatcher) Submit(ctx context.Context, task *Task) error {
 
 	// 存储任务详情
 	taskKey := fmt.Sprintf("arboris:task:%s", task.ID)
-	pipe.Set(ctx, taskKey, data, 24*time.Hour)
+	pipe.Set(ctx, taskKey, data, taskRetention)
 
 	// 推入优先级队列
 	queueName := task.Priority.QueueName()
@@ -299,7 +310,7 @@ func (d *Dispatcher) Submit(ctx context.Context, task *Task) error {
 	// 添加到用户任务集合
 	userTasksKey := fmt.Sprintf("arboris:user_tasks:%d", task.UserID)
 	pipe.SAdd(ctx, userTasksKey, task.ID)
-	pipe.Expire(ctx, userTasksKey, 24*time.Hour)
+	pipe.Expire(ctx, userTasksKey, taskRetention)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("提交任务失败: %w", err)
@@ -371,8 +382,56 @@ func (d *Dispatcher) GetUserTasks(ctx context.Context, userID int) ([]*Task, err
 		}
 		tasks = append(tasks, task)
 	}
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
+	})
 
 	return tasks, nil
+}
+
+// recoverInterruptedTasks 让重启前处于队列、运行或退避中的任务恢复执行。
+// 先从所有队列移除旧副本再入队，避免 queued 任务因重启被重复消费。
+func (d *Dispatcher) recoverInterruptedTasks(ctx context.Context) error {
+	var cursor uint64
+	for {
+		keys, next, err := d.redis.Scan(ctx, cursor, "arboris:task:*", 100).Result()
+		if err != nil {
+			return err
+		}
+		for _, key := range keys {
+			data, err := d.redis.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+			var task Task
+			if json.Unmarshal(data, &task) != nil {
+				continue
+			}
+			if task.Status != StatusPending && task.Status != StatusQueued &&
+				task.Status != StatusRunning && task.Status != StatusRetrying {
+				continue
+			}
+
+			task.Status = StatusQueued
+			task.Stage = "recovered"
+			task.Message = "服务已恢复，正在从最近检查点继续"
+			task.ensureMetadata()
+			task.Metadata["recovered_at"] = time.Now().UTC().Format(time.RFC3339)
+			if err := d.updateTask(ctx, &task); err != nil {
+				continue
+			}
+			for _, priority := range []Priority{PriorityCritical, PriorityHigh, PriorityDefault, PriorityLow} {
+				d.redis.LRem(ctx, priority.QueueName(), 0, task.ID)
+			}
+			d.redis.ZRem(ctx, "arboris:tasks:retry", task.ID)
+			d.redis.LPush(ctx, task.Priority.QueueName(), task.ID)
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
 }
 
 // GetStats 获取调度器统计
@@ -690,7 +749,7 @@ func (d *Dispatcher) updateTask(ctx context.Context, task *Task) error {
 		return err
 	}
 	taskKey := fmt.Sprintf("arboris:task:%s", task.ID)
-	return d.redis.Set(ctx, taskKey, data, 24*time.Hour).Err()
+	return d.redis.Set(ctx, taskKey, data, taskRetention).Err()
 }
 
 // publishEvent 通过 Redis Pub/Sub 发布事件（推送到 WebSocket）
@@ -704,6 +763,12 @@ func (d *Dispatcher) publishEvent(ctx context.Context, task *Task, eventType str
 		"user_id":    task.UserID,
 		"project_id": task.ProjectID,
 		"timestamp":  time.Now().UnixMilli(),
+	}
+	if len(task.Checkpoint) > 0 && string(task.Checkpoint) != "null" {
+		var checkpoint interface{}
+		if json.Unmarshal(task.Checkpoint, &checkpoint) == nil {
+			event["checkpoint"] = checkpoint
+		}
 	}
 
 	data, err := json.Marshal(event)

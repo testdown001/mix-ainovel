@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/arboris-novel/gateway/internal/auth"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"github.com/arboris-novel/gateway/internal/auth"
 )
 
 // ============================================================
@@ -16,6 +16,7 @@ import (
 // - POST   /tasks/submit         提交任务
 // - GET    /tasks/:id/status     查询任务状态
 // - POST   /tasks/:id/cancel     取消任务
+// - POST   /tasks/:id/retry      从失败检查点创建续跑任务
 // - GET    /tasks/user/:user_id  获取用户任务列表
 // - GET    /tasks/stats          获取调度器统计
 // - POST   /internal/tasks/:id/progress  Worker 进度回调
@@ -38,6 +39,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App, authMiddleware fiber.Handler) {
 	tasks.Post("/submit", h.SubmitTask)
 	tasks.Get("/:id/status", h.GetTaskStatus)
 	tasks.Post("/:id/cancel", h.CancelTask)
+	tasks.Post("/:id/retry", h.RetryTask)
 	tasks.Get("/user/:user_id", h.GetUserTasks)
 	tasks.Get("/stats", auth.RequireAdmin(), h.GetStats)
 
@@ -165,18 +167,21 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 
 // TaskStatusResponse 任务状态响应
 type TaskStatusResponse struct {
-	TaskID      string          `json:"task_id"`
-	Type        string          `json:"type"`
-	Status      string          `json:"status"`
-	Progress    int             `json:"progress"`
-	Stage       string          `json:"stage,omitempty"`
-	Message     string          `json:"message,omitempty"`
-	Error       string          `json:"error,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	StartedAt   *time.Time      `json:"started_at,omitempty"`
-	CompletedAt *time.Time      `json:"completed_at,omitempty"`
-	RetryCount  int             `json:"retry_count"`
+	TaskID       string          `json:"task_id"`
+	Type         string          `json:"type"`
+	ProjectID    string          `json:"project_id"`
+	ParentTaskID string          `json:"parent_task_id,omitempty"`
+	Status       string          `json:"status"`
+	Progress     int             `json:"progress"`
+	Stage        string          `json:"stage,omitempty"`
+	Message      string          `json:"message,omitempty"`
+	Error        string          `json:"error,omitempty"`
+	Result       json.RawMessage `json:"result,omitempty"`
+	Checkpoint   json.RawMessage `json:"checkpoint,omitempty"`
+	CreatedAt    time.Time       `json:"created_at"`
+	StartedAt    *time.Time      `json:"started_at,omitempty"`
+	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
+	RetryCount   int             `json:"retry_count"`
 }
 
 // GetTaskStatus 查询任务状态
@@ -194,19 +199,103 @@ func (h *Handler) GetTaskStatus(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(TaskStatusResponse{
-		TaskID:      task.ID,
-		Type:        string(task.Type),
-		Status:      string(task.Status),
-		Progress:    task.Progress,
-		Stage:       task.Stage,
-		Message:     task.Message,
-		Error:       task.Error,
-		Result:      task.Result,
-		CreatedAt:   task.CreatedAt,
-		StartedAt:   task.StartedAt,
-		CompletedAt: task.CompletedAt,
-		RetryCount:  task.RetryCount,
+		TaskID:       task.ID,
+		Type:         string(task.Type),
+		ProjectID:    task.ProjectID,
+		ParentTaskID: task.ParentTaskID,
+		Status:       string(task.Status),
+		Progress:     task.Progress,
+		Stage:        task.Stage,
+		Message:      task.Message,
+		Error:        task.Error,
+		Result:       task.Result,
+		Checkpoint:   task.Checkpoint,
+		CreatedAt:    task.CreatedAt,
+		StartedAt:    task.StartedAt,
+		CompletedAt:  task.CompletedAt,
+		RetryCount:   task.RetryCount,
 	})
+}
+
+// RetryTask 从原任务创建新的子任务。批量任务只携带失败章节；如果原任务在
+// 汇总结果前中断，则沿用原章节集合，worker 会按数据库检查点复用已完成章节。
+func (h *Handler) RetryTask(c *fiber.Ctx) error {
+	source, err := h.dispatcher.GetTask(c.Context(), c.Params("id"))
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+	}
+	if source.UserID != auth.GetUserID(c) && !auth.IsAdmin(c) {
+		return c.Status(403).JSON(fiber.Map{"error": "无权重试该任务"})
+	}
+
+	payload, err := retryPayload(source)
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+	}
+	task := &Task{
+		ID:           uuid.New().String(),
+		Type:         source.Type,
+		Priority:     source.Priority,
+		Payload:      payload,
+		UserID:       source.UserID,
+		ProjectID:    source.ProjectID,
+		Timeout:      source.Timeout,
+		ParentTaskID: source.ID,
+		Metadata: map[string]string{
+			"resume_mode": "failed_only",
+		},
+	}
+	if err := h.dispatcher.Submit(c.Context(), task); err != nil {
+		return c.Status(429).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.Status(201).JSON(SubmitTaskResponse{
+		TaskID: task.ID, Status: string(task.Status), Message: "续跑任务已提交", CreatedAt: task.CreatedAt,
+	})
+}
+
+func retryPayload(task *Task) (json.RawMessage, error) {
+	if task.Status != StatusFailed && task.Status != StatusCancelled && task.Status != StatusCompleted {
+		return nil, fiber.NewError(400, "任务仍在运行，无需重试")
+	}
+	if task.Type != TaskBatchGenerate {
+		if task.Status == StatusCompleted {
+			return nil, fiber.NewError(400, "任务已经完成，无需重试")
+		}
+		return append(json.RawMessage(nil), task.Payload...), nil
+	}
+
+	var payload BatchGeneratePayload
+	if err := json.Unmarshal(task.Payload, &payload); err != nil {
+		return nil, fiber.NewError(400, "原任务载荷不可恢复")
+	}
+	failed := make([]int, 0)
+	if len(task.Result) > 0 {
+		var result struct {
+			Results []struct {
+				ChapterNumber int    `json:"chapter_number"`
+				Status        string `json:"status"`
+			} `json:"results"`
+		}
+		if json.Unmarshal(task.Result, &result) == nil {
+			for _, item := range result.Results {
+				if item.Status == "failed" && item.ChapterNumber > 0 {
+					failed = append(failed, item.ChapterNumber)
+				}
+			}
+		}
+	}
+	if len(failed) == 0 {
+		if task.Status == StatusCompleted {
+			return nil, fiber.NewError(400, "批量任务没有失败章节")
+		}
+		failed = payload.ChapterNumbers
+	}
+	payload.ChapterNumbers = failed
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fiber.NewError(500, "续跑任务创建失败")
+	}
+	return encoded, nil
 }
 
 // CancelTask 取消任务
@@ -239,6 +328,9 @@ func (h *Handler) GetUserTasks(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(400).JSON(fiber.Map{"error": "无效的 user_id"})
 	}
+	if userID != auth.GetUserID(c) && !auth.IsAdmin(c) {
+		return c.Status(403).JSON(fiber.Map{"error": "无权查看其他用户任务"})
+	}
 
 	tasks, err := h.dispatcher.GetUserTasks(c.Context(), userID)
 	if err != nil {
@@ -248,17 +340,21 @@ func (h *Handler) GetUserTasks(c *fiber.Ctx) error {
 	responses := make([]TaskStatusResponse, 0, len(tasks))
 	for _, t := range tasks {
 		responses = append(responses, TaskStatusResponse{
-			TaskID:      t.ID,
-			Type:        string(t.Type),
-			Status:      string(t.Status),
-			Progress:    t.Progress,
-			Stage:       t.Stage,
-			Message:     t.Message,
-			Error:       t.Error,
-			CreatedAt:   t.CreatedAt,
-			StartedAt:   t.StartedAt,
-			CompletedAt: t.CompletedAt,
-			RetryCount:  t.RetryCount,
+			TaskID:       t.ID,
+			Type:         string(t.Type),
+			ProjectID:    t.ProjectID,
+			ParentTaskID: t.ParentTaskID,
+			Status:       string(t.Status),
+			Progress:     t.Progress,
+			Stage:        t.Stage,
+			Message:      t.Message,
+			Error:        t.Error,
+			Result:       t.Result,
+			Checkpoint:   t.Checkpoint,
+			CreatedAt:    t.CreatedAt,
+			StartedAt:    t.StartedAt,
+			CompletedAt:  t.CompletedAt,
+			RetryCount:   t.RetryCount,
 		})
 	}
 
@@ -281,9 +377,10 @@ func (h *Handler) GetStats(c *fiber.Ctx) error {
 
 // UpdateProgressRequest Worker 进度回调请求
 type UpdateProgressRequest struct {
-	Progress int    `json:"progress"` // 0-100
-	Stage    string `json:"stage"`    // 当前阶段
-	Message  string `json:"message"`
+	Progress   int             `json:"progress"` // 0-100
+	Stage      string          `json:"stage"`    // 当前阶段
+	Message    string          `json:"message"`
+	Checkpoint json.RawMessage `json:"checkpoint,omitempty"`
 }
 
 // UpdateProgress Worker 进度回调
@@ -308,6 +405,9 @@ func (h *Handler) UpdateProgress(c *fiber.Ctx) error {
 	task.Progress = req.Progress
 	task.Stage = req.Stage
 	task.Message = req.Message
+	if len(req.Checkpoint) > 0 && string(req.Checkpoint) != "null" {
+		task.Checkpoint = append(json.RawMessage(nil), req.Checkpoint...)
+	}
 
 	if err := h.dispatcher.updateTask(c.Context(), task); err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": "更新进度失败"})
