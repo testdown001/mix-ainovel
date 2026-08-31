@@ -163,6 +163,12 @@
         @dismiss="dismissOutlineGenerationTask"
       />
 
+      <WDTaskCenter
+        v-if="project"
+        :project-id="project.id"
+        @updated="loadProject"
+      />
+
       <n-drawer v-model:show="sidebarOpen" width="min(420px, 94vw)" placement="left">
         <n-drawer-content
           title="章节与创作工具"
@@ -569,6 +575,7 @@ import WDEvaluationDetailModal from '@/components/writing-desk/WDEvaluationDetai
 import WDEditChapterModal from '@/components/writing-desk/WDEditChapterModal.vue'
 import WDGenerateOutlineModal from '@/components/writing-desk/WDGenerateOutlineModal.vue'
 import WDBatchGenerateModal from '@/components/writing-desk/WDBatchGenerateModal.vue'
+import WDTaskCenter from '@/components/writing-desk/WDTaskCenter.vue'
 import WDOutlineTaskCard from '@/components/writing-desk/WDOutlineTaskCard.vue'
 import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 import ArchiveViewer from '@/components/writing-desk/ArchiveViewer.vue'

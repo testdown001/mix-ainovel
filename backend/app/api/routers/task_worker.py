@@ -104,7 +104,7 @@ class ProgressReporter:
         self.task_id = task_id
         self._client: Optional[httpx.AsyncClient] = None
 
-    async def report(self, progress: int, stage: str, message: str):
+    async def report(self, progress: int, stage: str, message: str, checkpoint: Optional[Dict[str, Any]] = None):
         """报告进度"""
         if not self.callback_url:
             return
@@ -124,6 +124,7 @@ class ProgressReporter:
                     "progress": progress,
                     "stage": stage,
                     "message": message,
+                    **({"checkpoint": checkpoint} if checkpoint is not None else {}),
                 },
             )
         except Exception as e:
@@ -628,6 +629,46 @@ async def _execute_batch_generate(
                 "status": "failed",
                 "error": str(e),
             })
+
+        # 检查点按章节落盘到网关 Redis。页面刷新、网络断开或网关重启后，
+        # 用户仍能看到哪些章节已交付；重试任务也只会提交失败章节。
+        completed_so_far = [
+            int(item["chapter_number"])
+            for item in results
+            if item.get("status") == "success"
+        ]
+        failed_so_far = [
+            int(item["chapter_number"])
+            for item in results
+            if item.get("status") == "failed"
+        ]
+        checkpoint = {
+            "kind": "chapter_batch",
+            "last_chapter": chapter_number,
+            "completed_chapters": completed_so_far,
+            "failed_chapters": failed_so_far,
+            "total": total,
+        }
+        checkpoint_message = (
+            f"第 {chapter_number} 章已处理，成功 {len(completed_so_far)} 章，失败 {len(failed_so_far)} 章"
+        )
+        try:
+            await reporter.report(
+                int(((idx + 1) / max(1, total)) * 100),
+                "batch_checkpoint",
+                checkpoint_message,
+                checkpoint=checkpoint,
+            )
+        except TypeError as exc:
+            # 保持内部测试/第三方 reporter 的旧三参数接口兼容；生产 reporter
+            # 支持 checkpoint 时会走上面的持久化路径。
+            if "checkpoint" not in str(exc):
+                raise
+            await reporter.report(
+                int(((idx + 1) / max(1, total)) * 100),
+                "batch_checkpoint",
+                checkpoint_message,
+            )
 
     completed = sum(1 for item in results if item["status"] == "success")
     failed = total - completed

@@ -78,12 +78,21 @@ export interface TaskSubmitResponse {
 export interface TaskStatus {
   task_id: string
   type: string
+  project_id?: string
+  parent_task_id?: string
   status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying'
   progress: number // 0-100
   stage: string
   message: string
   error: string
   result: any
+  checkpoint?: {
+    kind?: string
+    last_chapter?: number
+    completed_chapters?: number[]
+    failed_chapters?: number[]
+    total?: number
+  } | null
   created_at: string
   started_at: string | null
   completed_at: string | null
@@ -208,6 +217,13 @@ export class TaskAPI {
     taskId: string,
   ): Promise<{ task_id: string; status: string; message: string }> {
     return taskRequest(`${TASK_BASE}/${taskId}/cancel`, { method: 'POST' })
+  }
+
+  /** 从失败检查点创建新任务；批量任务只会提交失败章节。 */
+  static async retryTask(
+    taskId: string,
+  ): Promise<TaskSubmitResponse> {
+    return taskRequest(`${TASK_BASE}/${taskId}/retry`, { method: 'POST' })
   }
 
   /**
