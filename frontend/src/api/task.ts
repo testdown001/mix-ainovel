@@ -78,7 +78,7 @@ export interface TaskSubmitResponse {
 export interface TaskStatus {
   task_id: string
   type: string
-  project_id: string
+  project_id?: string
   parent_task_id?: string
   status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying'
   progress: number // 0-100
