@@ -9,6 +9,7 @@
 5. 风格合规检查
 6. 冲突检测
 """
+import asyncio
 from typing import Optional, Dict, Any, List
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -97,16 +98,23 @@ class SixDimensionReviewService:
             self._create_default_result("审查完成，但结果解析失败")
         )
         try:
-            model = await self.llm_service.generate_structured(
-                prompt=prompt,
-                schema=SixDimensionResult,
-                system_prompt=(
-                    "你是一位资深的小说编辑，负责对章节进行全面的六维度审查。"
-                    "请以 JSON 格式输出审查结果。"
-                ),
-                user_id=user_id,
-                default=fallback,
-            )
+            # 这是辅助质检，不得无限占用正文关键路径。总墙钟 60 秒、单请求 55 秒、
+            # 不做传输重试或 schema 重问；失败时降级，正文仍可正常交付。
+            async with asyncio.timeout(60.0):
+                model = await self.llm_service.generate_structured(
+                    prompt=prompt,
+                    schema=SixDimensionResult,
+                    system_prompt=(
+                        "你是一位资深的小说编辑，负责对章节进行全面的六维度审查。"
+                        "请以 JSON 格式输出审查结果。"
+                    ),
+                    user_id=user_id,
+                    default=fallback,
+                    timeout=55.0,
+                    request_max_retries=0,
+                    reasoning_effort="low",
+                    max_validation_retries=0,
+                )
         except Exception:
             model = fallback
         return model.model_dump()

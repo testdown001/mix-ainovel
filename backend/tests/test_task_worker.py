@@ -133,7 +133,9 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
 
     result = asyncio.run(task_worker._execute_batch_generate(req, _NoopReporter()))
 
-    select.assert_awaited_once_with(req, 7, 2)
+    select.assert_awaited_once_with(req, 7, 2, schedule_next_mission=False)
+    first_generate_request = generate.await_args_list[0].args[0]
+    assert first_generate_request.config.extra["skip_history_summary_backfill"] is True
     assert result["status"] == "partial"
     assert result["total"] == 2
     assert result["completed"] == 1
@@ -178,7 +180,7 @@ def test_batch_generate_reuses_completed_chapter_without_regenerating(monkeypatc
     result = asyncio.run(task_worker._execute_batch_generate(req, _NoopReporter()))
 
     assert [call.args[0].chapter_number for call in generate.await_args_list] == [8]
-    select.assert_awaited_once_with(req, 8, 0)
+    select.assert_awaited_once_with(req, 8, 0, schedule_next_mission=False)
     assert result["completed"] == 2
     assert result["failed"] == 0
     assert result["reused"] == 1

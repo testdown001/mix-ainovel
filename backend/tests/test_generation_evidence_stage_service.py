@@ -100,3 +100,4 @@ def test_generation_evidence_stage_service_resolves_context_and_strategy(monkeyp
     assert result.relationship_context == "关系"
     assert result.retrieval_evidence_summary["total_items"] == 3
     telemetry.emit_retrieval_evidence_summary.assert_awaited_once()
+    telemetry.emit_evidence_grade.assert_not_awaited()

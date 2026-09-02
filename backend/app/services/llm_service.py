@@ -235,6 +235,8 @@ class LLMService:
         response_format: Optional[str] = None,
         top_p: Optional[float] = None,
         fail_on_truncation: bool = False,
+        max_retries: int = 2,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
         """兼容旧版接口的文本生成入口，统一走 get_llm_response。"""
         return await self.get_llm_response(
@@ -247,6 +249,8 @@ class LLMService:
             max_tokens=max_tokens,
             top_p=top_p,
             fail_on_truncation=fail_on_truncation,
+            max_retries=max_retries,
+            reasoning_effort=reasoning_effort,
         )
 
     async def generate_image(
@@ -359,6 +363,9 @@ class LLMService:
         max_validation_retries: int = 1,
         default: Optional[_StructuredT] = None,
         responder: Optional[Callable[[str, str], Awaitable[str]]] = None,
+        timeout: Optional[float] = None,
+        request_max_retries: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> _StructuredT:
         """Prompt → 经校验的 Pydantic 模型（借鉴 Pydantic AI 的结构化输出范式）。
 
@@ -382,6 +389,13 @@ class LLMService:
         )
 
         async def _default_responder(p: str, sys: str) -> str:
+            request_options: Dict[str, Any] = {}
+            if timeout is not None:
+                request_options["timeout"] = timeout
+            if request_max_retries is not None:
+                request_options["max_retries"] = request_max_retries
+            if reasoning_effort is not None:
+                request_options["reasoning_effort"] = reasoning_effort
             return await self.generate(
                 prompt=p,
                 system_prompt=sys,
@@ -389,6 +403,7 @@ class LLMService:
                 user_id=user_id,
                 response_format="json_object",
                 max_tokens=max_tokens,
+                **request_options,
             )
 
         respond = responder or _default_responder
@@ -1860,6 +1875,8 @@ class LLMService:
         timeout: float = 30.0,
         max_tokens: Optional[int] = 2000,
         config_override: Optional[Dict[str, Optional[str]]] = None,
+        max_retries: int = 2,
+        reasoning_effort: Optional[str] = None,
     ) -> str:
         """使用证据评分专用模型生成响应（极速小模型），不走用户级配置。"""
         config = config_override or await self._resolve_grader_llm_config()
@@ -1875,6 +1892,8 @@ class LLMService:
             response_format=None,
             max_tokens=max_tokens,
             api_type="grader",
+            max_retries=max_retries,
+            reasoning_effort_override=reasoning_effort,
         )
 
     async def test_channel(self, channel_type: str) -> Dict[str, Any]:

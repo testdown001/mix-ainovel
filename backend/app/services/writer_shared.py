@@ -210,7 +210,9 @@ async def generate_chapter_mission(
             conversation_history=[{"role": "user", "content": plan_input}],
             temperature=temperature,
             user_id=user_id,
-            timeout=90.0,
+            timeout=60.0,
+            max_retries=0,
+            reasoning_effort="low",
         )
         cleaned = remove_think_tags(response)
         # thinking 模型可能将全部内容包裹在 <think> 标签内，
@@ -293,8 +295,10 @@ async def _review_and_maybe_fix_mission(
             system_prompt=review_system,
             conversation_history=[{"role": "user", "content": review_user}],
             temperature=0.1,
-            timeout=30.0,
+            timeout=20.0,
             max_tokens=500,
+            max_retries=0,
+            reasoning_effort="low",
         )
     except Exception as exc:
         logger.debug("mission 评审调用失败，跳过: %s", exc)
@@ -309,6 +313,16 @@ async def _review_and_maybe_fix_mission(
     if advances and (not conflicts) and hook_ok:
         return mission
 
+    # 规划节奏/钩子不足不值得再付一次完整 Mission 生成；把意见留给正文提示词即可。
+    # 只有与既有剧情发生明确冲突时，才允许一次纠错重生成。
+    if not conflicts:
+        warnings = mission.setdefault("planning_warnings", [])
+        if not advances:
+            warnings.append("本章必须产生明确的主线、关系或局势变化")
+        if not hook_ok:
+            warnings.append("章末必须落在 POV 可感知的具体动作、画面、声音或半句台词")
+        return mission
+
     issues = str(verdict.get("issues", ""))[:300]
     logger.info("mission 前置评审未达标，带反馈重生成一次: %s", issues)
     fix_input = plan_input + (
@@ -321,7 +335,9 @@ async def _review_and_maybe_fix_mission(
             conversation_history=[{"role": "user", "content": fix_input}],
             temperature=temperature,
             user_id=user_id,
-            timeout=90.0,
+            timeout=60.0,
+            max_retries=0,
+            reasoning_effort="low",
         )
         cleaned = remove_think_tags(response) or response
         normalized = unwrap_markdown_json(cleaned)

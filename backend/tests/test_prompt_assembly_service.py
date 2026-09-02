@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import asyncio
 
 from app.services.prompt_assembly_service import PromptAssemblyService
 
@@ -68,3 +69,40 @@ def test_prompt_assembly_service_build_prompt_sections_contains_core_sections():
     assert "[创作任务书](本章写作的核心执行指南，必须严格遵循)" in titles
     assert "[检索到的剧情上下文](Markdown)" in titles
     assert "[写作硬性约束](必须严格遵守)" in titles
+
+
+def test_mission_brief_is_rendered_without_llm_call():
+    class _NoLLM:
+        async def get_llm_response(self, **kwargs):
+            raise AssertionError("确定性任务书不应调用 LLM")
+
+    service = PromptAssemblyService(prompt_service=None, llm_service=_NoLLM())
+    brief = asyncio.run(
+        service.generate_mission_brief(
+            chapter_mission={
+                "hard_constraints": {
+                    "pov": "林玄",
+                    "macro_beat": "P",
+                    "macro_beat_description": "林玄被迫交出证物",
+                    "chapter_end_style": "半句台词",
+                    "forbidden": ["禁止全知词"],
+                },
+                "soft_suggestions": {"chapter_sellpoint": "证物当众反咬对手"},
+                "scene_list": [{"location": "审讯室", "goal": "保住证物", "conflict": "上司施压"}],
+            },
+            previous_summary="上一章",
+            previous_tail="上一章结尾",
+            outline_title="交锋",
+            outline_summary="林玄面对第一次正式审讯",
+            writing_notes="不要解释背景",
+            introduced_characters=["林玄"],
+            forbidden_characters=["赵甲"],
+            user_id=1,
+        )
+    )
+
+    assert "证物当众反咬对手" in brief
+    assert "林玄被迫交出证物" in brief
+    assert "审讯室 → 保住证物 → 上司施压" in brief
+    assert "禁止形容词和比喻连续堆叠" in brief
+    assert "禁止未获准角色登场：赵甲" in brief

@@ -98,6 +98,17 @@ def test_single_version_generation_service_basic_path():
     assert result["metadata"]["resolved_temperature"] == 0.75
 
 
+def test_completion_token_budget_is_anchored_to_target_not_maximum():
+    budget = SingleVersionGenerationService.resolve_completion_token_budget(
+        target_word_count=3000,
+        max_word_count=4000,
+        configured_max_tokens=16384,
+    )
+
+    assert budget == 3600
+    assert budget < int(4000 * 1.5)
+
+
 def test_single_version_generation_retries_when_model_returns_prompt_analysis():
     llm = _RetryLLM()
     service = SingleVersionGenerationService(

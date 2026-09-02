@@ -34,6 +34,30 @@ class SingleVersionGenerationService:
         self.text_compression_service = text_compression_service
         self.preview_generation_service_factory = preview_generation_service_factory
 
+    @staticmethod
+    def resolve_completion_token_budget(
+        *,
+        target_word_count: int,
+        max_word_count: int,
+        configured_max_tokens: int,
+    ) -> int:
+        """按目标字数收紧正文输出预算，避免先写超长正文再整章压缩。
+
+        生产样本里 ``max_word_count * 1.5`` 会让 3k~4k 字章节普遍输出到
+        5k~8k 字。这里以目标字数为软锚点，仅保留约 20% 的 tokenizer/收尾余量；
+        真遇到截断时，下方仍有一次受控扩容，兼顾不同模型的中文 token 比例。
+        """
+        safe_max_words = max(1, int(max_word_count or 1))
+        requested_target = int(target_word_count or 0)
+        safe_target = min(
+            safe_max_words,
+            requested_target if requested_target > 0 else int(safe_max_words * 0.875),
+        )
+        return min(
+            int(configured_max_tokens),
+            max(1024, int(safe_target * 1.2)),
+        )
+
     async def generate(
         self,
         *,
@@ -74,9 +98,10 @@ class SingleVersionGenerationService:
         content = ""
         used_direct_generation = False
         final_prompt_input = prompt_input
-        dynamic_max_tokens = min(
-            settings.writer_max_tokens,
-            int(max_word_count * 1.5),
+        dynamic_max_tokens = self.resolve_completion_token_budget(
+            target_word_count=target_word_count,
+            max_word_count=max_word_count,
+            configured_max_tokens=settings.writer_max_tokens,
         )
         if getattr(config, "enable_preview", False):
             content, preview_meta = await self.generate_with_preview(
@@ -123,7 +148,7 @@ class SingleVersionGenerationService:
                 # 截断说明 token 预算不足（如中文按某些 tokenizer 更费 token）：提升上限重试一次
                 raised_max_tokens = min(
                     settings.writer_max_tokens,
-                    int(dynamic_max_tokens * 1.5),
+                    int(max_word_count * 1.25),
                 )
                 if raised_max_tokens <= dynamic_max_tokens:
                     # 已顶到 writer_max_tokens：同额重试注定再截断，直接失败省一次全额调用
