@@ -570,13 +570,17 @@ async def _execute_batch_generate(
     completed_chapters = await _load_completed_batch_chapters(req)
 
     for idx, chapter_number in enumerate(req.chapter_numbers or []):
+        single_extra = dict(req.config.extra or {})
+        # 批量下一章不能抢在前章后台摘要完成前又同步调用摘要模型；历史服务已有
+        # 大纲/正文节选兜底，先用兜底保证连续生成，完整摘要由后处理补齐。
+        single_extra["skip_history_summary_backfill"] = True
         single_req = WorkerTaskRequest(
             task_id=req.task_id,
             task_type="chapter:generate",
             project_id=req.project_id,
             chapter_number=chapter_number,
             user_id=req.user_id,
-            config=req.config,
+            config=req.config.model_copy(update={"extra": single_extra}),
             callback_url=None,
         )
         try:
@@ -605,6 +609,7 @@ async def _execute_batch_generate(
                 req,
                 chapter_number,
                 int(result.get("best_version_index", 0) or 0),
+                schedule_next_mission=False,
             )
             result["selected_version_id"] = selected_version_id
             results.append({
@@ -730,6 +735,8 @@ async def _select_batch_generated_chapter(
     req: WorkerTaskRequest,
     chapter_number: int,
     version_index: int,
+    *,
+    schedule_next_mission: bool = True,
 ) -> int:
     """批量正文采用无人值守语义：生成后自动确认管线推荐的最佳版本。
 
@@ -757,10 +764,13 @@ async def _select_batch_generated_chapter(
         ),
         name=f"post-process-{req.project_id}-ch{chapter_number}",
     )
-    safe_create_task(
-        pregen_next_chapter_mission(req.project_id, chapter_number, req.user_id),
-        name=f"pregen-mission-{req.project_id}-ch{chapter_number + 1}",
-    )
+    # 连续批量会立刻进入下一章，预生成通常尚未完成，反而与正式 Mission 重复调用并
+    # 争抢上游。单章自动选版仍保留预生成，批量则明确关闭。
+    if schedule_next_mission:
+        safe_create_task(
+            pregen_next_chapter_mission(req.project_id, chapter_number, req.user_id),
+            name=f"pregen-mission-{req.project_id}-ch{chapter_number + 1}",
+        )
     return selected_version_id
 
 

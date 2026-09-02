@@ -151,15 +151,9 @@ class GenerationEvidenceStageService:
         retrieval_evidence_summary = evidence_result.evidence_pack.graded_summary
         await telemetry.emit_retrieval_evidence_summary(retrieval_evidence_summary)
 
-        from .evidence_grader_service import EvidenceGraderService
-
-        grader = EvidenceGraderService(self.llm_service)
-        grade_report = await grader.grade(
-            evidence_pack=evidence_result.evidence_pack,
-            plan=context_plan,
-        )
-        if grade_report.get("graded"):
-            await telemetry.emit_evidence_grade(grade_report)
+        # EvidenceGrader 的结果仅用于观测，不参与本次提示词和证据过滤；同步等待会给
+        # 每章增加一次 30~60 秒模型调用。关键路径只保留 Router 的本地 graded_summary，
+        # 深度证据评分仍可通过独立 Agent 工具按需执行。
 
         writing_strategy = await WritingStrategyResolver.resolve(
             preset=config.preset,

@@ -173,12 +173,13 @@ def test_single_version_truncation_retries_with_raised_max_tokens():
     result = _run_single_version(service)
 
     assert len(llm.calls) == 2
-    # 初值 min(16384, 4000*1.5)=6000；重试提升为 min(16384, 6000*1.5)=9000
-    assert llm.calls[0]["max_tokens"] == 6000
-    assert llm.calls[1]["max_tokens"] == 9000
+    # 初值按目标 3000 字留 20% tokenizer 余量；截断后仅扩到最大字数的 1.25 倍，
+    # 避免一次截断把预算重新放大到会输出 6k~8k 字的旧区间。
+    assert llm.calls[0]["max_tokens"] == 3600
+    assert llm.calls[1]["max_tokens"] == 5000
     assert llm.calls[0]["fail_on_truncation"] is True
     assert llm.calls[1]["fail_on_truncation"] is True
-    assert result["metadata"]["truncation_retry"] == {"max_tokens": 9000}
+    assert result["metadata"]["truncation_retry"] == {"max_tokens": 5000}
     assert result["content"] == VALID_CHAPTER_BODY
 
 
@@ -206,10 +207,10 @@ def test_single_version_truncation_and_invalid_retries_cap_at_three_calls():
     result = _run_single_version(service)
 
     assert len(llm.calls) == 3
-    assert result["metadata"]["truncation_retry"] == {"max_tokens": 9000}
+    assert result["metadata"]["truncation_retry"] == {"max_tokens": 5000}
     assert result["metadata"]["invalid_output_retry"] is True
     # 无效正文重试沿用已提升的 max_tokens，并同样要求截断即失败
-    assert llm.calls[2]["max_tokens"] == 9000
+    assert llm.calls[2]["max_tokens"] == 5000
     assert llm.calls[2]["fail_on_truncation"] is True
     assert result["content"] == VALID_CHAPTER_BODY
 

@@ -672,23 +672,6 @@ class PipelineOrchestrator(PipelineReviewMixin):
         if coolpoint_rhythm_directive:
             logger.info("节奏纠偏触发: %s", coolpoint_rhythm_directive[:80])
 
-        # P1 优化: Mission Brief LLM 调用提前启动（与后续 DB 操作并行）
-        _mission_brief_task = None
-        if chapter_mission and config.enable_mission_brief:
-            _mission_brief_task = asyncio.create_task(
-                self.prompt_assembly_service.generate_mission_brief(
-                    chapter_mission=chapter_mission,
-                    previous_summary=history_context["previous_summary"],
-                    previous_tail=history_context["previous_tail"],
-                    outline_title=outline_title,
-                    outline_summary=outline_summary,
-                    writing_notes=writing_notes,
-                    introduced_characters=introduced_characters_for_mission,
-                    forbidden_characters=[],  # 此时尚未计算，使用空列表
-                    user_id=user_id,
-                )
-            )
-
         stage_started = time.perf_counter()
         resolved_prefetch = await self.generation_context_resolution_service.resolve_prefetch_context(
             config=config,
@@ -773,9 +756,18 @@ class PipelineOrchestrator(PipelineReviewMixin):
             )
             _mark_stage("prepare_memory_context", stage_started)
 
-        # P1: 等待 mission brief 结果（LLM 调用已在后台运行，此处几乎零等待）
+        # Mission 已含完整执行信息，直接确定性渲染任务书，避免再调用一次 LLM 转写。
         stage_started = time.perf_counter()
-        mission_brief_text = await self.generation_prompt_context_service.await_mission_brief(_mission_brief_task)
+        mission_brief_text = None
+        if chapter_mission and config.enable_mission_brief:
+            mission_brief_text = self.prompt_assembly_service.build_mission_brief(
+                chapter_mission=chapter_mission,
+                outline_title=outline_title,
+                outline_summary=outline_summary,
+                writing_notes=writing_notes,
+                introduced_characters=introduced_characters,
+                forbidden_characters=forbidden_characters,
+            )
         _mark_stage("generate_mission_brief", stage_started)
 
         prompt_context_inputs = await self.generation_prompt_context_service.resolve_prompt_context_inputs(
@@ -923,7 +915,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 prompt_sections_data={
                     "chapter_goals": f"[当前章节目标]\n标题：{outline_title}\n摘要：{outline_summary}\n写作指令：{writing_notes}",
                     "mission_brief": mission_brief_text or "",
-                    "director_script": json.dumps(chapter_mission, ensure_ascii=False) if chapter_mission else "",
+                    # 任务书已经完整承载 Mission；仅在任务书关闭/缺失时注入 raw JSON，避免重复提示。
+                    "director_script": (
+                        json.dumps(chapter_mission, ensure_ascii=False)
+                        if chapter_mission and not mission_brief_text
+                        else ""
+                    ),
                     "story_skeleton": history_context.get("story_skeleton", ""),
                     "previous_summary": history_context["previous_summary"],
                     "previous_tail": history_context["previous_tail"],

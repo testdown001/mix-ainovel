@@ -12,7 +12,6 @@ from ..core.constants import (
     CHAPTER_RECOMMENDED_WORDS,
     CHAPTER_WORD_COUNT_RULE,
 )
-from ..utils.json_utils import remove_think_tags
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +169,139 @@ class PromptAssemblyService:
 
         return "[模式差异化约束]\n" + "\n".join(constraints)
 
+    @staticmethod
+    def build_mission_brief(
+        *,
+        chapter_mission: dict,
+        outline_title: str,
+        outline_summary: str,
+        writing_notes: str,
+        introduced_characters: List[str],
+        forbidden_characters: List[str],
+    ) -> str:
+        """把 Mission JSON 确定性渲染为可执行任务书，不再额外调用一次 LLM。
+
+        Mission 本身已经包含正文所需的节拍、场景、角色和章尾设计。再次让模型
+        转写只会增加延迟与提示词漂移；这里兼容新式 hard/soft 嵌套结构和历史扁平结构。
+        """
+        mission = chapter_mission if isinstance(chapter_mission, dict) else {}
+        hard = mission.get("hard_constraints") if isinstance(mission.get("hard_constraints"), dict) else {}
+        soft = mission.get("soft_suggestions") if isinstance(mission.get("soft_suggestions"), dict) else {}
+
+        def _pick(*keys: str, default: Any = "") -> Any:
+            for source in (hard, soft, mission):
+                for key in keys:
+                    value = source.get(key)
+                    if value not in (None, "", [], {}):
+                        return value
+            return default
+
+        def _inline(value: Any) -> str:
+            if isinstance(value, list):
+                return "；".join(str(item) for item in value if item not in (None, ""))
+            if isinstance(value, dict):
+                return "；".join(
+                    f"{key}：{_inline(item)}" for key, item in value.items() if item not in (None, "", [], {})
+                )
+            return str(value or "").strip()
+
+        macro = _inline(_pick("macro_beat_description", "goal"))
+        sellpoint = _inline(_pick("chapter_sellpoint"))
+        lines = [
+            "【本章一句话】",
+            sellpoint or macro or f"围绕《{outline_title}》完成本章大纲目标：{outline_summary}",
+            "",
+            "【硬性执行】",
+        ]
+        execution = [
+            f"主节拍：{_inline(_pick('macro_beat', default='按大纲推进'))}",
+            f"推进目标：{macro or outline_summary}",
+            f"章节类型：{_inline(_pick('chapter_type', default='按大纲确定'))}",
+            f"视角锚点：{_inline(_pick('pov', default='严格跟随当前视角角色'))}",
+            f"章末方式：{_inline(_pick('chapter_end_style', default='具体动作、画面、声音或半句台词'))}",
+        ]
+        if writing_notes and writing_notes != "无额外写作指令":
+            execution.append(f"作者要求：{writing_notes}")
+        lines.extend(f"- {item}" for item in execution if item and not item.endswith("："))
+
+        scenes = mission.get("scene_list") or soft.get("scene_list") or []
+        if isinstance(scenes, list) and scenes:
+            lines.extend(["", "【场景走向】"])
+            for index, scene in enumerate(scenes[:8], start=1):
+                if not isinstance(scene, dict):
+                    continue
+                scene_bits = [
+                    _inline(scene.get("location")),
+                    _inline(scene.get("goal")),
+                    _inline(scene.get("conflict")),
+                    _inline(scene.get("turn")),
+                    _inline(scene.get("end_state")),
+                ]
+                scene_text = " → ".join(bit for bit in scene_bits if bit)
+                if scene.get("target_words"):
+                    scene_text += f"（约{scene['target_words']}字）"
+                if scene_text:
+                    lines.append(f"{index}. {scene_text}")
+
+        voices = mission.get("character_voices") or soft.get("character_voices") or []
+        if isinstance(voices, list) and voices:
+            lines.extend(["", "【角色执行】"])
+            for voice in voices[:8]:
+                if not isinstance(voice, dict):
+                    continue
+                details = "；".join(
+                    bit for bit in (
+                        _inline(voice.get("small_desire")),
+                        _inline(voice.get("speech_fingerprint")),
+                        _inline(voice.get("out_of_character")),
+                    ) if bit
+                )
+                lines.append(f"- {_inline(voice.get('name')) or '角色'}：{details or '按既有人设行动和说话'}")
+        elif introduced_characters:
+            lines.extend(["", "【出场角色】", "- " + "、".join(introduced_characters)])
+
+        satisfaction = _inline(_pick("satisfaction_design"))
+        relationship = _inline(_pick("relationship_push"))
+        information_gap = _inline(_pick("information_asymmetry"))
+        if any((satisfaction, relationship, information_gap)):
+            lines.extend(["", "【关系、爽点与信息差】"])
+            if relationship:
+                lines.append(f"- 关系变化：{relationship}")
+            if satisfaction:
+                lines.append(f"- 爽点/压迫：{satisfaction}")
+            if information_gap:
+                lines.append(f"- 信息差：{information_gap}")
+
+        ending_design = (
+            mission.get("anti_ai_controls", {}).get("ending_design", {})
+            if isinstance(mission.get("anti_ai_controls"), dict)
+            else {}
+        )
+        hooks = mission.get("hooks_management") or []
+        foreshadowing = mission.get("foreshadowing") or {}
+        lines.extend(["", "【钩子与伏笔】"])
+        if ending_design:
+            lines.append(f"- 章末落点：{_inline(ending_design)}")
+        for hook in hooks[:4] if isinstance(hooks, list) else []:
+            if isinstance(hook, dict):
+                lines.append(f"- 钩子：{_inline(hook)}")
+        if foreshadowing:
+            lines.append(f"- 伏笔：{_inline(foreshadowing)}")
+
+        forbidden = list(hard.get("forbidden") or mission.get("forbidden") or [])
+        forbidden.extend(f"禁止未获准角色登场：{name}" for name in forbidden_characters[:10])
+        lines.extend([
+            "",
+            "【去 AI 味检查】",
+            "- 禁止形容词和比喻连续堆叠；优先用动作、对话和可观察细节推进。",
+            "- 禁止跳出当前视角解释其他人的内心或远处同时发生的事情。",
+            "- 禁止章末总结、升华或抽象隐喻；结尾必须停在具体事件上。",
+        ])
+        lines.extend(f"- {item}" for item in forbidden if item)
+        warnings = mission.get("planning_warnings") or []
+        lines.extend(f"- {item}" for item in warnings if item)
+        return "\n".join(lines).strip()
+
     async def generate_mission_brief(
         self,
         *,
@@ -183,48 +315,15 @@ class PromptAssemblyService:
         forbidden_characters: List[str],
         user_id: int,
     ) -> Optional[str]:
-        brief_input = f"""[章节导演脚本]
-{json.dumps(chapter_mission, ensure_ascii=False, indent=2)}
-
-[上一章摘要]
-{previous_summary}
-
-[上一章结尾]
-{previous_tail}
-
-[当前章节目标]
-标题：{outline_title}
-摘要：{outline_summary}
-写作要求：{writing_notes}
-
-[已登场角色]
-{", ".join(introduced_characters) if introduced_characters else "暂无"}
-
-[禁止角色]
-{", ".join(forbidden_characters) if forbidden_characters else "无"}"""
-
-        try:
-            brief_prompt = await self.prompt_service.get_prompt("mission_brief")
-            if not brief_prompt:
-                logger.info("未配置 mission_brief 提示词，将使用原始 JSON")
-                return None
-
-            response = await self.llm_service.get_llm_response(
-                system_prompt=brief_prompt,
-                conversation_history=[{"role": "user", "content": brief_input}],
-                temperature=0.3,
-                user_id=user_id,
-                timeout=120.0,
-            )
-            cleaned = remove_think_tags(response)
-            if not cleaned or not cleaned.strip():
-                logger.warning("创作任务书生成结果为空，回退原始 JSON")
-                return None
-            logger.info("创作任务书生成完成 (len=%d)", len(cleaned))
-            return cleaned.strip()
-        except Exception as exc:
-            logger.warning("生成创作任务书失败，将回退原始 JSON: %s", exc)
-            return None
+        # 保留异步接口兼容 Agent 工具和旧调用方；不再访问 LLM。
+        return self.build_mission_brief(
+            chapter_mission=chapter_mission,
+            outline_title=outline_title,
+            outline_summary=outline_summary,
+            writing_notes=writing_notes,
+            introduced_characters=introduced_characters,
+            forbidden_characters=forbidden_characters,
+        )
 
     @staticmethod
     def build_blueprint_digest(writer_blueprint: Any) -> str:

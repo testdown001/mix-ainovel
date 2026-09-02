@@ -95,7 +95,9 @@ class TextCompressionService:
         )
 
         current_text = chapter_text
-        max_attempts = 2
+        # 整章改写是昂贵调用；生产样本显示第二次压缩几乎从未命中上限，最终仍会
+        # 进入确定性裁剪。只允许一次 editor pass，失败后直接按段落/句子安全裁剪。
+        max_attempts = 1
         for attempt in range(max_attempts):
             user_prompt = (
                 f"将以下 {len(current_text)} 字章节正文精简到 {target_min}~{target_max} 字之间。"
@@ -109,8 +111,11 @@ class TextCompressionService:
                     conversation_history=[{"role": "user", "content": user_prompt}],
                     temperature=0.3,
                     user_id=user_id,
-                    timeout=180.0,
-                    max_tokens=int(target_max * 1.2),
+                    timeout=60.0,
+                    max_tokens=int(target_max * 1.1),
+                    max_retries=0,
+                    reasoning_effort="low",
+                    response_format=None,
                 )
                 cleaned = remove_think_tags(response)
                 result = sanitize_chapter_plain_text(unwrap_markdown_json(cleaned or response))

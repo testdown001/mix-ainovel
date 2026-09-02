@@ -193,7 +193,7 @@ class _RecordingLLM:
         self._result_model = result_model
 
     async def generate_structured(self, *, prompt, schema, system_prompt=None, user_id=None, default=None, **kwargs):
-        self.calls.append({"user_id": user_id})
+        self.calls.append({"user_id": user_id, **kwargs})
         return self._result_model
 
 
@@ -238,7 +238,15 @@ async def test_review_chapter_accepts_user_id_and_forwards_it():
     )
     assert result["overall_score"] == 60
     # user_id 透传到 generate_structured（用于用量统计/限额归属）
-    assert llm.calls == [{"user_id": 1}]
+    assert llm.calls == [
+        {
+            "user_id": 1,
+            "timeout": 55.0,
+            "request_max_retries": 0,
+            "reasoning_effort": "low",
+            "max_validation_retries": 0,
+        }
+    ]
 
 
 @pytest.mark.asyncio

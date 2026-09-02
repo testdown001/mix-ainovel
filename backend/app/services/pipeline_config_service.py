@@ -241,8 +241,8 @@ class PipelineConfigService:
             config.enable_six_dimension = True
             config.enable_enrichment = True
             config.enable_reference_beats = True
-            # 任务书 LLM 转写默认开（2026-08-15）：章级规划落盘后导演脚本吃到
-            # chapter_blueprints 约束，[创作任务书] 比 raw JSON [章节导演脚本] 更可执行
+            # 任务书默认开：由 Mission 确定性渲染，不再额外调用 LLM；
+            # [创作任务书] 比 raw JSON [章节导演脚本] 更紧凑、更可执行。
             config.enable_mission_brief = True
             # enable_polish 不再随 preset 默认开启：润色是勾选计费项（每章额外扣积分），
             # 仅当用户勾选经 flow_config 覆写打开（FLOW_OVERRIDE_SWITCHES creator+ 门控）
@@ -273,7 +273,7 @@ class PipelineConfigService:
             # 旗舰用户此前拿到的与不绑完全一样——「章节生成中复用风格」的承诺没兑现。
             # 未绑定参考小说时回退内置范文库，同样是精品档该有的注入。
             config.enable_reference_prose = True
-            # 任务书 LLM 转写默认开（同 standard，2026-08-15）
+            # 任务书默认开（同 standard，确定性渲染，无额外 LLM 延迟）
             config.enable_mission_brief = True
             # enable_polish 同 standard：勾选计费项，不随 preset 默认开启（optimizer 照跑，
             # 仅在用户勾选时才「合并润色」语义生效，见 standard_post_processing merge_polish）
