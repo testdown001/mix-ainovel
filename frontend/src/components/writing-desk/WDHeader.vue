@@ -98,6 +98,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { NovelAPI, type CompliancePrecheckResult, type NovelProject } from '@/api/novel'
 import { globalAlert } from '@/composables/useAlert'
+import { AUTHORING_STAGES } from '@/utils/writingWorkflow'
 
 interface Props {
   project: NovelProject | null
@@ -129,12 +130,7 @@ const prechecking = ref(false)
 const precheckPlatform = ref<'qidian' | 'fanqie' | 'jjwxc'>('qidian')
 const precheckResult = ref<CompliancePrecheckResult | null>(null)
 
-const stages = [
-  { id: 1, label: '章节规划' },
-  { id: 2, label: '剧情推演' },
-  { id: 3, label: '正文创作' },
-  { id: 4, label: '一致性检查' },
-]
+const stages = AUTHORING_STAGES
 
 const projectMeta = computed(() => {
   const genre = props.project?.blueprint?.genre || '类型待定'

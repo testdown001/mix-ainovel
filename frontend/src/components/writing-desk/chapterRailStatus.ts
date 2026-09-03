@@ -47,6 +47,6 @@ export function resolveChapterRailStatus({
     return { kind: 'failed', label: '评审失败' }
   }
   if (generationStatus === 'failed') return { kind: 'failed', label: '生成失败' }
-  if (hasPrediction) return { kind: 'predicted', label: '已推演' }
+  if (hasPrediction) return { kind: 'planned', label: '已规划' }
   return { kind: 'planned', label: '已规划' }
 }

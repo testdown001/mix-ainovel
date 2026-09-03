@@ -7,7 +7,7 @@
         <div>
           <div class="title-line">
             <h1>{{ outline?.title || '未命名章节' }}</h1>
-            <span class="stage-pill">{{ prediction ? '已推演' : '规划中' }}</span>
+            <span class="stage-pill">已规划</span>
           </div>
           <p>{{ outline?.summary || '为这一章补充目标、情节节拍和登场引用。' }}</p>
         </div>
@@ -15,16 +15,16 @@
       <button
         type="button"
         class="primary-action"
-        :disabled="predictionGenerating"
-        @click="emit('requestPrediction', selectedChapterNumber)"
+        :disabled="generationBusy"
+        @click="requestGenerate"
       >
-        <svg v-if="predictionGenerating" class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <svg v-if="generationBusy" class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M20 12a8 8 0 1 1-2.35-5.65" /><path d="M20 5v7h-7" />
         </svg>
         <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
           <path d="m13 2-9 12h7l-1 8 9-12h-7z" />
         </svg>
-        {{ predictionGenerating ? '推演中…' : prediction ? '重新剧情推演' : '开始剧情推演' }}
+        {{ generationButtonLabel }}
       </button>
     </header>
 
@@ -53,7 +53,7 @@
           </div>
           <div class="goal-item">
             <span class="goal-icon spark">✦</span>
-            <div><label>预期爽点</label><p>{{ planning.coolpoint || '尚未设定，建议在剧情推演前补充' }}</p></div>
+            <div><label>预期爽点</label><p>{{ planning.coolpoint || '尚未设定，可在生成正文前补充' }}</p></div>
           </div>
           <div class="goal-item wide">
             <span class="goal-icon ban">／</span>
@@ -73,7 +73,7 @@
           <div>
             <span class="section-index">02</span>
             <h2>情节拍</h2>
-            <span class="section-note">{{ beats.length ? `${beats.length} 个节拍` : '等待推演' }}</span>
+            <span class="section-note">{{ beats.length ? `${beats.length} 个节拍` : '生成正文时自动梳理' }}</span>
           </div>
           <button v-if="beats.length && !editingBeats" type="button" class="text-action" @click="beginBeatsEdit">编辑节拍</button>
           <div v-else-if="editingBeats" class="edit-actions">
@@ -108,9 +108,22 @@
 
         <div v-else class="beats-empty">
           <span class="empty-orbit"><i></i></span>
-          <div><strong>先生成剧情推演</strong><p>AI 会把本章摘要拆成可编辑的铺垫、转折、爆发与悬念节拍。</p></div>
-          <button type="button" @click="emit('requestPrediction', selectedChapterNumber)">生成节拍</button>
+          <div><strong>正文生成时自动梳理</strong><p>AI 会先把本章摘要整理成铺垫、转折、爆发与悬念节拍，再无缝进入正文创作。</p></div>
         </div>
+
+        <details class="advanced-options">
+          <summary>高级选项</summary>
+          <div>
+            <p>需要在生成正文前单独查看或调整情节节拍时，可以提前重新梳理。</p>
+            <button
+              type="button"
+              :disabled="generationBusy"
+              @click="emit('requestPrediction', selectedChapterNumber)"
+            >
+              {{ predictionGenerating ? '正在梳理…' : prediction ? '重新梳理情节' : '提前梳理情节' }}
+            </button>
+          </div>
+        </details>
       </section>
 
       <section class="planning-card reference-card">
@@ -148,21 +161,12 @@
       <footer class="canvas-footer">
         <div>
           <span>下一步</span>
-          <p>{{ prediction ? '推演已就绪，可进入正文起草' : '先检查目标与约束，再生成剧情推演' }}</p>
+          <p>生成正文时将自动完成情节梳理与一致性检查。</p>
         </div>
         <div class="footer-actions">
           <button type="button" class="secondary-action" @click="emit('openCodex')">与 AI 讨论本章</button>
-          <button
-            v-if="prediction"
-            type="button"
-            class="primary-action"
-            @click="emit('generateChapter', selectedChapterNumber)"
-          >
-            进入正文创作
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
-          </button>
-          <button v-else type="button" class="primary-action" @click="emit('requestPrediction', selectedChapterNumber)">
-            生成剧情推演
+          <button type="button" class="primary-action" :disabled="generationBusy" @click="requestGenerate">
+            {{ generationButtonLabel }}
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
           </button>
         </div>
@@ -175,6 +179,7 @@
 import { computed, ref, watch } from 'vue'
 import { useNovelStore } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
+import { invalidatePrediction } from '@/utils/writingWorkflow'
 import type {
   ChapterBeat,
   ChapterPlanning,
@@ -185,6 +190,7 @@ import type {
 const props = defineProps<{
   project: NovelProject
   selectedChapterNumber: number
+  generatingChapter?: number | null
   predictionGeneratingChapter?: number | null
 }>()
 
@@ -214,6 +220,18 @@ const beats = computed<ChapterBeat[]>(() => prediction.value?.beats || [])
 const predictionGenerating = computed(
   () => props.predictionGeneratingChapter === props.selectedChapterNumber,
 )
+const chapterGenerating = computed(() => props.generatingChapter === props.selectedChapterNumber)
+const generationBusy = computed(() => predictionGenerating.value || chapterGenerating.value)
+const chapterCompleted = computed(() =>
+  props.project.chapters?.some(
+    (chapter) => chapter.chapter_number === props.selectedChapterNumber && !!chapter.content,
+  ),
+)
+const generationButtonLabel = computed(() => {
+  if (predictionGenerating.value) return '正在梳理情节…'
+  if (chapterGenerating.value) return '正在生成正文…'
+  return chapterCompleted.value ? '重新生成正文' : '生成本章正文'
+})
 const mustNotLabel = computed(() =>
   planning.value.must_not_include?.length
     ? planning.value.must_not_include.join(' · ')
@@ -281,12 +299,13 @@ async function savePlanning() {
       ...planningDraft.value,
       must_not_include: mustNotDraft.value.split('\n').map((item) => item.trim()).filter(Boolean),
     }
+    const metadata = invalidatePrediction(outline.value.metadata)
     await novelStore.updateChapterOutline({
       ...outline.value,
-      metadata: { ...(outline.value.metadata || {}), planning: updatedPlanning },
+      metadata: { ...metadata, planning: updatedPlanning },
     })
     editingPlanning.value = false
-    globalAlert.showSuccess('本章目标与约束已保存', '规划已更新')
+    globalAlert.showSuccess('本章规划已保存；生成正文时会自动更新情节梳理。', '规划已更新')
   } catch (error) {
     globalAlert.showError(error instanceof Error ? error.message : '保存失败', '章节规划')
   } finally {
@@ -301,6 +320,18 @@ function beginBeatsEdit() {
 
 function addBeat() {
   beatsDraft.value.push({ type: 'setup', content: '', emotion: '' })
+}
+
+async function requestGenerate() {
+  if (generationBusy.value) return
+  if (chapterCompleted.value) {
+    const confirmed = await globalAlert.showConfirm(
+      '重新生成会覆盖当前章节的生成结果，确定继续吗？',
+      '重新生成正文',
+    )
+    if (!confirmed) return
+  }
+  emit('generateChapter', props.selectedChapterNumber)
 }
 
 async function saveBeats() {
@@ -393,6 +424,13 @@ watch(
 .beats-empty strong { color: #cfd0c8; font-size: 11px; }
 .beats-empty p { margin: 3px 0 0; color: #6c6f67; font-size: 10px; }
 .beats-empty button, .add-beat { padding: 7px 10px; border: 1px solid #494a3c; border-radius: 6px; color: #d7c91f; font-size: 10px; background: rgba(255,229,0,.04); }
+.advanced-options { margin-top: 12px; border-top: 1px solid #272924; color: #777a72; }
+.advanced-options summary { width: fit-content; padding-top: 11px; cursor: pointer; color: #777a72; font-size: 10px; }
+.advanced-options > div { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0 2px; }
+.advanced-options p { margin: 0; color: #676a63; font-size: 10px; line-height: 16px; }
+.advanced-options button { flex-shrink: 0; padding: 7px 10px; border: 1px solid #3b3d36; border-radius: 6px; color: #b9bbb2; font-size: 10px; background: #1a1b18; }
+.advanced-options button:hover { border-color: #625d24; color: #eddd2b; }
+.advanced-options button:disabled { opacity: .5; cursor: wait; }
 .beat-editor { display: flex; flex-direction: column; gap: 7px; }
 .beat-edit-row { display: grid; grid-template-columns: 86px minmax(0,1fr) 100px 28px; align-items: end; gap: 7px; }
 .beat-edit-row input, .beat-edit-row select { margin: 0; }

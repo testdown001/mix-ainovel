@@ -88,10 +88,10 @@
           <p v-else class="md-body-small md-on-surface-variant">根据蓝图和上下文，AI自动生成本章标题和摘要</p>
         </div>
 
-        <!-- 剧情推演区域 -->
+        <!-- 高级情节梳理区域 -->
         <div class="border-t" style="border-color: var(--md-outline-variant); padding-top: 1.5rem;">
           <div class="flex items-center justify-between mb-3">
-            <label class="md-text-field-label">剧情推演</label>
+            <label class="md-text-field-label">情节梳理（高级）</label>
             <button
               @click="handleGenerate"
               :disabled="generating"
@@ -100,7 +100,7 @@
               <svg v-if="generating" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generating ? '推演中...' : (prediction ? '重新推演' : '生成推演') }}
+              {{ generating ? '梳理中...' : (prediction ? '重新梳理' : '提前梳理') }}
             </button>
           </div>
 
@@ -124,7 +124,7 @@
             <textarea
               v-if="showPredictionExclusions"
               v-model="predictionExclusions"
-              placeholder="禁止推演出现的内容，例如：不要后宫、不要重生穿越..."
+              placeholder="情节梳理时需要避开的内容，例如：不要后宫、不要重生穿越..."
               rows="2"
               class="mt-1.5 md-textarea w-full"
             ></textarea>
@@ -158,7 +158,7 @@
             </div>
           </div>
 
-          <p v-else class="md-body-small md-on-surface-variant">暂无剧情推演，点击右侧按钮生成</p>
+          <p v-else class="md-body-small md-on-surface-variant">暂无情节梳理，生成正文时会自动完成</p>
         </div>
       </div>
 
@@ -211,7 +211,7 @@ const aiInferError = ref('')
 const showExclusions = ref(false)
 const exclusions = ref('')
 
-// 剧情推演排除内容
+// 情节梳理排除内容
 const showPredictionExclusions = ref(false)
 const predictionExclusions = ref('')
 
@@ -278,7 +278,7 @@ const handleGenerate = async () => {
     // 通知父组件推演已更新，触发知识库刷新等后续动作
     emit('predictionUpdated')
   } catch (e: any) {
-    console.error('剧情推演失败:', e)
+    console.error('情节梳理失败:', e)
   } finally {
     generating.value = false
   }

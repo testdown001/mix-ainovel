@@ -98,6 +98,7 @@
               v-if="isPlanningStage && selectedChapterNumber"
               :project="project"
               :selected-chapter-number="selectedChapterNumber"
+              :generating-chapter="generatingChapter"
               :prediction-generating-chapter="predictionGeneratingChapter"
               @request-prediction="openPredictionRequestModal"
               @generate-chapter="generateChapter"
@@ -295,7 +296,7 @@
       <n-modal
         v-model:show="showPredictionRequestModal"
         preset="card"
-        title="剧情推演设置"
+        title="情节梳理（高级）"
         style="width: 640px; max-width: 92vw"
       >
         <div class="space-y-4">
@@ -315,7 +316,7 @@
               placeholder="例如：不要出现神秘老头、不要引入上一代宿主线索、不要提前揭示站台票来源"
             ></textarea>
             <p class="mt-2 text-xs" style="color: #888">
-              这些内容将作为创作禁区，一并传给剧情推演模型，生成时会主动避开。
+              这些内容会作为创作禁区传给情节梳理模型，生成正文时主动避开。
             </p>
           </div>
         </div>
@@ -327,7 +328,7 @@
               :loading="!!predictionGeneratingChapter"
               @click="confirmPredictionRequest"
             >
-              重新推演
+              重新梳理
             </n-button>
           </div>
         </template>
@@ -585,6 +586,7 @@ import { isStreamInterruption } from '@/utils/streamInterruption'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { resolveStage } from '@/utils/generationStages'
 import { describeSkippedSteps, extractSkippedSteps } from '@/utils/budgetSkip'
+import { resolveAuthoringStage } from '@/utils/writingWorkflow'
 import {
   useGenerationProgress,
   type GenerationProgressView,
@@ -1048,27 +1050,15 @@ const selectedChapterOutline = computed(() => {
 
 const inferredStage = computed(() => {
   if (!selectedChapterNumber.value) return 1
-  const chapter = selectedChapter.value
-  if (chapter?.generation_status === 'evaluating' || chapter?.evaluation) return 4
-  if (
-    chapter?.content ||
-    ['generating', 'selecting', 'waiting_for_confirm', 'successful', 'evaluation_failed'].includes(
-      chapter?.generation_status || '',
-    )
-  ) {
-    return 3
-  }
-  if (
-    predictionGeneratingChapter.value === selectedChapterNumber.value ||
-    selectedChapterOutline.value?.metadata?.prediction
-  ) {
-    return 2
-  }
-  return 1
+  return resolveAuthoringStage({
+    generationStatus: selectedChapter.value?.generation_status,
+    hasContent: !!selectedChapter.value?.content,
+    hasEvaluation: !!selectedChapter.value?.evaluation,
+  })
 })
 
 const activeStage = computed(() => stageOverride.value ?? inferredStage.value)
-const isPlanningStage = computed(() => activeStage.value <= 2)
+const isPlanningStage = computed(() => activeStage.value === 1)
 
 const progress = computed(() => {
   if (!project.value?.blueprint?.chapter_outline) return 0
@@ -1223,22 +1213,7 @@ const viewProjectDetail = () => {
 
 const handleStageSelect = (stage: number) => {
   if (!selectedChapterNumber.value) return
-
-  if (stage === 2 && !selectedChapterOutline.value?.metadata?.prediction) {
-    openPredictionRequestModal(selectedChapterNumber.value)
-    return
-  }
-
-  if (stage === 3 && inferredStage.value < 3) {
-    globalAlert.showAlert('完成剧情推演后，可从规划页进入正文创作。', 'info', '尚未进入正文阶段')
-    return
-  }
-
-  if (stage === 4 && !selectedChapter.value?.content) {
-    globalAlert.showAlert('正文生成完成后才能进行一致性检查。', 'info', '暂无可检查正文')
-    return
-  }
-
+  if (stage !== 1 && stage !== 2) return
   stageOverride.value = stage
 }
 
@@ -1467,14 +1442,14 @@ const confirmPredictionRequest = async () => {
 
     lastSavedAt.value = new Date()
     stageOverride.value = null
-    globalAlert.showSuccess(`第 ${targetChapter} 章剧情推演已更新`, '推演完成')
+    globalAlert.showSuccess(`第 ${targetChapter} 章情节梳理已更新`, '梳理完成')
   } catch (error) {
-    console.error('剧情推演失败:', error)
+    console.error('情节梳理失败:', error)
     predictionTargetChapter.value = targetChapter
     showPredictionRequestModal.value = true
     globalAlert.showError(
-      `剧情推演失败: ${error instanceof Error ? error.message : '未知错误'}`,
-      '推演失败',
+      `情节梳理失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      '梳理失败',
     )
   } finally {
     predictionGeneratingChapter.value = null
@@ -1569,6 +1544,30 @@ const handleSkillApplyResults = async (
   showSkillPreviewModal.value = true
 }
 
+const preparePredictionForGeneration = async (chapterNumber: number): Promise<boolean> => {
+  const outline = project.value?.blueprint?.chapter_outline?.find(
+    (item) => item.chapter_number === chapterNumber,
+  )
+  if (!project.value?.id || !outline || outline.metadata?.prediction) return true
+
+  predictionGeneratingChapter.value = chapterNumber
+  try {
+    const prediction = await NovelAPI.generatePrediction(project.value.id, chapterNumber)
+    outline.metadata = { ...(outline.metadata || {}), prediction }
+    lastSavedAt.value = new Date()
+    return true
+  } catch (error) {
+    console.error('自动情节梳理失败:', error)
+    globalAlert.showError(
+      `生成正文前的情节梳理失败：${error instanceof Error ? error.message : '未知错误'}。未开始正文生成，您可以直接重试。`,
+      '暂未开始生成',
+    )
+    return false
+  } finally {
+    predictionGeneratingChapter.value = null
+  }
+}
+
 const generateChapter = async (chapterNumber: number, writingNotes?: string) => {
   // 检查是否可以生成该章节
   if (
@@ -1577,6 +1576,18 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     !hasChapterInProgress(chapterNumber)
   ) {
     globalAlert.showError('请按顺序生成章节，先完成前面的章节', '生成受限')
+    return
+  }
+
+  if (generatingChapter.value !== null || predictionGeneratingChapter.value !== null) {
+    globalAlert.showAlert('已有章节任务正在进行，请稍候。', 'info', '正在创作')
+    return
+  }
+
+  selectedChapterNumber.value = chapterNumber
+  stageOverride.value = 2
+  if (!(await preparePredictionForGeneration(chapterNumber))) {
+    stageOverride.value = null
     return
   }
 
@@ -2269,10 +2280,10 @@ const rebuildRag = async (forceFull: boolean = false) => {
 const onPredictionUpdated = async () => {
   if (!project.value) return
 
-  // 自动刷新知识库（RAG），将推演结果纳入后续生成的检索范围
+  // 自动刷新知识库（RAG），将情节梳理结果纳入后续生成的检索范围
   try {
     await NovelAPI.rebuildRag(project.value.id)
-    globalAlert.showSuccess('知识库已自动更新', '推演同步')
+    globalAlert.showSuccess('知识库已自动更新', '情节梳理同步')
   } catch {
     // 知识库刷新失败不阻塞主流程
   }
