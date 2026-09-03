@@ -243,6 +243,7 @@ func (p *WorkerPool) executeBatchGenerate(ctx context.Context, worker *WorkerInf
 		"preset":           payload.Preset,
 		"use_agent_system": payload.UseAgentSystem,
 		"rag_mode":         payload.RAGMode,
+		"writing_notes":    payload.WritingNotes,
 		"extra":            payload.Extra,
 	})
 

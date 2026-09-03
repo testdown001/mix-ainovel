@@ -124,6 +124,7 @@ type BatchGeneratePayload struct {
 	Preset         string                 `json:"preset"`
 	UseAgentSystem bool                   `json:"use_agent_system"`
 	RAGMode        string                 `json:"rag_mode"`
+	WritingNotes   string                 `json:"writing_notes,omitempty"`
 	Extra          map[string]interface{} `json:"extra,omitempty"`
 }
 

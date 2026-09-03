@@ -91,7 +91,10 @@ export interface TaskStatus {
     last_chapter?: number
     completed_chapters?: number[]
     failed_chapters?: number[]
+    processed?: number
     total?: number
+    parallel_workers?: number
+    estimated_remaining_seconds?: number
   } | null
   created_at: string
   started_at: string | null
@@ -162,6 +165,7 @@ export class TaskAPI {
       preset?: string
       use_agent_system?: boolean
       rag_mode?: string
+      writing_notes?: string
     },
     priority: number = 0,
   ): Promise<TaskSubmitResponse> {

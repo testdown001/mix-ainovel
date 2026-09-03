@@ -31,6 +31,7 @@ from ...core.safe_task import safe_create_task
 from ...db.session import AsyncSessionLocal
 from ...models.novel import Chapter
 from ...services.blueprint_generation_service import generate_blueprint_for_project
+from ...services.batch_generation_service import BatchGenerationService
 from ...services.cache_service import CacheService
 from ...services.generation_billing_service import (
     charge_blueprint_deep,
@@ -564,12 +565,38 @@ async def _execute_batch_generate(
     req: WorkerTaskRequest,
     reporter: ProgressReporter,
 ) -> Dict[str, Any]:
-    """执行批量生成"""
-    results = []
-    total = len(req.chapter_numbers or [])
-    completed_chapters = await _load_completed_batch_chapters(req)
+    """执行依赖感知的原子批量生成。
 
-    for idx, chapter_number in enumerate(req.chapter_numbers or []):
+    连续章节因依赖上一章正文而保持串行；已经有中间完成章隔开的章节链可以限量
+    并行。每章完成立即写检查点，选版后的摘要/向量等非关键后处理统一延迟到正文
+    批次结束后串行执行，避免与下一章正文争抢上游模型和数据库连接。
+    """
+    chapter_numbers = sorted(set(req.chapter_numbers or []))
+    total = len(chapter_numbers)
+    if not chapter_numbers:
+        return {
+            "project_id": req.project_id,
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "reused": 0,
+            "results": [],
+            "status": "completed",
+        }
+
+    completed_chapters = await _load_completed_batch_chapters(req)
+    existing_generated = await BatchGenerationService.load_existing_generated_chapters(
+        req.project_id,
+        chapter_numbers[-1],
+    )
+    existing_generated.update(completed_chapters)
+    parallel_workers = BatchGenerationService.resolve_parallel_workers(req.config.extra)
+    deferred_post_process: list[dict[str, Any]] = []
+    atomic_results: dict[int, dict[str, Any]] = {}
+    batch_started = time.monotonic()
+    positions = {number: idx + 1 for idx, number in enumerate(chapter_numbers)}
+
+    async def _generate_one(chapter_number: int) -> Dict[str, Any]:
         single_extra = dict(req.config.extra or {})
         # 批量下一章不能抢在前章后台摘要完成前又同步调用摘要模型；历史服务已有
         # 大纲/正文节选兜底，先用兜底保证连续生成，完整摘要由后处理补齐。
@@ -584,24 +611,16 @@ async def _execute_batch_generate(
             callback_url=None,
         )
         try:
-            progress = int((idx / total) * 100)
-            await reporter.report(
-                progress,
-                "batch_generating",
-                f"正在生成第 {chapter_number} 章 ({idx + 1}/{total})",
-            )
-
             # 网关重试的是同一个批次。前一次尝试已经选版成功的章节必须直接复用，
             # 不能重置为 generating 后再跑一遍，更不能因后续章节失败而降级。
             existing = completed_chapters.get(chapter_number)
             if existing is not None:
-                results.append({
+                return {
                     "chapter_number": chapter_number,
                     "status": "success",
                     "reused": True,
                     "result": existing,
-                })
-                continue
+                }
 
             single_reporter = ProgressReporter(None, req.task_id)
             result = await _execute_chapter_generate(single_req, single_reporter)
@@ -610,13 +629,15 @@ async def _execute_batch_generate(
                 chapter_number,
                 int(result.get("best_version_index", 0) or 0),
                 schedule_next_mission=False,
+                schedule_post_process=False,
+                deferred_post_process=deferred_post_process,
             )
             result["selected_version_id"] = selected_version_id
-            results.append({
+            return {
                 "chapter_number": chapter_number,
                 "status": "success",
                 "result": result,
-            })
+            }
 
         except asyncio.CancelledError:
             # 取消只收束当前原子章节；已完成和尚未开始的章节都不动。
@@ -629,37 +650,59 @@ async def _execute_batch_generate(
             logger.error(f"章节 {chapter_number} 生成失败: {e}")
             # 每章独立提交失败状态，批量结果只做汇总，不反向覆盖其它章节。
             await _reset_generating_chapters_to_failed(single_req)
-            results.append({
+            return {
                 "chapter_number": chapter_number,
                 "status": "failed",
                 "error": str(e),
-            })
+            }
 
+    async def _on_started(chapter_number: int, active_count: int, completed_count: int) -> None:
+        progress = int((completed_count / max(1, total)) * 100)
+        parallel_hint = f"，当前并行 {active_count} 章" if active_count > 1 else ""
+        await reporter.report(
+            progress,
+            "batch_generating",
+            f"正在生成第 {chapter_number} 章 ({positions[chapter_number]}/{total}{parallel_hint})",
+        )
+
+    async def _on_completed(
+        chapter_number: int,
+        item: Dict[str, Any],
+        processed_count: int,
+        expected_total: int,
+    ) -> None:
+        atomic_results[chapter_number] = item
         # 检查点按章节落盘到网关 Redis。页面刷新、网络断开或网关重启后，
         # 用户仍能看到哪些章节已交付；重试任务也只会提交失败章节。
         completed_so_far = [
-            int(item["chapter_number"])
-            for item in results
-            if item.get("status") == "success"
+            number
+            for number, result in sorted(atomic_results.items())
+            if result.get("status") == "success"
         ]
         failed_so_far = [
-            int(item["chapter_number"])
-            for item in results
-            if item.get("status") == "failed"
+            number
+            for number, result in sorted(atomic_results.items())
+            if result.get("status") == "failed"
         ]
+        elapsed = max(0.001, time.monotonic() - batch_started)
+        remaining = max(0, expected_total - processed_count)
+        estimated_remaining_seconds = round(elapsed / max(1, processed_count) * remaining)
         checkpoint = {
             "kind": "chapter_batch",
             "last_chapter": chapter_number,
             "completed_chapters": completed_so_far,
             "failed_chapters": failed_so_far,
-            "total": total,
+            "processed": processed_count,
+            "total": expected_total,
+            "parallel_workers": parallel_workers,
+            "estimated_remaining_seconds": estimated_remaining_seconds,
         }
         checkpoint_message = (
             f"第 {chapter_number} 章已处理，成功 {len(completed_so_far)} 章，失败 {len(failed_so_far)} 章"
         )
         try:
             await reporter.report(
-                int(((idx + 1) / max(1, total)) * 100),
+                int((processed_count / max(1, expected_total)) * 100),
                 "batch_checkpoint",
                 checkpoint_message,
                 checkpoint=checkpoint,
@@ -670,10 +713,31 @@ async def _execute_batch_generate(
             if "checkpoint" not in str(exc):
                 raise
             await reporter.report(
-                int(((idx + 1) / max(1, total)) * 100),
+                int((processed_count / max(1, expected_total)) * 100),
                 "batch_checkpoint",
                 checkpoint_message,
             )
+
+    results = await BatchGenerationService.run_dependency_aware(
+        chapter_numbers=chapter_numbers,
+        existing_generated=existing_generated,
+        parallel_workers=parallel_workers,
+        generate_one=_generate_one,
+        on_started=_on_started,
+        on_completed=_on_completed,
+    )
+
+    # 后处理不影响本批正文交付。集中为一个串行后台任务，避免旧实现每选完一章就
+    # 同时启动摘要、向量、卷/书摘要，和下一章正文一起挤占模型通道。
+    if deferred_post_process:
+        safe_create_task(
+            GenerationWriteTaskService().run_chapter_batch_post_processors(
+                project_id=req.project_id,
+                chapters=deferred_post_process,
+                user_id=req.user_id,
+            ),
+            name=f"batch-post-process-{req.project_id}-{req.task_id}",
+        )
 
     completed = sum(1 for item in results if item["status"] == "success")
     failed = total - completed
@@ -737,6 +801,8 @@ async def _select_batch_generated_chapter(
     version_index: int,
     *,
     schedule_next_mission: bool = True,
+    schedule_post_process: bool = True,
+    deferred_post_process: Optional[list[dict[str, Any]]] = None,
 ) -> int:
     """批量正文采用无人值守语义：生成后自动确认管线推荐的最佳版本。
 
@@ -755,15 +821,21 @@ async def _select_batch_generated_chapter(
 
     # 与同步连续生成的选版接口保持同样的后处理副作用；均为降级型后台任务，
     # 不阻塞下一章正文生成。
-    safe_create_task(
-        GenerationWriteTaskService().run_chapter_post_processor(
-            project_id=req.project_id,
-            chapter_number=chapter_number,
-            content=content_snapshot,
-            user_id=req.user_id,
-        ),
-        name=f"post-process-{req.project_id}-ch{chapter_number}",
-    )
+    if schedule_post_process:
+        safe_create_task(
+            GenerationWriteTaskService().run_chapter_post_processor(
+                project_id=req.project_id,
+                chapter_number=chapter_number,
+                content=content_snapshot,
+                user_id=req.user_id,
+            ),
+            name=f"post-process-{req.project_id}-ch{chapter_number}",
+        )
+    elif deferred_post_process is not None:
+        deferred_post_process.append({
+            "chapter_number": chapter_number,
+            "content": content_snapshot,
+        })
     # 连续批量会立刻进入下一章，预生成通常尚未完成，反而与正式 Mission 重复调用并
     # 争抢上游。单章自动选版仍保留预生成，批量则明确关闭。
     if schedule_next_mission:

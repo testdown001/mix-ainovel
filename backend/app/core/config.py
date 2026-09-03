@@ -224,11 +224,11 @@ class Settings(BaseSettings):
         description="文学模式短章阈值，低于该目标字数将自动收敛重处理步骤",
     )
     writer_batch_parallel_workers: int = Field(
-        default=1,
+        default=2,
         ge=1,
         le=8,
         env="WRITER_BATCH_PARALLEL_WORKERS",
-        description="批量生成并行工作数（带前序依赖感知，默认 1）",
+        description="批量生成并行工作数（仅独立章节链并行；连续章节仍串行，默认 2）",
     )
     rag_default_mode: str = Field(
         default="simple",

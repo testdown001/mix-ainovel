@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Any, Dict, List
 
 from ..db.session import AsyncSessionLocal
+from .cache_service import CacheService
 from .chapter_post_processor import ChapterPostProcessor
 from .foreshadowing_service import ForeshadowingService
 from .llm_service import LLMService
@@ -16,6 +17,53 @@ logger = logging.getLogger(__name__)
 
 class GenerationWriteTaskService:
     """封装后台写入与更新任务。"""
+
+    async def run_chapter_batch_post_processors(
+        self,
+        *,
+        project_id: str,
+        chapters: List[Dict[str, Any]],
+        user_id: int,
+    ) -> None:
+        """批量正文交付后串行补齐摘要、向量和长程摘要。
+
+        单章选版仍立即处理；批量生成则把这些非关键模型调用集中到正文全部完成后，
+        避免多个后台任务与下一章正文同时占用模型通道。每章处理本身是降级型，某章
+        失败不会阻断后续章节。
+        """
+        latest_by_number: Dict[int, str] = {}
+        for item in chapters:
+            try:
+                chapter_number = int(item.get("chapter_number"))
+            except (TypeError, ValueError):
+                continue
+            content = str(item.get("content") or "")
+            if content:
+                latest_by_number[chapter_number] = content
+
+        logger.info(
+            "开始批量章节后处理 project=%s chapters=%s",
+            project_id,
+            sorted(latest_by_number),
+        )
+        for chapter_number in sorted(latest_by_number):
+            await self.run_chapter_post_processor(
+                project_id=project_id,
+                chapter_number=chapter_number,
+                content=latest_by_number[chapter_number],
+                user_id=user_id,
+            )
+
+        try:
+            await CacheService.invalidate_project_schema_safely(project_id)
+        except Exception:
+            logger.warning("批量后处理完成后刷新项目缓存失败", exc_info=True)
+
+        logger.info(
+            "批量章节后处理完成 project=%s count=%d",
+            project_id,
+            len(latest_by_number),
+        )
 
     async def run_chapter_post_processor(
         self,
