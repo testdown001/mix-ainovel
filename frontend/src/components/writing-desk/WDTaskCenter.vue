@@ -30,7 +30,6 @@
         <div class="task-row__meta">
           <span>{{ task.progress || 0 }}%</span>
           <span v-if="task.checkpoint?.last_chapter">已处理至第 {{ task.checkpoint.last_chapter }} 章</span>
-          <span v-if="remainingLabel(task)">{{ remainingLabel(task) }}</span>
           <button
             v-if="canRetry(task)"
             type="button"
@@ -87,14 +86,6 @@ function canRetry(task: TaskStatus) {
 
 function retryLabel(task: TaskStatus) {
   return task.type === 'chapter:batch_generate' ? '仅续跑失败章节' : '重新执行'
-}
-
-function remainingLabel(task: TaskStatus) {
-  if (!task.checkpoint || task.status === 'completed' || task.status === 'failed') return ''
-  const seconds = task.checkpoint.estimated_remaining_seconds
-  if (typeof seconds !== 'number' || seconds <= 0) return ''
-  if (seconds < 60) return `预计还需约 ${seconds} 秒`
-  return `预计还需约 ${Math.max(1, Math.ceil(seconds / 60))} 分钟`
 }
 
 async function loadTasks() {

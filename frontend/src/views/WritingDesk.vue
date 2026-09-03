@@ -2389,14 +2389,8 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
           // 这里原先优先取 state.stage，也就是把 generate_versions / batch_generating
           // 这类机器名直接显示给用户
           const stageLabel = resolveStage(state.stage, state.message).label
-          const etaSeconds = state.checkpoint?.estimated_remaining_seconds
-          const etaLabel =
-            typeof etaSeconds === 'number' && etaSeconds > 0
-              ? etaSeconds >= 60
-                ? `预计还需约 ${Math.max(1, Math.ceil(etaSeconds / 60))} 分钟`
-                : `预计还需约 ${etaSeconds} 秒`
-              : ''
-          streamingStage.value = etaLabel ? `${stageLabel} · ${etaLabel}` : stageLabel
+          // 模型耗时波动会让 ETA 反向增加；批量进度统一由章节数和百分比表达。
+          streamingStage.value = stageLabel
           // 根据进度更新 batchProgress
           const progressChapter = Math.ceil((state.progress / 100) * targetChapters.length)
           batchProgress.value = {
