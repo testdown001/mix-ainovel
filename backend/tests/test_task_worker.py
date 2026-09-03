@@ -119,6 +119,11 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
     monkeypatch.setattr(task_worker, "_execute_chapter_generate", generate)
     monkeypatch.setattr(task_worker, "_select_batch_generated_chapter", select)
     monkeypatch.setattr(task_worker, "_load_completed_batch_chapters", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        task_worker.BatchGenerationService,
+        "load_existing_generated_chapters",
+        AsyncMock(return_value=set()),
+    )
     reset = AsyncMock()
     monkeypatch.setattr(task_worker, "_reset_generating_chapters_to_failed", reset)
 
@@ -133,7 +138,14 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
 
     result = asyncio.run(task_worker._execute_batch_generate(req, _NoopReporter()))
 
-    select.assert_awaited_once_with(req, 7, 2, schedule_next_mission=False)
+    select.assert_awaited_once_with(
+        req,
+        7,
+        2,
+        schedule_next_mission=False,
+        schedule_post_process=False,
+        deferred_post_process=[],
+    )
     first_generate_request = generate.await_args_list[0].args[0]
     assert first_generate_request.config.extra["skip_history_summary_backfill"] is True
     assert result["status"] == "partial"
@@ -167,6 +179,11 @@ def test_batch_generate_reuses_completed_chapter_without_regenerating(monkeypatc
             }
         ),
     )
+    monkeypatch.setattr(
+        task_worker.BatchGenerationService,
+        "load_existing_generated_chapters",
+        AsyncMock(return_value=set()),
+    )
 
     req = task_worker.WorkerTaskRequest(
         task_id="task-retry",
@@ -180,11 +197,103 @@ def test_batch_generate_reuses_completed_chapter_without_regenerating(monkeypatc
     result = asyncio.run(task_worker._execute_batch_generate(req, _NoopReporter()))
 
     assert [call.args[0].chapter_number for call in generate.await_args_list] == [8]
-    select.assert_awaited_once_with(req, 8, 0, schedule_next_mission=False)
+    select.assert_awaited_once_with(
+        req,
+        8,
+        0,
+        schedule_next_mission=False,
+        schedule_post_process=False,
+        deferred_post_process=[],
+    )
     assert result["completed"] == 2
     assert result["failed"] == 0
     assert result["reused"] == 1
     assert result["results"][0]["reused"] is True
+
+
+def test_batch_generate_defers_post_process_and_reports_atomic_eta(monkeypatch):
+    generated = AsyncMock(
+        return_value={"chapter_number": 7, "best_version_index": 0, "status": "completed"}
+    )
+    monkeypatch.setattr(task_worker, "_execute_chapter_generate", generated)
+    monkeypatch.setattr(task_worker, "_load_completed_batch_chapters", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        task_worker.BatchGenerationService,
+        "load_existing_generated_chapters",
+        AsyncMock(return_value={1, 2, 3, 4, 5, 6}),
+    )
+    monkeypatch.setattr(
+        task_worker.BatchGenerationService,
+        "resolve_parallel_workers",
+        lambda _config: 2,
+    )
+
+    async def _select(
+        _req,
+        chapter_number,
+        _version_index,
+        *,
+        schedule_next_mission,
+        schedule_post_process,
+        deferred_post_process,
+    ):
+        assert schedule_next_mission is False
+        assert schedule_post_process is False
+        deferred_post_process.append({
+            "chapter_number": chapter_number,
+            "content": f"第{chapter_number}章正文",
+        })
+        return chapter_number * 100
+
+    monkeypatch.setattr(task_worker, "_select_batch_generated_chapter", _select)
+
+    scheduled = {}
+
+    class _FakeWriteTaskService:
+        def run_chapter_batch_post_processors(self, **kwargs):
+            scheduled["kwargs"] = kwargs
+
+            async def _noop():
+                return None
+
+            return _noop()
+
+    def _capture_task(coro, *, name):
+        scheduled["name"] = name
+        coro.close()
+        return None
+
+    monkeypatch.setattr(task_worker, "GenerationWriteTaskService", _FakeWriteTaskService)
+    monkeypatch.setattr(task_worker, "safe_create_task", _capture_task)
+
+    class _CheckpointReporter:
+        def __init__(self):
+            self.checkpoints = []
+
+        async def report(self, progress, stage, message, checkpoint=None):
+            if checkpoint is not None:
+                self.checkpoints.append((progress, stage, message, checkpoint))
+
+    reporter = _CheckpointReporter()
+    req = task_worker.WorkerTaskRequest(
+        task_id="task-deferred",
+        task_type="chapter:batch_generate",
+        project_id="project-1",
+        chapter_numbers=[7],
+        user_id=12,
+        config=task_worker.TaskConfig(preset="fast"),
+    )
+
+    result = asyncio.run(task_worker._execute_batch_generate(req, reporter))
+
+    assert result["status"] == "completed"
+    assert scheduled["kwargs"]["chapters"] == [
+        {"chapter_number": 7, "content": "第7章正文"}
+    ]
+    assert scheduled["name"] == "batch-post-process-project-1-task-deferred"
+    assert reporter.checkpoints[-1][3]["completed_chapters"] == [7]
+    assert reporter.checkpoints[-1][3]["processed"] == 1
+    assert reporter.checkpoints[-1][3]["estimated_remaining_seconds"] == 0
 
 
 def test_single_generation_auto_selects_when_requested(monkeypatch):

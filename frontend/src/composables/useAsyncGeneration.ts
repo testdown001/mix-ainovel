@@ -19,6 +19,7 @@ export interface AsyncGenerationState {
   stage: string
   message: string
   status: TaskStatus['status'] | null
+  checkpoint?: TaskStatus['checkpoint']
   /**
    * 非空表示进度通道已降级（实时推送不可用 → 每 2 秒轮询）。
    * 降级本身不影响生成，但会影响进度的实时性，用户有权知道自己在看哪一种。
@@ -105,6 +106,7 @@ export function useAsyncGeneration() {
       preset?: string
       use_agent_system?: boolean
       rag_mode?: string
+      writing_notes?: string
     },
     onProgress?: (s: AsyncGenerationState) => void,
   ): Promise<TaskStatus> {
@@ -154,6 +156,7 @@ export function useAsyncGeneration() {
         state.value.progress = event.progress
         state.value.stage = event.stage
         state.value.message = event.message
+        state.value.checkpoint = event.checkpoint
 
         if (event.event_type === 'task_completed') {
           state.value.status = 'completed'
@@ -209,6 +212,7 @@ export function useAsyncGeneration() {
         state.value.stage = taskStatus.stage
         state.value.message = taskStatus.message
         state.value.status = taskStatus.status
+        state.value.checkpoint = taskStatus.checkpoint
         onProgress?.(state.value)
       },
       2000,

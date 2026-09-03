@@ -23,7 +23,10 @@ export interface TaskProgressEvent {
     last_chapter?: number
     completed_chapters?: number[]
     failed_chapters?: number[]
+    processed?: number
     total?: number
+    parallel_workers?: number
+    estimated_remaining_seconds?: number
   }
 }
 

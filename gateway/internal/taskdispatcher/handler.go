@@ -112,6 +112,7 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 			Preset:         getStringConfig(req.Config, "preset", "fast"),
 			UseAgentSystem: getBoolConfig(req.Config, "use_agent_system", false),
 			RAGMode:        getStringConfig(req.Config, "rag_mode", "simple"),
+			WritingNotes:   getStringConfig(req.Config, "writing_notes", ""),
 			Extra:          getExtraConfig(req.Config),
 		}
 	case TaskBlueprintGenerate:

@@ -2371,16 +2371,28 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
         {
           preset: selectedPreset.value,
           use_agent_system: useAgent.value,
+          writing_notes: writingNotes,
           ...(agentFlowConfigOverrides.value || {}),
         },
         (state) => {
           // 这里原先优先取 state.stage，也就是把 generate_versions / batch_generating
           // 这类机器名直接显示给用户
-          streamingStage.value = resolveStage(state.stage, state.message).label
+          const stageLabel = resolveStage(state.stage, state.message).label
+          const etaSeconds = state.checkpoint?.estimated_remaining_seconds
+          const etaLabel =
+            typeof etaSeconds === 'number' && etaSeconds > 0
+              ? etaSeconds >= 60
+                ? `预计还需约 ${Math.max(1, Math.ceil(etaSeconds / 60))} 分钟`
+                : `预计还需约 ${etaSeconds} 秒`
+              : ''
+          streamingStage.value = etaLabel ? `${stageLabel} · ${etaLabel}` : stageLabel
           // 根据进度更新 batchProgress
           const progressChapter = Math.ceil((state.progress / 100) * targetChapters.length)
           batchProgress.value = {
-            current: Math.max(1, progressChapter),
+            current:
+              typeof state.checkpoint?.processed === 'number'
+                ? state.checkpoint.processed
+                : Math.max(1, progressChapter),
             total: targetChapters.length,
           }
         },

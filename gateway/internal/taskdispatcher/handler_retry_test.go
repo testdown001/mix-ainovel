@@ -9,6 +9,7 @@ func batchTaskForRetry(t *testing.T, status TaskStatus, result string) *Task {
 	t.Helper()
 	payload, err := json.Marshal(BatchGeneratePayload{
 		ProjectID: "novel-1", ChapterNumbers: []int{7, 8, 9}, UserID: 3,
+		WritingNotes: "保持悬疑节奏",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -36,6 +37,9 @@ func TestRetryPayloadKeepsOnlyFailedBatchChapters(t *testing.T) {
 	}
 	if len(payload.ChapterNumbers) != 1 || payload.ChapterNumbers[0] != 8 {
 		t.Fatalf("expected only chapter 8, got %#v", payload.ChapterNumbers)
+	}
+	if payload.WritingNotes != "保持悬疑节奏" {
+		t.Fatalf("expected writing notes to survive retry, got %q", payload.WritingNotes)
 	}
 }
 
