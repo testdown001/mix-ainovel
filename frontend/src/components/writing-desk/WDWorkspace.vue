@@ -107,7 +107,7 @@
               <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingChapter === selectedChapterNumber ? '起草中...' : '重新起草' }}
+              {{ generatingChapter === selectedChapterNumber ? '生成中...' : '重新生成正文' }}
             </button>
             <button
               v-else
@@ -121,7 +121,7 @@
               <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingChapter === selectedChapterNumber ? '起草中...' : '起草本章' }}
+              {{ generatingChapter === selectedChapterNumber ? '生成中...' : '生成本章正文' }}
             </button>
           </div>
         </div>
@@ -254,10 +254,10 @@
               class="wd-prediction-row__toggle md-ripple"
               :aria-expanded="showPrediction"
             >
-              <span class="wd-prediction-row__icon" aria-hidden="true">演</span>
+              <span class="wd-prediction-row__icon" aria-hidden="true">理</span>
               <span class="wd-prediction-row__heading">
-                <span>剧情推演</span>
-                <small>{{ outlinePrediction ? '已生成，可展开查看章节节拍' : '尚未生成' }}</small>
+                <span>情节梳理（高级）</span>
+                <small>{{ outlinePrediction ? '已自动生成，可展开查看章节节拍' : '生成正文时自动完成' }}</small>
               </span>
               <svg
                 class="wd-prediction-row__chevron"
@@ -278,7 +278,7 @@
               <svg v-if="generatingPrediction" class="w-3.5 h-3.5 animate-spin" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingPrediction ? '推演中...' : (outlinePrediction ? '重新推演' : '生成推演') }}
+              {{ generatingPrediction ? '梳理中...' : (outlinePrediction ? '重新梳理' : '提前梳理') }}
             </button>
           </div>
         </div>
@@ -286,7 +286,7 @@
 
       <!-- 章节内容展示区 -->
       <div class="md-card-content flex-1 overflow-y-auto">
-        <!-- 推演详情面板（在内容区域内，可跟随滚动） -->
+        <!-- 高级情节梳理详情面板（在内容区域内，可跟随滚动） -->
         <div v-if="showPrediction && outlinePrediction && canShowPredictionPanel" ref="predictionPanelRef" class="m3-prediction-panel mb-4">
           <div class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-xl);">
             <div class="flex items-center justify-between mb-3">
@@ -294,12 +294,12 @@
                 <svg class="w-4 h-4" style="color: var(--md-primary);" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"></path>
                 </svg>
-                剧情推演详情
+                情节梳理详情
               </h4>
               <button
                 @click="showPrediction = false"
                 class="md-icon-btn md-ripple !w-7 !h-7"
-                title="收起推演"
+                title="收起情节梳理"
               >
                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"></path>
@@ -495,6 +495,7 @@ import type {
 } from '@/api/novel'
 import type { GenerationProgressView } from '@/composables/useGenerationProgress'
 import { formatRevisionHint } from '@/utils/revisionHint'
+import { invalidatePrediction } from '@/utils/writingWorkflow'
 import TemplateSelector from './TemplateSelector.vue'
 
 const beatColorMap: Record<string, string> = {
@@ -661,9 +662,10 @@ async function saveOutlineText() {
       ...outline,
       title: outlineDraft.value.title.trim() || outline.title,
       summary: outlineDraft.value.summary.trim() || outline.summary,
+      metadata: invalidatePrediction(outline.metadata),
     })
     outlineEditing.value = false
-    globalAlert.showSuccess('章纲已更新，下次起草会按新摘要走。', '大纲已保存')
+    globalAlert.showSuccess('章纲已更新；生成正文时会自动更新情节梳理。', '大纲已保存')
   } catch (err) {
     globalAlert.showError(err instanceof Error ? err.message : '保存失败', '章纲')
   } finally {
@@ -680,13 +682,14 @@ async function saveChapterPlanning() {
       ...planningDraft.value,
       must_not_include: mustNotText.value.split('\n').map((s) => s.trim()).filter(Boolean),
     }
+    const metadata = invalidatePrediction(outline.metadata)
     await novelStore.updateChapterOutline({
       ...outline,
-      metadata: { ...(outline.metadata || {}), planning },
+      metadata: { ...metadata, planning },
     })
     planningEditing.value = false
     planningDetailsOpen.value = true
-    globalAlert.showSuccess('本章规划已写入，下次起草会作为约束。', '规划已保存')
+    globalAlert.showSuccess('本章规划已保存；生成正文时会自动更新情节梳理。', '规划已保存')
   } catch (err) {
     globalAlert.showError(err instanceof Error ? err.message : '保存失败', '本章规划')
   } finally {
@@ -699,15 +702,15 @@ const confirmRegenerateChapter = async () => {
   const confirmed = await globalAlert.showConfirm(
     completed
       ? '会覆盖本章现有正文，已改过的段落也会丢掉。卡住一句请先用选区改写。'
-      : '将按当前大纲起草本章。',
-    completed ? '重新起草确认' : '起草本章',
+      : '将按当前规划生成正文；系统会自动梳理情节并完成一致性检查。',
+    completed ? '重新生成确认' : '生成本章正文',
   )
   if (confirmed) {
     emit('regenerateChapter')
   }
 }
 
-// 剧情推演
+// 情节梳理（正文生成前的内部准备，高级用户可展开查看）
 const showPrediction = ref(false)
 const showTemplateSelector = ref(false)
 const templatePrompt = ref('')

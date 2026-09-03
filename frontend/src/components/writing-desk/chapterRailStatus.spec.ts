@@ -24,8 +24,11 @@ describe('resolveChapterRailStatus（章节轨状态唯一解释处）', () => {
     )
   })
 
-  it('推演、生成和评审状态使用各自文案', () => {
-    expect(resolveChapterRailStatus({ hasPrediction: true }).label).toBe('已推演')
+  it('内部情节梳理不再增加用户可见阶段', () => {
+    expect(resolveChapterRailStatus({ hasPrediction: true })).toEqual({
+      kind: 'planned',
+      label: '已规划',
+    })
     expect(resolveChapterRailStatus({ generating: true }).label).toBe('生成中')
     expect(resolveChapterRailStatus({ evaluating: true }).label).toBe('评审中')
   })

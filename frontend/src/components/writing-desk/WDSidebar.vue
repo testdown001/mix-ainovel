@@ -296,7 +296,7 @@
                 @click="selectedOutline && previewPrediction(selectedOutline.chapter_number)"
               >
                 <span class="tool-action-icon">演</span>
-                <span><strong>查看剧情推演</strong><small>核对节拍与引用</small></span>
+                <span><strong>查看情节梳理</strong><small>高级 · 核对节拍与引用</small></span>
               </button>
               <button
                 type="button"
@@ -639,9 +639,9 @@
                         @click.stop="previewPrediction(chapter.chapter_number)"
                         class="md-btn md-btn-text md-ripple !px-1.5 !py-0.5"
                         style="font-size: 11px; line-height: 1;"
-                        title="查看剧情推演"
+                        title="查看情节梳理"
                       >
-                        查看推演
+                        查看梳理
                       </button>
                     </div>
                   </div>
@@ -1428,7 +1428,7 @@ const compactChapterStatus = (chapterNumber: number) => {
     failed: '失败',
     confirm: '待选版',
     done: '已完成',
-    planned: '规划中',
+    planned: '已规划',
   }
   return labels[compactChapterState(chapterNumber)]
 }

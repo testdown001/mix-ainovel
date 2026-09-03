@@ -1,17 +1,17 @@
 <!-- AIMETA P=生成失败_生成错误状态|R=错误提示_重试_剧情推演|NR=不含生成逻辑|E=component:ChapterFailed|X=internal|A=错误状态|D=vue|S=dom,net|RD=./README.ai -->
 <template>
   <div class="h-full overflow-y-auto">
-    <!-- 剧情推演区域 -->
+    <!-- 失败后保留情节梳理供高级排查，但主动作始终是重试正文 -->
     <div v-if="prediction" class="p-6 space-y-4">
       <!-- 失败提示 -->
       <div class="md-card md-card-outlined p-4 flex items-center gap-3" style="border-radius: var(--md-radius-lg); border-color: var(--md-error);">
         <svg class="w-5 h-5 shrink-0" style="color: var(--md-error);" fill="currentColor" viewBox="0 0 20 20">
           <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
         </svg>
-        <p class="md-body-medium md-on-surface-variant">上次生成失败，可查看推演后重试</p>
+        <p class="md-body-medium md-on-surface-variant">上次正文生成失败，可直接重试；系统会自动复用或更新情节梳理。</p>
       </div>
 
-      <h3 class="md-title-medium font-semibold mb-3">剧情推演</h3>
+      <h3 class="md-title-medium font-semibold mb-3">情节梳理（高级）</h3>
       <div v-for="section in predictionSections" :key="section.key" class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-lg);">
         <h4 class="md-title-small font-medium mb-2" :style="{ color: section.color }">{{ section.label }}</h4>
         <ul class="space-y-1">
@@ -28,11 +28,11 @@
           :disabled="predictionGenerating"
           class="md-btn md-btn-tonal md-ripple flex items-center gap-2 disabled:opacity-50"
         >
-          {{ predictionGenerating ? '推演中...' : '重新推演' }}
+          {{ predictionGenerating ? '梳理中...' : '重新梳理' }}
         </button>
         <button
           @click="$emit('generateChapter', chapterNumber)"
-          :disabled="generatingChapter === chapterNumber"
+          :disabled="predictionGenerating || generatingChapter === chapterNumber"
           class="md-btn md-btn-filled md-ripple flex items-center gap-2 disabled:opacity-50"
         >
           {{ generatingChapter === chapterNumber ? '重试中...' : '重试生成' }}
@@ -49,22 +49,15 @@
           </svg>
         </div>
         <h3 class="md-headline-small font-semibold mb-3">第{{ chapterNumber }}章生成失败</h3>
-        <p class="md-body-medium md-on-surface-variant mb-6">可先生成剧情推演，再重试生成</p>
+        <p class="md-body-medium md-on-surface-variant mb-6">直接重试即可；系统会先自动梳理情节，再生成正文并进行一致性检查。</p>
         <div class="flex items-center gap-3 justify-center">
           <button
-            @click="handleGenerate"
-            :disabled="predictionGenerating"
-            class="md-btn md-btn-tonal md-ripple flex items-center gap-2 disabled:opacity-50"
-          >
-            {{ predictionGenerating ? '推演中...' : '剧情推演' }}
-          </button>
-          <button
             @click="$emit('generateChapter', chapterNumber)"
-            :disabled="generatingChapter === chapterNumber"
+            :disabled="predictionGenerating || generatingChapter === chapterNumber"
             class="md-btn md-btn-filled md-ripple flex items-center gap-2 disabled:opacity-50"
             style="background-color: var(--md-error); color: var(--md-on-error);"
           >
-            {{ generatingChapter === chapterNumber ? '重试中...' : '重试生成' }}
+            {{ predictionGenerating ? '正在梳理情节...' : generatingChapter === chapterNumber ? '重试中...' : '重试生成正文' }}
           </button>
         </div>
       </div>
