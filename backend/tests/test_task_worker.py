@@ -50,6 +50,10 @@ def test_task_worker_uses_hybrid_executor_contract(monkeypatch):
                 "variants": [{"index": 0, "version_id": 7, "content": "正文"}],
                 "best_version_index": 0,
                 "preset": "agent",
+                "debug_metadata": {
+                    "stage_timings_ms": {"total_pipeline": 1200},
+                    "llm_metrics": {"summary": {"call_count": 1}, "calls": [{"duration_ms": 900}]},
+                },
             }
 
     monkeypatch.setattr(task_worker, "AsyncSessionLocal", lambda: _SessionContext(fake_session))
@@ -105,6 +109,10 @@ def test_task_worker_uses_hybrid_executor_contract(monkeypatch):
         "versions_count": 1,
         "best_version_index": 0,
         "preset": "agent",
+        "performance": {
+            "stage_timings_ms": {"total_pipeline": 1200},
+            "llm_metrics": {"summary": {"call_count": 1}, "calls": [{"duration_ms": 900}]},
+        },
     }
 
 
@@ -440,6 +448,32 @@ def test_task_config_tolerates_null_fields_from_gateway():
     )
     assert req.config.extra == {}
     assert req.config.preset == "fast"
+
+
+def test_redis_cancel_marker_cancels_running_python_task(monkeypatch):
+    class _CancelCache:
+        async def exists(self, key):
+            assert key == "arboris:task_cancel:task-cancel-me"
+            return True
+
+    monkeypatch.setattr(task_worker, "CacheService", _CancelCache)
+
+    async def _scenario():
+        started = asyncio.Event()
+
+        async def _victim():
+            started.set()
+            await asyncio.Event().wait()
+
+        victim = asyncio.create_task(_victim())
+        await started.wait()
+        await task_worker._watch_task_cancellation("task-cancel-me", victim)
+        with pytest.raises(asyncio.CancelledError):
+            await victim
+        return victim
+
+    victim = asyncio.run(_scenario())
+    assert victim.cancelled()
 
 
 def test_outline_body_wrapper_reuses_worker_and_auto_selects(monkeypatch):

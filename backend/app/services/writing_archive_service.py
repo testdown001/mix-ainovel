@@ -275,6 +275,7 @@ class WritingArchiveService:
         version_count: Optional[int] = None,
         gatekeeper_score: Optional[float] = None,
         user_rating: Optional[int] = None,
+        performance_metrics: Optional[Dict[str, Any]] = None,
     ) -> WritingArchive:
         """完成档案记录（奏章批复）
 
@@ -284,6 +285,7 @@ class WritingArchiveService:
             version_count: 生成版本数量
             gatekeeper_score: 审核评分（质量审核评分）
             user_rating: 用户满意度（1-5分）
+            performance_metrics: 本章阶段耗时与 LLM 调用性能数据
 
         Returns:
             更新后的档案对象
@@ -297,9 +299,14 @@ class WritingArchiveService:
 
         archive.mark_completed()
 
+        final_output = dict(archive.final_output or {})
         if final_version_id is not None:
-            archive.final_output = archive.final_output or {}
-            archive.final_output["selected_version"] = final_version_id
+            final_output["selected_version"] = final_version_id
+        if performance_metrics:
+            final_output["performance"] = performance_metrics
+        if final_output:
+            # JSON 列必须整体重新赋值，SQLAlchemy 才能可靠检测到嵌套字段变化。
+            archive.final_output = final_output
 
         if version_count is not None:
             archive.versions_generated = version_count

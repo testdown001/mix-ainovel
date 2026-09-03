@@ -91,6 +91,7 @@ func main() {
 			MaxRetries:             cfg.TaskDispatcher.MaxRetries,
 			RetryDelay:             cfg.TaskDispatcher.RetryDelay,
 			PollInterval:           cfg.TaskDispatcher.PollInterval,
+			LeaseDuration:          cfg.TaskDispatcher.LeaseDuration,
 			WorkerCallbackURL:      cfg.TaskDispatcher.WorkerCallbackURL,
 			WorkerGRPCAddr:         cfg.TaskDispatcher.WorkerGRPCAddr,
 			InternalCallbackSecret: cfg.TaskDispatcher.InternalCallbackSecret,

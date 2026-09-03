@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/arboris-novel/gateway/internal/logger"
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
@@ -158,7 +159,8 @@ type Config struct {
 	MaxRetries int           `mapstructure:"max_retries"` // 最大重试次数
 	RetryDelay time.Duration `mapstructure:"retry_delay"` // 初始重试延迟
 	// 轮询
-	PollInterval time.Duration `mapstructure:"poll_interval"` // 队列轮询间隔
+	PollInterval  time.Duration `mapstructure:"poll_interval"`  // 队列轮询间隔
+	LeaseDuration time.Duration `mapstructure:"lease_duration"` // 跨网关任务租约；执行中定期续租
 	// Worker
 	WorkerCallbackURL string `mapstructure:"worker_callback_url"` // Python Worker HTTP 回调地址
 	WorkerGRPCAddr    string `mapstructure:"worker_grpc_addr"`    // Python Worker gRPC 地址
@@ -169,7 +171,7 @@ type Config struct {
 // DefaultConfig 默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		MaxConcurrency:    20,
+		MaxConcurrency:    3,
 		MaxPerUser:        3,
 		DefaultTimeout:    10 * time.Minute,
 		BatchTimeout:      360 * time.Minute,
@@ -177,6 +179,7 @@ func DefaultConfig() *Config {
 		MaxRetries:        3,
 		RetryDelay:        5 * time.Second,
 		PollInterval:      100 * time.Millisecond,
+		LeaseDuration:     30 * time.Second,
 		WorkerCallbackURL: "http://localhost:8000/api/internal/tasks",
 		WorkerGRPCAddr:    "localhost:50051",
 	}
@@ -184,14 +187,16 @@ func DefaultConfig() *Config {
 
 // Dispatcher 任务调度器
 type Dispatcher struct {
-	redis       *redis.Client
-	config      *Config
-	running     atomic.Bool
-	activeCount atomic.Int64 // 当前活跃任务数
-	userCounts  sync.Map     // user_id -> *atomic.Int64 (每用户活跃数)
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	workerPool  *WorkerPool // Worker 连接池
+	redis         *redis.Client
+	config        *Config
+	running       atomic.Bool
+	activeCount   atomic.Int64 // 当前活跃任务数
+	userCounts    sync.Map     // user_id -> *atomic.Int64 (每用户活跃数)
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	workerPool    *WorkerPool // Worker 连接池
+	instanceID    string
+	activeCancels sync.Map // task_id -> context.CancelFunc；用于同实例即时取消
 }
 
 // NewDispatcher 创建调度器
@@ -201,8 +206,9 @@ func NewDispatcher(redisClient *redis.Client, cfg *Config) *Dispatcher {
 	}
 
 	return &Dispatcher{
-		redis:  redisClient,
-		config: cfg,
+		redis:      redisClient,
+		config:     cfg,
+		instanceID: uuid.NewString(),
 	}
 }
 
@@ -361,10 +367,27 @@ func (d *Dispatcher) CancelTask(ctx context.Context, taskID string) error {
 	}
 
 	task.Status = StatusCancelled
+	task.Stage = "cancelled"
+	task.Message = "任务已取消"
 	now := time.Now()
 	task.CompletedAt = &now
-
-	return d.updateTask(ctx, task)
+	// 取消标记跨网关副本共享；执行该任务的副本会在最多 1s 内取消 Worker HTTP 请求。
+	cancelKey := fmt.Sprintf("arboris:task_cancel:%s", taskID)
+	if err := d.redis.Set(ctx, cancelKey, d.instanceID, taskRetention).Err(); err != nil {
+		return fmt.Errorf("写入取消标记失败: %w", err)
+	}
+	for _, priority := range []Priority{PriorityCritical, PriorityHigh, PriorityDefault, PriorityLow} {
+		d.redis.LRem(ctx, priority.QueueName(), 0, taskID)
+	}
+	d.redis.ZRem(ctx, "arboris:tasks:retry", taskID)
+	if value, ok := d.activeCancels.Load(taskID); ok {
+		value.(context.CancelFunc)()
+	}
+	if err := d.updateTask(ctx, task); err != nil {
+		return err
+	}
+	d.publishEvent(ctx, task, "task_cancelled", "任务已取消")
+	return nil
 }
 
 // GetUserTasks 获取用户的所有任务
@@ -410,6 +433,17 @@ func (d *Dispatcher) recoverInterruptedTasks(ctx context.Context) error {
 			}
 			if task.Status != StatusPending && task.Status != StatusQueued &&
 				task.Status != StatusRunning && task.Status != StatusRetrying {
+				continue
+			}
+			// 另一网关副本仍持有租约时绝不能重新入队，否则会重复生成并重复扣费。
+			if task.Status == StatusRunning {
+				leased, _ := d.redis.Exists(ctx, d.taskLeaseKey(task.ID)).Result()
+				if leased > 0 {
+					continue
+				}
+			}
+			cancelled, _ := d.redis.Exists(ctx, d.taskCancelKey(task.ID)).Result()
+			if cancelled > 0 {
 				continue
 			}
 
@@ -519,14 +553,27 @@ func (d *Dispatcher) dispatchLoop(ctx context.Context) {
 				continue
 			}
 
-			// 跳过已取消的任务
-			if task.Status == StatusCancelled {
+			// 队列里可能残留旧副本；只有可执行状态允许领取，终态任务一律丢弃。
+			if task.Status != StatusPending && task.Status != StatusQueued && task.Status != StatusRetrying {
+				continue
+			}
+
+			claimed, capacityFull, claimErr := d.claimTask(ctx, task.ID)
+			if claimErr != nil {
+				logger.Error("领取任务失败", zap.String("task_id", task.ID), zap.Error(claimErr))
+				d.redis.LPush(ctx, queue, taskID)
+				continue
+			}
+			if !claimed {
+				if capacityFull {
+					d.redis.LPush(ctx, queue, taskID)
+				}
 				continue
 			}
 
 			// 检查用户并发
 			if !d.acquireUserSlot(task.UserID) {
-				// 放回队列
+				d.releaseTaskLease(ctx, task.ID)
 				d.redis.LPush(ctx, queue, taskID)
 				continue
 			}
@@ -551,6 +598,19 @@ func (d *Dispatcher) executeTask(ctx context.Context, task *Task) {
 	defer d.wg.Done()
 	defer d.activeCount.Add(-1)
 	defer d.releaseUserSlot(task.UserID)
+	defer d.releaseTaskLease(context.Background(), task.ID)
+
+	// 创建并登记真实执行上下文。CancelTask 无论落到哪个网关副本，都会通过本地
+	// cancel 或 Redis 取消标记中断 callWorker 的 HTTP request context。
+	taskCtx, taskCancel := context.WithTimeout(ctx, task.Timeout)
+	d.activeCancels.Store(task.ID, taskCancel)
+	defer d.activeCancels.Delete(task.ID)
+	defer taskCancel()
+	go d.maintainTaskLease(taskCtx, task.ID, taskCancel)
+
+	if d.isTaskCancelled(taskCtx, task.ID) {
+		return
+	}
 
 	// 更新状态为运行中
 	now := time.Now()
@@ -563,15 +623,14 @@ func (d *Dispatcher) executeTask(ctx context.Context, task *Task) {
 
 	d.publishEvent(ctx, task, "task_started", "任务开始执行")
 
-	// 添加超时控制
-	taskCtx, taskCancel := context.WithTimeout(ctx, task.Timeout)
-	defer taskCancel()
-
 	// 通过 Worker Pool 调用 Python Worker
 	startTime := time.Now()
 	result, err := d.workerPool.Execute(taskCtx, task)
 	duration := time.Since(startTime)
 
+	if d.isTaskCancelled(ctx, task.ID) {
+		return
+	}
 	if err != nil {
 		d.handleTaskFailure(ctx, task, err, duration)
 		return
@@ -593,6 +652,9 @@ func (t *Task) ensureMetadata() {
 
 // handleTaskSuccess 处理任务成功
 func (d *Dispatcher) handleTaskSuccess(ctx context.Context, task *Task, result json.RawMessage, duration time.Duration) {
+	if d.isTaskCancelled(ctx, task.ID) {
+		return
+	}
 	now := time.Now()
 	task.Status = StatusCompleted
 	task.CompletedAt = &now
@@ -618,6 +680,9 @@ func (d *Dispatcher) handleTaskSuccess(ctx context.Context, task *Task, result j
 
 // handleTaskFailure 处理任务失败
 func (d *Dispatcher) handleTaskFailure(ctx context.Context, task *Task, err error, duration time.Duration) {
+	if d.isTaskCancelled(ctx, task.ID) {
+		return
+	}
 	task.Error = err.Error()
 	task.ensureMetadata()
 	task.Metadata["duration_ms"] = fmt.Sprintf("%d", duration.Milliseconds())
@@ -736,10 +801,155 @@ func (d *Dispatcher) timeoutChecker(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+		// context timeout 负责本实例超时；同时回收因网关崩溃而失去租约的 running 任务。
+		if err := d.recoverStaleRunningTasks(ctx); err != nil {
+			logger.Warn("回收失租任务失败", zap.Error(err))
+		}
+	}
+}
 
-		// 扫描运行中的任务检查超时
-		// 这里通过 Redis SCAN 查找 arboris:task:* 状态为 running 的任务
-		// 简化实现：依赖 context timeout，此处仅记录日志
+func (d *Dispatcher) taskLeaseKey(taskID string) string {
+	return fmt.Sprintf("arboris:task_lease:%s", taskID)
+}
+
+func (d *Dispatcher) taskCancelKey(taskID string) string {
+	return fmt.Sprintf("arboris:task_cancel:%s", taskID)
+}
+
+func (d *Dispatcher) taskLeaseMember(taskID string) string {
+	return taskID + ":" + d.instanceID
+}
+
+var claimTaskScript = redis.NewScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ARGV[2])
+if redis.call('EXISTS', KEYS[1]) == 1 then return 0 end
+if redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[4]) then return -1 end
+local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'PX', ARGV[3])
+if not ok then return 0 end
+redis.call('ZADD', KEYS[2], ARGV[5], ARGV[6])
+redis.call('PEXPIRE', KEYS[2], ARGV[3] * 4)
+return 1
+`)
+
+func (d *Dispatcher) claimTask(ctx context.Context, taskID string) (bool, bool, error) {
+	ttl := d.config.LeaseDuration
+	if ttl <= 0 {
+		ttl = 30 * time.Second
+	}
+	now := time.Now().UnixMilli()
+	expires := now + ttl.Milliseconds()
+	result, err := claimTaskScript.Run(
+		ctx,
+		d.redis,
+		[]string{d.taskLeaseKey(taskID), "arboris:task_capacity"},
+		d.instanceID, now, ttl.Milliseconds(), d.config.MaxConcurrency,
+		expires, d.taskLeaseMember(taskID),
+	).Int()
+	return result == 1, result == -1, err
+}
+
+var renewTaskLeaseScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('PEXPIRE', KEYS[1], ARGV[2])
+redis.call('ZADD', KEYS[2], ARGV[3], ARGV[4])
+redis.call('PEXPIRE', KEYS[2], ARGV[2] * 4)
+return 1
+`)
+
+func (d *Dispatcher) maintainTaskLease(ctx context.Context, taskID string, cancel context.CancelFunc) {
+	ttl := d.config.LeaseDuration
+	if ttl <= 0 {
+		ttl = 30 * time.Second
+	}
+	interval := ttl / 3
+	if interval > time.Second {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if d.isTaskCancelled(ctx, taskID) {
+			cancel()
+			return
+		}
+		expires := time.Now().Add(ttl).UnixMilli()
+		ok, err := renewTaskLeaseScript.Run(
+			ctx, d.redis,
+			[]string{d.taskLeaseKey(taskID), "arboris:task_capacity"},
+			d.instanceID, ttl.Milliseconds(), expires, d.taskLeaseMember(taskID),
+		).Int()
+		if err != nil || ok != 1 {
+			logger.Warn("任务租约丢失，停止 Worker 调用", zap.String("task_id", taskID), zap.Error(err))
+			cancel()
+			return
+		}
+	}
+}
+
+var releaseTaskLeaseScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[1])
+redis.call('ZREM', KEYS[2], ARGV[2])
+return 1
+`)
+
+func (d *Dispatcher) releaseTaskLease(ctx context.Context, taskID string) {
+	_, _ = releaseTaskLeaseScript.Run(
+		ctx, d.redis,
+		[]string{d.taskLeaseKey(taskID), "arboris:task_capacity"},
+		d.instanceID, d.taskLeaseMember(taskID),
+	).Result()
+}
+
+func (d *Dispatcher) isTaskCancelled(ctx context.Context, taskID string) bool {
+	exists, err := d.redis.Exists(ctx, d.taskCancelKey(taskID)).Result()
+	return err == nil && exists > 0
+}
+
+func (d *Dispatcher) recoverStaleRunningTasks(ctx context.Context) error {
+	var cursor uint64
+	for {
+		keys, next, err := d.redis.Scan(ctx, cursor, "arboris:task:*", 100).Result()
+		if err != nil {
+			return err
+		}
+		for _, key := range keys {
+			data, err := d.redis.Get(ctx, key).Bytes()
+			if err != nil {
+				continue
+			}
+			var task Task
+			if json.Unmarshal(data, &task) != nil || task.Status != StatusRunning {
+				continue
+			}
+			leased, _ := d.redis.Exists(ctx, d.taskLeaseKey(task.ID)).Result()
+			cancelled, _ := d.redis.Exists(ctx, d.taskCancelKey(task.ID)).Result()
+			if leased > 0 || cancelled > 0 {
+				continue
+			}
+			recoveryKey := fmt.Sprintf("arboris:task_recovery:%s", task.ID)
+			won, err := d.redis.SetNX(ctx, recoveryKey, d.instanceID, 30*time.Second).Result()
+			if err != nil || !won {
+				continue
+			}
+			task.Status = StatusQueued
+			task.Stage = "lease_recovered"
+			task.Message = "执行节点中断，已从最近检查点恢复"
+			task.ensureMetadata()
+			task.Metadata["lease_recovered_at"] = time.Now().UTC().Format(time.RFC3339)
+			if d.updateTask(ctx, &task) == nil {
+				d.redis.LPush(ctx, task.Priority.QueueName(), task.ID)
+			}
+		}
+		cursor = next
+		if cursor == 0 {
+			return nil
+		}
 	}
 }
 

@@ -113,6 +113,7 @@ type TaskDispatcherConfig struct {
 	MaxRetries        int           `mapstructure:"max_retries"`
 	RetryDelay        time.Duration `mapstructure:"retry_delay"`
 	PollInterval      time.Duration `mapstructure:"poll_interval"`
+	LeaseDuration     time.Duration `mapstructure:"lease_duration"`
 	WorkerCallbackURL string        `mapstructure:"worker_callback_url"`
 	WorkerGRPCAddr    string        `mapstructure:"worker_grpc_addr"`
 	// InternalCallbackSecret 内部回调共享密钥；为空则不校验（向后兼容），
@@ -214,6 +215,7 @@ func bindEnvOverrides() {
 		"task_dispatcher.max_retries",
 		"task_dispatcher.retry_delay",
 		"task_dispatcher.poll_interval",
+		"task_dispatcher.lease_duration",
 		"task_dispatcher.worker_callback_url",
 		"task_dispatcher.worker_grpc_addr",
 		"task_dispatcher.internal_callback_secret",
@@ -268,7 +270,7 @@ func setDefaults() {
 	viper.SetDefault("rate_limit.unauth_ip_rpm", 120)
 
 	viper.SetDefault("task_dispatcher.enabled", true)
-	viper.SetDefault("task_dispatcher.max_concurrency", 20)
+	viper.SetDefault("task_dispatcher.max_concurrency", 3)
 	viper.SetDefault("task_dispatcher.max_per_user", 3)
 	viper.SetDefault("task_dispatcher.default_timeout", "10m")
 	viper.SetDefault("task_dispatcher.batch_timeout", "60m")
@@ -276,6 +278,7 @@ func setDefaults() {
 	viper.SetDefault("task_dispatcher.max_retries", 3)
 	viper.SetDefault("task_dispatcher.retry_delay", "5s")
 	viper.SetDefault("task_dispatcher.poll_interval", "100ms")
+	viper.SetDefault("task_dispatcher.lease_duration", "30s")
 	viper.SetDefault("task_dispatcher.worker_callback_url", "http://localhost:8000/api/internal/tasks")
 	viper.SetDefault("task_dispatcher.worker_grpc_addr", "localhost:50051")
 }

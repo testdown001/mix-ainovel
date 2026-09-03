@@ -27,6 +27,7 @@ from ..services.admin_setting_service import AdminSettingService
 from ..services.prompt_service import PromptService
 from ..services.usage_service import UsageService
 from ..services.api_usage_recorder import record_usage, estimate_tokens, record_call_log
+from ..services.generation_telemetry_service import record_generation_llm_call
 from ..utils.llm_tool import ChatMessage, LLMClient, AnthropicLLMClient, AnyRouterLLMClient, GeminiLLMClient, OpenAIResponsesLLMClient, _build_http_client
 
 logger = logging.getLogger(__name__)
@@ -927,6 +928,24 @@ class LLMService:
             if _record_telemetry:
                 try:
                     _latency = int((_time.monotonic() - _start) * 1000)
+                    _completion_tokens = int(_meta.get("completion_tokens", 0) or 0)
+                    record_generation_llm_call({
+                        "api_type": api_type,
+                        "model": _meta.get("model") or "",
+                        "status": _status,
+                        "duration_ms": _latency,
+                        "first_token_ms": _meta.get("first_token_ms"),
+                        "prompt_tokens": int(_meta.get("prompt_tokens", 0) or 0),
+                        "completion_tokens": _completion_tokens,
+                        "output_tokens_per_second": round(
+                            _completion_tokens / (_latency / 1000), 2
+                        ) if _latency > 0 else 0.0,
+                        "retry_count": max(int(_meta.get("attempt_count", 1) or 1) - 1, 0),
+                        "compatibility_fallback_count": int(
+                            _meta.get("compatibility_fallback_count", 0) or 0
+                        ),
+                        "error_type": _err_type,
+                    })
                     await self._record_call_log(
                         api_type=api_type,
                         model=_meta.get("model"),
@@ -1064,11 +1083,16 @@ class LLMService:
         response_format_fallback_applied = False
         responses_endpoint_fallback_applied = False
         temperature_fallback_applied = False
+        reasoning_effort_fallback_applied = False
         use_max_completion_tokens = False
         real_usage: Optional[Dict[str, int]] = None
+        _impl_started = time.monotonic()
+        _first_token_recorded = False
         _active_format: Optional[str] = None
         client = None
         for attempt in range(1, max_retries + 2):  # max_retries + 1 次总尝试
+            if _call_meta is not None:
+                _call_meta["attempt_count"] = attempt
             # P2 优化: 使用客户端缓存，仅当 api_format 变更时切换客户端
             if api_format != _active_format:
                 client = self._get_or_create_client(api_format, config["api_key"], config.get("base_url"))
@@ -1102,6 +1126,11 @@ class LLMService:
                 ):
                     delta = part.get("content")
                     if delta:
+                        if _call_meta is not None and not _first_token_recorded:
+                            _call_meta["first_token_ms"] = int(
+                                (time.monotonic() - _impl_started) * 1000
+                            )
+                            _first_token_recorded = True
                         full_response += delta
                         if on_chunk:
                             try:
@@ -1232,6 +1261,7 @@ class LLMService:
                 ):
                     self._UNSUPPORTED_REASONING_EFFORT_TARGETS.add(response_format_target)
                     reasoning_effort_supported = False
+                    reasoning_effort_fallback_applied = True
                     logger.warning(
                         "provider 不接受 reasoning_effort，去掉该参数后自动重试并记闩: "
                         "base_url=%s model=%s effort=%s", config.get("base_url"), model_name, reasoning_effort,
@@ -1328,6 +1358,7 @@ class LLMService:
                 ):
                     self._UNSUPPORTED_REASONING_EFFORT_TARGETS.add(response_format_target)
                     reasoning_effort_supported = False
+                    reasoning_effort_fallback_applied = True
                     logger.warning(
                         "Responses 端点不接受 reasoning.effort，去掉该参数后自动重试并记闩: "
                         "base_url=%s model=%s body=%s", config.get("base_url"), model_name, resp_body,
@@ -1495,6 +1526,13 @@ class LLMService:
         if _call_meta is not None:
             _call_meta["prompt_tokens"] = rec_prompt
             _call_meta["completion_tokens"] = rec_completion
+            _call_meta["compatibility_fallback_count"] = sum((
+                response_format_fallback_applied,
+                responses_endpoint_fallback_applied,
+                temperature_fallback_applied,
+                use_max_completion_tokens,
+                reasoning_effort_fallback_applied,
+            ))
         await self._record_token_usage(
             model=model_name,
             api_type=api_type,

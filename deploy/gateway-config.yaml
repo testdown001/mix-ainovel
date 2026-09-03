@@ -63,7 +63,8 @@ metrics:
 
 task_dispatcher:
   enabled: true
-  max_concurrency: 20
+  # 两个 gateway 副本共享 Redis 容量；总并发与三个 FastAPI app 副本对齐，避免每副本各放 20 个压垮后端。
+  max_concurrency: 3
   max_per_user: 3
   # 宽松上限：仅作兜底。思考/推理模型整章生成可能需 20~30 分钟，10m 会被中途取消→
   # 网关报 500。Python 侧每个 LLM 调用自带 ~180s 超时会快速掐掉真卡死的调用，故宽松上限
@@ -75,6 +76,7 @@ task_dispatcher:
   max_retries: 3
   retry_delay: 5s
   poll_interval: 100ms
+  lease_duration: 30s
   worker_callback_url: "http://app:80/api/internal/tasks"
   worker_grpc_addr: ""
   internal_callback_secret: "change-me-in-production"

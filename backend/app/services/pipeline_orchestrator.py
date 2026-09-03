@@ -1003,6 +1003,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 version_count=1,
                 gatekeeper_score=None,
                 warning_label="Literary模式完成写作档案失败",
+                performance_metrics={
+                    "stage_timings_ms": telemetry.stage_timings_ms,
+                    "llm_metrics": telemetry.llm_metrics,
+                },
             )
 
             return await self.generation_finalize_service.finalize_response(
@@ -1110,6 +1114,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 version_count=1,
                 gatekeeper_score=None,
                 warning_label="Fast模式完成写作档案失败",
+                performance_metrics={
+                    "stage_timings_ms": telemetry.stage_timings_ms,
+                    "llm_metrics": telemetry.llm_metrics,
+                },
             )
 
             return await self.generation_finalize_service.finalize_response(
@@ -1236,6 +1244,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
             version_count=version_count,
             gatekeeper_score=(ai_review_result or {}).get("score") if isinstance(ai_review_result, dict) else None,
             warning_label="完成写作档案失败",
+            performance_metrics={
+                "stage_timings_ms": telemetry.stage_timings_ms,
+                "llm_metrics": telemetry.llm_metrics,
+            },
         )
 
         return await self.generation_finalize_service.finalize_response(

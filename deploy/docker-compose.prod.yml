@@ -55,6 +55,9 @@ services:
       GATEWAY_BACKEND_FASTAPI_URL: "http://app:80"
       GATEWAY_TASK_DISPATCHER_WORKER_CALLBACK_URL: "http://app:80/api/internal/tasks"
       GATEWAY_TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET: ${TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET:?请设置任务回调共享密钥}
+      # Redis 共享全局容量，而非“每个 gateway 副本 3 个”；与 app replicas=3 对齐。
+      GATEWAY_TASK_DISPATCHER_MAX_CONCURRENCY: "3"
+      GATEWAY_TASK_DISPATCHER_LEASE_DURATION: "30s"
     volumes:
       - ./gateway-config.yaml:/root/config.yaml:ro
     restart: unless-stopped
