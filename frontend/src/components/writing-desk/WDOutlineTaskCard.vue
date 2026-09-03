@@ -34,7 +34,7 @@
       >
       <strong v-else>章纲 {{ completedCount }} / {{ task.total_chapters }} 章</strong>
       <span v-if="retryCount" class="failed-copy">{{ retryCount }} 章待重试</span>
-      <span v-else>{{ etaText }}</span>
+      <span v-else>{{ progressText }}</span>
     </div>
     <div
       class="task-progress"
@@ -108,7 +108,7 @@
                   </div>
                   <div class="summary-stage">
                     <span>{{ stageLabel }}</span
-                    ><strong>{{ etaText }}</strong>
+                    ><strong>{{ progressText }}</strong>
                   </div>
                 </div>
 
@@ -263,14 +263,9 @@ const currentRange = computed(() => {
   return start === end ? `正在处理第 ${start} 章` : `正在处理第 ${start}～${end} 章`
 })
 
-const etaText = computed(() => {
-  if (!isActive.value) return '任务已结束'
-  const seconds = props.task.estimated_remaining_seconds
-  if (seconds == null) return '首批完成后显示预计时间'
-  if (seconds < 60) return '预计不到 1 分钟'
-  const minutes = Math.max(1, Math.round(seconds / 60))
-  return `预计约 ${minutes} 分钟`
-})
+const progressText = computed(() =>
+  isActive.value ? `已完成 ${taskPercent.value}%` : '任务已结束',
+)
 
 function chapterState(number: number): 'completed' | 'failed' | 'running' | 'pending' {
   if (props.task.generate_chapters && bodyCompletedSet.value.has(number)) return 'completed'

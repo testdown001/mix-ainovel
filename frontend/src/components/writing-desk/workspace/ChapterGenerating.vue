@@ -31,14 +31,13 @@
             {{ isDetached ? `已等待 ${elapsedFormatted}` : `已用时 ${elapsedFormatted}` }}
           </span>
           <span class="md-body-small" style="color: var(--md-primary);">
-            {{ estimatedRemainingText }}
+            {{ progressSummaryText }}
           </span>
         </div>
 
         <!-- 当前阶段 + 进度通道降级告知 -->
-        <div class="flex items-center justify-between gap-3 mb-2 px-1">
+        <div class="flex items-center gap-3 mb-2 px-1">
           <span class="md-label-large">{{ currentStageLabel }}</span>
-          <span v-if="!isDetached" class="md-body-small md-on-surface-variant">{{ progressPercent }}%</span>
         </div>
         <p v-if="degradedReason" class="md-body-small mb-2 px-1" style="color: var(--md-tertiary, #7a5900);">
           {{ degradedReason }}
@@ -150,7 +149,7 @@ onMounted(async () => {
   // }
 })
 
-// ===== 增强视图：日志 + 时间预估 =====
+// ===== 增强视图：日志 + 单调进度 =====
 
 interface StageLogEntry {
   timestamp: Date
@@ -237,32 +236,11 @@ const elapsedFormatted = computed(() => {
 // 没有状态机（刷新后轮询接管）时不装懂：给一个不动的低值，由「已用时」说明还在跑。
 const progressPercent = computed(() => props.generationProgress?.percent ?? 5)
 
-// 预估剩余时间
-const estimatedRemainingText = computed(() => {
-  // 接管态下已用时是从打开本页算的，不是生成真正的起点，据此推算剩余时间等于编数字
-  if (isDetached.value) return '完成后自动出现'
-  const progress = progressPercent.value
-  const elapsed = elapsedSeconds.value
-
-  if (progress >= 95) return '即将完成'
-  if (elapsed < 10 || progress < 10) return '预计需要 2~4 分钟'
-
-  // 使用更保守的预估：限制最大预估时间，避免早期阶段预估过长
-  const estimatedTotal = elapsed / (progress / 100)
-  const cappedTotal = Math.min(estimatedTotal, elapsed * 3) // 最多预估为当前已用时的 3 倍
-  const remaining = Math.max(0, Math.ceil(cappedTotal - elapsed))
-
-  if (remaining <= 0) return '即将完成'
-  if (remaining < 60) return `预计剩余 ${remaining} 秒`
-
-  const mins = Math.floor(remaining / 60)
-  const secs = remaining % 60
-
-  // 超过 5 分钟时，显示范围而不是精确值
-  if (mins >= 5) return '预计剩余 5~8 分钟'
-  if (secs > 0) return `预计剩余 ${mins} 分 ${secs} 秒`
-  return `预计剩余 ${mins} 分钟`
-})
+// 模型调用时长波动很大，基于已用时反推 ETA 会出现“剩余时间反而增加”。
+// 有状态机时只展示单调不回退的百分比；接管态没有可靠进度来源，明确说明正在同步。
+const progressSummaryText = computed(() =>
+  isDetached.value ? '进度同步中' : `已完成 ${progressPercent.value}%`,
+)
 
 // 日志时间格式化
 function formatLogTime(date: Date): string {
