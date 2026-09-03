@@ -30,6 +30,7 @@ def test_generation_result_service_builds_debug_metadata_and_response():
         prompt_compile_summary={"section_count_after": 7},
         verification_report={"summary": "验证完成"},
         stage_timings_ms={"total_pipeline": 1234},
+        llm_metrics={"summary": {"call_count": 2}, "calls": []},
         strategy_warnings=["风格约束冲突"],
     )
 
@@ -50,3 +51,4 @@ def test_generation_result_service_builds_debug_metadata_and_response():
     assert payload["best_version_index"] == 1
     assert payload["debug_metadata"]["mode"] == "fast_single_pass"
     assert payload["debug_metadata"]["verification_report"]["summary"] == "验证完成"
+    assert payload["debug_metadata"]["llm_metrics"]["summary"]["call_count"] == 2

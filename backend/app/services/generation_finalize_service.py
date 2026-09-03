@@ -221,6 +221,7 @@ class GenerationFinalizeService:
         version_count: int,
         gatekeeper_score: Optional[float],
         warning_label: str,
+        performance_metrics: Optional[Dict[str, Any]] = None,
     ) -> None:
         if not archive_id:
             return
@@ -231,12 +232,14 @@ class GenerationFinalizeService:
             elif versions_models and best_version_index < len(versions_models):
                 final_version_id = versions_models[best_version_index].id
 
-            await archive_service.complete_archive(
-                archive_id,
-                final_version_id=final_version_id,
-                version_count=version_count,
-                gatekeeper_score=gatekeeper_score,
-            )
+            archive_kwargs = {
+                "final_version_id": final_version_id,
+                "version_count": version_count,
+                "gatekeeper_score": gatekeeper_score,
+            }
+            if performance_metrics is not None:
+                archive_kwargs["performance_metrics"] = performance_metrics
+            await archive_service.complete_archive(archive_id, **archive_kwargs)
         except Exception as exc:
             logger.warning("%s: %s", warning_label, exc)
 
@@ -295,6 +298,7 @@ class GenerationFinalizeService:
             prompt_compile_summary=prompt_compile_summary,
             verification_report=verification_report,
             stage_timings_ms=stage_timings_ms,
+            llm_metrics=telemetry.llm_metrics,
             strategy_warnings=strategy_warnings,
         )
         return self.generation_result_service.build_response_payload(

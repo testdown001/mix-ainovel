@@ -11,6 +11,8 @@ func TestLoadAllowsGatewayEnvOverrides(t *testing.T) {
 	t.Setenv("GATEWAY_JWT_SECRET", "env-secret")
 	t.Setenv("GATEWAY_TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET", "env-callback-secret")
 	t.Setenv("GATEWAY_REDIS_ADDR", "env-redis:6379")
+	t.Setenv("GATEWAY_TASK_DISPATCHER_MAX_CONCURRENCY", "4")
+	t.Setenv("GATEWAY_TASK_DISPATCHER_LEASE_DURATION", "45s")
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	err := os.WriteFile(configPath, []byte(`
@@ -51,6 +53,12 @@ task_dispatcher:
 			"internal callback secret was not overridden: %q",
 			cfg.TaskDispatcher.InternalCallbackSecret,
 		)
+	}
+	if cfg.TaskDispatcher.MaxConcurrency != 4 {
+		t.Fatalf("task dispatcher capacity was not overridden: %d", cfg.TaskDispatcher.MaxConcurrency)
+	}
+	if cfg.TaskDispatcher.LeaseDuration.String() != "45s" {
+		t.Fatalf("task dispatcher lease duration was not overridden: %s", cfg.TaskDispatcher.LeaseDuration)
 	}
 }
 
@@ -97,6 +105,19 @@ func TestRateLimitDefaultsWhenYAMLOmitsSection(t *testing.T) {
 	}
 	if rl.DefaultRPM != 60 {
 		t.Fatalf("expected default default_rpm=60, got %d", rl.DefaultRPM)
+	}
+}
+
+func TestTaskDispatcherDefaultsMatchApplicationCapacity(t *testing.T) {
+	cfg, err := Load(writeMinimalConfig(t, ""))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.TaskDispatcher.MaxConcurrency != 3 {
+		t.Fatalf("expected global task capacity 3, got %d", cfg.TaskDispatcher.MaxConcurrency)
+	}
+	if cfg.TaskDispatcher.LeaseDuration.String() != "30s" {
+		t.Fatalf("expected lease duration 30s, got %s", cfg.TaskDispatcher.LeaseDuration)
 	}
 }
 

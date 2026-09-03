@@ -1,9 +1,27 @@
 from __future__ import annotations
 
 import time
+from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ..utils.tracing import emit_span, new_trace_id
+
+
+_active_llm_metrics: ContextVar[Optional[list[Dict[str, Any]]]] = ContextVar(
+    "active_generation_llm_metrics",
+    default=None,
+)
+
+
+def record_generation_llm_call(metric: Dict[str, Any]) -> None:
+    """把一次 LLM 调用归入当前章节。
+
+    ContextVar 让同一进程内并发生成的章节互不串数据；未处于章节流水线时静默忽略，
+    因而后台通道测试、灵感对话等调用不会污染章节性能数据。
+    """
+    metrics = _active_llm_metrics.get()
+    if metrics is not None:
+        metrics.append(dict(metric))
 
 
 class GenerationTelemetryService:
@@ -16,11 +34,45 @@ class GenerationTelemetryService:
         self.trace_id: str = new_trace_id()
         self._trace_attrs: Dict[str, Any] = {}
         self._span_seq: int = 0
+        self._llm_calls: list[Dict[str, Any]] = []
+        _active_llm_metrics.set(self._llm_calls)
 
     @property
     def stage_timings_ms(self) -> Dict[str, int]:
         """获取阶段耗时记录（毫秒）。"""
         return self._stage_timings_ms
+
+    @property
+    def llm_metrics(self) -> Dict[str, Any]:
+        """返回可持久化的章节级 LLM 性能快照（含逐调用明细与汇总）。"""
+        calls = [dict(item) for item in self._llm_calls]
+        total_duration_ms = sum(int(item.get("duration_ms") or 0) for item in calls)
+        completion_tokens = sum(int(item.get("completion_tokens") or 0) for item in calls)
+        first_token_values = [
+            int(item["first_token_ms"])
+            for item in calls
+            if item.get("first_token_ms") is not None
+        ]
+        return {
+            "summary": {
+                "call_count": len(calls),
+                "success_count": sum(item.get("status") == "success" for item in calls),
+                "failure_count": sum(item.get("status") != "success" for item in calls),
+                "prompt_tokens": sum(int(item.get("prompt_tokens") or 0) for item in calls),
+                "completion_tokens": completion_tokens,
+                "retry_count": sum(int(item.get("retry_count") or 0) for item in calls),
+                "fallback_count": sum(item.get("api_type") == "fallback" for item in calls),
+                "compatibility_fallback_count": sum(
+                    int(item.get("compatibility_fallback_count") or 0) for item in calls
+                ),
+                "total_llm_duration_ms": total_duration_ms,
+                "first_token_ms": min(first_token_values) if first_token_values else None,
+                "output_tokens_per_second": round(
+                    completion_tokens / (total_duration_ms / 1000), 2
+                ) if total_duration_ms > 0 else 0.0,
+            },
+            "calls": calls,
+        }
 
     def set_trace_context(self, **attrs: Any) -> None:
         """挂载 trace 级上下文属性（如 project_id / chapter_number / preset），随每个 span 输出。"""

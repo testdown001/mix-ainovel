@@ -64,7 +64,10 @@ def test_generation_finalize_service_finalize_response_emits_verification():
         build_response_payload=lambda **kwargs: {"variants": kwargs["variants"], "debug_metadata": kwargs["debug_metadata"]},
     )
     result_service.attach_verification_report = lambda **kwargs: attached.update(kwargs)
-    telemetry = SimpleNamespace(emit_verification_report=AsyncMock())
+    telemetry = SimpleNamespace(
+        emit_verification_report=AsyncMock(),
+        llm_metrics={"summary": {"call_count": 1}, "calls": []},
+    )
 
     service = GenerationFinalizeService(
         generation_background_task_service=SimpleNamespace(),

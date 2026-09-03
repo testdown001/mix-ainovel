@@ -73,7 +73,7 @@ cors:
 
 task_dispatcher:
   enabled: true
-  max_concurrency: 20       # 全局最大并发任务数
+  max_concurrency: 3        # Redis 共享的全局容量；与 3 个 FastAPI app 副本对齐
   max_per_user: 3            # 每用户最大并发任务数
   default_timeout: 30m       # 单章节生成超时（宽松兜底；思考模型可能 20~30min，Python 每调用 ~180s 超时会快速掐掉真卡死的）
   batch_timeout: 360m        # 连续生成支持 25/50 章，按 2~4 分钟/章预留 6 小时
@@ -81,6 +81,7 @@ task_dispatcher:
   max_retries: 3             # 最大重试次数
   retry_delay: 5s            # 初始重试延迟（指数退避）
   poll_interval: 100ms       # 队列轮询间隔
+  lease_duration: 30s        # 任务租约，执行中自动续租；节点失联后可安全恢复
   worker_callback_url: "http://localhost:8000/api/internal/tasks"  # Python Worker
   worker_grpc_addr: "localhost:50051"  # gRPC 地址（预留）
   internal_callback_secret: ""  # 内部进度回调共享密钥；留空不校验，非空时回调须带 X-Internal-Secret 头

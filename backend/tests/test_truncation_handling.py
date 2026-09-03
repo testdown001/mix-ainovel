@@ -18,6 +18,7 @@ from fastapi import HTTPException
 import app.models  # noqa: F401  触发 mapper 注册
 from app.core.config import settings
 from app.services.llm_service import LLMResponseTruncated, LLMService
+from app.services.generation_telemetry_service import GenerationTelemetryService
 from app.services.scene_generation_service import SceneGenerationService
 from app.services.single_version_generation_service import SingleVersionGenerationService
 
@@ -67,6 +68,25 @@ def test_default_behavior_returns_partial_content(monkeypatch):
     out = asyncio.run(svc.get_llm_response("system", [{"role": "user", "content": "hi"}]))
 
     assert out == "半截正文，句子断在了中"
+
+
+def test_llm_call_is_attached_to_active_chapter_telemetry(monkeypatch):
+    async def _emit_stream(event, payload=None):
+        return None
+
+    telemetry = GenerationTelemetryService(_emit_stream)
+    svc = _patched_service(monkeypatch, _TruncatingStreamClient("一段完整正文"))
+
+    out = asyncio.run(svc.get_llm_response("system", [{"role": "user", "content": "hi"}]))
+
+    assert out == "一段完整正文"
+    call = telemetry.llm_metrics["calls"][0]
+    assert call["status"] == "success"
+    assert call["model"] == "test-model"
+    assert call["first_token_ms"] is not None
+    assert call["prompt_tokens"] > 0
+    assert call["completion_tokens"] > 0
+    assert call["retry_count"] == 0
 
 
 def test_fail_on_truncation_raises_and_skips_fallback(monkeypatch):

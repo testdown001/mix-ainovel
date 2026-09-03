@@ -193,7 +193,6 @@ func (h *Handler) GetTaskStatus(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
 	}
-
 	// 归属校验：仅任务所有者或管理员可见
 	if task.UserID != auth.GetUserID(c) && !auth.IsAdmin(c) {
 		return c.Status(403).JSON(fiber.Map{"error": "无权访问该任务"})
@@ -401,6 +400,11 @@ func (h *Handler) UpdateProgress(c *fiber.Ctx) error {
 	task, err := h.dispatcher.GetTask(c.Context(), taskID)
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
+	}
+	if task.Status == StatusCancelled || task.Status == StatusCompleted || task.Status == StatusFailed ||
+		h.dispatcher.isTaskCancelled(c.Context(), taskID) {
+		// Worker 可能在取消请求到达后才送出最后一个进度回调；不能让旧快照覆盖终态。
+		return c.JSON(fiber.Map{"status": "ignored", "message": "任务已终结"})
 	}
 
 	task.Progress = req.Progress

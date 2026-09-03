@@ -32,6 +32,7 @@ class GenerationResultService:
         prompt_compile_summary: Dict[str, Any],
         verification_report: Dict[str, Any],
         stage_timings_ms: Dict[str, int],
+        llm_metrics: Optional[Dict[str, Any]],
         strategy_warnings: List[str],
         mode: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -44,6 +45,7 @@ class GenerationResultService:
             "prompt_compile_summary": prompt_compile_summary,
             "verification_report": verification_report,
             "stage_timings_ms": stage_timings_ms,
+            "llm_metrics": llm_metrics or {"summary": {}, "calls": []},
             "strategy_warnings": strategy_warnings,
         }
         if mode:

@@ -50,6 +50,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/internal/tasks", tags=["internal"])
 
 
+async def _watch_task_cancellation(task_id: str, running_task: "asyncio.Task[Any]") -> None:
+    """跨进程监听网关写入的取消标记，并取消真正执行生成的 Python 协程。
+
+    仅关闭 Go→FastAPI 的 HTTP socket 不足以保证 ASGI handler 停止；共享 Redis 标记
+    可让请求落到任意 app 副本时都在 1 秒内终止模型调用，并进入既有退款/状态收束路径。
+    Redis 短暂不可用时按“未取消”处理，避免观测故障误杀正常任务。
+    """
+    cache = CacheService()
+    cancel_key = f"arboris:task_cancel:{task_id}"
+    try:
+        while not running_task.done():
+            await asyncio.sleep(0.5)
+            if await cache.exists(cancel_key):
+                running_task.cancel()
+                return
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:  # pragma: no cover - 旁路监听失败不影响生成
+        logger.warning("任务取消监听失败(已忽略): task_id=%s error=%s", task_id, exc)
+
+
 # ============================================================
 # 请求/响应模型
 # ============================================================
@@ -268,6 +289,15 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
 
     start_time = time.time()
     reporter = ProgressReporter(req.callback_url, req.task_id)
+    running_task = asyncio.current_task()
+    cancel_watcher = (
+        asyncio.create_task(
+            _watch_task_cancellation(req.task_id, running_task),
+            name=f"task-cancel-watch-{req.task_id}",
+        )
+        if running_task is not None
+        else None
+    )
 
     try:
         logger.info(
@@ -432,6 +462,12 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         )
 
     finally:
+        if cancel_watcher is not None:
+            cancel_watcher.cancel()
+            try:
+                await cancel_watcher
+            except BaseException:  # noqa: BLE001 - 收尾不能覆盖任务返回值
+                pass
         # finally 内 await 抛出会覆盖返回值 → 500，故吞掉关闭异常
         try:
             await reporter.close()
@@ -547,6 +583,15 @@ async def _execute_chapter_generate(
             "best_version_index": result.get("best_version_index", 0),
             "preset": result.get("preset", config.preset),
         }
+        debug_metadata = result.get("debug_metadata") or {}
+        performance = {
+            "stage_timings_ms": debug_metadata.get("stage_timings_ms") or {},
+            "llm_metrics": debug_metadata.get("llm_metrics") or {"summary": {}, "calls": []},
+        }
+        if performance["stage_timings_ms"] or performance["llm_metrics"]["calls"]:
+            # 单章任务与批量原子结果都会进入 Redis task.result，便于任务完成后直接排障；
+            # 同一数据也已写入 WritingArchive，Redis 7 天过期后仍可追溯。
+            payload["performance"] = performance
         if missing_scenes:
             payload["missing_scenes"] = missing_scenes
         # 精修步骤被时间预算跳过：正文照常交付，但用户拿到的是没过质检的稿子。
