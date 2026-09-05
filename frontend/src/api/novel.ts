@@ -555,6 +555,9 @@ export interface MemoryCard {
   dialogue_style?: string
   scene_transition_style?: string
   emotion_control_pattern?: string
+  reader_expectation?: string
+  payoff_rhythm?: string
+  relationship_pull?: string
   commercial_data?: Record<string, string>
   takeaways?: string[]
   risks?: string[]

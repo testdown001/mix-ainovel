@@ -63,7 +63,7 @@ def test_partial_dimension_failure_degrades():
         "主线剧情的完整走向": "剧情内容",
         "主要角色的身份": RuntimeError("超时"),
         "名场面和经典桥段": "桥段内容",
-        "爽点的类型": RuntimeError("超时"),
+        "读者为什么在意": RuntimeError("超时"),
         "叙事视角与人称": "写法内容",
     })
     result = asyncio.run(svc.search_novel_dimensions(novel_name="某书"))
@@ -76,7 +76,7 @@ def test_all_dimensions_failed_raises_502():
         "主线剧情的完整走向": RuntimeError("x"),
         "主要角色的身份": RuntimeError("x"),
         "名场面和经典桥段": RuntimeError("x"),
-        "爽点的类型": RuntimeError("x"),
+        "读者为什么在意": RuntimeError("x"),
         "叙事视角与人称": RuntimeError("x"),
     })
     with pytest.raises(HTTPException) as exc:

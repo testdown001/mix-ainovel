@@ -88,7 +88,7 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
             project=SimpleNamespace(chapters=[], fusion_dna={"style_fingerprint": "冷硬"},
                                     concept_dossier={"dossier": {"emotional_core": {"cherished": "和师弟一起吃饭的日子"}}}),
             chapter_number=9,
-            project_reference_novels=[SimpleNamespace()],
+            project_reference_novels=[SimpleNamespace(id=1, title="参考书", memory_card={"core_selling_point": "守护同伴"})],
             reference_service=SimpleNamespace(
                 format_style_samples_for_prompt=lambda novels: "风格样本",
                 format_memory_card_for_prompt=lambda novels: "记忆卡",
@@ -103,6 +103,8 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
     assert result.writer_prompt == "SLIM"
     assert "基础内容" in result.prompt_input
     assert result.reference_prose_text == "范文片段"
-    assert result.fusion_dna_text == "融合DNA"
+    assert result.fusion_dna_text == result.reference_guidance_text
+    assert "守护同伴" in result.reference_guidance_text
+    assert "临时参考方案" in result.reference_guidance_text  # 旧版无来源融合不能伪装成新方案
     assert "和师弟一起吃饭的日子" in result.prompt_input
     assert "立项意图不是已发生事实" in result.prompt_input

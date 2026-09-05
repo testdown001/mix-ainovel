@@ -664,12 +664,16 @@ const startConversation = async () => {
       await bindReferencesIfNeeded(selectedReferenceIds)
     }
 
-    if (selectedReferenceNovels.length > 0) {
+    const readyReferenceTitles = new Set(
+      novelStore.projectReferenceNovels.filter((novel) => novel.status === 'ready').map((novel) => novel.title.trim()),
+    )
+    const referencesToSearch = selectedReferenceNovels.filter((title) => !readyReferenceTitles.has(title))
+    if (referencesToSearch.length > 0) {
       preparingStage.value = 'reference'
       referenceSearchStatus.value = 'searching'
-      referenceSearchMessage.value = `正在联网检索 ${selectedReferenceNovels.length} 本参考小说（首次约 30-60 秒）...`
+      referenceSearchMessage.value = `正在补充检索 ${referencesToSearch.length} 本参考小说（首次约 30-60 秒）...`
       try {
-        const result = await novelStore.searchReferenceNovels(selectedReferenceNovels)
+        const result = await novelStore.searchReferenceNovels(referencesToSearch)
         referenceContext.value = result.reference_context || ''
         if (result.search_completed) {
           referenceSearchStatus.value = 'success'
@@ -682,7 +686,7 @@ const startConversation = async () => {
       } catch (error) {
         console.error('参考小说搜索失败:', error)
         referenceSearchStatus.value = 'error'
-        referenceSearchMessage.value = '参考小说搜索失败，已自动降级为普通灵感模式'
+        referenceSearchMessage.value = '补充检索暂不可用，将使用已有参考资料继续构思'
         referenceContext.value = ''
       }
     }
@@ -696,6 +700,10 @@ const startConversation = async () => {
       referenceNovels: selectedReferenceNovels,
       referenceContext: referenceContext.value
     })
+    // 手输书名会在首轮由后端解析并绑定，及时同步侧栏中的书目和分析状态。
+    if (selectedReferenceNovels.length && novelStore.currentProject?.id) {
+      await novelStore.loadProjectReferenceNovels(novelStore.currentProject.id).catch(console.error)
+    }
   } catch (error) {
     console.error('启动灵感模式失败:', error)
     globalAlert.showError(`无法开始灵感模式: ${error instanceof Error ? error.message : '未知错误'}`, '启动失败')

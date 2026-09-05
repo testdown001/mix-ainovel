@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .reference_prose_service import ReferenceProseService
+from .reference_reading_contract import project_contract
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,8 @@ class PromptStageResult:
     writer_prompt: str
     reference_prose_text: str = ""
     fusion_dna_text: str = ""
+    reference_guidance_text: str = ""
+    reference_beats_text: str = ""
 
 
 class GenerationPromptStageService:
@@ -157,8 +160,8 @@ class GenerationPromptStageService:
                 logger.warning("范文注入失败（不影响生成）: %s", exc)
 
         # 参考桥段：按本章情境（大纲摘要 + 使命要点）从绑定参考小说的桥段库里选最相似的
-        # 几条注入。这是「参考到小说」在正文层的兑现——fusion_dna 只有全书级形容词，
-        # 写具体章节时给不出「这类局面别人怎么处理」。桥段库缺失（老数据）自然为空跳过。
+        # 几条注入，为全书级融合方案补充本章可用的具体手法。旧资料无桥段库时自然跳过。
+        beats_text = ""
         if getattr(config, "enable_reference_beats", False) and project_reference_novels and self.llm_service:
             try:
                 from .reference_beat_service import ReferenceBeatService
@@ -190,23 +193,15 @@ class GenerationPromptStageService:
             except Exception as exc:  # noqa: BLE001 - 参考是增益不是依赖
                 logger.warning("参考桥段注入失败（不影响生成）: %s", exc)
 
-        # 写法基准：可执行的写法约束（视角/句式/对白占比/禁用手法），绑定参考小说即注入
-        # ——与 fusion_dna 同级的默认注入，不走 enable_reference_prose（那个开关管的是
-        # 大段范文样本）。约 300-500 token，跨章节不变，进稳定段吃 prompt cache。
-        if project_reference_novels:
-            try:
-                style_guide_text = reference_service.format_style_guide_for_prompt(project_reference_novels)
-                if style_guide_text:
-                    prompt_sections.append(("[写法基准]", style_guide_text))
-                    logger.info("写法基准注入: 章=%s 长度=%d", chapter_number, len(style_guide_text))
-            except Exception as exc:  # noqa: BLE001 - 参考是增益不是依赖
-                logger.warning("写法基准注入失败（不影响生成）: %s", exc)
-
-        fusion_dna_text = ""
-        if hasattr(project, "fusion_dna") and project.fusion_dna:
-            fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
-            if fusion_dna_text:
-                prompt_sections.append(("[创作DNA融合指引]", fusion_dna_text))
+        # 统一声音来自完整融合，不再并列注入“只取第一本”的另一套写法硬约束。
+        # 机制指导独立于范文开关，文学模式也使用同一份有界文本。
+        reference_guidance_text = project_contract(
+            project_reference_novels, getattr(project, "fusion_dna", None),
+            getattr(project, "reference_novel_ids", None),
+        )
+        fusion_dna_text = reference_guidance_text
+        if reference_guidance_text:
+            prompt_sections.append(("[参考阅读动力与融合指引]", reference_guidance_text))
 
         if config.enable_narrative_variety:
             try:
@@ -260,4 +255,6 @@ class GenerationPromptStageService:
             writer_prompt=final_writer_prompt,
             reference_prose_text=reference_prose_text,
             fusion_dna_text=fusion_dna_text,
+            reference_guidance_text=reference_guidance_text,
+            reference_beats_text=beats_text[:1200],
         )

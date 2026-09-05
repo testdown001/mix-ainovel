@@ -70,6 +70,8 @@ from ...services.generation_support_service import GenerationSupportService
 from ...services.web_search_service import WebSearchService
 from ...services.reference_beat_service import ReferenceBeatService
 from ...services.reference_novel_library_service import ReferenceNovelLibraryService
+from ...services.reference_project_service import refresh_project_fusion
+from ...services.reference_reading_contract import is_current, project_contract
 from ...services.inspiration_spark import pick_spark, build_spark_injection
 from ...services.muse_material_service import MuseMaterialService
 from ...services.muse_persona import build_persona_injection, is_valid_persona
@@ -336,8 +338,6 @@ def _merge_reference_novels(*groups: List[ReferenceNovel]) -> List[ReferenceNove
 # 参考小说分析/融合DNA 并发锁：防止同一标题或项目重复并发处理
 _ref_novel_locks: dict[str, asyncio.Lock] = {}
 _ref_novel_locks_guard = asyncio.Lock()
-_fusion_dna_locks: dict[str, asyncio.Lock] = {}
-_fusion_dna_locks_guard = asyncio.Lock()
 
 
 async def _get_ref_novel_lock(key: str) -> asyncio.Lock:
@@ -345,13 +345,6 @@ async def _get_ref_novel_lock(key: str) -> asyncio.Lock:
         if key not in _ref_novel_locks:
             _ref_novel_locks[key] = asyncio.Lock()
         return _ref_novel_locks[key]
-
-
-async def _get_fusion_dna_lock(project_id: str) -> asyncio.Lock:
-    async with _fusion_dna_locks_guard:
-        if project_id not in _fusion_dna_locks:
-            _fusion_dna_locks[project_id] = asyncio.Lock()
-        return _fusion_dna_locks[project_id]
 
 
 async def _background_create_and_analyze_reference_novel(title: str, user_id: int) -> None:
@@ -379,53 +372,31 @@ async def _background_create_and_analyze_reference_novel(title: str, user_id: in
 
 
 async def _background_generate_fusion_dna(project_id: str, reference_novel_ids: List[int], user_id: int) -> None:
-    """后台等待参考小说分析完成后生成融合DNA，per-project 串行。"""
-    lock = await _get_fusion_dna_lock(project_id)
-    async with lock:
-        async with AsyncSessionLocal() as session:
-            service = ReferenceNovelLibraryService(session)
-            novel_service = NovelService(session)
-            try:
-                ready_novels: List[ReferenceNovel] = []
-                for attempt in range(10):
-                    ready_novels = []
-                    all_done = True
-                    for rid in reference_novel_ids:
-                        novel = await service.get_by_id(rid)
-                        if not novel:
-                            continue
-                        if novel.status == "ready":
-                            ready_novels.append(novel)
-                        elif novel.status in {"pending", "analyzing"}:
-                            all_done = False
-                    if all_done or len(ready_novels) == len(reference_novel_ids):
-                        break
-                    await asyncio.sleep(15)
+    try:
+        await refresh_project_fusion(project_id, reference_novel_ids, user_id, AsyncSessionLocal, attempts=10)
+    except Exception as exc:
+        logger.warning("后台融合DNA生成失败: project=%s error=%s", project_id, exc)
 
-                if not ready_novels:
-                    logger.info("后台融合DNA：无就绪参考小说，跳过 project=%s", project_id)
-                    return
 
-                from ...models.novel import NovelProject
-                project = await session.get(NovelProject, project_id)
-                if not project:
-                    return
-                current_ids = list(dict.fromkeys(project.reference_novel_ids or []))[:3]
-                if current_ids != reference_novel_ids:
-                    logger.info(
-                        "后台融合DNA：项目绑定已变化，丢弃过期任务 project=%s expected=%s actual=%s",
-                        project_id,
-                        reference_novel_ids,
-                        current_ids,
-                    )
-                    return
-
-                fusion_dna = await service.generate_fusion_dna(ready_novels, user_id)
-                project.fusion_dna = fusion_dna
-                await session.commit()
-                logger.info("后台融合DNA生成完成: project=%s novels=%d", project_id, len(ready_novels))
-            except Exception as exc:
-                logger.warning("后台融合DNA生成失败: project=%s error=%s", project_id, exc)
+async def _persist_concept_reference_titles(project, titles, user_id, session, reference_service, background_tasks):
+    """手输书名与库选择使用同一持久绑定；后续蓝图/正文都能读取。"""
+    if not titles:
+        return
+    ids = []
+    for title in titles[:3]:
+        novel = await reference_service.get_by_title(title)
+        if not novel:
+            novel = await reference_service.create(user_id, title)
+        ids.append(novel.id)
+        if novel.status not in {"ready", "analyzing"}:
+            background_tasks.add_task(_background_create_and_analyze_reference_novel, title, user_id)
+    # create 的唯一键竞争可能 rollback，刷新项目避免读取过期 ORM 属性。
+    await session.refresh(project)
+    ids = list(dict.fromkeys(ids))
+    if project.reference_novel_ids != ids:
+        project.reference_novel_ids = ids
+        project.fusion_dna = None
+        await session.commit()
 
 
 @router.post("", response_model=NovelProjectSchema, status_code=status.HTTP_201_CREATED)
@@ -895,6 +866,9 @@ async def converse_with_concept(
     reference_context = (request.reference_context or "").strip()
     normalized_reference_novels = _normalize_reference_novel_names(request.reference_novels)
     reference_service = ReferenceNovelLibraryService(session)
+    await _persist_concept_reference_titles(
+        project, normalized_reference_novels, current_user.id, session, reference_service, background_tasks
+    )
     project_reference_novels = await GenerationSupportService(session).load_project_reference_novels(project, reference_service)
     ready_reference_novels: List[ReferenceNovel] = []
     missing_reference_titles: List[str] = []
@@ -904,14 +878,9 @@ async def converse_with_concept(
             ready_reference_novels.append(in_library)
             continue
         missing_reference_titles.append(novel_title)
-        background_tasks.add_task(
-            _background_create_and_analyze_reference_novel,
-            novel_title,
-            current_user.id,
-        )
 
     selected_library_novels = _merge_reference_novels(project_reference_novels, ready_reference_novels)
-    if not reference_context and selected_library_novels:
+    if selected_library_novels:
         library_parts = [
             reference_service.format_for_concept_prompt(selected_library_novels),
         ]
@@ -928,14 +897,16 @@ async def converse_with_concept(
             library_parts.append(f"参考小说桥段索引（构思时可点名借鉴其手法，禁止照搬情节）：\n{beat_index}")
         library_context = "\n\n".join(part for part in library_parts if part).strip()
         if library_context:
-            reference_context = library_context
+            # 已完成的逐维度分析优先；客户端搜索摘要只能补充，不能屏蔽库资料。
+            supplement = f"\n\n【补充检索摘要】\n{reference_context[:3000]}" if reference_context else ""
+            reference_context = library_context + supplement
             logger.info(
                 "项目 %s 概念对话使用参考小说库内容: user=%s novels=%s",
                 project_id,
                 current_user.id,
                 [novel.title for novel in selected_library_novels],
             )
-    if not history_records and missing_reference_titles:
+    if not history_records and missing_reference_titles and not request.reference_context:
         web_search_service = WebSearchService(session)
         try:
             searched_context = await web_search_service.search_reference_novels(
@@ -975,9 +946,9 @@ async def converse_with_concept(
                 current_user.id,
                 exc,
             )
-    fusion_dna_text = ""
-    if project.fusion_dna:
-        fusion_dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
+    fusion_dna_text = project_contract(selected_library_novels, project.fusion_dna, project.reference_novel_ids)
+    if project.reference_novel_ids and not is_current(project.fusion_dna, selected_library_novels, project.reference_novel_ids):
+        background_tasks.add_task(_background_generate_fusion_dna, project_id, list(project.reference_novel_ids), current_user.id)
     recommend_compass = ""
     if selected_library_novels or project.fusion_dna:
         recommend_compass = reference_service.format_recommend_compass_for_concept(
@@ -1567,24 +1538,19 @@ async def bind_project_reference_novels(
         approved_ids.append(rid)
         if novel.status == "ready":
             ready_novels.append(novel)
+    current = (is_current(project.fusion_dna, ready_novels, approved_ids)
+               and project.fusion_dna.get("generation_status") == "ready")
     project.reference_novel_ids = approved_ids
-    # 绑定集合改变后，旧融合结果已经失效；在全部参考书就绪之前不能继续沿用。
-    project.fusion_dna = None
-
-    # 全部就绪时立即融合；只要还有一本在分析，就等待完整集合，避免“第二本已绑定但未参与”。
-    if ready_novels and len(ready_novels) == len(approved_ids):
-        try:
-            fusion_dna = await reference_service.generate_fusion_dna(ready_novels, current_user.id)
-            project.fusion_dna = fusion_dna
-        except Exception as exc:
-            logger.warning("绑定时生成融合DNA失败，不影响绑定: %s", exc)
-    elif approved_ids:
+    if not current:
+        project.fusion_dna = None
+    # 先持久化完整集合；后台融合与首轮实际消费共用锁，避免长 LLM 调用期间覆盖重新绑定。
+    await session.commit()
+    if approved_ids and not current:
         background_tasks.add_task(
             _background_generate_fusion_dna, project_id, approved_ids, current_user.id
         )
-
-    await session.commit()
-    return {"status": "success", "bound_ids": approved_ids, "fusion_dna_ready": bool(project.fusion_dna)}
+    return {"status": "success", "bound_ids": approved_ids,
+            "fusion_dna_ready": bool(current and project.fusion_dna.get("generation_status") == "ready")}
 
 
 @router.post("/{project_id}/reference-search", response_model=ReferenceSearchResponse)

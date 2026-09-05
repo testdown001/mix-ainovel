@@ -158,8 +158,10 @@ def test_style_guide_injected_when_bound():
 
     real_svc = ReferenceNovelLibraryService.__new__(ReferenceNovelLibraryService)
     result = _run_with_reference_service(service, novels=[novel], reference_service_impl=real_svc)
-    assert "[写法基准]" in result.prompt_input
-    assert "叙事视角：第三人称限制视角" in result.prompt_input
+    assert "[参考阅读动力与融合指引]" in result.prompt_input
+    assert "统一叙事声音】第三人称限制视角" in result.prompt_input
+    assert result.reference_guidance_text in result.prompt_input
+    assert "[写法基准]" not in result.prompt_input  # 不再叠加另一套可能冲突的单书约束
 
 
 def test_style_guide_absent_for_old_data():

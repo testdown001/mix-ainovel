@@ -77,6 +77,8 @@ def test_prompt_compiler_filters_scene_prompt_data():
             "previous_summary": "上一章",
             "writer_blueprint": "蓝图",
             "reference_prose": "范文",
+            "reference_guidance": "统一声音、兑现与余波",
+            "reference_beats": "适用于本章的伏笔回收",
         },
     )
 
@@ -85,6 +87,8 @@ def test_prompt_compiler_filters_scene_prompt_data():
     assert "mission_brief" not in compiled
     assert "previous_summary" not in compiled
     assert compiled["reference_prose"] == "范文"
+    assert compiled["reference_guidance"] == "统一声音、兑现与余波"
+    assert compiled["reference_beats"] == "适用于本章的伏笔回收"
 
 
 def test_prompt_compiler_keeps_confirmed_creative_memory_for_scene_generation():

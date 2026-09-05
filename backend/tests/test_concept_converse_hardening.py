@@ -409,7 +409,8 @@ async def test_converse_injects_recommend_compass_from_fusion_dna(db_session, mo
 
 
 @pytest.mark.asyncio
-async def test_converse_injects_all_bound_reference_novel_material(db_session, monkeypatch):
+@pytest.mark.parametrize("manual_titles", [False, True])
+async def test_converse_injects_all_bound_reference_novel_material(db_session, monkeypatch, manual_titles):
     """构思不是只保存书名：两本已绑定书的大纲内容都会进入实际 LLM 系统提示词。"""
     await _seed_project(db_session)
     first = ReferenceNovel(
@@ -429,17 +430,35 @@ async def test_converse_injects_all_bound_reference_novel_material(db_session, m
     db_session.add_all([first, second])
     await db_session.flush()
     project = await db_session.get(NovelProject, PROJECT_ID)
-    project.reference_novel_ids = [first.id, second.id]
+    project.reference_novel_ids = [] if manual_titles else [first.id, second.id]
     await db_session.commit()
     calls = _patch_services(monkeypatch, json.dumps(VALID_RESPONSE, ensure_ascii=False))
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.db import session as session_module
+    from app.services.reference_reading_contract import fallback_dna, stamp
+    factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    monkeypatch.setattr(session_module, "AsyncSessionLocal", factory)
+    monkeypatch.setattr(novels, "AsyncSessionLocal", factory)
+
+    async def generate(self, books, user_id):
+        return stamp(fallback_dna(books), books, generated=True)
+
+    monkeypatch.setattr(ReferenceNovelLibraryService, "generate_fusion_dna", generate)
+    payload = dict(_converse_payload(), reference_context="客户端的泛化搜索摘要")
+    if manual_titles:
+        payload["reference_novels"] = ["参考乙", "参考甲"]
 
     async with _build_client(db_session) as client:
-        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+        resp = await client.post(CONVERSE_URL, json=payload)
         assert resp.status_code == 200
 
     prompt = calls[0]["system_prompt"]
     assert "参考甲" in prompt and "甲书独有的身份错位结构" in prompt
     assert "参考乙" in prompt and "乙书独有的双线追凶结构" in prompt
+    assert "客户端的泛化搜索摘要" in prompt  # 搜索摘要不能挤掉逐本库分析
+    assert "情绪余波与后续牵挂" in prompt
+    await db_session.refresh(project)
+    assert project.reference_novel_ids == ([second.id, first.id] if manual_titles else [first.id, second.id])
 
 
 @pytest.mark.asyncio

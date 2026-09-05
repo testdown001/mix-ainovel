@@ -59,7 +59,7 @@ def test_bind_waits_for_all_reference_novels_before_generating_fusion_dna(monkey
     session.commit.assert_awaited_once()
 
 
-def test_bind_generates_fusion_dna_from_the_complete_ready_set(monkeypatch):
+def test_bind_commits_complete_set_before_scheduling_fusion(monkeypatch):
     project = SimpleNamespace(reference_novel_ids=[], fusion_dna=None)
     available = {
         11: SimpleNamespace(id=11, status="ready"),
@@ -100,7 +100,10 @@ def test_bind_generates_fusion_dna_from_the_complete_ready_set(monkeypatch):
         )
     )
 
-    assert result["fusion_dna_ready"] is True
-    assert project.fusion_dna == generated
-    generate_fusion_dna.assert_awaited_once_with([available[11], available[22]], 7)
-    assert background_tasks.tasks == []
+    assert result["fusion_dna_ready"] is False
+    assert project.fusion_dna is None
+    assert project.reference_novel_ids == [11, 22]
+    generate_fusion_dna.assert_not_awaited()
+    assert len(background_tasks.tasks) == 1
+    assert background_tasks.tasks[0].args == ("project-1", [11, 22], 7)
+    session.commit.assert_awaited_once()
