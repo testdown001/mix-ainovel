@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm.attributes import set_committed_value
 
 from ..db.init_db import repair_schema_if_needed
 from ..models.chapter_blueprint import ChapterBlueprint
+from .reference_reading_contract import is_current
+
+logger = logging.getLogger(__name__)
 
 
 class GenerationSupportService:
@@ -43,6 +48,18 @@ class GenerationSupportService:
         if not ids:
             return []
         novels = await reference_service.get_by_ids(ids)
+        # 老项目、慢分析及进程重启后在实际消费时补齐一次，正常章节复用缓存。
+        if (len(novels) == len(set(ids)) and all(n.status == "ready" for n in novels)
+                and not is_current(getattr(project, "fusion_dna", None), novels, ids)
+                and getattr(project, "user_id", None) is not None):
+            from ..db.session import AsyncSessionLocal
+            from .reference_project_service import refresh_project_fusion
+            try:
+                dna = await refresh_project_fusion(project.id, ids, project.user_id, AsyncSessionLocal)
+                if dna:
+                    set_committed_value(project, "fusion_dna", dna)
+            except Exception as exc:
+                logger.warning("项目参考融合补齐失败，使用临时指导: %s", exc)
         return [novel for novel in novels if novel.status == "ready"]
 
     @staticmethod

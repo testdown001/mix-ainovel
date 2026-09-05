@@ -932,6 +932,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     "forbidden_characters": ", ".join(forbidden_characters) if forbidden_characters else "",
                     "reference_prose": reference_prose_text,
                     "fusion_dna": fusion_dna_text,
+                    "reference_guidance": prompt_stage.reference_guidance_text,
+                    "reference_beats": prompt_stage.reference_beats_text,
                     "creative_memory": creative_memory_context or "",
                     "significance": significance_context or "",
                     "emotional_core": emotional_core_brief(project),

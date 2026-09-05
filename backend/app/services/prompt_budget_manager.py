@@ -56,6 +56,7 @@ class SectionBudget:
 _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "人物意义层": SectionBudget(priority=1, max_tokens=1400),
     "本书情感核心": SectionBudget(priority=1, max_tokens=900),
+    "参考阅读动力与融合指引": SectionBudget(priority=1, max_tokens=1400),
     # TIER 1: 核心指令 — 不截断
     "当前章节目标": SectionBudget(priority=1),
     "剧情推演": SectionBudget(priority=1),

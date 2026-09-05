@@ -16,6 +16,9 @@ search_results: "{search_results}"
 - dialogue_style
 - scene_transition_style
 - emotion_control_pattern
+- reader_expectation：读者在意谁的得失，等待什么可感知的变化；不用“节奏快、爽点密”代替原因
+- payoff_rhythm：期待如何铺垫、阻力中如何给进展、靠何种选择兑现、兑现后如何留余波
+- relationship_pull：人物的亏欠、尊严、归属、信任等关系变化如何产生持续牵挂
 - commercial_data
 - takeaways
 - risks
@@ -42,4 +45,6 @@ search_results: "{search_results}"
 }
 ```
 
+资料不足的字段用空字符串/空数组；不要把示例的情节、数字或题材套入目标作品。
+上述三个阅读动力字段只提炼有资料支持的因果机制，区分读者评价与原文事实，不编造章数或场面。
 务必只返回一段合法 JSON，不要附加任何文字说明。

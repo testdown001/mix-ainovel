@@ -70,6 +70,9 @@ class WebSearchService:
                 )
                 failed_novels.append(normalized_names[index])
                 continue
+            if not isinstance(result, dict) or not (result.get("result") or "").strip():
+                failed_novels.append(normalized_names[index])
+                continue
             successful_results.append(result)
 
         if not successful_results:
@@ -77,7 +80,7 @@ class WebSearchService:
 
         fused_summary = await self._fuse_search_results(
             successful_results=successful_results,
-            all_novel_names=normalized_names,
+            all_novel_names=[item["novel_name"] for item in successful_results],
         )
         context = self._build_reference_context_markdown(
             fused_summary=fused_summary,
@@ -121,8 +124,9 @@ class WebSearchService:
         "pacing": {
             "query": "爽点 节奏 追读 书评 分析",
             "focus": (
-                "爽点的类型与分布密度、章节节奏（多少章一个小高潮、卷末怎么爆）、"
-                "断章钩子的用法、读者对节奏的正负面评价。"
+                "读者为什么在意主角的得失、等待什么回报；期待如何铺垫，阻力中如何给进展，"
+                "什么选择触发兑现，兑现后如何留情绪余波与新的牵挂；人物关系如何驱动追读。"
+                "寻找有依据的例子与读者正负评价，区分书评推断和原文事实，不编造固定高潮章数。"
             ),
         },
         "craft": {
@@ -203,7 +207,7 @@ class WebSearchService:
     @staticmethod
     def _build_dimension_cache_key(*, novel_name: str, dimension: str) -> str:
         digest = hashlib.sha1(novel_name.encode("utf-8")).hexdigest()  # noqa: S324 - non-security hash
-        return f"reference_dim_search:{digest}:{dimension}"
+        return f"reference_dim_search:v2:{digest}:{dimension}"
 
     @staticmethod
     def combine_dimension_texts(dimension_results: Dict[str, str], *keys: str) -> str:
@@ -256,13 +260,16 @@ class WebSearchService:
         system_prompt = (
             "你是资深网文策划编辑。请把多本参考小说的检索结果糅合成可执行的创作参考。"
             "输出必须是 Markdown，且按以下结构：\n"
-            "## 叙事结构共性\n"
+            "## 每本的阅读动力与分工\n"
+            "## 统一叙事声音与冲突取舍\n"
             "## 角色设计模式\n"
             "## 世界观与规则构建\n"
-            "## 节奏与爽点编排\n"
+            "## 期待、进展、兑现与情绪余波\n"
             "## 可直接复用的创作建议（5-8条）\n"
             "## 风险与同质化提醒\n"
-            "要求：结论导向、可操作、避免空话。"
+            "要求：每本都说明可迁移的机制，把它们串在同一条人物因果线上；不分章轮换风格。"
+            "明确读者为何在意、如何获得回报以及关系变化如何延续牵挂；不靠一直拖延答案制造追读。"
+            "没有可靠资料的部分明确标注不足，不编造该书的情节、章数或原文。"
         )
         user_prompt = (
             f"参考小说：{', '.join(all_novel_names)}\n"
@@ -312,7 +319,7 @@ class WebSearchService:
         joined = json.dumps(novel_names, ensure_ascii=False, separators=(",", ":"))
         digest = hashlib.sha1(joined.encode("utf-8")).hexdigest()  # noqa: S324 - non-security hash
         scope = project_id or f"user-{user_id}"
-        return f"reference_search:{scope}:{digest}"
+        return f"reference_search:v2:{scope}:{digest}"
 
     async def _get_cached_context(self, cache_key: str) -> Optional[str]:
         payload: Optional[Any] = await self.cache_service.get(cache_key)

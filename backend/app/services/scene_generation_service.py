@@ -81,6 +81,11 @@ class SceneGenerationService:
                 scene_prompt_parts.append("[精简上下文]\n" + self.compress_context(core_context, max_len=1500))
             if emotional_brief:
                 scene_prompt_parts.append(emotional_brief)
+            reference_guidance = prompt_sections_data.get("reference_guidance") or prompt_sections_data.get("fusion_dna")
+            if reference_guidance:
+                scene_prompt_parts.append("[参考阅读动力与融合指引]\n" + str(reference_guidance)[:2800])
+            if prompt_sections_data.get("reference_beats"):
+                scene_prompt_parts.append("[可选参考桥段——仅用适合本场功能的手法]\n" + str(prompt_sections_data["reference_beats"])[:1200])
             if prompt_sections_data.get("significance"):
                 scene_prompt_parts.append("[人物意义层]\n" + str(prompt_sections_data["significance"]))
             if prompt_sections_data.get("emotional_core"):
@@ -312,7 +317,7 @@ class SceneGenerationService:
             "skill_instructions",
             "scene_plan", "context_strategy",
             "writer_blueprint",
-            "reference_prose", "fusion_dna",
+            "reference_prose",
         ]
         parts = []
         for key in priority_keys:

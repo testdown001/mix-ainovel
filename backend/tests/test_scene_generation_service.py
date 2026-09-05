@@ -100,6 +100,8 @@ def test_scene_calls_keep_emotional_intent_after_background_compression(nested, 
             "significance": "历史心结：不愿将后背交给师兄",
             "emotional_core": "本书情感核心：珍惜一起吃饭的日子",
             "creative_memory": "选中口吻：让停顿承载关心，口吻样本不是正史",
+            "reference_guidance": "参考甲的成长回报+参考乙的关系牵挂；兑现后给情绪留余波",
+            "reference_beats": "承诺回收后以态度变化展示回报",
         },
         writer_prompt="按本章功能写作", chapter_mission=mission,
         forbidden_characters=[], allowed_new_characters=[], user_id=1,
@@ -117,6 +119,9 @@ def test_scene_calls_keep_emotional_intent_after_background_compression(nested, 
         assert "不愿将后背交给师兄" in prompt
         assert "珍惜一起吃饭的日子" in prompt
         assert "让停顿承载关心" in prompt and "不是正史" in prompt
+        assert "参考甲的成长回报+参考乙的关系牵挂" in prompt
+        assert "兑现后给情绪留余波" in prompt
+        assert "承诺回收后以态度变化展示回报" in prompt
     for intent in ("开始接受师姐陪伴", "收回拒绝的话", "两人一起出门", "以关门声收住", "让没接上的问句停一会儿", "旧碗仍留着茶渍"):
         assert intent in calls[-1]
     assert checked[0]["pov"] == "林玄"

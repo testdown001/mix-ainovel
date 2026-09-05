@@ -73,7 +73,10 @@ async def _build_structure_reference(session: AsyncSession, project) -> str:
         novels = await GenerationSupportService(session).load_project_reference_novels(
             project, reference_service
         )
-        return ReferenceBeatService.format_structure_for_blueprint(novels)
+        from ..services.reference_reading_contract import project_contract
+        contract = project_contract(novels, getattr(project, "fusion_dna", None), getattr(project, "reference_novel_ids", None))
+        structure = ReferenceBeatService.format_structure_for_blueprint(novels)
+        return "\n\n".join(part for part in (contract, structure) if part)
     except Exception as exc:  # noqa: BLE001
         logger.warning("蓝图章纲结构参考注入失败(已忽略): %s", exc)
         return ""
@@ -506,17 +509,10 @@ async def generate_blueprint_for_project(
     # ------------------------------------------------------------------
     settings_prompt = _ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
 
-    # 注入融合DNA到蓝图生成 prompt，让蓝图结构直接受参考小说影响
-    if project.fusion_dna:
-        reference_service = ReferenceNovelLibraryService(session)
-        dna_text = reference_service.format_fusion_dna_for_prompt(project.fusion_dna)
-        if dna_text:
-            settings_prompt = (
-                f"{settings_prompt}\n\n"
-                "以下为本项目的「创作DNA融合指引」，基于用户选定的参考小说提炼而来。\n"
-                "请在设计蓝图结构、章节节奏和人物关系时参考这些指引，但保持原创性：\n\n"
-                f"{dna_text}"
-            )
+    # 设定与排章共用当前绑定的阅读动力；旧融合或慢分析也有明确的临时方案。
+    structure_reference = await _build_structure_reference(session, project)
+    if structure_reference:
+        settings_prompt += "\n\n[参考阅读动力与结构手法]\n" + structure_reference
     settings_prompt = _inject_blueprint_exclusions(settings_prompt, exclusions)
     logger.info(
         "项目 %s 蓝图设定段：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
@@ -573,7 +569,6 @@ async def generate_blueprint_for_project(
     )
     # 章纲段注入参考小说的结构手法（分卷节奏/冲突升级/章末钩子）。
     # 此前参考只进设定段（fusion_dna），排章纲这个最需要「剧情思考」的环节反而零参考。
-    structure_reference = await _build_structure_reference(session, project)
     if structure_reference:
         outline_prompt = (
             f"{outline_prompt}\n\n"

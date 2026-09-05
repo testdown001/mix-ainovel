@@ -23,6 +23,7 @@ from ..utils.json_utils import (
 from .llm_service import LLMService
 from .prompt_service import PromptService
 from .web_search_service import WebSearchService
+from .reference_reading_contract import FusionDNA, fallback_dna, fusion_materials, is_current, stamp
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,8 @@ class ReferenceNovelLibraryService:
             return []
         stmt = select(ReferenceNovel).where(ReferenceNovel.id.in_(novel_ids))
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        by_id = {novel.id: novel for novel in result.scalars().all()}
+        return [by_id[rid] for rid in dict.fromkeys(novel_ids) if rid in by_id]
 
     async def get_by_title(self, title: str) -> Optional[ReferenceNovel]:
         stmt = select(ReferenceNovel).where(ReferenceNovel.title == title.strip())
@@ -138,7 +140,7 @@ class ReferenceNovelLibraryService:
             combine = self.search_service.combine_dimension_texts
             outline_context = combine(dimension_results, "plot", "characters")
             style_context = combine(dimension_results, "craft", "plot")
-            memory_card_context = combine(dimension_results, "pacing", "craft", "plot")
+            memory_card_context = combine(dimension_results, "pacing", "characters", "beats", "craft", "plot")
             beats_context = combine(dimension_results, "beats", "pacing", "plot")
 
             outline_prompt = await self.prompt_service.get_prompt("reference_outline_extraction")
@@ -389,7 +391,7 @@ class ReferenceNovelLibraryService:
             system_prompt="你是专业的小说分析助手，擅长从搜索结果中提取小说的核心创作记忆卡。请以合法 JSON 格式回复。",
             conversation_history=[{"role": "user", "content": filled}],
             temperature=0.3,
-            max_tokens=1200,
+            max_tokens=1800,
             config_override=llm_config,
         )
         payload = remove_think_tags(generated).strip()
@@ -529,87 +531,49 @@ class ReferenceNovelLibraryService:
         return None
 
     async def generate_fusion_dna(self, novels: List[ReferenceNovel], user_id: int) -> Dict[str, Any]:
-        """从多本参考小说中提炼融合创作DNA。"""
+        """单本提炼阅读动力，多本生成有分工、有取舍的统一方案。"""
         if not novels:
             return {}
-        if len(novels) == 1:
-            novel = novels[0]
-            mc = novel.memory_card or {}
-            return {
-                "narrative_strategy": f"以《{novel.title}》为核心参考，借鉴其叙事结构和风格",
-                "style_fingerprint": mc.get("dialogue_style", "") or "参考原作风格",
-                "structure_references": [{"from": novel.title, "take": "整体叙事框架", "adapt": "结合本作世界观调整"}],
-                "avoidance_list": [f"不要照搬《{novel.title}》的标志性设定和桥段"],
-                "blended_pacing": mc.get("pacing_traits", "") or "参考原作节奏",
-                "dialogue_style": mc.get("dialogue_style", "") or "参考原作对话风格",
-                "scene_rhythm": mc.get("emotion_control_pattern", "") or "参考原作场景节奏",
-                "key_techniques": mc.get("takeaways", [])[:5] if mc.get("takeaways") else [],
-            }
-
         prompt_template = await self.prompt_service.get_prompt("reference_fusion")
         if not prompt_template:
-            logger.warning("缺失 reference_fusion 提示词，回退到简单拼接")
+            logger.warning("缺失 reference_fusion 提示词，使用临时参考方案")
             return self._build_fallback_fusion_dna(novels)
-
-        materials_parts: List[str] = []
-        for novel in novels:
-            parts = [f"### 《{novel.title}》（{novel.author or '未知作者'}）"]
-            if novel.outline_content:
-                parts.append(f"**大纲摘要**：\n{novel.outline_content[:800]}")
-            if novel.style_samples_content:
-                samples = novel.style_samples_content[:600]
-                parts.append(f"**风格样本**：\n{samples}")
-            if novel.memory_card:
-                card_text = json.dumps(novel.memory_card, ensure_ascii=False, indent=2)
-                parts.append(f"**创作记忆卡**：\n{card_text[:800]}")
-            materials_parts.append("\n".join(parts))
-
-        reference_materials = "\n\n---\n\n".join(materials_parts)
         filled = self.prompt_service.render_prompt(
             prompt_template,
             novel_count=len(novels),
-            reference_materials=reference_materials,
+            reference_materials=fusion_materials(novels),
         )
-
         try:
-            generated = await self.llm_service.generate(
-                filled,
+            generated = await self.llm_service.generate_structured(
+                prompt=filled,
+                schema=FusionDNA,
                 user_id=user_id,
-                max_tokens=2000,
-                response_format="json_object",
+                max_tokens=4000,
+                temperature=0.4,
+                default=None,
             )
-            payload = remove_think_tags(generated).strip()
-            return json.loads(payload)
-        except (json.JSONDecodeError, Exception) as exc:
-            logger.warning("融合DNA生成/解析失败: %s, 回退到简单融合", exc)
+            if generated is None:
+                return self._build_fallback_fusion_dna(novels)
+            payload = generated.model_dump(by_alias=True)
+            sources = [ref["from"] for ref in payload["structure_references"]]
+            if len(sources) != len(novels) or set(sources) != {novel.title for novel in novels}:
+                raise ValueError("融合必须覆盖每本参考且不得引入未选择的书")
+            return stamp(payload, novels, generated=True)
+        except Exception as exc:
+            logger.warning("融合DNA生成/校验失败: %s, 使用临时参考方案", exc)
             return self._build_fallback_fusion_dna(novels)
 
     @staticmethod
     def _build_fallback_fusion_dna(novels: List[ReferenceNovel]) -> Dict[str, Any]:
-        """LLM 不可用时的简单融合回退。"""
-        titles = [n.title for n in novels]
-        all_takeaways: List[str] = []
-        for n in novels:
-            mc = n.memory_card or {}
-            all_takeaways.extend(mc.get("takeaways", [])[:2])
-        return {
-            "narrative_strategy": f"融合借鉴{'/'.join(titles)}的各自优势",
-            "style_fingerprint": "综合多部参考作品的风格特点",
-            "structure_references": [
-                {"from": t, "take": "核心叙事结构", "adapt": "结合本作调整"}
-                for t in titles
-            ],
-            "avoidance_list": [f"不要直接复刻《{t}》的标志性设定" for t in titles],
-            "blended_pacing": "参考多部作品的节奏优势",
-            "dialogue_style": "综合参考",
-            "scene_rhythm": "根据场景类型灵活切换",
-            "key_techniques": all_takeaways[:5],
-        }
+        return fallback_dna(novels)
 
     def format_fusion_dna_for_prompt(self, fusion_dna: Optional[Dict[str, Any]]) -> str:
         """将融合DNA格式化为可注入 prompt 的文本。"""
         if not fusion_dna:
             return ""
+        if fusion_dna.get("version") == 2:
+            from .reference_reading_contract import format_contract
+            return format_contract(fusion_dna)
         parts = []
         if fusion_dna.get("narrative_strategy"):
             parts.append(f"【叙事策略】{fusion_dna['narrative_strategy']}")
@@ -639,7 +603,7 @@ class ReferenceNovelLibraryService:
 
         return "\n\n".join(parts)
 
-    # 注入 prompt 的每本参考素材截断上限（对齐 generate_fusion_dna 的 800/600/800 风格）：
+    # 概念对话补充素材的每书预算；融合分析另按语义字段独立分配预算。
     # 概念对话每轮都会重注这些素材，零截断会造成 token 膨胀。
     _PROMPT_OUTLINE_CHARS = 800
     _PROMPT_STYLE_SAMPLE_CHARS = 600
@@ -707,6 +671,9 @@ class ReferenceNovelLibraryService:
     # 大半预算，截断点落在哪个字段全凭运气，排前面的 genre/target_audience
     # 这类低价值字段反而永远活着。
     _MEMORY_CARD_PROMPT_FIELDS: List[tuple[str, str]] = [
+        ("reader_expectation", "读者期待"),
+        ("payoff_rhythm", "铺垫兑现与余波"),
+        ("relationship_pull", "关系牵挂"),
         ("main_conflict_pattern", "主线冲突模版"),
         ("core_selling_point", "核心卖点"),
         ("cool_point_patterns", "爽点模式"),
@@ -761,11 +728,13 @@ class ReferenceNovelLibraryService:
                 lines.append(f"- 读者最大魅力点：{charm}")
             blocks.append("\n".join(lines))
 
-        if not blocks and isinstance(fusion_dna, dict):
+        if isinstance(fusion_dna, dict) and (not blocks or is_current(fusion_dna, novels or [])):
             engine = str(fusion_dna.get("narrative_strategy") or "").strip()
             charm_parts = [
                 str(fusion_dna.get("style_fingerprint") or "").strip(),
             ]
+            loop = fusion_dna.get("reader_loop") or {}
+            charm_parts.extend(str(loop.get(key) or "").strip() for key in ("desire", "promise", "payoff"))
             techniques = fusion_dna.get("key_techniques") or []
             if isinstance(techniques, list):
                 charm_parts.append("；".join(str(item).strip() for item in techniques[:3] if str(item).strip()))
@@ -776,7 +745,7 @@ class ReferenceNovelLibraryService:
                     lines.append(f"- 核心底层逻辑：{engine}")
                 if charm:
                     lines.append(f"- 读者最大魅力点：{charm}")
-                blocks.append("\n".join(lines))
+                blocks.insert(0, "\n".join(lines))
 
         if not blocks:
             return ""
