@@ -19,6 +19,7 @@ from app.services.consistency_service import (
 from app.services.enrichment_service import EnrichmentService
 from app.services.humanization_service import HumanizationService
 from app.services.pipeline_review import PipelineReviewMixin
+from app.services.llm_service import LLMService
 
 CHAPTER_BODY = (
     "雨声砸在青瓦上，沈砚推开窗，冷风卷着潮气扑进屋内。"
@@ -49,6 +50,8 @@ JSON_GARBAGE = json.dumps(
 
 class _RecordingLLM:
     """记录调用参数的 LLM 桩，统一覆盖 generate / get_llm_response / get_optimize_llm_response。"""
+
+    generate_structured = LLMService.generate_structured
 
     def __init__(self, response: str):
         self.response = response
@@ -185,7 +188,7 @@ def test_combined_revision_rejects_analysis_text():
 
     assert content == CHAPTER_BODY
     assert report["applied"] is False
-    assert report["reason"] == "invalid_chapter_response"
+    assert report["reason"] == "revision_unavailable"
 
 
 def test_combined_revision_rejects_too_short_result():
@@ -205,11 +208,14 @@ def test_combined_revision_rejects_too_short_result():
 
     assert content == original
     assert report["applied"] is False
-    assert report["reason"] == "too_short"
+    assert report["reason"] == "revision_unavailable"
 
 
-def test_combined_revision_accepts_valid_chapter():
-    harness = _ReviewHarness(CHAPTER_BODY)
+def test_combined_revision_accepts_valid_local_plan():
+    harness = _ReviewHarness(json.dumps({
+        "emotional_review": {"summary": "保留未寄出的信，只改一个动词。", "issues": [], "protected_passages": []},
+        "edits": [{"before": "沈砚推开窗", "after": "沈砚支起窗", "reason": "动作具体"}],
+    }, ensure_ascii=False))
 
     content, report = asyncio.run(
         harness._run_combined_revision(
@@ -222,7 +228,7 @@ def test_combined_revision_accepts_valid_chapter():
         )
     )
 
-    assert content == CHAPTER_BODY
+    assert content == CHAPTER_BODY.replace("沈砚推开窗", "沈砚支起窗")
     assert report["applied"] is True
 
 

@@ -84,6 +84,8 @@
       </div>
     </div>
 
+    <EmotionalReviewPanel :version="availableVersions[selectedVersionIndex]" />
+
     <!-- 版本选择器 -->
     <div class="md-card md-card-outlined p-4" style="border-radius: var(--md-radius-xl);">
       <div class="flex items-center justify-between mb-4">
@@ -198,6 +200,7 @@
 <script setup lang="ts">
 import type { Chapter, ChapterGenerationResponse, ChapterVersion } from '@/api/novel'
 import { cleanVersionContent } from '@/utils/versionContent'
+import EmotionalReviewPanel from './EmotionalReviewPanel.vue'
 
 interface Props {
   selectedChapter: Chapter | null

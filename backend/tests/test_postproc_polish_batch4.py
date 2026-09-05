@@ -224,25 +224,9 @@ def test_quality_detection_prompt_shared_and_no_cr():
     )
     template = pipeline_review_module.QUALITY_DETECTION_PROMPT_TEMPLATE
     assert "\r" not in template
-    # 快照锁定关键内容（除 \r 外与去重前一致）
-    assert template.startswith("你是一位资深网文质量分析师。请分析以下章节的四个维度，输出JSON。")
-    assert "prose_discipline_score" in template
-    assert "pov_leak_detected" in template
-    assert "metaphorical_ending_detected" in template
-    assert "### 1. 爽点密度" in template
-    assert "### 2. 模式重复" in template
-    assert "### 3. 阶段性胜利 (Milestone Victory)" in template
-    assert "[本章开头300字]\n{opening_300}" in template
-    assert "[本章结尾300字]\n{ending_300}" in template
-    assert "[本章预期]\n{expected_beat}" in template
-    assert "[近期章节开头对比]\n{recent_patterns}" in template
-    assert (
-        '{{"coolpoint_score": 0, "coolpoint_moments": [], "coolpoint_issue": "", '
-        '"repetition_score": 0, "repetition_issues": [], "within_chapter_repetition": [], '
-        '"milestone_victory_detected": false, "milestone_description": "", '
-        '"prose_discipline_score": 0, "prose_discipline_issues": [], '
-        '"pov_leak_detected": false, "metaphorical_ending_detected": false}}'
-    ) in template
+    assert "[本章全文]\n{content}" in template
+    assert "不能据此判断开头句式或结尾套路" in template
+    assert "{rules}" in template
 
 
 @pytest.mark.asyncio
@@ -250,14 +234,19 @@ async def test_run_quality_detection_renders_shared_prompt():
     captured: dict = {}
 
     class _LLM:
-        async def get_llm_response(self, *, system_prompt, conversation_history, **kwargs):
-            captured["prompt"] = conversation_history[0]["content"]
-            return '{"coolpoint_score": 7, "repetition_score": 8}'
+        async def generate_structured(self, *, prompt, schema, **kwargs):
+            captured["prompt"] = prompt
+            return schema(
+                coolpoint_score=7, coolpoint_moments=[], coolpoint_issue="", repetition_score=8,
+                repetition_issues=[], within_chapter_repetition=[], milestone_victory_detected=False,
+                milestone_description="", prose_discipline_score=8, prose_discipline_issues=[],
+                pov_leak_detected=False, metaphorical_ending_detected=False,
+                emotional_review={"summary": "未发现可定位的问题", "issues": [], "protected_passages": []})
 
     obj = PipelineReviewMixin()
     obj.llm_service = _LLM()
     result = await obj._run_quality_detection(
-        "正文内容" * 100,
+        "正文内容" * 100 + "中段的取舍" + "余波" * 300,
         chapter_number=5,
         chapter_mission={"macro_beat_description": "决战序幕", "satisfaction_design": {"type": "扮猪吃虎"}},
         previous_chapters_openings=["前章开头A"],
@@ -268,10 +257,10 @@ async def test_run_quality_detection_renders_shared_prompt():
     assert "\r" not in prompt
     assert "决战序幕" in prompt
     assert "扮猪吃虎" in prompt
-    assert "第1个近期章节开头：前章开头A" in prompt
-    assert prompt.startswith("你是一位资深网文质量分析师")
-    # format 后双大括号收敛为单层 JSON 示例
-    assert '{"coolpoint_score": 0' in prompt
+    assert "前章开头A" in prompt
+    assert "中段的取舍" in prompt
+    assert "[本章全文]" in prompt
+    assert result["coverage"] == "full_chapter"
     assert result["coolpoint_score"] == 7
 
 

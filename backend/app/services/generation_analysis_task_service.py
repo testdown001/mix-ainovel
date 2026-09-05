@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -10,10 +9,9 @@ from sqlalchemy import select
 
 from ..db.session import AsyncSessionLocal
 from ..models.novel import ChapterVersion
-from ..utils.json_utils import remove_think_tags, repair_json, unwrap_markdown_json
 from .enhanced_review_service import EnhancedReviewService
 from .llm_service import LLMService
-from .pipeline_review import QUALITY_DETECTION_PROMPT_TEMPLATE
+from .emotional_editing_service import QUALITY_DETECTION_PROMPT_TEMPLATE, review_chapter_quality, text_hash
 from .prompt_service import PromptService
 
 logger = logging.getLogger(__name__)
@@ -48,13 +46,14 @@ class GenerationAnalysisTaskService:
                         if not enable_reader_sim:
                             return
                         try:
-                            from .reader_simulator_service import ReaderSimulatorService, ReaderType
+                            from .reader_simulator_service import ReaderSimulatorService, select_reader_types
 
                             service = ReaderSimulatorService(session, llm_service, prompt_service)
                             feedback = await service.simulate_reading_experience(
                                 chapter_content=analysis_snapshot,
                                 chapter_number=chapter_number,
-                                reader_types=[ReaderType.THRILL_SEEKER, ReaderType.CRITIC, ReaderType.CASUAL],
+                                reader_types=select_reader_types(chapter_mission),
+                                chapter_mission=chapter_mission,
                                 previous_summary=previous_summary,
                                 user_id=user_id,
                             )
@@ -123,52 +122,17 @@ class GenerationAnalysisTaskService:
 
                     async def _bg_quality_detection() -> None:
                         try:
-                            recent_openings = [
-                                chapter["summary"][:200]
-                                for chapter in completed_chapters
-                                if chapter.get("summary")
-                            ][-3:]
-                            opening_300 = analysis_snapshot[:300] if len(analysis_snapshot) > 300 else analysis_snapshot
-                            ending_300 = analysis_snapshot[-300:] if len(analysis_snapshot) > 300 else analysis_snapshot
-
-                            recent_patterns = ""
-                            if recent_openings:
-                                recent_patterns = "\n".join(
-                                    f"第{i+1}个近期章节开头：{opening[:200]}"
-                                    for i, opening in enumerate(recent_openings[-3:])
-                                )
-
-                            expected_beat = ""
-                            if chapter_mission:
-                                expected_beat = chapter_mission.get("macro_beat_description", "")
-                                sat_type = chapter_mission.get("satisfaction_design", {}).get("type", "")
-                                if sat_type:
-                                    expected_beat += f"（爽感类型：{sat_type}）"
-
-                            detection_prompt = QUALITY_DETECTION_PROMPT_TEMPLATE.format(
-                                opening_300=opening_300,
-                                ending_300=ending_300,
-                                expected_beat=expected_beat or "无特定预期",
-                                recent_patterns=recent_patterns or "无（这是前几章）",
+                            recent = "\n".join(
+                                f"第{chapter.get('chapter_number', '?')}章摘要（不是正文）：{chapter['summary'][:1000]}"
+                                for chapter in completed_chapters[-3:] if chapter.get("summary")
                             )
-
-                            response = await llm_service.get_llm_response(
-                                system_prompt="你是一位擅长量化分析网文质量的编辑。只输出JSON，不要其他内容。",
-                                conversation_history=[{"role": "user", "content": detection_prompt}],
-                                temperature=0.2,
-                                user_id=user_id,
-                                timeout=60.0,
+                            results["quality_detection"] = await review_chapter_quality(
+                                llm_service, analysis_snapshot, chapter_mission=chapter_mission,
+                                recent_patterns=recent, user_id=user_id,
                             )
-                            cleaned = remove_think_tags(response)
-                            normalized = unwrap_markdown_json(cleaned or response)
-                            try:
-                                result = json.loads(normalized)
-                            except json.JSONDecodeError:
-                                result = json.loads(repair_json(normalized))
-                            results["quality_detection"] = result
                         except Exception as exc:
                             logger.warning("后台质量检测失败: %s", exc)
-                            results["quality_detection"] = {"error": str(exc), "coolpoint_score": -1, "repetition_score": -1}
+                            results["quality_detection"] = {"status": "unavailable", "error": str(exc), "coolpoint_score": -1, "repetition_score": -1}
 
                     await asyncio.gather(
                         _bg_reader_sim(),
@@ -179,9 +143,16 @@ class GenerationAnalysisTaskService:
                     if results:
                         db_result = await session.execute(
                             select(ChapterVersion).where(ChapterVersion.id == version_id)
+                            .execution_options(populate_existing=True).with_for_update()
                         )
                         version = db_result.scalars().first()
                         if version:
+                            if version.content != analysis_snapshot:
+                                logger.info("丢弃旧稿 Stage B 评审 version_id=%s", version_id)
+                                return
+                            for report in results.values():
+                                if isinstance(report, dict):
+                                    report["source_sha256"] = text_hash(analysis_snapshot)
                             metadata = dict(version.metadata_ or {})
                             review_summaries = dict(metadata.get("review_summaries") or {})
                             review_summaries.update(results)
@@ -231,6 +202,7 @@ class GenerationAnalysisTaskService:
 
                     db_result = await session.execute(
                         select(ChapterVersion).where(ChapterVersion.id == version_id)
+                        .execution_options(populate_existing=True).with_for_update()
                     )
                     version = db_result.scalars().first()
                     if not version:
@@ -242,6 +214,8 @@ class GenerationAnalysisTaskService:
                         )
                         return
 
+                    if version.content != chapter_content:
+                        return
                     metadata = dict(version.metadata_ or {})
                     review_summaries = dict(metadata.get("review_summaries") or {})
                     review_summaries["enhanced_review"] = result

@@ -6,6 +6,7 @@ import asyncio
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional
 
+from .emotional_editing_service import preserve_passages
 from .writer_shared import rewrite_with_guardrails as _shared_rewrite_with_guardrails
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,15 @@ class StandardPostProcessingService:
     ) -> Dict[str, Any]:
         orchestrator = self.orchestrator
         stage_timings_ms: Dict[str, int] = {}
+        protected_passages: list[dict] = []
+        preservation_events: list[dict] = []
+
+        def _accept_style(before: str, after: str, report: Optional[dict], stage: str):
+            accepted, rejection = preserve_passages(before, after, protected_passages)
+            if rejection:
+                preservation_events.append({"stage": stage, **rejection})
+                report = {**(report or {}), **rejection}
+            return accepted, report
 
         # 分步计时：这条链是 6-10 次顺序 LLM 调用，此前整条只有外层一个
         # stage_a_post_processing span，耗时是一整块黑盒——要判断该优化哪一步，
@@ -112,6 +122,10 @@ class StandardPostProcessingService:
                     max_word_count=chapter_word_count_max,
                 )
                 review_summaries["combined_revision"] = combined_report
+                protected_passages = [
+                    p for p in (combined_report.get("emotional_review") or {}).get("protected_passages", [])
+                    if p.get("quote") and p["quote"] in best_content
+                ]
                 _step("post_combined_revision", _started)
 
         consistency_enabled = config.enable_consistency
@@ -144,6 +158,7 @@ class StandardPostProcessingService:
                 _do_humanization_scan(),
             )
             best_content = consistency_content
+            protected_passages = [p for p in protected_passages if p["quote"] in best_content]
             review_summaries["consistency"] = consistency_report
             # 并行段：人味化扫描是纯规则（无 LLM），耗时实际等于一致性检查那次调用
             _step("post_consistency", _started)
@@ -154,12 +169,17 @@ class StandardPostProcessingService:
                 # consistency 可能已改动正文，apply_rule_fixes 不传 report 使其基于最新正文重扫。
                 try:
                     humanized = False
+                    before_style = best_content
                     best_content = h_service.apply_rule_fixes(best_content)
+                    best_content, _ = _accept_style(before_style, best_content, None, "humanization")
                     h_report = h_service.scan(best_content)
                     if h_report.score < config.humanization_threshold:
                         _started = await _begin("post_humanization")
-                        best_content = await h_service.humanize(best_content, h_report, user_id=user_id)
-                        humanized = True
+                        before_style = best_content
+                        best_content = await h_service.humanize(best_content, h_report, user_id=user_id,
+                            **({"protected_passages": protected_passages} if protected_passages else {}))
+                        best_content, _ = _accept_style(before_style, best_content, None, "humanization")
+                        humanized = best_content != before_style
                         _step("post_humanization", _started)
                     review_summaries["humanization"] = {
                         "score": h_report.score,
@@ -179,6 +199,7 @@ class StandardPostProcessingService:
                     user_id=user_id,
                 )
                 review_summaries["consistency"] = consistency_report
+                protected_passages = [p for p in protected_passages if p["quote"] in best_content]
                 _step("post_consistency", _started)
 
             if humanization_enabled:
@@ -188,13 +209,18 @@ class StandardPostProcessingService:
                     # 先跑免费规则修复再重扫，仍低于阈值才动用 LLM——对齐 fast/literary 的
                     # scan→fix→rescan 模式
                     h_report = h_service.scan(best_content)
+                    before_style = best_content
                     best_content = h_service.apply_rule_fixes(best_content, h_report)
+                    best_content, _ = _accept_style(before_style, best_content, None, "humanization")
                     h_report = h_service.scan(best_content)
                     humanized = False
                     if h_report.score < config.humanization_threshold:
                         _started = await _begin("post_humanization")
-                        best_content = await h_service.humanize(best_content, h_report, user_id=user_id)
-                        humanized = True
+                        before_style = best_content
+                        best_content = await h_service.humanize(best_content, h_report, user_id=user_id,
+                            **({"protected_passages": protected_passages} if protected_passages else {}))
+                        best_content, _ = _accept_style(before_style, best_content, None, "humanization")
+                        humanized = best_content != before_style
                         _step("post_humanization", _started)
                     review_summaries["humanization"] = {
                         "score": h_report.score,
@@ -255,13 +281,16 @@ class StandardPostProcessingService:
                     and len(best_content) >= chapter_word_count_max * 0.90
                 )
                 _started = await _begin("post_optimizer")
+                before_style = best_content
                 best_content, optimizer_report = await orchestrator._run_optimizer(
                     best_content,
                     user_id=user_id,
                     include_polish=merge_polish,
                     include_density=merge_density,
                     max_word_count=chapter_word_count_max,
+                    **({"protected_passages": protected_passages} if protected_passages else {}),
                 )
+                best_content, optimizer_report = _accept_style(before_style, best_content, optimizer_report, "optimizer")
                 review_summaries["optimizer"] = optimizer_report
                 _step("post_optimizer", _started)
                 # optimizer 失败会原样返回入参文本（applied=False），此时合并进去的润色/压缩
@@ -298,11 +327,14 @@ class StandardPostProcessingService:
             # 付费必交付：enable_polish 只可能来自用户勾选（preset 不再强开），
             # 已按 credits.price.polish 先扣费，不允许被时间预算跳过
             _started = await _begin("post_polish")
+            before_style = best_content
             best_content, polish_report = await orchestrator._run_polish(
                 best_content,
                 user_id=user_id,
                 max_word_count=chapter_word_count_max,
+                **({"protected_passages": protected_passages} if protected_passages else {}),
             )
+            best_content, polish_report = _accept_style(before_style, best_content, polish_report, "polish")
             review_summaries["polish"] = polish_report
             _step("post_polish", _started)
 
@@ -311,6 +343,7 @@ class StandardPostProcessingService:
                 skipped_for_budget.append("enrichment")
             else:
                 _started = await _begin("post_enrichment")
+                before_style = best_content
                 best_content, enrichment_report = await orchestrator._run_enrichment(
                     best_content,
                     user_id=user_id,
@@ -318,6 +351,7 @@ class StandardPostProcessingService:
                     min_word_count=chapter_word_count_min,
                     max_word_count=chapter_word_count_max,
                 )
+                best_content, enrichment_report = _accept_style(before_style, best_content, enrichment_report, "enrichment")
                 _step("post_enrichment", _started)
                 if enrichment_report:
                     if enrichment_trigger:
@@ -335,11 +369,14 @@ class StandardPostProcessingService:
                     review_summaries["density_compression"] = {"applied": False, "reason": "below_90pct_max"}
                 else:
                     _started = await _begin("post_density_compression")
+                    before_style = best_content
                     best_content, density_report = await orchestrator._run_density_compression(
                         best_content,
                         user_id=user_id,
                         max_word_count=chapter_word_count_max,
+                        **({"protected_passages": protected_passages} if protected_passages else {}),
                     )
+                    best_content, density_report = _accept_style(before_style, best_content, density_report, "density_compression")
                     review_summaries["density_compression"] = density_report
                     _step("post_density_compression", _started)
 
@@ -412,9 +449,12 @@ class StandardPostProcessingService:
                                 enable_self_critique=False,
                                 chapter_mission=chapter_mission,
                                 user_id=user_id,
-                                context=history_context,
+                                context={**history_context, "protected_passages": protected_passages},
                                 max_word_count=chapter_word_count_max,
                             )
+                            refined_content, revision_meta = _accept_style(
+                                best_content, refined_content, revision_meta, "auto_refine")
+                            review_summaries["auto_refine_revision"] = revision_meta
                             _step("post_auto_refine", _started)
                             if revision_meta.get("applied"):
                                 refiner_summary: Dict[str, Any] = {
@@ -505,6 +545,9 @@ class StandardPostProcessingService:
             )
             review_summaries["time_budget"] = {"exceeded": True, "skipped": skipped_for_budget}
 
+        stage_b_params["analysis_snapshot"] = best_content
+        if preservation_events:
+            review_summaries["passage_preservation"] = {"events": preservation_events}
         best_version["content"] = best_content
         best_version.setdefault("metadata", {})["review_summaries"] = review_summaries
 

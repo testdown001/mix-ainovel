@@ -281,6 +281,7 @@ class HumanizationService:
         report: HumanizationReport,
         *,
         user_id: int,
+        protected_passages: list[dict] | None = None,
     ) -> str:
         """根据 scan 报告，调用 LLM 做定向修复。返回修复后的文本。"""
         system_prompt = await self.prompt_service.get_prompt("humanize")
@@ -288,9 +289,11 @@ class HumanizationService:
             logger.warning("未配置 humanize 提示词模板，跳过人味化修复")
             return text
 
+        from .emotional_editing_service import preservation_hint
+
         # 填充模板变量
         filled_prompt = system_prompt.replace("{{scan_report}}", report.summary_for_prompt())
-        filled_prompt = filled_prompt.replace("{{original_text}}", text)
+        filled_prompt = filled_prompt.replace("{{original_text}}", text) + preservation_hint(protected_passages)
 
         try:
             response = await self.llm_service.get_llm_response(

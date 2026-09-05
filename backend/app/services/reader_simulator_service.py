@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..utils.json_utils import parse_llm_json
 from .llm_service import LLMService
 from .prompt_service import PromptService
+from .chapter_mission_context import inline_value, mission_value
+from .emotional_editing_service import mission_brief
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,18 @@ class ReaderType(str, Enum):
     EMOTIONAL = "emotional"  # 情感读者：追求情感共鸣
     THRILL_SEEKER = "thrill_seeker"  # 爽点读者：追求爽感
     CRITIC = "critic"  # 挑剔读者：追求文笔质量
+
+
+def select_reader_types(chapter_mission: Optional[dict]) -> List[ReaderType]:
+    """Keep three readers; always include attachment, vary the third by chapter intent."""
+    intent = inline_value(mission_value(chapter_mission, "chapter_function", "chapter_type")).lower()
+    if any(word in intent for word in ("日常", "关系", "余波", "过渡", "休整", "daily", "relationship", "aftermath", "transition")):
+        third = ReaderType.CASUAL
+    elif any(word in intent for word in ("悬疑", "推理", "解谜", "mystery", "investigation")):
+        third = ReaderType.HARDCORE
+    else:
+        third = ReaderType.THRILL_SEEKER
+    return [ReaderType.EMOTIONAL, ReaderType.CRITIC, third]
 
 
 class ReaderSimulatorService:
@@ -88,7 +102,8 @@ class ReaderSimulatorService:
         chapter_number: int,
         reader_types: Optional[List[ReaderType]] = None,
         previous_summary: Optional[str] = None,
-        user_id: int = 0
+        user_id: int = 0,
+        chapter_mission: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """
         模拟阅读体验
@@ -96,8 +111,10 @@ class ReaderSimulatorService:
         Returns:
             包含各类读者反馈的综合报告
         """
-        if reader_types is None:
-            reader_types = list(ReaderType)
+        if len(chapter_content) > 30000:
+            return {"status": "unavailable", "reason": "chapter_too_long"}
+        if not reader_types:
+            reader_types = select_reader_types(chapter_mission)
         
         results = {
             "overall_score": 0,
@@ -113,16 +130,18 @@ class ReaderSimulatorService:
         results["thrill_points"] = thrill_points
         
         # 2. 模拟各类读者反馈
-        total_score = 0
+        scores = []
         for reader_type in reader_types:
             feedback = await self._simulate_single_reader(
                 chapter_content, chapter_number, reader_type, 
-                thrill_points, previous_summary, user_id
+                thrill_points, previous_summary, user_id, chapter_mission=chapter_mission,
             )
             results["reader_feedbacks"][reader_type.value] = feedback
-            total_score += feedback.get("satisfaction", 50)
+            if feedback.get("status") != "unavailable":
+                scores.append(feedback["satisfaction"])
         
-        results["overall_score"] = round(total_score / len(reader_types), 1)
+        results["overall_score"] = round(sum(scores) / len(scores), 1) if scores else None
+        results["status"] = "completed" if len(scores) == len(reader_types) else "partial" if scores else "unavailable"
         
         # 3. 评估弃书风险
         results["abandon_risks"] = self._evaluate_abandon_risks(results["reader_feedbacks"])
@@ -144,7 +163,7 @@ class ReaderSimulatorService:
         prompt = f"""分析以下章节内容，找出所有"爽点"（让读者感到兴奋、满足、痛快的情节点）。
 
 [章节内容]
-{chapter_content[:8000]}
+{chapter_content}
 
 爽点类型包括但不限于：
 - 打脸：主角或正派打脸反派/小人
@@ -184,7 +203,13 @@ class ReaderSimulatorService:
             
             result = parse_llm_json(response, default=None)
             if isinstance(result, dict):
-                return result.get("thrill_points", [])
+                points = result.get("thrill_points")
+                if isinstance(points, list):
+                    return [point for point in points if isinstance(point, dict)
+                            and isinstance(point.get("intensity"), (int, float))
+                            and 0 <= point["intensity"] <= 10
+                            and isinstance(point.get("quote"), str)
+                            and point["quote"] and point["quote"] in chapter_content][:10]
         except Exception as e:
             logger.warning(f"检测爽点失败: {e}")
         
@@ -197,7 +222,8 @@ class ReaderSimulatorService:
         reader_type: ReaderType,
         thrill_points: List[Dict[str, Any]],
         previous_summary: Optional[str],
-        user_id: int
+        user_id: int,
+        chapter_mission: Optional[dict] = None,
     ) -> Dict[str, Any]:
         """模拟单个类型读者的阅读体验"""
         profile = self.READER_PROFILES[reader_type]
@@ -214,10 +240,16 @@ class ReaderSimulatorService:
 - 弃书触发点：{', '.join(profile['abandon_triggers'])}
 
 [上一章摘要]
-{previous_summary or '这是第一章'}
+{previous_summary or '未提供前文，不据此判断跨章连续性'}
+
+[章节功能与阅读约定]
+{mission_brief(chapter_mission)}
+尊重本章的快慢安排，不用爽点数量代替阅读感受。平静、日常和未说出口也能形成期待。
+情感不只指爱情：留意尊严、亲情、友情、恐惧与取舍。每条亮点或槽点附原文短引，
+说明人物做了什么让你在意；缺少前文证据不推断连续几章的模式。
 
 [本章内容]
-{chapter_content[:6000]}
+{chapter_content}
 
 [本章爽点数量]
 {len(thrill_points)} 个
@@ -245,7 +277,11 @@ class ReaderSimulatorService:
             )
             
             result = parse_llm_json(response, default=None)
-            if isinstance(result, dict):
+            if (isinstance(result, dict)
+                    and isinstance(result.get("satisfaction"), (int, float))
+                    and 0 <= result["satisfaction"] <= 100
+                    and isinstance(result.get("abandon_risk"), (int, float))
+                    and 0 <= result["abandon_risk"] <= 10):
                 result["thrill_score"] = thrill_score
                 result["reader_type"] = reader_type.value
                 return result
@@ -254,12 +290,13 @@ class ReaderSimulatorService:
         
         # 返回默认值
         return {
-            "satisfaction": 50,
+            "status": "unavailable",
+            "satisfaction": None,
             "emotions": [],
             "highlights": [],
             "complaints": [],
-            "would_continue": True,
-            "abandon_risk": 5,
+            "would_continue": None,
+            "abandon_risk": None,
             "comment": "无法评价",
             "thrill_score": thrill_score,
             "reader_type": reader_type.value
@@ -287,6 +324,8 @@ class ReaderSimulatorService:
         risks = []
         
         for reader_type, feedback in reader_feedbacks.items():
+            if feedback.get("status") == "unavailable":
+                continue
             abandon_risk = feedback.get("abandon_risk", 5)
             if abandon_risk >= 7:
                 profile = self.READER_PROFILES.get(ReaderType(reader_type), {})
@@ -333,13 +372,16 @@ class ReaderSimulatorService:
             )
             
             result = parse_llm_json(response, default=None)
-            if isinstance(result, dict):
+            if (isinstance(result, dict)
+                    and isinstance(result.get("hook_strength"), (int, float))
+                    and 0 <= result["hook_strength"] <= 10):
                 return result
         except Exception as e:
             logger.warning(f"评估钩子强度失败: {e}")
         
         return {
-            "hook_strength": 5,
+            "status": "unavailable",
+            "hook_strength": None,
             "hook_type": "未知",
             "hook_description": "",
             "improvement_suggestion": ""
@@ -351,15 +393,10 @@ class ReaderSimulatorService:
         
         # 基于整体得分
         overall_score = results.get("overall_score", 50)
-        if overall_score < 60:
+        if overall_score is not None and overall_score < 60:
             recommendations.append("整体满意度偏低，需要重点优化")
         
-        # 基于爽点数量
-        thrill_count = len(results.get("thrill_points", []))
-        if thrill_count == 0:
-            recommendations.append("本章缺少爽点，建议增加至少 1-2 个爽点")
-        elif thrill_count < 2:
-            recommendations.append("爽点数量偏少，可以适当增加")
+        # 爽点计数仅作观察；是否需要兑现由本章功能和具体读者反馈判断。
         
         # 基于弃书风险
         abandon_risks = results.get("abandon_risks", [])
@@ -374,7 +411,7 @@ class ReaderSimulatorService:
         hook_data = results.get("hook_strength", {})
         if isinstance(hook_data, dict):
             hook_strength = hook_data.get("hook_strength", 5)
-            if hook_strength < 6:
+            if isinstance(hook_strength, (int, float)) and hook_strength < 6:
                 recommendations.append(
                     f"章节结尾钩子较弱（{hook_strength}/10），"
                     f"建议：{hook_data.get('improvement_suggestion', '增加悬念')}"
@@ -409,6 +446,8 @@ class ReaderSimulatorService:
             reader_types=[ReaderType.THRILL_SEEKER, ReaderType.CRITIC],
             user_id=user_id
         )
+        if results.get("status") == "unavailable":
+            return "# 读者模拟反馈\n本次无法可靠评估，不据此修改正文。"
         
         lines = [
             "# 读者模拟反馈\n",
