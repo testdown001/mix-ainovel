@@ -44,6 +44,7 @@ from ...schemas.world_state import (
 )
 from ...schemas.user import UserInDB
 from ...services.blueprint_generation_service import generate_blueprint_for_project
+from ...services.inspiration_diagnostics import record_inspiration_error
 from ...services.generation_billing_service import (
     blueprint_deep_price,
     charge_cover_generation,
@@ -1030,6 +1031,10 @@ async def converse_with_concept(
         repaired = repair_json(sanitized)
         parsed = json.loads(repaired)
     except json.JSONDecodeError as exc:
+        error_reference = await record_inspiration_error(
+            project_id=project_id, user_id=current_user.id,
+            raw=llm_response, kind="invalid_json",
+        )
         logger.exception(
             "Failed to parse concept converse response: project_id=%s user_id=%s error=%s\nOriginal response: %s\nNormalized: %s\nSanitized: %s\nRepaired: %s",
             project_id,
@@ -1042,10 +1047,12 @@ async def converse_with_concept(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"概念对话失败，AI 返回的内容格式不正确。请重试或联系管理员。错误详情: {str(exc)}"
+            detail=f"AI 回复格式不正确，请重试。已有构思已保留。诊断编号：{error_reference}"
         ) from exc
 
     if not isinstance(parsed, dict):
+        await record_inspiration_error(project_id=project_id, user_id=current_user.id,
+                                       raw=llm_response, kind="invalid_object")
         logger.error(
             "概念对话响应不是 JSON 对象，不落库: project_id=%s user_id=%s type=%s",
             project_id,
@@ -1081,6 +1088,8 @@ async def converse_with_concept(
     try:
         response = ConverseResponse(**parsed)
     except ValidationError as exc:
+        await record_inspiration_error(project_id=project_id, user_id=current_user.id,
+                                       raw=llm_response, kind="invalid_schema")
         logger.error(
             "概念对话响应缺少必要字段，不落库脏 assistant 消息: project_id=%s user_id=%s error=%s",
             project_id,

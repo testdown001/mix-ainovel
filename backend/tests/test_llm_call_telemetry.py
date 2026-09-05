@@ -7,6 +7,8 @@
 4. /llm-calls/summary 与 /llm-calls 的聚合与过滤（直接调用路由函数，绕过 Depends）。
 """
 import asyncio
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -16,6 +18,9 @@ import app.models  # noqa: F401  触发全部 mapper 注册
 from app.services.llm_service import LLMService
 from app.services.api_usage_recorder import record_call_log
 from app.api.routers.admin import _percentile, llm_calls, llm_calls_summary
+from app.models.llm_call_log import LLMCallLog
+from app.services.api_usage_recorder import prune_call_logs
+from sqlalchemy import select
 
 
 def _svc() -> LLMService:
@@ -80,3 +85,53 @@ async def test_record_and_summary_and_filter(db_session):
     assert len(only_err["calls"]) == 1
     assert only_err["calls"][0]["error_message"] == "boom"
     assert only_err["calls"][0]["http_status"] == 500
+
+
+@pytest.mark.asyncio
+async def test_retention_filters_and_physically_deletes_expired_rows(db_session):
+    now = datetime.utcnow()
+    for age in (71, 73, 200):
+        db_session.add(LLMCallLog(created_at=now - timedelta(hours=age), status="error"))
+    await db_session.commit()
+    # 即使定时清理尚未运行，列表和旧客户端 7d 汇总也不能显示过期记录。
+    result = await llm_calls(session=db_session, _=None)
+    assert len(result["calls"]) == 1
+    for window in ("3d", "7d"):
+        result = await llm_calls_summary(window=window, session=db_session, _=None)
+        assert sum(c["total"] for c in result["channels"]) == 1
+    await prune_call_logs(db_session)
+    assert len((await db_session.execute(select(LLMCallLog))).scalars().all()) == 1
+
+
+@pytest.mark.asyncio
+async def test_inspiration_diagnostic_has_metadata_without_content(db_session, monkeypatch):
+    from contextlib import asynccontextmanager
+    from app.services import inspiration_diagnostics as diagnostics
+
+    @asynccontextmanager
+    async def session_factory():
+        yield db_session
+
+    monkeypatch.setattr(diagnostics, "AsyncSessionLocal", session_factory)
+    raw = "secret-novel-content bearer private-key"
+    reference = await diagnostics.record_inspiration_error(
+        project_id="project-test", user_id=1, raw=raw, kind="invalid_json")
+    rows = (await db_session.execute(select(LLMCallLog))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].error_type == "invalid_json"
+    assert reference in rows[0].error_message
+    assert "project-test" in rows[0].error_message
+    assert raw not in rows[0].error_message
+    assert "private-key" not in rows[0].error_message
+    await diagnostics.record_inspiration_error(
+        project_id="project-test", user_id=1, raw=" \n\t", kind="invalid_json")
+    rows = (await db_session.execute(select(LLMCallLog))).scalars().all()
+    assert rows[-1].error_type == "empty_response"
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_failure_does_not_mask_generation_error(monkeypatch):
+    from app.services import inspiration_diagnostics as diagnostics
+    monkeypatch.setattr(diagnostics, "record_call_log", AsyncMock(side_effect=RuntimeError("db down")))
+    assert await diagnostics.record_inspiration_error(
+        project_id="project-test", user_id=1, raw="bad", kind="invalid_json")

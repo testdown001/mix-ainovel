@@ -488,7 +488,7 @@ export class AdminAPI {
     return this.request('/llm-config-audit')
   }
 
-  /** 近期真实调用按通道聚合（错误率/延迟/最近错误）。window: 1h|6h|24h|7d */
+  /** 近期真实调用按通道聚合（错误率/延迟/最近错误）。window: 1h|6h|24h|3d */
   static getLlmCallsSummary(window = '24h'): Promise<{ window: string; channels: LLMCallSummaryChannel[]; truncated?: boolean }> {
     return this.request(`/llm-calls/summary?window=${encodeURIComponent(window)}`)
   }

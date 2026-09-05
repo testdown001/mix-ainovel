@@ -13,6 +13,7 @@
 """
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -58,6 +59,7 @@ def _build_client(db_session):
 def _patch_services(monkeypatch, response_text):
     """替换 novels 模块内的 PromptService/LLMService，记录 LLM 调用参数。"""
     calls = []
+    monkeypatch.setattr(novels, "record_inspiration_error", AsyncMock(return_value="diagnostic-test"))
 
     class _FakePromptService:
         def __init__(self, session):
@@ -160,6 +162,18 @@ async def test_history_unparseable_record_falls_back_truncated(db_session, monke
 # ------------------------------------------------------------------
 # 2. 先校验后落库
 # ------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_invalid_json_records_diagnostic_and_keeps_history(db_session, monkeypatch):
+    await _seed_project(db_session, [("user", "已有构思")])
+    _patch_services(monkeypatch, "   ")
+    async with _build_client(db_session) as client:
+        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+    assert resp.status_code == 500
+    assert "diagnostic-test" in resp.json()["detail"]
+    novels.record_inspiration_error.assert_awaited_once()
+    assert novels.record_inspiration_error.await_args.kwargs["project_id"] == PROJECT_ID
+    assert len(await _list_conversations(db_session)) == 1
 
 @pytest.mark.asyncio
 async def test_missing_required_field_returns_500_without_persisting(db_session, monkeypatch):

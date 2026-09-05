@@ -159,6 +159,19 @@ async def _subscription_reminder_loop():
         await asyncio.sleep(interval_hours * 3600)
 
 
+async def _diagnostic_cleanup_loop():
+    """启动时及每分钟清理诊断流水，空闲期间也执行；多副本删除可重入。"""
+    from .services.api_usage_recorder import prune_call_logs
+
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                await prune_call_logs(session)
+        except Exception:
+            logger.warning("诊断流水清理失败，将在下一轮重试", exc_info=True)
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 应用启动时初始化数据库，并预热提示词缓存
@@ -177,9 +190,15 @@ async def lifespan(app: FastAPI):
         "chapter_generation_rag",
     )
     reminder_task = asyncio.create_task(_subscription_reminder_loop())
+    diagnostic_task = asyncio.create_task(_diagnostic_cleanup_loop())
     try:
         yield
     finally:
+        diagnostic_task.cancel()
+        try:
+            await diagnostic_task
+        except (asyncio.CancelledError, Exception):
+            pass
         reminder_task.cancel()
         try:
             await reminder_task

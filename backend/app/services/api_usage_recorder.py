@@ -24,9 +24,16 @@ from ..models.llm_call_log import LLMCallLog
 logger = logging.getLogger(__name__)
 
 # LLM 调用遥测保留窗口 + 定期清理触发间隔（每 N 次写入清理一次过期行）
-_LLM_CALL_LOG_RETENTION_DAYS = 7
+_LLM_CALL_LOG_RETENTION_DAYS = 3
 _LLM_CALL_LOG_PRUNE_EVERY = 300
 _llm_call_log_counter = 0
+
+
+async def prune_call_logs(session: AsyncSession) -> None:
+    """物理删除超过 72 小时的诊断流水；不影响按天汇总的计费用量。"""
+    cutoff = _datetime.utcnow() - _timedelta(days=_LLM_CALL_LOG_RETENTION_DAYS)
+    await session.execute(delete(LLMCallLog).where(LLMCallLog.created_at < cutoff))
+    await session.commit()
 
 
 def estimate_tokens(text: Optional[str]) -> int:
@@ -126,10 +133,8 @@ async def record_call_log(
 
     _llm_call_log_counter += 1
     if _llm_call_log_counter % _LLM_CALL_LOG_PRUNE_EVERY == 0:
-        cutoff = _datetime.utcnow() - _timedelta(days=_LLM_CALL_LOG_RETENTION_DAYS)
         try:
-            await session.execute(delete(LLMCallLog).where(LLMCallLog.created_at < cutoff))
-            await session.commit()
+            await prune_call_logs(session)
         except Exception as exc:  # pragma: no cover - 清理失败不影响记录
             await session.rollback()
             logger.warning("清理过期 LLM 调用遥测失败(已忽略): %s", exc)

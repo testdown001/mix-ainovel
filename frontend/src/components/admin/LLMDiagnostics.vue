@@ -75,7 +75,7 @@
               <n-radio-button value="1h">1小时</n-radio-button>
               <n-radio-button value="6h">6小时</n-radio-button>
               <n-radio-button value="24h">24小时</n-radio-button>
-              <n-radio-button value="7d">7天</n-radio-button>
+              <n-radio-button value="3d">3天</n-radio-button>
             </n-radio-group>
             <n-button quaternary size="small" :loading="summaryLoading || callsLoading" @click="refreshAll">
               刷新
@@ -86,7 +86,8 @@
       <n-spin :show="summaryLoading">
         <n-alert type="info" :bordered="false" style="margin-bottom: 16px">
           各通道近 {{ windowLabel }}的真实调用统计。<b>错误率高或 p95 延迟高的通道，就是生成慢/失败的元凶。</b>
-          下方流水可逐条看是哪次调用报错/超时（含错误信息）。
+          下方流水记录调用错误、超时和灵感回复解析失败。仅保留最近 72 小时，每分钟自动清理过期记录。
+          “灵感解析”是业务校验失败记录，单独列出，不代表上游 API 调用错误率。
         </n-alert>
         <n-alert v-if="summaryTruncated" type="warning" :bordered="false" style="margin-bottom: 16px">
           本窗口调用量过大，以上统计仅基于<b>最近 2 万条</b>调用，更早的未计入（口径可能偏移）。
@@ -152,7 +153,7 @@ import { useAlert } from '@/composables/useAlert'
 const { showAlert } = useAlert()
 
 const CHANNEL_LABELS: Record<string, string> = {
-  default: '默认', fallback: '兜底', polish: '润色', search: '搜索', grader: '评分', embedding: '向量', rerank: '重排',
+  default: '默认', fallback: '兜底', polish: '润色', search: '搜索', grader: '评分', embedding: '向量', rerank: '重排', inspiration: '灵感解析',
 }
 // 体检发现项还会标注非通道对象（如模型目录），它不是可筛选的调用通道，故不并入
 // CHANNEL_LABELS——否则调用流水的通道筛选里会多出一个永远查不到结果的选项。
@@ -207,7 +208,7 @@ const filterChannel = ref<string | null>(null)
 const filterStatus = ref<string | null>(null)
 
 const windowLabel = computed(
-  () => ({ '1h': '1 小时', '6h': '6 小时', '24h': '24 小时', '7d': '7 天' } as Record<string, string>)[window.value] || window.value
+  () => ({ '1h': '1 小时', '6h': '6 小时', '24h': '24 小时', '3d': '3 天' } as Record<string, string>)[window.value] || window.value
 )
 
 // Date.now() 不是响应式依赖，直接写进 computed 会让「N 分钟前」停在挂载那一刻；
@@ -284,6 +285,7 @@ const callColumns: DataTableColumns<LLMCallRow> = [
   { title: '延迟', key: 'latency_ms', width: 88, align: 'right', render: (r) => h('span', { style: latencyStyle(r.latency_ms) }, `${r.latency_ms}ms`) },
   { title: '状态', key: 'status', width: 80, render: (r) => statusTag(r.status) },
   { title: 'HTTP', key: 'http_status', width: 64, align: 'right', render: (r) => r.http_status ?? '-' },
+  { title: '错误类型', key: 'error_type', width: 130, ellipsis: { tooltip: true }, render: (r) => r.error_type || '-' },
   {
     title: '错误信息', key: 'error_message', ellipsis: { tooltip: true },
     render: (r) => (r.error_message ? h('span', { style: 'color:#FF4757' }, r.error_message) : '-'),

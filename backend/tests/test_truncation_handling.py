@@ -61,6 +61,34 @@ def _patched_service(monkeypatch, client) -> LLMService:
 
 # ---------- llm_service 层 ----------
 
+@pytest.mark.parametrize("body", ["", " " * 256, "\n\t\u3000"])
+def test_blank_body_is_failure_and_uses_fallback(monkeypatch, body):
+    class StreamClient:
+        calls = 0
+
+        async def stream_chat(self, **kwargs):
+            self.calls += 1
+            yield {"content": body if self.calls == 1 else '{"ok":true}'}
+            yield {"finish_reason": "stop"}
+
+    client = StreamClient()
+    svc = _patched_service(monkeypatch, client)
+    monkeypatch.setattr(svc, "_resolve_fallback_llm_config", AsyncMock(return_value=dict(_LLM_CONFIG)))
+    out = asyncio.run(svc.get_llm_response("system", []))
+    assert out == '{"ok":true}'
+    calls = svc._record_call_log.await_args_list
+    assert calls[0].kwargs["status"] == "error"
+    assert "空白正文" in calls[0].kwargs["error_message"]
+    assert calls[1].kwargs["api_type"] == "fallback"
+    assert calls[1].kwargs["status"] == "success"
+
+
+def test_blank_body_without_fallback_has_clear_error(monkeypatch):
+    svc = _patched_service(monkeypatch, _TruncatingStreamClient("   "))
+    monkeypatch.setattr(svc, "_resolve_fallback_llm_config", AsyncMock(return_value=None))
+    with pytest.raises(HTTPException, match="空白正文"):
+        asyncio.run(svc.get_llm_response("system", []))
+
 def test_default_behavior_returns_partial_content(monkeypatch):
     """fail_on_truncation 缺省 False：截断仍返回半截内容，与旧版一致。"""
     svc = _patched_service(monkeypatch, _TruncatingStreamClient())

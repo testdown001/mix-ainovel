@@ -1500,7 +1500,7 @@ class LLMService:
             full_response[:500],
         )
 
-        if not full_response:
+        if not full_response.strip():
             logger.error(
                 "LLM returned empty response: model=%s user_id=%s finish_reason=%s",
                 config.get("model"),
@@ -1510,7 +1510,7 @@ class LLMService:
             # P2: 使用缓存客户端，不再逐次关闭
             raise HTTPException(
                 status_code=500,
-                detail=f"AI 未返回有效内容（结束原因: {finish_reason or '未知'}），请稍后重试或联系管理员"
+                detail=f"AI 返回空白正文（字符数: {len(full_response)}，结束原因: {finish_reason or '未知'}），请稍后重试或联系管理员"
             )
 
         await self._increment_usage_metric("api_request_count")
