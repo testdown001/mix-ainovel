@@ -213,6 +213,12 @@
           </header>
 
           <div class="chat-scroll" ref="chatArea">
+            <div v-if="conversationError" class="conversation-recovery" role="alert">
+              <p>{{ conversationError }}</p>
+              <button type="button" :disabled="novelStore.isLoading || isRestoringConversation" @click="retryConversation">
+                {{ isRestoringConversation ? '正在恢复…' : restoreFailed ? '重新加载当前构思' : '重试本轮对话' }}
+              </button>
+            </div>
             <transition name="fade">
               <InspirationLoading
                 v-if="isInitialLoading"
@@ -259,7 +265,7 @@
             </div>
           </section>
 
-          <footer v-if="!showBlueprintConfirmation && !showBlueprint" class="conversation-footer">
+          <footer v-if="!showBlueprintConfirmation && !showBlueprint && !restoreFailed && !isRestoringConversation" class="conversation-footer">
             <button v-if="canUseDivergence" type="button" class="diverge-trigger" :disabled="isDiverging || novelStore.isLoading" @click="handleDiverge">
               {{ isDiverging ? '缪斯发散中…' : '✦ 给我 5 个狂点子' }}
             </button>
@@ -387,6 +393,11 @@ const referenceSearchMessage = ref('')
 const exclusions = ref('')
 const showExclusions = ref(false)
 const initialIdea = ref('')
+const conversationError = ref('')
+const restoreFailed = ref(false)
+const isRestoringConversation = ref(false)
+type ConversationOptions = NonNullable<Parameters<typeof novelStore.sendConversation>[1]>
+const pendingConversation = ref<{ input: any; options: ConversationOptions } | null>(null)
 
 const workflowSteps = [
   { id: 1, label: '捕捉灵感', description: '写下第一句故事种子' },
@@ -594,6 +605,9 @@ const resetInspirationMode = (options: {
   keepExclusions?: boolean
   keepInitialIdea?: boolean
 } = {}) => {
+  conversationError.value = ''
+  pendingConversation.value = null
+  restoreFailed.value = false
   conversationStarted.value = false
   isPreparingConversation.value = false
   isInitialLoading.value = false
@@ -643,6 +657,7 @@ const backToConversation = () => {
 }
 
 const startConversation = async () => {
+  if (isPreparingConversation.value || novelStore.isLoading) return
   const selectedReferenceNovels = [...normalizedReferenceNovels.value]
   // resetInspirationMode 会清空当前项目并触发监听器，必须在此之前保存书库 ID。
   // 绑定要发生在首轮对话和蓝图生成之前，后端才能持续注入参考资料与融合 DNA。
@@ -658,7 +673,10 @@ const startConversation = async () => {
   preparingStage.value = 'project'
 
   try {
-    await novelStore.createProject('未命名灵感', '开始灵感模式')
+    const project = await novelStore.createProject('未命名灵感', selectedInitialIdea || '开始灵感模式')
+    conversationStarted.value = true
+    // 创建成功就固定项目地址，即使首轮失败，刷新也能回到同一个构思。
+    await router.replace({ path: route.path, query: { ...route.query, project_id: project.id } })
 
     if (selectedReferenceIds.length > 0) {
       await bindReferencesIfNeeded(selectedReferenceIds)
@@ -707,11 +725,17 @@ const startConversation = async () => {
   } catch (error) {
     console.error('启动灵感模式失败:', error)
     globalAlert.showError(`无法开始灵感模式: ${error instanceof Error ? error.message : '未知错误'}`, '启动失败')
-    resetInspirationMode({
-      keepReferenceNovels: true,
-      keepExclusions: true,
-      keepInitialIdea: true,
-    })
+    if (novelStore.currentProject) {
+      conversationStarted.value = true
+      isInitialLoading.value = false
+      conversationError.value = '当前构思已创建，准备过程暂时中断。请重试本轮对话。'
+      pendingConversation.value = {
+        input: selectedInitialIdea ? { id: 'initial_idea', value: selectedInitialIdea } : null,
+        options: { referenceNovels: selectedReferenceNovels, referenceContext: referenceContext.value },
+      }
+    } else {
+      resetInspirationMode({ keepReferenceNovels: true, keepExclusions: true, keepInitialIdea: true })
+    }
   } finally {
     isPreparingConversation.value = false
     preparingStage.value = 'idle'
@@ -719,16 +743,25 @@ const startConversation = async () => {
 }
 
 const restoreConversation = async (projectId: string) => {
+  conversationStarted.value = true
+  isRestoringConversation.value = true
+  restoreFailed.value = false
+  conversationError.value = ''
   try {
-    await novelStore.loadProject(projectId)
-    const project = novelStore.currentProject
+    // loadProject 会吞掉请求错误；恢复页必须区分加载失败和一个真实的空项目。
+    const project = await NovelAPI.getNovel(projectId)
+    novelStore.setCurrentProject(project)
+    currentUIControl.value = { type: 'text_input', placeholder: '继续完善你的构思…' }
+    pendingConversation.value = null
+    showBlueprintConfirmation.value = false
+    novelStore.currentConversationState = {}
     if (project && project.conversation_history) {
       conversationStarted.value = true
       chatMessages.value = project.conversation_history.map((item): ChatMessage | null => {
         if (item.role === 'user') {
           try {
             const userInput = JSON.parse(item.content)
-            return { content: userInput.value, type: 'user' }
+            return { content: userInput?.value || '', type: 'user' }
           } catch {
             return { content: item.content, type: 'user' }
           }
@@ -740,39 +773,69 @@ const restoreConversation = async (projectId: string) => {
             return { content: item.content, type: 'ai' }
           }
         }
-      }).filter((msg): msg is ChatMessage => msg !== null && msg.content !== null)
+      }).filter((msg): msg is ChatMessage => msg !== null && typeof msg.content === 'string' && !!msg.content)
 
       const lastAssistantMsgStr = project.conversation_history.filter(m => m.role === 'assistant').pop()?.content
       if (lastAssistantMsgStr) {
-        const lastAssistantMsg = JSON.parse(lastAssistantMsgStr)
+        let lastAssistantMsg: any = {}
+        try { lastAssistantMsg = JSON.parse(lastAssistantMsgStr) } catch { /* 旧消息仍可显示并继续 */ }
+        novelStore.currentConversationState = lastAssistantMsg.conversation_state || {}
 
         if (lastAssistantMsg.is_complete) {
           confirmationMessage.value = lastAssistantMsg.ai_message
           showBlueprintConfirmation.value = true
         } else {
-          currentUIControl.value = lastAssistantMsg.ui_control
+          currentUIControl.value = lastAssistantMsg.ui_control || currentUIControl.value
         }
       }
       currentTurn.value = project.conversation_history.filter(m => m.role === 'assistant').length
       await scrollToBottom()
     }
+    if (!project.conversation_history?.length) {
+      const seed = project.initial_prompt && project.initial_prompt !== '开始灵感模式' ? project.initial_prompt : ''
+      initialIdea.value = seed
+      pendingConversation.value = { input: seed ? { id: 'initial_idea', value: seed } : null, options: {} }
+      conversationError.value = '当前构思已保留，尚未收到首轮回复。可以在这里重试。'
+    }
   } catch (error) {
     console.error('恢复对话失败:', error)
     globalAlert.showError(`无法恢复对话: ${error instanceof Error ? error.message : '未知错误'}`, '加载失败')
-    resetInspirationMode()
+    restoreFailed.value = true
+    conversationError.value = '暂时无法加载当前构思。项目地址已保留，请重试加载。'
+  } finally {
+    isRestoringConversation.value = false
   }
+}
+
+const retryConversation = async () => {
+  if (novelStore.isLoading || isRestoringConversation.value) return
+  if (restoreFailed.value) {
+    const projectId = route.query.project_id
+    if (typeof projectId === 'string') await restoreConversation(projectId)
+    return
+  }
+  const pending = pendingConversation.value
+  if (pending) await handleUserInput(pending.input, pending.options, true)
 }
 
 const handleUserInput = async (
   userInput: any,
-  options: {
-    referenceNovels?: string[]
-    referenceContext?: string
-    exclusions?: string
-  } = {}
+  options: ConversationOptions = {},
+  retry = false,
 ) => {
+  if (novelStore.isLoading || restoreFailed.value || isRestoringConversation.value) return
+  conversationError.value = ''
+  const mergedOptions: ConversationOptions = retry ? options : {
+    ...options,
+    ...(normalizedReferenceNovels.value.length ? { referenceNovels: [...normalizedReferenceNovels.value] } : {}),
+    ...(referenceContext.value.trim() ? { referenceContext: referenceContext.value.trim() } : {}),
+    ...(exclusions.value.trim() ? { exclusions: exclusions.value.trim() } : {}),
+    ...(canUsePersona.value && selectedPersona.value !== 'default' ? { musePersona: selectedPersona.value } : {}),
+    disableSpark: disableSpark.value,
+    disableMuseSearch: disableMuseSearch.value || !canUseMuseSearch.value,
+  }
   try {
-    if (userInput && userInput.value) {
+    if (!retry && userInput && userInput.value) {
       chatMessages.value.push({
         content: userInput.value,
         type: 'user'
@@ -780,18 +843,8 @@ const handleUserInput = async (
       await scrollToBottom()
     }
 
-    const mergedOptions = {
-      ...options,
-      ...(normalizedReferenceNovels.value.length
-        ? { referenceNovels: [...normalizedReferenceNovels.value] }
-        : {}),
-      ...(referenceContext.value.trim() ? { referenceContext: referenceContext.value.trim() } : {}),
-      ...(exclusions.value.trim() ? { exclusions: exclusions.value.trim() } : {}),
-      ...(canUsePersona.value && selectedPersona.value !== 'default' ? { musePersona: selectedPersona.value } : {}),
-      disableSpark: disableSpark.value,
-      disableMuseSearch: disableMuseSearch.value || !canUseMuseSearch.value
-    }
     const response = await novelStore.sendConversation(userInput, mergedOptions)
+    pendingConversation.value = null
 
     if (isInitialLoading.value) {
       isInitialLoading.value = false
@@ -820,7 +873,10 @@ const handleUserInput = async (
       isInitialLoading.value = false
     }
     globalAlert.showError(`抱歉，与AI连接时遇到问题: ${error instanceof Error ? error.message : '未知错误'}`, '通信失败')
-    resetInspirationMode()
+    conversationStarted.value = true
+    pendingConversation.value = { input: userInput, options: mergedOptions }
+    conversationError.value = '本轮回复暂未收到，当前构思和对话已保留。可以重试，也可以继续补充想法。'
+    currentUIControl.value ||= { type: 'text_input', placeholder: '继续补充你的想法…' }
   }
 }
 
@@ -965,6 +1021,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.conversation-recovery { margin: 16px 0; padding: 16px; border: 1px solid #766c22; border-radius: 12px; background: #211f12; color: #f4f4ee; }
+.conversation-recovery p { margin: 0 0 12px; }
+.conversation-recovery button { padding: 8px 16px; border: 0; border-radius: 8px; background: #ffe500; color: #151500; }
 .inspiration-shell {
   height: 100vh;
   overflow: hidden;
