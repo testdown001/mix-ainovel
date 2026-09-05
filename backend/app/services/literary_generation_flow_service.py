@@ -206,26 +206,6 @@ class LiteraryGenerationFlowService:
         if mark_stage:
             mark_stage("literary_post_processing", stage_started)
 
-        recent_openings = [
-            chapter["summary"][:200]
-            for chapter in history_context.get("completed_chapters", [])
-            if chapter.get("summary")
-        ][-3:]
-        stage_started = time.perf_counter()
-        if _over_budget():
-            skipped_for_budget.append("quality_detection")
-        else:
-            quality_report = await run_quality_detection(
-                best_content,
-                chapter_number=chapter_number,
-                chapter_mission=chapter_mission,
-                previous_chapters_openings=recent_openings,
-                user_id=user_id,
-            )
-            review_summaries["quality_detection"] = quality_report
-        if mark_stage:
-            mark_stage("literary_readonly_analyses", stage_started)
-
         if len(best_content) > chapter_word_count_max:
             logger.info(
                 "Literary最终字数超限 (%d > %d)，触发兜底压缩",
@@ -254,6 +234,26 @@ class LiteraryGenerationFlowService:
                         )
             except Exception as exc:
                 logger.warning("Literary实体别名替换失败（不影响生成）: %s", exc)
+
+        recent_openings = [
+            "近期摘要（不是正文开头）：" + chapter["summary"][:1000]
+            for chapter in history_context.get("completed_chapters", [])
+            if chapter.get("summary")
+        ][-3:]
+        stage_started = time.perf_counter()
+        if _over_budget():
+            skipped_for_budget.append("quality_detection")
+        else:
+            quality_report = await run_quality_detection(
+                best_content,
+                chapter_number=chapter_number,
+                chapter_mission=chapter_mission,
+                previous_chapters_openings=recent_openings,
+                user_id=user_id,
+            )
+            review_summaries["quality_detection"] = quality_report
+        if mark_stage:
+            mark_stage("literary_readonly_analyses", stage_started)
 
         if skipped_for_budget:
             logger.warning(

@@ -167,6 +167,8 @@ class StandardGenerationFlowService:
                 except Exception as exc:
                     logger.warning("标准模式实体别名替换失败（不影响生成）: %s", exc)
 
+            if stage_b_params is not None:
+                stage_b_params["analysis_snapshot"] = best_content
             best_version["content"] = best_content
 
         return StandardGenerationFlowResult(

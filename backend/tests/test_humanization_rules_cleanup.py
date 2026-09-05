@@ -212,7 +212,7 @@ def _run_standard_humanization(monkeypatch, scores, *, consistency=False):
 
         async def humanize(self, text, report, *, user_id):
             calls.append("llm_humanize")
-            return text
+            return text + "，留下一处具体动作。"
 
     import app.services.humanization_service as hmod
     monkeypatch.setattr(hmod, "HumanizationService", _StubHumanizationService)
@@ -272,6 +272,7 @@ def test_standard_llm_only_after_rule_fix_still_low(monkeypatch):
     assert calls == ["scan", "rule_fix", "scan", "llm_humanize"]
     assert calls.index("rule_fix") < calls.index("llm_humanize")
     assert result["review_summaries"]["humanization"]["humanized"] is True
+    assert result["best_content"].endswith("留下一处具体动作。")
 
 
 def test_standard_parallel_branch_rule_fix_first(monkeypatch):

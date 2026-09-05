@@ -76,7 +76,7 @@ class GenerationFinalizeService:
             task = asyncio.create_task(
                 self.generation_background_task_service.run_stage_b_analyses(
                     version_id=stage_b_version_id,
-                    **stage_b_params,
+                    **{**stage_b_params, "analysis_snapshot": best_content},
                 )
             )
             self._track_task(task_registry, task)
