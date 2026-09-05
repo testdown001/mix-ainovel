@@ -51,6 +51,12 @@ def _now_iso() -> str:
 # 立项书内部路径 → 确认页中文区块名。毒点「修复建议」常把 JSON 键写进给作者看的句子，
 # 必须在展示前替换；最长路径优先，避免 protagonist.identity 被拆成 identity。
 _DOSSIER_FIELD_LABELS: tuple[tuple[str, str], ...] = (
+    ("emotional_core.cherished", "最舍不得的东西"),
+    ("emotional_core.exception", "会为谁破例"),
+    ("emotional_core.key_relationship", "核心关系"),
+    ("emotional_core.hard_choice", "两难选择"),
+    ("emotional_core.emotional_promise", "情感承诺"),
+    ("emotional_core", "情感核心"),
     ("protagonist.charm_point", "主角代入点"),
     ("protagonist.predicament", "主角开局困境"),
     ("protagonist.identity", "主角身份处境"),
@@ -197,6 +203,12 @@ def format_dossier_for_prompt(dossier: Dict[str, Any]) -> str:
 
     _add("核心冲突", dossier.get("core_conflict"))
     _add("矛盾发动机", dossier.get("conflict_engine"))
+    emotional = dossier.get("emotional_core")
+    if isinstance(emotional, dict):
+        for key, label in (("cherished", "最舍不得的东西"), ("exception", "会为谁破例"),
+                           ("key_relationship", "核心关系"), ("hard_choice", "两难选择"),
+                           ("emotional_promise", "情感承诺")):
+            _add(label, emotional.get(key))
 
     golden_finger = dossier.get("golden_finger")
     if isinstance(golden_finger, dict) and (golden_finger.get("name") or "").strip():

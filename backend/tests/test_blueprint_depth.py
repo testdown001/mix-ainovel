@@ -127,16 +127,19 @@ def _outline_payload(numbers):
 
 def _patch_llm(monkeypatch):
     queue = [_settings_payload(), _outline_payload(range(1, 26)), _outline_payload(range(26, 51))]
+    calls = []
 
     class _FakeLLM:
         def __init__(self, session):
             pass
 
         async def get_llm_response(self, **kwargs):
+            calls.append(kwargs)
             return queue.pop(0)
 
     monkeypatch.setattr(bgs, "LLMService", _FakeLLM)
     monkeypatch.setattr(bgs, "PromptService", _FakePromptService)
+    return calls
 
 
 async def _seed_project(db_session):
@@ -222,6 +225,33 @@ async def test_fast_skips_review_and_revision(db_session, monkeypatch):
     assert spy.revise_settings_calls == 0
     assert spy.revise_chapters_calls == 0
     assert result.blueprint.review_report is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["active", "archived"])
+async def test_blueprint_receives_emotional_core_and_only_active_selected_voice(db_session, monkeypatch, status):
+    from app.models.creative_memory import CreativeMemoryItem
+    calls = _patch_llm(monkeypatch)
+    await _seed_project(db_session)
+    await _force_tier(monkeypatch, "creator")
+    _install_spy(monkeypatch, _SpyReviewer(db_session))
+    project = await db_session.get(NovelProject, PROJECT_ID)
+    project.concept_dossier = {
+        "dossier": {"emotional_core": {"cherished": "后院给师弟留着空位的饭桌"}},
+        "voice_trial": {"candidates": [{"text": "未选候选里的意外身世"}]},
+    }
+    db_session.add(CreativeMemoryItem(
+        user_id=OWNER.id, project_id=PROJECT_ID, source_project_id=PROJECT_ID,
+        scope="novel", category="style", title="本书口吻", status=status,
+        source_type="voice_trial", dedupe_key="blueprint-voice-test",
+        content="只借助停顿与对白传达关心；口吻样本不是正史。",
+    ))
+    await db_session.commit()
+    await bgs.generate_blueprint_for_project(db_session, PROJECT_ID, OWNER.id, depth="fast")
+    history = json.dumps(calls[0]["conversation_history"], ensure_ascii=False)
+    assert "后院给师弟留着空位的饭桌" in history
+    assert ("只借助停顿与对白传达关心" in history) == (status == "active")
+    assert "未选候选里的意外身世" not in history
 
 
 @pytest.mark.asyncio

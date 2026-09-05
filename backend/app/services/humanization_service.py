@@ -539,30 +539,12 @@ class HumanizationService:
         report.statistical_deduction = min(total_deduction, max_deduction)
 
     # -----------------------------------------------------------------------
-    # 层4: 缺失人味元素检测（"加法"检测）
+    # 层4: 表达留白检测（保留旧报表字段，不按对白或残句配额扣分）
     # -----------------------------------------------------------------------
     def _scan_missing_human_elements(self, text: str, report: HumanizationReport) -> None:
-        """检测缺失的"人味"元素——不是找错，而是找缺。"""
+        """检测过度解释；没有对白或残句本身不是人味缺失。"""
         total_deduction = 0
         max_deduction = 20
-        sentences = _split_sentences(text)
-        paragraphs = _split_paragraphs(text)
-
-        incomplete_markers = ["——", "\u2026\u2026", '——"', '\u2026\u201d']
-        incomplete_count = sum(
-            1 for s in sentences
-            if any(s.rstrip().endswith(m) for m in incomplete_markers) or len(s) < 6
-        )
-        if incomplete_count < max(1, len(sentences) // 25) and len(sentences) > 10:
-            d = 5
-            total_deduction += d
-            report.issues.append(HumanizationIssue(
-                layer="missing_human",
-                category="no_incomplete_sentences",
-                description="全文缺少不完整句/省略句/截断句——真人写作偶尔会有话说一半、破折号截断的情况",
-                severity=d,
-            ))
-
         explanation_markers = ["因为", "所以", "原来是", "这才明白", "这意味着", "换句话说", "也就是说"]
         explanation_count = sum(text.count(m) for m in explanation_markers)
         text_k = max(1, len(text) / 1000)
@@ -576,22 +558,6 @@ class HumanizationService:
                 description=f"因果解释密度偏高({explanation_density:.1f}/千字)——真人作者更多用动作和暗示代替显式解释，应增加留白",
                 severity=d,
             ))
-
-        dialogue_lines = sum(
-            1 for p in paragraphs
-            if p.startswith("\u201c") or p.startswith("\u300c") or p.startswith('"')
-        )
-        if len(paragraphs) > 8:
-            d_ratio = dialogue_lines / len(paragraphs)
-            if d_ratio < 0.15:
-                d = 5
-                total_deduction += d
-                report.issues.append(HumanizationIssue(
-                    layer="missing_human",
-                    category="low_dialogue",
-                    description=f"对话占比过低({d_ratio:.0%})——网文节奏感50%靠对话，当前叙述比重过大",
-                    severity=d,
-                ))
 
         # 独立记账：不并入 structural 桶（旧实现 += 会让 structural 实际可达 60，穿透其 40 上限，
         # to_dict 分层归因失真）

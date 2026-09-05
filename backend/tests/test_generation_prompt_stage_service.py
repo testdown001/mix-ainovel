@@ -25,7 +25,7 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
         build_prompt_sections=lambda **kwargs: [("[基础]", "基础内容")]
     )
     prompt_compiler = SimpleNamespace(
-        compile=lambda **kwargs: ([("[基础]", "基础内容")], {"compiled": True})
+        compile=lambda **kwargs: (kwargs["sections"], {"compiled": True})
     )
     prompt_service = SimpleNamespace(
         get_prompt=lambda name: asyncio.sleep(0, result="SLIM" if name == "writing_v3" else None)
@@ -85,7 +85,8 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
             relationship_context=None,
             trajectory_context=None,
             outline_revision_context=None,
-            project=SimpleNamespace(chapters=[], fusion_dna={"style_fingerprint": "冷硬"}),
+            project=SimpleNamespace(chapters=[], fusion_dna={"style_fingerprint": "冷硬"},
+                                    concept_dossier={"dossier": {"emotional_core": {"cherished": "和师弟一起吃饭的日子"}}}),
             chapter_number=9,
             project_reference_novels=[SimpleNamespace()],
             reference_service=SimpleNamespace(
@@ -103,3 +104,5 @@ def test_generation_prompt_stage_service_returns_prompt_input_and_overrides_writ
     assert "基础内容" in result.prompt_input
     assert result.reference_prose_text == "范文片段"
     assert result.fusion_dna_text == "融合DNA"
+    assert "和师弟一起吃饭的日子" in result.prompt_input
+    assert "立项意图不是已发生事实" in result.prompt_input

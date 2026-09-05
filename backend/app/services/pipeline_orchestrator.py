@@ -22,6 +22,7 @@ from ..services.chapter_guardrails import default_guardrails
 from ..services.llm_service import LLMService
 from ..services.entity_registry_service import EntityRegistryService
 from ..services.cache_service import CacheService
+from ..services.concept_voice_service import emotional_core_brief
 from ..services.novel_service import NovelService
 from ..services.preview_generation_service import PreviewGenerationService
 from ..services.reference_novel_library_service import ReferenceNovelLibraryService
@@ -569,9 +570,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     # 是替换而非叠加——避免同一件事说两遍（约束堆叠）。
                     planned = (getattr(outline, "metadata_", None) or {}).get("planning") or {}
 
-                    parts = ["### 节奏控制指令 (Pacing Control)"]
+                    parts = [
+                        "### 节奏参考 (Pacing Control)",
+                        "以下强度与趋势由通用曲线估算，只作参考；本章功能、导演脚本的情绪走向与松弛点优先，不据此把余波或日常章改成高潮章。",
+                    ]
                     if pacing_info.get("emotion_intensity"):
-                        parts.append(f"- **情绪强度**: {pacing_info['emotion_intensity']:.1f}/10")
+                        parts.append(f"- **参考情绪强度**: {pacing_info['emotion_intensity']:.1f}/10")
                     narrative_phase = planned.get("narrative_phase") or pacing_info.get("narrative_phase")
                     if narrative_phase:
                         parts.append(f"- **叙事阶段**: {narrative_phase}")
@@ -580,7 +584,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     if pacing_info.get("trend"):
                         parts.append(f"- **趋势**: {pacing_info['trend']}")
                     for advice in (pacing_info.get("pacing_advice") or []):
-                        parts.append(f"- {advice}")
+                        parts.append(f"- 仅当符合本章功能时参考：{advice}")
                     logger.info("应用Pacing Controller节奏约束于第 %d 章", chapter_number)
                     return "\n".join(parts)
                 except Exception as exc:
@@ -929,6 +933,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     "reference_prose": reference_prose_text,
                     "fusion_dna": fusion_dna_text,
                     "creative_memory": creative_memory_context or "",
+                    "significance": significance_context or "",
+                    "emotional_core": emotional_core_brief(project),
                 },
                 writer_prompt=writer_prompt,
                 chapter_mission=chapter_mission,
@@ -958,7 +964,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
             # 持久化
             await _emit_stage("persist_versions", "写入章节版本中")
             contents = [version["content"]]
-            metadata_list = [version.get("metadata")]
+            metadata_list = [{**(version.get("metadata") or {}),
+                              "character_significance_enabled": config.enable_character_significance}]
             stage_started = time.perf_counter()
             versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata_list)
             _mark_stage("persist_versions", stage_started)
@@ -1071,7 +1078,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
             versions_models = await self.novel_service.replace_chapter_versions(
                 chapter,
                 [version["content"]],
-                [version.get("metadata")],
+                [{**(version.get("metadata") or {}),
+                  "character_significance_enabled": config.enable_character_significance}],
             )
             _mark_stage("persist_versions", stage_started)
 
@@ -1192,7 +1200,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _stage_b_params = standard_result.stage_b_params
 
         contents = [v.get("content", "") for v in versions]
-        metadata = [v.get("metadata") for v in versions]
+        metadata = [{**(v.get("metadata") or {}),
+                     "character_significance_enabled": config.enable_character_significance} for v in versions]
         await _emit_stage("persist_versions", "写入章节版本中")
         stage_started = time.perf_counter()
         versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata)

@@ -1255,6 +1255,52 @@ async def apply_dossier_fixes(
     return {"status": "ok", "dossier": state.get("dossier"), "stress_report": state.get("stress_report")}
 
 
+@router.get("/{project_id}/concept/voice-trial")
+async def get_concept_voice_trial(
+    project_id: str, session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    from ...services.concept_voice_service import ConceptVoiceService
+    project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    return await ConceptVoiceService(session, LLMService(session), PromptService(session)).view(project)
+
+
+@router.post("/{project_id}/concept/voice-trial")
+async def generate_concept_voice_trial(
+    project_id: str, payload: Dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    from ...schemas.concept_voice import VoiceTrialRequest
+    from ...services.concept_voice_service import ConceptVoiceService
+    project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    try:
+        request = VoiceTrialRequest.model_validate(payload)
+    except ValueError as exc:
+        raise HTTPException(422, "场景要求不能超过 600 字") from exc
+    return await ConceptVoiceService(session, LLMService(session), PromptService(session)).generate(
+        project, current_user.id, request.scene,
+    )
+
+
+@router.post("/{project_id}/concept/voice-trial/select")
+async def select_concept_voice_trial(
+    project_id: str, payload: Dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    from ...schemas.concept_voice import VoiceSelectionRequest
+    from ...services.concept_voice_service import ConceptVoiceService
+    project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    try:
+        request = VoiceSelectionRequest.model_validate(payload)
+    except ValueError as exc:
+        raise HTTPException(422, "请选择有效的试写版本") from exc
+    return await ConceptVoiceService(session, LLMService(session), PromptService(session)).select(
+        project, current_user.id, request.trial_id, request.candidate_id,
+    )
+
+
 @router.get("/concept/personas")
 async def list_muse_personas(
     session: AsyncSession = Depends(get_session),

@@ -15,11 +15,11 @@ from .foreshadowing_service import ForeshadowingService
 
 PLATINUM_WRITING_BRIEF_FALLBACK = """
 你是起点白金作家级别的长篇连载写手，请严格执行：
-1. 每章必须完成「推进主线 + 放大冲突 + 留下追更钩子」三件事，禁止只做氛围描写。
-2. 信息投放遵循“七分已知、三分未知”：读者每章获得新信息，但保留关键缺口。
+1. 先服从本章功能与已规划的情绪曲线，完成有意义的剧情、关系或认知变化；压迫、破局、余波、关系、日常、揭秘各有自己的节奏。
+2. 信息与情绪按人物经历展开，关键选择有因有果；允许松弛、沉默和留白，不按固定字数插入刺激，不统一规定对白比例或趣味点。
 3. 伏笔必须可追踪：老伏笔要有进展，新伏笔要可兑现，避免空泛悬念。
 4. 角色行动先于解释：通过选择、代价、后果塑造人物，而不是口头总结。
-5. 结尾钩子必须具体：明确“谁在下一章面临什么不可回避的问题”。
+5. 允许本章小问题完整解决，结尾可落在动作、台词、决定或兑现后的余波上；让仍成立的长线期待延续，不强制新危机或硬断章。
 """.strip()
 
 _TYPE_LABELS = {
@@ -76,26 +76,30 @@ def build_platinum_rhythm_brief(
     progress = min(100, int(chapter_number / safe_total * 100))
     macro_beat = _mission_value(chapter_mission, ("macro_beat", "beat", "chapter_beat"))
     pov = _mission_value(chapter_mission, ("pov", "pov_character"))
+    chapter_function = _mission_value(chapter_mission, ("chapter_function", "chapter_type"))
 
     lines = [
         f"章节进度：第 {chapter_number}/{safe_total} 章（约 {progress}%）",
         f"阶段判定：{stage_name}",
-        f"阶段目标：{stage_goal}",
-        f"推荐节奏配比：{rhythm_ratio}",
+        f"全书阶段目标（长线参考）：{stage_goal}",
+        f"阶段节奏示意（仅供参考，不是本章配额）：{rhythm_ratio}",
+        f"本章功能：{chapter_function or '按章纲与人物处境确定，不默认冲突升级章'}",
         f"本章主节拍：{macro_beat or '未指定（按大纲执行单一主节拍）'}",
         f"叙事视角：{pov or '未指定（保持单视角稳定）'}",
-        "执行要求：Quest 线推进一步，Fire 线抬升冲突一次，Constellation 线补一枚长线信号。",
+        "优先规则：本章功能与已规划的情绪曲线、松弛点、留白优先于全书阶段配比；选择本章相关的线索推进，不要求每章同时推进三条线。",
+        "功能节奏：压迫章写清暂不能反击的理由；破局章兑现准备；余波章承接得失与代价；关系章改变亲疏；日常章建立牵挂；揭秘章改变旧理解。",
+        "执行要求：让剧情、关系或认知产生有因有果的变化；对白、趣味与转折按场景需要安排，不设统一比例、次数或字数间隔。",
         f"本章锚点：标题《{outline_title}》；核心任务={_truncate(outline_summary, 80)}",
     ]
 
-    # 题材节奏配置覆盖
+    # 题材参数只提供跨章参考，不能覆盖本章功能与情感设计。
     if genre_pacing_config:
         q_ratio = genre_pacing_config.get("quest_ratio", 0.6)
         f_ratio = genre_pacing_config.get("fire_ratio", 0.25)
         c_ratio = genre_pacing_config.get("constellation_ratio", 0.15)
         max_buildup = genre_pacing_config.get("max_buildup_chapters", 3)
-        lines.append(f"题材节奏覆盖：Quest={q_ratio:.0%} / Fire={f_ratio:.0%} / Constellation={c_ratio:.0%}")
-        lines.append(f"蓄力上限：连续 {max_buildup} 章后必须出爆点")
+        lines.append(f"题材长线节奏参考：Quest={q_ratio:.0%} / Fire={f_ratio:.0%} / Constellation={c_ratio:.0%}；不作为本章篇幅或刺激配额")
+        lines.append(f"蓄力检查窗口：约 {max_buildup} 章后检查长期承诺是否有进展；按因果兑现，不强制本章出爆点")
 
     # 线团信息注入
     if strand_info:
@@ -117,14 +121,15 @@ def build_hook_continuity_brief(
         ("carry_over_hook", "carry_hook", "suspense", "core_suspense", "continuity_hook"),
     )
     ending_hook = _mission_value(chapter_mission, ("ending_hook", "tail_hook", "next_hook"))
+    ending_style = _mission_value(chapter_mission, ("chapter_end_style",))
 
     tail_hint = _truncate(previous_tail or previous_summary, 120)
     lines = [
-        f"上章尾钩线索：{tail_hint or '无历史章节，首章可直接制造主悬念'}",
-        f"本章需承接的问题：{carry_hook or '开章前 20% 必须回应上章悬念，不可跳过'}",
-        "中段加压：至少出现一次“目标受阻或代价升级”，避免平铺推进。",
-        f"本章结尾新钩：{ending_hook or '结尾抛出具体冲突（人物/利益/时限三要素至少两项）'}",
-        "连载规则：旧钩要有回声，新钩要可兑现，不做纯烟雾弹。",
+        f"上章承接线索：{tail_hint or '无历史章节，首章按章纲建立人物处境与阅读期待'}",
+        f"本章需承接的问题：{carry_hook or '承接上章尚未完成的行动、问题或情绪后果，按因果回应，不跳过关键结果'}",
+        "中段推进：服从本章功能，让行动、关系或认知产生变化；余波和关系场景允许停顿，不强制受阻或代价升级。",
+        f"本章结尾设计：{ending_hook or ending_style or '可停在具体行动、关系变化或兑现后的余波上，让已有长线期待自然延续'}",
+        "连载规则：旧承诺要有回声，新增悬念要可兑现；允许局部闭环，不为留钩强加新危机、打断道歉或切掉胜利后的余韵。",
     ]
     return "\n".join(lines)
 
@@ -307,12 +312,20 @@ def _format_related_characters(related_characters: Optional[Sequence[Any]]) -> s
 
 
 def _mission_value(chapter_mission: Optional[Dict[str, Any]], keys: Sequence[str]) -> Optional[str]:
-    if not chapter_mission:
+    if not isinstance(chapter_mission, dict):
         return None
-    for key in keys:
-        value = chapter_mission.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
+    # 与任务书保持同样优先级，兼容新式分层 Mission 与历史扁平 Mission。
+    for source in (
+        chapter_mission.get("hard_constraints"),
+        chapter_mission.get("soft_suggestions"),
+        chapter_mission,
+    ):
+        if not isinstance(source, dict):
+            continue
+        for key in keys:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     return None
 
 

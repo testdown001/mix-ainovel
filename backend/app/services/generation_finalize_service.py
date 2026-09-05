@@ -127,17 +127,8 @@ class GenerationFinalizeService:
             )
             self._track_task(task_registry, task)
 
-        if enable_character_significance:
-            task = asyncio.create_task(
-                self.generation_background_task_service.run_character_significance(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    character_names=introduced_characters,
-                    user_id=user_id,
-                )
-            )
-            self._track_task(task_registry, task)
+        # 人物意义等待实际采用/定稿后再提取，不能从推荐但尚未选中的版本学习。
+        # 每个版本已经保存 character_significance_enabled，后处理沿用该选择。
 
         if enable_volume_retrospective:
             task = asyncio.create_task(

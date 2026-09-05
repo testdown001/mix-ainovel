@@ -87,6 +87,7 @@ class ChapterPostProcessor:
             await self._update_volume_summary(project_id, chapter_number, user_id)
             await self._update_book_summary(project_id, user_id)
             await self._update_narrative_summary(project_id, chapter_number, user_id)
+            await self._update_character_significance(project_id, chapter_number, content, user_id)
 
     async def process_after_edit(
         self,
@@ -104,6 +105,56 @@ class ChapterPostProcessor:
             await self._update_volume_summary(project_id, chapter_number, user_id)
             await self._update_book_summary(project_id, user_id)
             await self._update_narrative_summary(project_id, chapter_number, user_id)
+            await self._update_character_significance(project_id, chapter_number, content, user_id)
+
+    async def process_character_significance(self, *, project_id: str, chapter_number: int, content: str, user_id: int) -> None:
+        lock = await _get_chapter_lock(project_id, chapter_number)
+        async with lock:
+            await self._update_character_significance(project_id, chapter_number, content, user_id)
+
+    async def _update_character_significance(self, project_id: str, chapter_number: int, content: str, user_id: int) -> None:
+        """采用/编辑正文后才学习，沿用质量回路和档位配置。"""
+        try:
+            from ..core.feature_gating import get_user_tier, load_flow_override_min_tiers, tier_rank
+            from ..models.novel import ChapterVersion, BlueprintCharacter
+            from .pipeline_config_service import PipelineConfigService
+            from .character_significance_service import CharacterSignificanceService
+            from .prompt_service import PromptService
+
+            chapter = await self._get_canonical_chapter(project_id, chapter_number)
+            if not chapter or not chapter.selected_version_id:
+                return
+            version = await self._session.get(ChapterVersion, chapter.selected_version_id)
+            if not version or version.content != content:
+                return
+            switches = await PipelineConfigService(self._session)._load_quality_loop_switches()
+            marker = (version.metadata_ or {}).get("character_significance_enabled")
+            ancestor = version
+            visited = set()
+            while marker is None and ancestor.parent_version_id and ancestor.parent_version_id not in visited:
+                visited.add(ancestor.parent_version_id)
+                ancestor = await self._session.get(ChapterVersion, ancestor.parent_version_id)
+                if ancestor is None or ancestor.chapter_id != chapter.id:
+                    break
+                marker = (ancestor.metadata_ or {}).get("character_significance_enabled")
+            enabled = switches["character_significance"] if marker is None else marker
+            if not enabled:
+                return
+            tiers = await load_flow_override_min_tiers(self._session)
+            tier = await get_user_tier(self._session, user_id)
+            if tier_rank(tier) < tier_rank(tiers.get("enable_character_significance", "flagship")):
+                return
+            names = (await self._session.execute(select(BlueprintCharacter.name).where(
+                BlueprintCharacter.project_id == project_id,
+            ))).scalars().all()
+            await CharacterSignificanceService().extract_and_store(
+                project_id=project_id, chapter_number=chapter_number, chapter_content=content,
+                character_names=[name for name in names if name in content][:4],
+                session=self._session, llm_service=self._llm, prompt_service=PromptService(self._session),
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.warning("人物意义更新失败（不影响定稿）: %s", exc)
 
     async def ingest_chapter(
         self,

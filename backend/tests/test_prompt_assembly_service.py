@@ -1,7 +1,10 @@
 from types import SimpleNamespace
 import asyncio
+import pytest
 
 from app.services.prompt_assembly_service import PromptAssemblyService
+from app.services.prompt_budget_manager import PromptBudgetManager
+from app.services.prompt_compiler_service import PromptCompilerService
 
 
 def test_prompt_assembly_service_build_word_count_rule():
@@ -106,3 +109,67 @@ def test_mission_brief_is_rendered_without_llm_call():
     assert "审讯室 → 保住证物 → 上司施压" in brief
     assert "禁止形容词和比喻连续堆叠" in brief
     assert "禁止未获准角色登场：赵甲" in brief
+
+
+@pytest.mark.parametrize("container", [None, "hard_constraints", "soft_suggestions"])
+def test_emotional_plan_survives_mission_brief_compilation_and_budget(container):
+    intentions = {
+        "chapter_type": "余波章",
+        "emotion_curve": {
+            "type": "悲伤",
+            "curve": "强撑镇定到允许自己难过",
+            "breathing_point": "整理遗物后独坐片刻",
+        },
+        "deliberate_omission": {"what": "不解释为何留下旧碗", "why": "让旧习惯承载失落"},
+        "tone_guide": {"surface_texture": ["克制"], "ink_distribution": "详写收碗，略写回家路程"},
+        "reader_promise": "读者想知道他会不会赴约",
+    }
+    intentions["scene_list"] = [{
+        "location": "旧宅", "goal": "收拾饭桌", "turn": "留下空碗", "end_state": "决定赴约",
+        "relationship_temp": "从回避师姐到默许她留下",
+        "human_texture": ["碗沿有一道旧缺口"],
+        "dialogue_noise": "师姐问话后等他自己回答",
+        "transition_out": "以收碗的声音接到门外",
+    }]
+    mission = {container: intentions} if container else dict(intentions)
+    brief = PromptAssemblyService.build_mission_brief(
+        chapter_mission=mission, outline_title="旧碗", outline_summary="收拾遗物",
+        writing_notes="", introduced_characters=[], forbidden_characters=[],
+    )
+    service = PromptAssemblyService(None, None)
+    sections = service.build_prompt_sections(
+        writer_blueprint={}, previous_summary="", previous_tail="", chapter_mission=mission,
+        mission_brief_text=brief, rag_context=None, outline_title="旧碗", outline_summary="收拾遗物",
+        writing_notes="", forbidden_characters=[], project_memory_text=None, memory_context=None,
+        platinum_writing_brief=None, platinum_rhythm_brief=None, foreshadowing_urgency_brief=None,
+        hook_continuity_brief=None, emotion_expression_brief=None,
+    )
+    # 与运行时同序：模块筛选 → 超预算裁剪 → cache 排序 → 正文 prompt。
+    sections = [(title, "背景" * 20000 if title.startswith("[世界蓝图]") else content)
+                for title, content in sections]
+    compiled, _ = PromptCompilerService().compile(
+        plan=SimpleNamespace(prompt_modules=["mission_brief", "world_blueprint"], skill_policies=[]),
+        sections=sections,
+    )
+    manager = PromptBudgetManager()
+    budgeted = manager.reorder_for_cache(manager.apply_budget(compiled))
+    final_prompt = "\n\n".join(content for _, content in budgeted)
+    assert len(final_prompt) < 10000  # 确实经过了裁剪，而非只在原始 JSON 中找到标记。
+    assert not any(title.startswith("[章节导演脚本]") for title, _ in budgeted)
+    for intent in (
+        "余波章", "强撑镇定到允许自己难过", "整理遗物后独坐片刻",
+        "不解释为何留下旧碗", "让旧习惯承载失落", "详写收碗，略写回家路程",
+        "读者想知道他会不会赴约", "从回避师姐到默许她留下", "碗沿有一道旧缺口",
+        "师姐问话后等他自己回答", "以收碗的声音接到门外",
+    ):
+        assert intent in final_prompt
+
+
+def test_sparse_mission_does_not_invent_emotional_plan():
+    brief = PromptAssemblyService.build_mission_brief(
+        chapter_mission={"soft_suggestions": {"emotion_curve": None, "deliberate_omission": {}}},
+        outline_title="行路", outline_summary="进城", writing_notes="",
+        introduced_characters=[], forbidden_characters=[],
+    )
+    assert "【情感与留白执行】" not in brief
+    assert "None" not in brief

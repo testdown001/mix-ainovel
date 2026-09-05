@@ -12,6 +12,7 @@ from ..core.constants import (
     CHAPTER_RECOMMENDED_WORDS,
     CHAPTER_WORD_COUNT_RULE,
 )
+from .chapter_mission_context import build_emotional_continuity_brief, build_scene_expression_brief
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +225,11 @@ class PromptAssemblyService:
             execution.append(f"作者要求：{writing_notes}")
         lines.extend(f"- {item}" for item in execution if item and not item.endswith("："))
 
-        scenes = mission.get("scene_list") or soft.get("scene_list") or []
+        emotional_brief = build_emotional_continuity_brief(mission)
+        if emotional_brief:
+            lines.extend(["", emotional_brief])
+
+        scenes = _pick("scene_list", default=[])
         if isinstance(scenes, list) and scenes:
             lines.extend(["", "【场景走向】"])
             for index, scene in enumerate(scenes[:8], start=1):
@@ -242,6 +247,9 @@ class PromptAssemblyService:
                     scene_text += f"（约{scene['target_words']}字）"
                 if scene_text:
                     lines.append(f"{index}. {scene_text}")
+                expression = build_scene_expression_brief(scene)
+                if expression:
+                    lines.extend(f"   {line}" for line in expression.splitlines())
 
         voices = mission.get("character_voices") or soft.get("character_voices") or []
         if isinstance(voices, list) and voices:
@@ -540,7 +548,7 @@ class PromptAssemblyService:
         if chapter_state_context:
             sections.append(("[角色当前状态](数据库实时查询，零幻觉)", chapter_state_context))
         if coolpoint_rhythm_directive:
-            sections.append(("[节奏纠偏指令](系统级强制)", coolpoint_rhythm_directive))
+            sections.append(("[节奏纠偏指令](长线检查参考，本章功能与情绪设计优先)", coolpoint_rhythm_directive))
         if power_system_context:
             sections.append(("[力量体系约束](角色能力上限，严禁超阶)", power_system_context))
         if relationship_context:

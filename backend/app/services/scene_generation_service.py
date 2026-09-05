@@ -7,6 +7,12 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ..core.config import settings
 from ..utils.json_utils import remove_think_tags, sanitize_chapter_plain_text, unwrap_markdown_json
+from .chapter_mission_context import (
+    build_emotional_continuity_brief,
+    build_scene_expression_brief,
+    inline_value,
+    mission_value,
+)
 from .llm_service import LLMResponseTruncated
 
 logger = logging.getLogger(__name__)
@@ -45,15 +51,17 @@ class SceneGenerationService:
             "resolved_temperature": self.generation_policy_service.resolve_temperature(chapter_mission),
         }
 
-        scenes = (chapter_mission or {}).get("scene_list") or []
+        scenes = self._load_scene_plan(mission_value(chapter_mission, "scene_list"))
         if not scenes:
             scenes = self._load_scene_plan(prompt_sections_data.get("scene_plan"))
-        if not scenes or len(scenes) < 2:
+        if not scenes:
             scenes = self.build_fallback_scenes(chapter_mission)
 
         # 硬约束（禁止人物/POV/章节目标）单独成段、不参与压缩，每个场景完整携带；
         # compress_context 只压叙事性上下文（骨架/前情等）——修复场景2+头部截断丢约束。
         hard_constraints = self.build_hard_constraints(prompt_sections_data, chapter_mission)
+        # 情感执行意图单独保留：不能随叙事背景的头部截断而丢失。
+        emotional_brief = build_emotional_continuity_brief(chapter_mission)
         core_context = self.build_slim_context(prompt_sections_data)
         chapter_parts: List[str] = []
         scene_timings: List[int] = []
@@ -71,6 +79,14 @@ class SceneGenerationService:
                 scene_prompt_parts.append(core_context)
             else:
                 scene_prompt_parts.append("[精简上下文]\n" + self.compress_context(core_context, max_len=1500))
+            if emotional_brief:
+                scene_prompt_parts.append(emotional_brief)
+            if prompt_sections_data.get("significance"):
+                scene_prompt_parts.append("[人物意义层]\n" + str(prompt_sections_data["significance"]))
+            if prompt_sections_data.get("emotional_core"):
+                scene_prompt_parts.append(str(prompt_sections_data["emotional_core"]))
+            if prompt_sections_data.get("creative_memory"):
+                scene_prompt_parts.append("[已确认创作记忆]\n" + str(prompt_sections_data["creative_memory"]))
 
             if chapter_parts:
                 recent_text = "\n\n".join(chapter_parts)
@@ -82,8 +98,6 @@ class SceneGenerationService:
             scene_words = scene.get("target_words", 700)
             scene_location = scene.get("location", "")
             scene_conflict = scene.get("conflict", "")
-            human_texture = scene.get("human_texture", [])
-            dialogue_noise = scene.get("dialogue_noise", "")
             dependencies = scene.get("dependencies") or []
             required_evidence = scene.get("required_evidence") or []
             characters = scene.get("characters") or []
@@ -104,15 +118,17 @@ class SceneGenerationService:
             scene_instruction += f"- 目标字数：约{scene_words}字\n"
             if verification_hints:
                 scene_instruction += f"- 完成后必须满足：{'、'.join(str(item) for item in verification_hints)}\n"
-            if human_texture:
-                scene_instruction += f"- 生活噪音：{'、'.join(human_texture)}\n"
-            if dialogue_noise:
-                scene_instruction += f"- 对话噪音：{dialogue_noise}\n"
+            for key, label in (("turn", "场景偏转"), ("end_state", "场景结束状态")):
+                if scene.get(key):
+                    scene_instruction += f"- {label}：{inline_value(scene[key])}\n"
+            expression = build_scene_expression_brief(scene)
+            if expression:
+                scene_instruction += expression + "\n"
             if is_first:
                 scene_instruction += "- 这是开篇，需要吸引读者\n"
             if is_last:
                 scene_instruction += (
-                    "- 这是本章最后一个场景：在当前 POV 可感知范围内，停在一个具体动作、台词、发现或尚未完成的决定上。"
+                    "- 这是本章最后一个场景：在当前 POV 可感知范围内，停在一个具体动作、台词、发现、决定或局部兑现后的余波上。"
                     "不要补写总结、未来预告、环境象征或命运隐喻；不需要为了钩子故意用力戛然而止\n"
                 )
             scene_prompt_parts.append(scene_instruction)
@@ -137,7 +153,9 @@ class SceneGenerationService:
                 config_override=model_override,
                 fail_on_truncation=True,
             )
-            scene_max_tokens = min(4096, int(max(700, scene_words) * 1.8))
+            # 单场景可能承载整章，按正文上限给足输出空间，不沿用小场景的 4096 截断线。
+            scene_token_cap = settings.writer_max_tokens if len(scenes) == 1 else 4096
+            scene_max_tokens = min(scene_token_cap, int(max(700, scene_words) * 1.8))
             # 场景级通用容错：任何异常（超时/5xx 等）重试一次，仍失败则以空场景继续拼章，
             # 不炸整章（与截断的场景级降级一致）；截断降级在 _invoke_scene_llm 内处理。
             response: Optional[str] = None
@@ -191,7 +209,7 @@ class SceneGenerationService:
             generated_text=content,
             forbidden_characters=forbidden_characters,
             allowed_new_characters=allowed_new_characters,
-            pov=chapter_mission.get("pov") if chapter_mission else None,
+            pov=mission_value(chapter_mission, "pov"),
             omniscient_tolerance=omniscient_tolerance,
         )
         if not guardrail_result.passed:
@@ -256,13 +274,13 @@ class SceneGenerationService:
 
     @staticmethod
     def build_fallback_scenes(chapter_mission: Optional[dict]) -> List[dict]:
-        word_budget = (chapter_mission or {}).get("word_budget", {})
+        word_budget = mission_value(chapter_mission, "word_budget") or {}
         raw_total = word_budget.get("total", 3500) if isinstance(word_budget, dict) else 3500
         total = raw_total if isinstance(raw_total, (int, float)) and raw_total > 0 else 3500
         return [
             {"goal": "开篇：承接上文，建立本章情境", "target_words": int(total * 0.25), "scene": "1"},
-            {"goal": "发展：推进核心冲突", "target_words": int(total * 0.45), "scene": "2"},
-            {"goal": "高潮+收束：情绪峰值，刀切结尾", "target_words": int(total * 0.30), "scene": "3"},
+            {"goal": "发展：落实本章的事件、关系或认知变化", "target_words": int(total * 0.45), "scene": "2"},
+            {"goal": "收束：兑现本章应有的结果，按章节功能自然收住，保留后续阅读期待", "target_words": int(total * 0.30), "scene": "3"},
         ]
 
     @staticmethod
@@ -275,7 +293,7 @@ class SceneGenerationService:
         chapter_goals = prompt_sections_data.get("chapter_goals", "")
         if chapter_goals:
             parts.append(str(chapter_goals))
-        pov = (chapter_mission or {}).get("pov")
+        pov = mission_value(chapter_mission, "pov")
         if pov:
             parts.append(f"[视角硬约束]\n本章视角(POV)：{pov}，全章不得漂移。")
         forbidden = prompt_sections_data.get("forbidden_characters", "")
@@ -294,7 +312,6 @@ class SceneGenerationService:
             "skill_instructions",
             "scene_plan", "context_strategy",
             "writer_blueprint",
-            "creative_memory",
             "reference_prose", "fusion_dna",
         ]
         parts = []

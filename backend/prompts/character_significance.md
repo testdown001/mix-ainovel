@@ -44,6 +44,15 @@
 4. **不要复述情节。** 「他打赢了长老」是事实，不是意义。
 5. 只输出 JSON，不要任何解释性文字。
 
+## 持续记忆与来源
+
+- 将变化写入 memories 数组，每个角色最多 4 条。kind 使用 belief_shift / cost / relational / unspoken / promise。
+- meaning 写清这件事对人物的意义；evidence 必须逐字摘取本章连续原文，不能用自己的解释代替依据。
+- trigger 写明什么人物、处境或物件会触发这条记忆；related_characters 只填实际相关的人。
+- action=create 表示新的意义；旧心结不会因本章没有提及而自动消失。
+- action=revise 表示同一信念或关系被本章改变；action=resolve 表示心结或承诺已有明确化解。两者必须复制输入中对应记录的 target_id，并提供本章化解或改变的原文证据。不要仅因人物心情好转便认定背叛被原谅。
+- 没有有效 ID 的旧记录只能核对参考，不得自动修正或化解。不把未采用版本或试写样本当作发生过的事。
+
 ## 输出格式
 
 ```json
@@ -51,10 +60,17 @@
   "characters": [
     {
       "name": "角色名",
-      "belief_shift": "他现在相信/不再相信什么",
-      "cost": "他失去了什么、付出了什么",
-      "relational": "他现在如何看待某人",
-      "unspoken": "两人之间已成立但没说破的东西"
+      "memories": [
+        {
+          "kind": "unspoken",
+          "meaning": "两人之间已成立但没说破的东西",
+          "evidence": "本章连续原文",
+          "trigger": "再次提起那封信时",
+          "related_characters": ["另一角色"],
+          "action": "create",
+          "target_id": ""
+        }
+      ]
     }
   ]
 }

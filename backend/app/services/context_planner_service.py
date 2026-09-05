@@ -603,23 +603,29 @@ class ContextPlannerService:
             for policy in skill_policies
             for hint in policy.verify_hints
         ]
-        if chapter_phase in {"climax", "resolution"}:
+        if chapter_phase == "resolution":
             goals = [
-                ("scene_1", f"承接《{outline_title}》开局，明确旧线索和当前危机", 0.25, []),
-                ("scene_2", outline_summary or writing_notes or "推进核心冲突并制造选择压力", 0.45, ["scene_1"]),
-                ("scene_3", "回收关键情绪/伏笔并留下追更钩子", 0.30, ["scene_2"]),
+                ("scene_1", f"承接《{outline_title}》的已有结果与人物处境", 0.25, []),
+                ("scene_2", outline_summary or writing_notes or "让得失、关系变化与情绪后果落地", 0.45, ["scene_1"]),
+                ("scene_3", "按本章功能完成局部收束，保留应有的余波与长线期待", 0.30, ["scene_2"]),
+            ]
+        elif chapter_phase == "climax":
+            goals = [
+                ("scene_1", f"承接《{outline_title}》开局，明确本章相关线索与人物处境", 0.25, []),
+                ("scene_2", outline_summary or writing_notes or "按本章功能落实人物选择与已有铺垫的兑现", 0.45, ["scene_1"]),
+                ("scene_3", "按本章功能落定应有结果，保留松弛、余波与长线期待", 0.30, ["scene_2"]),
             ]
         elif chapter_phase == "setup":
             goals = [
                 ("scene_1", f"建立《{outline_title}》的处境、人物欲望和读者问题", 0.35, []),
-                ("scene_2", outline_summary or "引入第一处阻力或诱因", 0.40, ["scene_1"]),
+                ("scene_2", outline_summary or writing_notes or "落实本章功能，建立具体事件、关系或认知变化", 0.40, ["scene_1"]),
                 ("scene_3", "用具体动作触发下一章期待", 0.25, ["scene_2"]),
             ]
         else:
             goals = [
                 ("scene_1", f"承接上一章，进入《{outline_title}》的行动场", 0.28, []),
-                ("scene_2", outline_summary or writing_notes or "推进人物冲突和信息增量", 0.44, ["scene_1"]),
-                ("scene_3", "完成本章转折并压出新的问题", 0.28, ["scene_2"]),
+                ("scene_2", outline_summary or writing_notes or "按本章功能推进事件、关系或认知变化", 0.44, ["scene_1"]),
+                ("scene_3", "按本章功能完成应有变化和局部收束，让后续阅读期待自然延续", 0.28, ["scene_2"]),
             ]
         return [
             ScenePlanNode(
@@ -628,11 +634,11 @@ class ContextPlannerService:
                 target_words=max(300, int(total * ratio)),
                 dependencies=dependencies,
                 required_evidence=list(context_strategy.required_sources),
-                conflict="人物目标与外部阻力正面碰撞" if index == 2 else "",
+                conflict="",
                 characters=characters,
                 verification_hints=skill_verify_hints,
             )
-            for index, (scene_id, goal, ratio, dependencies) in enumerate(goals, start=1)
+            for scene_id, goal, ratio, dependencies in goals
         ]
 
     def _build_prompt_modules(

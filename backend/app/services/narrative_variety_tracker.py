@@ -138,9 +138,9 @@ class NarrativeVarietyTracker:
             avg_ratio = sum(recent_ratios) / len(recent_ratios)
             if all(abs(r - avg_ratio) < 0.08 for r in recent_ratios):
                 if avg_ratio > 0.45:
-                    constraints["dialogue_variety"] = "前几章对话占比都偏高，本章适当增加叙述/描写比重"
+                    constraints["dialogue_variety"] = "前几章对话占比都偏高，可检查表达是否单调；本章对白比例仍服从章节功能与人物处境，不为差异化强加叙述或描写"
                 elif avg_ratio < 0.25:
-                    constraints["dialogue_variety"] = "前几章对话占比偏低，本章需要更多对话驱动"
+                    constraints["dialogue_variety"] = "前几章对话占比偏低，可检查是否遗漏必要的人物交流；本章对白比例仍服从章节功能与人物处境，独处、行动或余波场景无需为比例添加对白"
 
         return constraints
 
