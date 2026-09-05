@@ -801,9 +801,9 @@ async def test_llm_channel(
 #   GET /llm-calls            近期真实调用流水（可按通道/状态过滤）
 # ------------------------------------------------------------------
 
-_CALL_LOG_WINDOWS = {"1h": 1, "6h": 6, "24h": 24, "7d": 24 * 7}
+_CALL_LOG_WINDOWS = {"1h": 1, "6h": 6, "24h": 24, "3d": 72, "7d": 72}
 # summary 聚合的取数上限：超过则只基于「最近 N 条」统计，并在响应里标 truncated=true，
-# 避免静默偏移（遥测仅保留 7 天，正常体量远低于此）。
+# 避免静默偏移（遥测仅保留 3 天，正常体量远低于此）。
 _SUMMARY_ROW_CAP = 20000
 
 
@@ -921,7 +921,12 @@ async def llm_calls(
     _: UserSchema = Depends(get_current_admin),
 ) -> Dict[str, Any]:
     """近期真实 LLM 调用流水（默认最近 100 条，可按通道/状态过滤）——排查生成慢时直接看这里。"""
-    query = select(LLMCallLog).order_by(desc(LLMCallLog.created_at)).limit(min(max(limit, 1), 500))
+    query = (
+        select(LLMCallLog)
+        .where(LLMCallLog.created_at >= datetime.utcnow() - timedelta(hours=72))
+        .order_by(desc(LLMCallLog.created_at))
+        .limit(min(max(limit, 1), 500))
+    )
     if channel:
         query = query.where(LLMCallLog.api_type == channel)
     if status:

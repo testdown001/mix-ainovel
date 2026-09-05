@@ -10,7 +10,7 @@ from ..db.base import Base
 
 class LLMCallLog(Base):
     """每次真实 LLM 调用(_stream_and_collect)的结果遥测，用于管理后台「通道诊断」
-    排查生成慢/报错/超时。仅保留近 7 天（recorder 定期清理），best-effort 写入。"""
+    排查生成慢/报错/超时及灵感响应解析失败。仅保留近 3 天，best-effort 写入。"""
 
     __tablename__ = "llm_call_logs"
     __table_args__ = (
