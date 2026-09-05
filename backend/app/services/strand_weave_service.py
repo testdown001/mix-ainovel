@@ -49,7 +49,7 @@ STRAND_DEFINITIONS = {
         "name": "Quest（主线）",
         "description": "目标递进、冲突升级、里程碑",
         "emotion_range": "中-高",
-        "writing_focus": "聚焦主角目标推进，每章至少一个里程碑事件或冲突升级",
+        "writing_focus": "围绕主角目标推进相关事件、关系或认知，不为配额强加里程碑或冲突升级",
     },
     "fire": {
         "name": "Fire（热线）",
@@ -256,7 +256,8 @@ class StrandWeaveService:
         name = definition.get("name", strand_info.strand_type)
 
         lines = [
-            f"[线团约束：{name}，权重={strand_info.strand_weight:.0%}]",
+            f"[线团参考：{name}，权重={strand_info.strand_weight:.0%}]",
+            "- 线团由通用规则分配；若与章纲功能、情绪走向或松弛点不符，以本章规划为准。",
             f"- 线团内容：{strand_info.description}",
             f"- 情绪强度范围：{strand_info.emotion_range}",
             f"- 写作要求：{strand_info.writing_focus}",

@@ -134,3 +134,24 @@ def test_generation_finalize_service_complete_progress(monkeypatch):
 
     progress.update_stage.assert_awaited_once()
     progress.complete.assert_awaited_once_with("proj-1", 11, success=True)
+
+
+def test_recommended_draft_does_not_schedule_character_significance_before_adoption():
+    background = SimpleNamespace(
+        run_foreshadowing_extraction=AsyncMock(), run_character_significance=AsyncMock(),
+    )
+    service = GenerationFinalizeService(
+        generation_background_task_service=background, narrative_verifier=SimpleNamespace(),
+        generation_result_service=SimpleNamespace(), generation_policy_service=SimpleNamespace(),
+    )
+    async def run():
+        tasks = set()
+        service.schedule_followups(
+            task_registry=tasks, versions_models=[SimpleNamespace(id=3)], best_version_index=0,
+            project_id="proj-1", chapter=SimpleNamespace(id=4), chapter_number=1,
+            best_content="尚未采用的草稿", introduced_characters=["甲"], user_id=1,
+            enable_memory=False, enable_character_significance=True,
+        )
+        await asyncio.gather(*list(tasks))
+    asyncio.run(run())
+    background.run_character_significance.assert_not_called()

@@ -57,7 +57,7 @@ class ConceptDivergenceService:
             "3) 只输出一个 JSON 数组，每个元素字段："
             "{\"title\":一句话工作标题, \"logline\":一句话故事梗概, "
             "\"hook\":开场最抓人的反常钩子, \"world\":世界观一句话, "
-            "\"tone\":基调, \"twist\":一个反直觉的点}\n"
+            "\"tone\":基调, \"twist\":一个反直觉的点, \"emotional_hook\":读者会牵挂的具体人物或关系选择}\n"
             "4) 不要输出 JSON 以外任何文字、不要 Markdown 围栏。"
         )
         user_prompt = f"用户点子：{topic}\n"
@@ -93,6 +93,7 @@ class ConceptDivergenceService:
                 "world": str(s.get("world", "") or "").strip(),
                 "tone": str(s.get("tone", "") or "").strip(),
                 "twist": str(s.get("twist", "") or "").strip(),
+                "emotional_hook": str(s.get("emotional_hook", "") or "").strip(),
             })
         return [s for s in out if s["logline"] or s["title"]]
 
@@ -111,14 +112,17 @@ class ConceptDivergenceService:
         self, *, topic: str, seeds: List[Dict[str, Any]], user_id: int
     ) -> List[Dict[str, Any]]:
         system_prompt = (
-            "你是资深网文主编。请给每个候选种子按三维打分（各 0-10）："
+            "你是资深网文主编。请给每个候选种子按五维打分（各 0-10）："
             "novelty(新颖/不落俗套)、marketability(market 抓力/可连载性)、coherence(可写性/逻辑自洽)，"
-            "并给一句 verdict。只输出 JSON 数组，元素："
-            "{\"id\":候选id, \"novelty\":int, \"marketability\":int, \"coherence\":int, \"verdict\":一句话点评}。"
+            "attachment(人物是否让读者想继续了解)、relationship_potential(关系能否持续产生有代价的选择)。"
+            "不因悲惨身世或爱情本身加分，依据具体行为与牵挂。并给一句 verdict。只输出 JSON 数组，元素："
+            "{\"id\":候选id, \"novelty\":int, \"marketability\":int, \"coherence\":int, "
+            "\"attachment\":int, \"relationship_potential\":int, \"verdict\":一句话点评}。"
             "不要输出 JSON 以外内容。"
         )
         compact = [
-            {"id": s["id"], "title": s["title"], "logline": s["logline"], "hook": s["hook"], "twist": s["twist"]}
+            {"id": s["id"], "title": s["title"], "logline": s["logline"], "hook": s["hook"],
+             "twist": s["twist"], "emotional_hook": s.get("emotional_hook", "")}
             for s in seeds
         ]
         user_prompt = (
@@ -145,9 +149,12 @@ class ConceptDivergenceService:
                 nv = _clamp_score(item.get("novelty"))
                 mk = _clamp_score(item.get("marketability"))
                 ch = _clamp_score(item.get("coherence"))
+                attachment = _clamp_score(item.get("attachment"))
+                relationship = _clamp_score(item.get("relationship_potential"))
                 score_map[sid] = {
                     "novelty": nv, "marketability": mk, "coherence": ch,
-                    "score": nv + mk + ch,
+                    "attachment": attachment, "relationship_potential": relationship,
+                    "score": nv + mk + ch + attachment + relationship, "score_max": 50,
                     "verdict": str(item.get("verdict", "") or "").strip(),
                 }
         except Exception as exc:
@@ -156,7 +163,9 @@ class ConceptDivergenceService:
         # 合并分数；评分缺失的种子给中性分，保证不丢
         merged: List[Dict[str, Any]] = []
         for s in seeds:
-            sc = score_map.get(s["id"], {"novelty": 5, "marketability": 5, "coherence": 5, "score": 15, "verdict": ""})
+            sc = score_map.get(s["id"], {"novelty": 5, "marketability": 5, "coherence": 5,
+                                       "attachment": 5, "relationship_potential": 5,
+                                       "score": 25, "score_max": 50, "verdict": ""})
             merged.append({**s, **sc})
         return merged
 

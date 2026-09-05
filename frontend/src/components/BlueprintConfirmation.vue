@@ -106,6 +106,29 @@
           </dl>
         </section>
 
+        <section class="d-block">
+          <div class="d-block-head">
+            <span class="d-block-tag">读者会在乎什么</span>
+            <button class="d-edit-btn" @click="startEdit('emotion')">{{ editing === 'emotion' ? '取消' : '编辑' }}</button>
+          </div>
+          <template v-if="editing === 'emotion'">
+            <div v-for="f in EMOTIONAL_FIELDS" :key="f.key" class="d-field-edit">
+              <label :for="'emotion-' + f.key">{{ f.label }}</label>
+              <textarea :id="'emotion-' + f.key" v-model="buffer[f.key]" class="d-textarea" rows="2" maxlength="600"></textarea>
+            </div>
+            <div class="d-edit-actions">
+              <button class="d-save-btn" :disabled="saving" @click="saveEmotion">{{ saving ? '保存中…' : '保存' }}</button>
+            </div>
+          </template>
+          <dl v-else class="d-kv">
+            <div v-for="f in EMOTIONAL_FIELDS" :key="f.key" class="d-kv-row">
+              <dt>{{ f.label }}</dt><dd>{{ dossier.emotional_core?.[f.key] || '还没决定，可以慢慢补充' }}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <StoryVoiceTrial :project-id="projectId" :dossier="dossier" />
+
         <!-- 冲突与矛盾发动机 -->
         <section class="d-block">
           <div class="d-block-head">
@@ -324,6 +347,7 @@ import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
+import StoryVoiceTrial from '@/components/StoryVoiceTrial.vue'
 import { ModelCatalogAPI } from '@/api/model_catalog'
 import {
   NovelAPI,
@@ -414,6 +438,14 @@ const PROTAGONIST_FIELDS = [
   { key: 'flaw', label: '缺陷' },
   { key: 'predicament', label: '困境' },
   { key: 'charm_point', label: '代入点' }
+] as const
+
+const EMOTIONAL_FIELDS = [
+  { key: 'cherished', label: '最舍不得的人或生活' },
+  { key: 'exception', label: '会为谁破例' },
+  { key: 'key_relationship', label: '核心关系与没说破的事' },
+  { key: 'hard_choice', label: '成功与牵挂之间的两难' },
+  { key: 'emotional_promise', label: '希望读者牵挂的改变' },
 ] as const
 
 const GOLDEN_FIELDS = [
@@ -550,6 +582,7 @@ const startEdit = (block: string) => {
   const next: Record<string, string> = {}
   if (block === 'selling') next.core_selling_line = d.core_selling_line || ''
   if (block === 'protagonist') PROTAGONIST_FIELDS.forEach((f) => (next[f.key] = protagonistValue(f.key)))
+  if (block === 'emotion') EMOTIONAL_FIELDS.forEach((f) => (next[f.key] = d.emotional_core?.[f.key] || ''))
   if (block === 'conflict') {
     next.core_conflict = d.core_conflict || ''
     next.conflict_engine = d.conflict_engine || ''
@@ -576,6 +609,8 @@ const saveEdit = async (partial: Record<string, any>) => {
 
 const saveProtagonist = () =>
   saveEdit({ protagonist: Object.fromEntries(PROTAGONIST_FIELDS.map((f) => [f.key, buffer.value[f.key] || ''])) })
+const saveEmotion = () =>
+  saveEdit({ emotional_core: Object.fromEntries(EMOTIONAL_FIELDS.map((f) => [f.key, buffer.value[f.key] || ''])) })
 const saveGolden = () =>
   saveEdit({ golden_finger: Object.fromEntries(GOLDEN_FIELDS.map((f) => [f.key, buffer.value[f.key] || ''])) })
 const saveAnticipation = () =>

@@ -249,10 +249,11 @@
             </div>
             <div class="diverge-cards">
               <button v-for="seed in divergeSeeds" :key="seed.id" type="button" class="diverge-card" :class="{ picked: pickedSeedIds.includes(seed.id) }" @click="pickDivergeSeed(seed)">
-                <div><strong>{{ seed.title || '未命名方向' }}</strong><span v-if="typeof seed.score === 'number'">{{ seed.score }}/30</span></div>
+                <div><strong>{{ seed.title || '未命名方向' }}</strong><span v-if="typeof seed.score === 'number'">{{ seed.score }}/{{ seed.score_max || 30 }}</span></div>
                 <p>{{ seed.logline }}</p>
                 <small v-if="seed.hook">钩子 · {{ seed.hook }}</small>
                 <small v-if="seed.twist">转折 · {{ seed.twist }}</small>
+                <small v-if="seed.emotional_hook">牵挂 · {{ seed.emotional_hook }}</small>
                 <b v-if="pickedSeedIds.includes(seed.id)">已投喂</b>
               </button>
             </div>
@@ -889,6 +890,7 @@ const seedToText = (s: DivergeSeed): string => {
   const parts = [s.title, s.logline].filter(Boolean)
   let text = parts.join('：')
   if (s.hook) text += `（钩子：${s.hook}）`
+  if (s.emotional_hook) text += `\n读者牵挂：${s.emotional_hook}`
   return text || s.logline || s.title
 }
 

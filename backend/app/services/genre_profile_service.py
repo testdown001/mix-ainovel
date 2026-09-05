@@ -306,27 +306,30 @@ class GenreProfileService:
             return ""
 
         name = profile.get("name", "未知题材")
-        lines = [f"[题材约束：{name}]"]
+        lines = [
+            f"[题材写法参考：{name}]",
+            "- 本章功能与已规划的情绪曲线优先；以下频率是跨章检查参考，不是每章必须完成的配额。",
+        ]
 
         hook_cfg = profile.get("hook_config", {})
         if hook_cfg.get("opening_hook_mandatory"):
-            lines.append(f"- 开头钩子必须存在，推荐类型：{'、'.join(hook_cfg.get('preferred_types', []))}")
-        lines.append(f"- 每章至少 {hook_cfg.get('min_hooks_per_chapter', 1)} 个钩子")
+            lines.append(f"- 开头尽早建立阅读期待，可参考：{'、'.join(hook_cfg.get('preferred_types', []))}；余波或日常章也可从人物处境自然承接")
+        lines.append(f"- 钩子数量参考：约 {hook_cfg.get('min_hooks_per_chapter', 1)} 个，已有长线期待可延续；允许本章局部闭环，不强加新危机")
 
         cool_cfg = profile.get("coolpoint_config", {})
-        lines.append(f"- 爽点密度：{cool_cfg.get('density', 'medium')}，每 {cool_cfg.get('interval', 3)} 章至少 1 个爽点")
+        lines.append(f"- 爽点密度参考：{cool_cfg.get('density', 'medium')}，约每 {cool_cfg.get('interval', 3)} 章检查一次铺垫与兑现；实际释放服从因果和本章功能")
         lines.append(f"- 推荐爽点类型：{'、'.join(cool_cfg.get('types', [])[:5])}")
 
         micro_cfg = profile.get("micropayoff_config", {})
-        lines.append(f"- 每章至少 {micro_cfg.get('per_chapter_min', 1)} 个微满足（如：{'、'.join(micro_cfg.get('types', [])[:4])}）")
+        lines.append(f"- 微满足参考：{micro_cfg.get('per_chapter_min', 1)} 个（如：{'、'.join(micro_cfg.get('types', [])[:4])}）；也可由关系、情绪或认知变化承载，不为达标添加桥段")
         category_map = micro_cfg.get("category_mapping", {})
         if category_map:
             used_categories = sorted(set(category_map.values()))
             lines.append(f"- 微兑现覆盖分类：{'、'.join(used_categories)}（统一七类：信息/关系/能力/资源/认可/情绪/线索）")
 
         pacing_cfg = profile.get("pacing_config", {})
-        lines.append(f"- 节奏配比：Quest={pacing_cfg.get('quest_ratio', 0.6):.0%} / Fire={pacing_cfg.get('fire_ratio', 0.25):.0%} / Constellation={pacing_cfg.get('constellation_ratio', 0.15):.0%}")
-        lines.append(f"- 最大蓄力章节数：{pacing_cfg.get('max_buildup_chapters', 3)}")
+        lines.append(f"- 长线节奏配比参考：Quest={pacing_cfg.get('quest_ratio', 0.6):.0%} / Fire={pacing_cfg.get('fire_ratio', 0.25):.0%} / Constellation={pacing_cfg.get('constellation_ratio', 0.15):.0%}；不分摊为本章篇幅要求")
+        lines.append(f"- 蓄力检查窗口：约 {pacing_cfg.get('max_buildup_chapters', 3)} 章；检查承诺是否有进展，不强制把余波、关系或日常章改成爆点章")
 
         return "\n".join(lines)
 

@@ -489,6 +489,18 @@ async def generate_blueprint_for_project(
             formatted_history = [{"role": "user", "content": dossier_text}] + formatted_history
             logger.info("项目 %s 蓝图设定段：已注入立项书锚点", project_id)
 
+    # 采用的口吻属于本书确认偏好；候选试写和已停用的记忆不参与蓝图。
+    from ..models.creative_memory import CreativeMemoryItem
+    if dossier_state.get("voice_trial"):
+        voice_memory = (await session.execute(select(CreativeMemoryItem).where(
+            CreativeMemoryItem.project_id == project_id,
+            CreativeMemoryItem.user_id == user_id,
+            CreativeMemoryItem.source_type == "voice_trial",
+            CreativeMemoryItem.status == "active",
+        ))).scalars().first()
+        if voice_memory:
+            formatted_history = [{"role": "user", "content": "[作者选定的本书口吻]\n" + voice_memory.content}] + formatted_history
+
     # ------------------------------------------------------------------
     # 第一段：设定（标题/世界观/角色/金手指/关系/伏笔/分卷规划）
     # ------------------------------------------------------------------

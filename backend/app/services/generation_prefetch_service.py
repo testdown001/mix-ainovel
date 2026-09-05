@@ -195,6 +195,12 @@ class GenerationPrefetchService:
                     CharacterSignificanceService().build_significance_brief(
                         project_id=project_id,
                         chapter_number=chapter_number,
+                        involved_characters=[
+                            c["name"] for c in (blueprint_dict.get("characters") or [])
+                            if isinstance(c, dict) and c.get("name")
+                            and c["name"] in (outline_title + outline_summary + writing_notes)
+                        ],
+                        chapter_context=outline_title + "\n" + outline_summary + "\n" + writing_notes,
                     ),
                     timeout_sec=5,
                     task_name="character_significance",

@@ -131,13 +131,27 @@ def test_diverge_generates_scores_and_keeps_top():
     assert len(out) == 2
     # Top1 应为 B（总分最高）
     assert out[0]["title"] == "B"
-    assert out[0]["score"] == 26
+    assert out[0]["score"] == 36  # 旧模型未返回情感两维时使用中性分
+    assert out[0]["score_max"] == 50
     assert "verdict" in out[0]
 
 
 def test_diverge_empty_topic_returns_empty():
     svc = _make_divergence_service([])
     assert asyncio.run(svc.diverge(seed_topic="  ", user_id=1)) == []
+
+
+def test_diverge_ranking_rewards_attachment_and_relationship_potential():
+    seeds = [{"title": title, "logline": "师兄弟开店", "emotional_hook": hook}
+             for title, hook in (("A", "只想赚钱"), ("B", "开店的钱该不该拿去救师弟"))]
+    scores = [{"id": index, "novelty": 8, "marketability": 8, "coherence": 8,
+               "attachment": emotion, "relationship_potential": emotion}
+              for index, emotion in ((0, 3), (1, 9))]
+    svc = _make_divergence_service([json.dumps(seeds), json.dumps(scores)])
+    out = asyncio.run(svc.diverge(seed_topic="师兄弟", user_id=1, n=3, keep=2))
+    assert [seed["title"] for seed in out] == ["B", "A"]
+    assert out[0]["emotional_hook"] == "开店的钱该不该拿去救师弟"
+    assert out[0]["score"] == 42
 
 
 def test_diverge_handles_wrapped_array_and_scoring_failure():
@@ -162,4 +176,4 @@ def test_diverge_handles_wrapped_array_and_scoring_failure():
     out = asyncio.run(svc.diverge(seed_topic="点子", user_id=1, n=3, keep=3))
     assert len(out) == 1
     assert out[0]["title"] == "X"
-    assert out[0]["score"] == 15  # 评分失败 → 中性分 5+5+5
+    assert out[0]["score"] == 25  # 评分失败 → 五维中性分

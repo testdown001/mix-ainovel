@@ -238,6 +238,7 @@ export interface DossierAnticipation {
 }
 
 export interface ConceptDossier {
+  emotional_core?: EmotionalCore
   core_selling_line?: string
   genre?: string
   audience?: string
@@ -257,6 +258,22 @@ export interface ToxicPoint {
   severity?: string
   reason?: string
   fix_suggestion?: string
+}
+
+export interface EmotionalCore {
+  cherished?: string
+  exception?: string
+  key_relationship?: string
+  hard_choice?: string
+  emotional_promise?: string
+}
+
+export interface VoiceTrial {
+  id: string
+  scene: string
+  stale?: boolean
+  selected_id?: string | null
+  candidates: { id: string; label: string; style_notes: string; text: string }[]
 }
 
 export interface StressReport {
@@ -649,6 +666,10 @@ export interface MusePersonasResponse {
 }
 
 export interface DivergeSeed {
+  emotional_hook?: string
+  attachment?: number
+  relationship_potential?: number
+  score_max?: number
   id: number
   title: string
   logline: string
@@ -1012,6 +1033,22 @@ export class NovelAPI {
   /** 读取故事立项书（对话完成后后台已蒸馏，未就绪时本请求会同步补齐，首次可能 30-90 秒）。 */
   static async getConceptDossier(projectId: string): Promise<DossierResponse> {
     return request(`${NOVELS_BASE}/${projectId}/concept/dossier`)
+  }
+
+  static async getVoiceTrial(projectId: string): Promise<{ trial: VoiceTrial | null }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/voice-trial`)
+  }
+
+  static async generateVoiceTrial(projectId: string, scene: string): Promise<{ trial: VoiceTrial }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/voice-trial`, {
+      method: 'POST', body: JSON.stringify({ scene }),
+    })
+  }
+
+  static async selectVoiceTrial(projectId: string, trialId: string, candidateId: string): Promise<{ trial: VoiceTrial }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/voice-trial/select`, {
+      method: 'POST', body: JSON.stringify({ trial_id: trialId, candidate_id: candidateId }),
+    })
   }
 
   /** 分块编辑立项书（只提交改动的顶层键）。 */

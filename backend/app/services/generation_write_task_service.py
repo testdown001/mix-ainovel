@@ -237,21 +237,15 @@ class GenerationWriteTaskService:
         try:
             async with AsyncSessionLocal() as session:
                 try:
-                    from .character_significance_service import CharacterSignificanceService
-
-                    stats = await CharacterSignificanceService().extract_and_store(
+                    await ChapterPostProcessor(session, LLMService(session)).process_character_significance(
                         project_id=project_id,
                         chapter_number=chapter_number,
-                        chapter_content=chapter_content,
-                        character_names=character_names,
-                        session=session,
-                        llm_service=LLMService(session),
-                        prompt_service=PromptService(session),
+                        content=chapter_content,
                         user_id=user_id,
                     )
                     logger.info(
-                        "异步人物意义层完成 project=%s chapter=%s stats=%s",
-                        project_id, chapter_number, stats,
+                        "异步人物意义层完成 project=%s chapter=%s",
+                        project_id, chapter_number,
                     )
                 except Exception:
                     await session.rollback()

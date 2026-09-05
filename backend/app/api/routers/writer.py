@@ -459,6 +459,14 @@ async def _finalize_chapter_async(
         )
 
         _chapter_text = selected_version.content
+        from ...services.generation_write_task_service import GenerationWriteTaskService
+        safe_create_task(
+            GenerationWriteTaskService().run_character_significance(
+                project_id=project_id, chapter_number=chapter_number,
+                chapter_content=_chapter_text, character_names=[], user_id=user_id,
+            ),
+            name=f"significance-{project_id}-ch{chapter_number}",
+        )
 
         # 并行执行：FinalizeService（记忆/快照/剧情线）与 ChapterPostProcessor（摘要/向量入库）
         # 两者写入不同 DB 表且无数据依赖，使用独立 session 避免并发冲突
@@ -1127,6 +1135,14 @@ async def finalize_chapter(
     )
 
     # 向量入库 + 摘要 + hash 统一由 ChapterPostProcessor 异步处理
+    from ...services.generation_write_task_service import GenerationWriteTaskService
+    safe_create_task(
+        GenerationWriteTaskService().run_character_significance(
+            project_id=request.project_id, chapter_number=chapter_number,
+            chapter_content=selected_version.content, character_names=[], user_id=current_user.id,
+        ),
+        name=f"significance-{request.project_id}-ch{chapter_number}",
+    )
 
     return FinalizeChapterResponse(
         project_id=request.project_id,

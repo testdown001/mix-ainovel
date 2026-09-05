@@ -54,6 +54,8 @@ class SectionBudget:
 # 各 section 的默认预算配置（按 section title 的关键字匹配）
 # priority: 1=绝不截断 2=重要但可截断 3=可选可压缩 4=低优先级可丢弃
 _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
+    "人物意义层": SectionBudget(priority=1, max_tokens=1400),
+    "本书情感核心": SectionBudget(priority=1, max_tokens=900),
     # TIER 1: 核心指令 — 不截断
     "当前章节目标": SectionBudget(priority=1),
     "剧情推演": SectionBudget(priority=1),
@@ -81,7 +83,7 @@ _DEFAULT_BUDGETS: Dict[str, SectionBudget] = {
     "全书脉络": SectionBudget(priority=2, max_tokens=600),
     "追更钩子连续性": SectionBudget(priority=2, max_tokens=600),
     # 已由作者确认的规则优先于一般参考资料，但仍限制长度，避免挤占正文任务。
-    "已确认创作记忆": SectionBudget(priority=2, max_tokens=900),
+    "已确认创作记忆": SectionBudget(priority=1, max_tokens=1600),
 
     # TIER 2.5: RAG 检索 — 可压缩
     "RAG精筛上下文": SectionBudget(priority=2, max_tokens=1500),

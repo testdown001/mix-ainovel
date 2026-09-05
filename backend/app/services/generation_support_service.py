@@ -137,24 +137,18 @@ class GenerationSupportService:
                 chapters_since_coolpoint += 1
 
             if chapters_since_coolpoint >= 6:
-                if chapter_mission and isinstance(chapter_mission, dict):
-                    satisfaction = chapter_mission.get("satisfaction_design")
-                    if isinstance(satisfaction, dict) and satisfaction.get("type") in ("无", "无（蓄力中）", "推进成长"):
-                        satisfaction["type"] = "逆袭爽"
-                        satisfaction["buildup_from"] = f"已连续{chapters_since_coolpoint}章蓄力"
-                        satisfaction["cost_attached"] = "强制爽点需附带代价"
-
+                # 蓝图标签不能代表实际阅读体验，也不能据此改写导演脚本的情感设计。
                 return (
-                    f"【节奏强制纠偏】已连续{chapters_since_coolpoint}章没有爽点/高潮/转折，"
-                    "本章必须包含至少一个明确的爽点设计（逆袭、翻盘、揭秘、突破等），"
-                    "不得再写纯过渡/蓄力章。爽点须有蓄力-释放结构，且附带代价。"
+                    f"【长线兑现检查】最近连续{chapters_since_coolpoint}章的蓝图未标注明显爽点/高潮/转折，"
+                    "请结合正文检查读者期待是否已有实质进展；关系改变、认知更新、情绪释放或局部问题解决也可构成兑现。"
+                    "本章功能与既定情绪曲线优先，保留松弛和余波；仅在已有铺垫与因果支持时安排释放，不强加逆袭或新危机。"
                 )
 
             if chapters_since_coolpoint >= 3:
                 return (
-                    f"【节奏建议】已连续{chapters_since_coolpoint}章没有明显爽点，"
-                    "建议本章在推进主线的同时，安排至少一个小型爽感设计（认知爽、社交爽、成长爽等），"
-                    "避免读者疲劳流失。"
+                    f"【节奏建议】最近连续{chapters_since_coolpoint}章的蓝图没有明显爽点标记，"
+                    "可检查剧情、关系或认知是否持续变化，以及已有承诺是否得到回应。"
+                    "以本章功能和人物因果为准，允许日常、蓄力与局部闭环，不为凑次数强加爽点。"
                 )
 
             return None

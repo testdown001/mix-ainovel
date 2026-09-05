@@ -53,6 +53,14 @@ class AnticipationPromise(BaseModel):
     long_term: str = Field(default="", description="长线承诺：贯穿全书的终极悬念与最终对决方向")
 
 
+class EmotionalCore(BaseModel):
+    cherished: str = Field(default="", max_length=600, description="最舍不得的人、生活或尊严，具体到场景")
+    exception: str = Field(default="", max_length=600, description="嘴上的原则与会为谁破例，留出人物矛盾")
+    key_relationship: str = Field(default="", max_length=600, description="最重要的关系及彼此没说破的事")
+    hard_choice: str = Field(default="", max_length=600, description="外在目标与珍惜之物冲突时的有代价选择")
+    emotional_promise: str = Field(default="", max_length=600, description="读者会为什么牵挂、想看到怎样的改变")
+
+
 class ConceptDossier(BaseModel):
     """故事立项书：灵感对话蒸馏出的结构化前提产物，蓝图生成的最高优先级锚点。"""
 
@@ -63,6 +71,7 @@ class ConceptDossier(BaseModel):
     audience: str = Field(default="", description="目标读者画像")
     platform_mode: str = Field(default="", description="平台模式：起点向/番茄向/Hybrid")
     protagonist: ProtagonistCore = Field(default_factory=ProtagonistCore)
+    emotional_core: EmotionalCore = Field(default_factory=EmotionalCore)
     core_conflict: str = Field(default="", description="核心冲突：主角与谁/什么的对抗贯穿全书")
     conflict_engine: str = Field(
         default="",

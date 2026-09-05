@@ -1,5 +1,8 @@
 import asyncio
+from copy import deepcopy
 from types import SimpleNamespace
+
+import pytest
 
 from app.services.generation_support_service import GenerationSupportService
 
@@ -74,7 +77,9 @@ def test_generation_support_service_load_project_reference_novels():
     assert novels[0].status == "ready"
 
 
-def test_generation_support_service_validate_coolpoint_rhythm_mutates_mission():
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("quiet_chapters", [3, 6])
+def test_generation_support_service_rhythm_reminder_preserves_mission(nested, quiet_chapters):
     blueprints = [
         SimpleNamespace(cognitive_twist_level=0, chapter_function="progression"),
         SimpleNamespace(cognitive_twist_level=0, chapter_function="progression"),
@@ -83,13 +88,20 @@ def test_generation_support_service_validate_coolpoint_rhythm_mutates_mission():
         SimpleNamespace(cognitive_twist_level=0, chapter_function="progression"),
         SimpleNamespace(cognitive_twist_level=0, chapter_function="progression"),
     ]
-    service = GenerationSupportService(_DummySession(blueprints))
-    mission = {"satisfaction_design": {"type": "推进成长"}}
+    service = GenerationSupportService(_DummySession(blueprints[:quiet_chapters]))
+    intentions = {
+        "chapter_type": "余波章", "satisfaction_design": {"type": "无（蓄力中）"},
+        "emotion_curve": {"curve": "从强撑到接受失去", "breathing_point": "与故人告别"},
+    }
+    mission = {"soft_suggestions": intentions} if nested else intentions
+    original = deepcopy(mission)
 
     directive = asyncio.run(
         service.validate_coolpoint_rhythm("proj-1", 8, mission)
     )
 
     assert directive is not None
-    assert "节奏强制纠偏" in directive
-    assert mission["satisfaction_design"]["type"] == "逆袭爽"
+    assert "本章功能" in directive
+    assert "节奏强制纠偏" not in directive
+    assert "不得再写纯过渡" not in directive
+    assert mission == original
