@@ -34,6 +34,8 @@ class ConverseResponse(BaseModel):
     conversation_state: Dict[str, Any]
     is_complete: bool = False
     ready_for_blueprint: Optional[bool] = None
+    conversation_round: Optional[int] = None
+    max_conversation_rounds: Optional[int] = None
 
 
 class ConverseRequest(BaseModel):

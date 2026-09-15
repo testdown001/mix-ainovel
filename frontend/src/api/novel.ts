@@ -531,6 +531,8 @@ export interface ConverseResponse {
   conversation_state: any
   is_complete: boolean
   ready_for_blueprint?: boolean // 新增：表示准备生成蓝图
+  conversation_round?: number
+  max_conversation_rounds?: number
 }
 
 export interface ReferenceSearchResponse {

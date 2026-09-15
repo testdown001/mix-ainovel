@@ -59,6 +59,36 @@ beforeEach(() => {
 afterEach(() => { app?.unmount(); vi.restoreAllMocks() })
 
 describe('灵感模式通信失败恢复', () => {
+  it('采用服务端轮次，在第十轮响应后进入蓝图确认', async () => {
+    const vm = await mount()
+    vi.mocked(NovelAPI.converseConcept).mockResolvedValueOnce({
+      ...answer, conversation_round: 10, max_conversation_rounds: 10,
+      is_complete: true, ready_for_blueprint: true,
+      ui_control: { type: 'info_display' },
+    } as any)
+    await vm.startConversation()
+    expect(vm.currentTurn).toBe(10)
+    expect(vm.showBlueprintConfirmation).toBe(true)
+    await vm.handleUserInput({ value: '继续' })
+    expect(NovelAPI.converseConcept).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([10, 46])('恢复 %i 轮的旧构思直接确认蓝图，禁止追加请求', async (rounds) => {
+    navigation.route.query.project_id = 'existing-idea'
+    const history = Array.from({ length: rounds }, () => [
+      { role: 'user', content: JSON.stringify({ value: '按推荐执行' }) },
+      { role: 'assistant', content: JSON.stringify(answer) },
+    ]).flat()
+    vi.mocked(NovelAPI.getNovel).mockResolvedValue(project(history))
+    const vm = await mount()
+    expect(vm.currentTurn).toBe(rounds)
+    expect(vm.MAX_CONCEPT_TURNS).toBe(10)
+    expect(vm.showBlueprintConfirmation).toBe(true)
+    await vm.handleUserInput({ value: '继续' })
+    expect(NovelAPI.converseConcept).not.toHaveBeenCalled()
+    expect(NovelAPI.createNovel).not.toHaveBeenCalled()
+  })
+
   it('项目创建本身失败时保留故事种子，重试创建仍可正常开始', async () => {
     const vm = await mount()
     vm.initialIdea = '故事种子'
