@@ -104,7 +104,9 @@ IMPORTANT: 你的回复必须是合法的 JSON 对象，并严格包含以下字
     "placeholder": "string"
   },
   "conversation_state": {},
-  "is_complete": false
+  "is_complete": false,
+  "conversation_round": 1,
+  "max_conversation_rounds": 10
 }
 single_choice 时必须且只能把其中一个选项的 recommended 设为 true，并给一句不超过 24 字的 recommend_reason。
 不要把「全不满意 / 我另有想法 / 自由描述」标成推荐。
@@ -122,8 +124,12 @@ def _ensure_prompt(prompt: str | None, name: str) -> str:
 
 # 概念对话历史瘦身：解析失败时回传原文的截断上限（字符）
 _CONVERSE_HISTORY_FALLBACK_CHARS = 500
-# is_complete 完全由 LLM 自报，最低轮次兜底：用户消息轮次（含本轮）不足该值时强制 False
-_CONVERSE_MIN_COMPLETE_USER_TURNS = 3
+# is_complete 可由模型提前收束，但服务端对用户轮次设硬上限
+_CONVERSE_MAX_USER_TURNS = 10
+_CONVERSE_AUTO_DEFAULTS = (
+    "未明确的次要人物、地名、组织名、具体时间线和支线细节，按当前题材与推荐方向补全；"
+    "只要不改变核心卖点、人物欲望、主要冲突、情感承诺和创作禁区，就不再逐项询问。"
+)
 
 
 class GenerateCoverRequest(BaseModel):
@@ -858,6 +864,21 @@ async def converse_with_concept(
         current_user.id,
         len(history_records),
     )
+    existing_user_turns = sum(1 for record in history_records if record.role == "user")
+    # 兼容已经聊过很多轮的旧构思：不再调用模型或追加第 11 轮，直接进入确认页。
+    if existing_user_turns >= _CONVERSE_MAX_USER_TURNS:
+        state = dict(request.conversation_state or {})
+        state.update({"stage": "locked", "round": _CONVERSE_MAX_USER_TURNS,
+                      "max_rounds": _CONVERSE_MAX_USER_TURNS, "auto_defaults": True,
+                      "auto_default_policy": _CONVERSE_AUTO_DEFAULTS})
+        return ConverseResponse(
+            ai_message=("关键方向已经确认完成。接下来我会按已选推荐方案补全次要设定，"
+                        "不再逐项打断你；你可以直接检查并修改故事蓝图。"),
+            ui_control={"type": "info_display", "placeholder": "故事方向已锁定，正在准备蓝图"},
+            conversation_state=state, is_complete=True, ready_for_blueprint=True,
+            conversation_round=_CONVERSE_MAX_USER_TURNS,
+            max_conversation_rounds=_CONVERSE_MAX_USER_TURNS,
+        )
     # 历史瘦身：只影响回传给 LLM 的形态，落库格式不变（蓝图生成等消费方口径独立）
     conversation_history = _compact_history_for_llm(history_records)
     user_content = json.dumps(request.user_input, ensure_ascii=False)
@@ -1014,7 +1035,16 @@ async def converse_with_concept(
             project_id, current_user.id, spark_card.category,
         )
 
-    system_prompt = f"{system_prompt}\n{JSON_RESPONSE_INSTRUCTION}"
+    user_turns = existing_user_turns + 1
+    system_prompt = (
+        f"{system_prompt}\n\n【本产品对话节奏】这是第 {user_turns}/{_CONVERSE_MAX_USER_TURNS} 轮。"
+        "只追问决定整体方向的关键问题：核心卖点与冲突、主角欲望和代价、题材/基调、核心关系与情感牵挂、"
+        "开篇钩子与前十章承诺、长线升级发动机。其他名字、配角、地名、细节时间线和支线全部按推荐方案补全，"
+        "不要把每一个设定拆成一轮，也不要询问用户已经明确回答过的内容。每轮最多问一个关键问题。"
+        "用户说‘按推荐执行/你来定/都可以’时，立即采用推荐项并继续下一个关键方向。"
+        "当信息足够或到第 10 轮时，使用 info_display 收束，不要再提出问题。\n"
+        f"【默认补全规则】{_CONVERSE_AUTO_DEFAULTS}\n{JSON_RESPONSE_INSTRUCTION}"
+    )
 
     llm_response = await llm_service.get_llm_response(
         system_prompt=system_prompt,
@@ -1064,24 +1094,28 @@ async def converse_with_concept(
             detail="概念对话失败，AI 返回的内容格式不正确，历史未受影响，请重试。",
         )
 
-    # is_complete 兜底：完成信号完全由 LLM 自报，用户消息轮次（含本轮）不足最低值时
-    # 强制压制，防止首轮就宣布完成、跳过概念打磨。
-    user_turns = sum(1 for record in history_records if record.role == "user") + 1
-    suppressed_complete = False
-    if parsed.get("is_complete") and user_turns < _CONVERSE_MIN_COMPLETE_USER_TURNS:
-        logger.info(
-            "项目 %s 概念对话 is_complete 被压制：用户轮次 %s < %s",
-            project_id,
-            user_turns,
-            _CONVERSE_MIN_COMPLETE_USER_TURNS,
-        )
-        parsed["is_complete"] = False
-        suppressed_complete = True
-
+    # 第 10 轮是硬收束点：模型可以提前完成，但绝不能继续开启第 11 轮。
+    user_turns = existing_user_turns + 1
+    forced_complete = user_turns >= _CONVERSE_MAX_USER_TURNS
+    if forced_complete:
+        parsed["is_complete"] = True
+        parsed["ready_for_blueprint"] = True
+        parsed["ai_message"] = (
+            (parsed.get("ai_message") or "") + "\n\n关键方向已经确认完成；其余细节将按推荐方案补全，"
+            "你可以直接检查故事蓝图。"
+        ).strip()
+        parsed["ui_control"] = {"type": "info_display", "placeholder": "故事方向已锁定，正在准备蓝图"}
     if parsed.get("is_complete"):
         parsed["ready_for_blueprint"] = True
 
-    parsed.setdefault("conversation_state", parsed.get("conversation_state", {}))
+    state = dict(parsed.get("conversation_state") or {})
+    state.update({"round": user_turns, "max_rounds": _CONVERSE_MAX_USER_TURNS})
+    if parsed.get("is_complete"):
+        state.update({"stage": "locked", "auto_defaults": True,
+                      "auto_default_policy": _CONVERSE_AUTO_DEFAULTS})
+    parsed["conversation_state"] = state
+    parsed["conversation_round"] = user_turns
+    parsed["max_conversation_rounds"] = _CONVERSE_MAX_USER_TURNS
     _normalize_choice_recommendations(parsed)
 
     # 先校验后落库：LLM 漏必填字段（如 ui_control）时不写入任何脏历史，用户重发即可
@@ -1106,8 +1140,8 @@ async def converse_with_concept(
             detail="概念对话失败，AI 返回的内容缺少必要字段，你的输入已保留，请重试。",
         ) from exc
 
-    # 被压制时落库压制后的 JSON——前端刷新会从历史读 is_complete，须与本次响应一致
-    assistant_record = json.dumps(parsed, ensure_ascii=False) if suppressed_complete else normalized
+    # 保存最终响应，确保刷新后轮次、完成标记与默认补全策略一致。
+    assistant_record = json.dumps(parsed, ensure_ascii=False)
     await novel_service.append_conversation(project_id, "user", user_content)
     await novel_service.append_conversation(project_id, "assistant", assistant_record)
 

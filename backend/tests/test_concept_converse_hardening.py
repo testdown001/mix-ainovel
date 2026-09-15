@@ -4,8 +4,7 @@
 1. 回传 LLM 的历史瘦身：assistant 记录只取 ai_message、user 记录取 value，
    解析失败退回原文截 500 字；落库格式不变（蓝图生成口径独立）。
 2. 先校验后落库：LLM 漏必填字段 / 返回非 JSON 对象时 500 且零落库，历史无污染。
-3. is_complete 最低轮次兜底：用户消息轮次（含本轮）< 3 强制压制、≥ 3 放行；
-   压制时落库的 assistant JSON 与响应一致（前端刷新读历史不误判完成）。
+3. is_complete：模型可以在信息足够时提前收束；第 10 轮硬性收束且不允许第 11 轮。
 4. 参考素材注入截断：三个 format_* 函数每本素材有上限（800/600/800）。
 
 通过最小 FastAPI 应用挂载真实 novels 路由 + dependency_overrides，
@@ -210,7 +209,7 @@ async def test_non_object_response_returns_500_without_persisting(db_session, mo
 # ------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_is_complete_suppressed_before_min_turns(db_session, monkeypatch):
+async def test_is_complete_allowed_when_direction_is_already_clear(db_session, monkeypatch):
     await _seed_project(db_session)  # 无历史 → 本轮是第 1 个用户轮次
     _patch_services(
         monkeypatch,
@@ -221,13 +220,13 @@ async def test_is_complete_suppressed_before_min_turns(db_session, monkeypatch):
         resp = await client.post(CONVERSE_URL, json=_converse_payload())
         assert resp.status_code == 200
         body = resp.json()
-        assert body["is_complete"] is False
-        assert not body.get("ready_for_blueprint")
+        assert body["is_complete"] is True
+        assert body["ready_for_blueprint"] is True
 
-    # 压制后落库的 assistant JSON 与响应一致，前端刷新读历史不会误判完成
+    # 收束后的 assistant JSON 与响应一致，前端刷新读历史不会误判完成
     records = await _list_conversations(db_session)
     stored = json.loads(records[-1].content)
-    assert stored["is_complete"] is False
+    assert stored["is_complete"] is True
 
 
 @pytest.mark.asyncio
@@ -242,7 +241,7 @@ async def test_is_complete_allowed_from_third_user_turn(db_session, monkeypatch)
             ("user", user_msg),
             ("assistant", assistant_msg),
         ],
-    )  # 已有 2 个用户轮次，本轮为第 3 轮 → 放行
+    )  # 已有 2 个用户轮次，本轮为第 3 轮 → 允许收束
     _patch_services(
         monkeypatch,
         json.dumps(dict(VALID_RESPONSE, is_complete=True), ensure_ascii=False),
@@ -258,6 +257,53 @@ async def test_is_complete_allowed_from_third_user_turn(db_session, monkeypatch)
     records = await _list_conversations(db_session)
     stored = json.loads(records[-1].content)
     assert stored["is_complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_tenth_round_forces_completion_and_persists_it(db_session, monkeypatch):
+    user_msg = json.dumps({"type": "text", "value": "按推荐执行"}, ensure_ascii=False)
+    assistant_msg = json.dumps(VALID_RESPONSE, ensure_ascii=False)
+    await _seed_project(
+        db_session,
+        [(role, content) for _ in range(9) for role, content in
+         [("user", user_msg), ("assistant", assistant_msg)]],
+    )
+    calls = _patch_services(monkeypatch, assistant_msg)
+    async with _build_client(db_session) as client:
+        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_complete"] is True
+    assert body["ready_for_blueprint"] is True
+    assert body["conversation_round"] == 10
+    assert body["ui_control"]["type"] == "info_display"
+    assert body["conversation_state"]["auto_defaults"] is True
+    assert len(calls) == 1
+    assert "第 10/10 轮" in calls[0]["system_prompt"]
+    records = await _list_conversations(db_session)
+    assert len(records) == 20
+    assert json.loads(records[-1].content)["is_complete"] is True
+
+
+@pytest.mark.asyncio
+async def test_conversation_hard_stops_at_ten_rounds_without_an_extra_llm_call(db_session, monkeypatch):
+    user_msg = json.dumps({"type": "text", "value": "继续推进"}, ensure_ascii=False)
+    assistant_msg = json.dumps(VALID_RESPONSE, ensure_ascii=False)
+    await _seed_project(
+        db_session,
+        sum(([('user', user_msg), ('assistant', assistant_msg)] for _ in range(10)), []),
+    )
+    calls = _patch_services(monkeypatch, json.dumps(VALID_RESPONSE, ensure_ascii=False))
+    async with _build_client(db_session) as client:
+        resp = await client.post(CONVERSE_URL, json=_converse_payload())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_complete"] is True
+    assert body["conversation_round"] == 10
+    assert body["max_conversation_rounds"] == 10
+    assert body["ui_control"]["type"] == "info_display"
+    assert calls == []
+    assert len(await _list_conversations(db_session)) == 20
 
 
 # ------------------------------------------------------------------

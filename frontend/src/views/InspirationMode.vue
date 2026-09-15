@@ -125,10 +125,10 @@
           <section class="rail-section">
             <div class="conversation-state">
               <span class="state-pulse"><i></i></span>
-              <div><strong>{{ conversationStatus }}</strong><small>第 {{ currentTurn }} 轮对话</small></div>
+              <div><strong>{{ conversationStatus }}</strong><small>第 {{ Math.min(currentTurn, MAX_CONCEPT_TURNS) }}/{{ MAX_CONCEPT_TURNS }} 轮对话</small></div>
             </div>
-            <div class="turn-progress" role="progressbar" aria-label="蓝图解锁进度" :aria-valuenow="Math.min(currentTurn, 3)" aria-valuemin="0" aria-valuemax="3">
-              <span :style="{ width: (Math.min(currentTurn / 3, 1) * 100) + '%' }"></span>
+            <div class="turn-progress" role="progressbar" aria-label="故事方向确认进度" :aria-valuenow="Math.min(currentTurn, MAX_CONCEPT_TURNS)" aria-valuemin="0" :aria-valuemax="MAX_CONCEPT_TURNS">
+              <span :style="{ width: (Math.min(currentTurn / MAX_CONCEPT_TURNS, 1) * 100) + '%' }"></span>
             </div>
             <p class="turn-hint">{{ nextActionLabel }}</p>
           </section>
@@ -209,7 +209,7 @@
               <p>{{ showBlueprint ? 'BLUEPRINT READY' : showBlueprintConfirmation ? 'STORY LOCK' : 'IDEA EXPLORATION' }}</p>
               <h2>{{ showBlueprint ? '故事蓝图' : showBlueprintConfirmation ? '锁定你的故事' : '与文思继续探索' }}</h2>
             </div>
-            <span>{{ currentTurn }}/3 轮</span>
+            <span>{{ Math.min(currentTurn, MAX_CONCEPT_TURNS) }}/{{ MAX_CONCEPT_TURNS }} 轮</span>
           </header>
 
           <div class="chat-scroll" ref="chatArea">
@@ -382,6 +382,7 @@ const upgradeMessage = ref('')
 const chatMessages = ref<ChatMessage[]>([])
 const currentUIControl = ref<UIControl | null>(null)
 const currentTurn = ref(0)
+const MAX_CONCEPT_TURNS = 10
 const completedBlueprint = ref<Blueprint | null>(null)
 const confirmationMessage = ref('')
 const blueprintMessage = ref('')
@@ -493,7 +494,7 @@ const currentMuse = computed(() =>
 )
 const workflowStage = computed(() => {
   if (showBlueprint.value) return 4
-  if (showBlueprintConfirmation.value || currentTurn.value >= 3) return 3
+  if (showBlueprintConfirmation.value || currentTurn.value >= MAX_CONCEPT_TURNS) return 3
   if (conversationStarted.value) return 2
   return 1
 })
@@ -537,8 +538,8 @@ const boundaryInsight = computed(() =>
 )
 const nextActionLabel = computed(() => {
   if (showBlueprint.value) return '确认蓝图后进入章节规划与正文创作。'
-  if (showBlueprintConfirmation.value || currentTurn.value >= 3) return '检查故事核心，准备生成可编辑蓝图。'
-  if (conversationStarted.value) return `再聊 ${Math.max(3 - currentTurn.value, 0)} 轮，逐步锁定故事。`
+  if (showBlueprintConfirmation.value || currentTurn.value >= MAX_CONCEPT_TURNS) return '关键方向已锁定，检查故事核心后生成可编辑蓝图。'
+  if (conversationStarted.value) return `还可聊 ${Math.max(MAX_CONCEPT_TURNS - currentTurn.value, 0)} 轮，文思会按推荐方案补全细节。`
   return initialIdea.value.trim() ? '点击开启灵感模式，与文思开始第一轮对话。' : '先写下一句话、一个人物或一幅画面。'
 })
 
@@ -775,20 +776,24 @@ const restoreConversation = async (projectId: string) => {
         }
       }).filter((msg): msg is ChatMessage => msg !== null && typeof msg.content === 'string' && !!msg.content)
 
+      currentTurn.value = project.conversation_history.filter(m => m.role === 'user').length
       const lastAssistantMsgStr = project.conversation_history.filter(m => m.role === 'assistant').pop()?.content
       if (lastAssistantMsgStr) {
         let lastAssistantMsg: any = {}
         try { lastAssistantMsg = JSON.parse(lastAssistantMsgStr) } catch { /* 旧消息仍可显示并继续 */ }
         novelStore.currentConversationState = lastAssistantMsg.conversation_state || {}
 
-        if (lastAssistantMsg.is_complete) {
-          confirmationMessage.value = lastAssistantMsg.ai_message
+        if (lastAssistantMsg.is_complete || currentTurn.value >= MAX_CONCEPT_TURNS) {
+          confirmationMessage.value = lastAssistantMsg.ai_message || '关键方向已确认，接下来按推荐方案补全次要设定。'
           showBlueprintConfirmation.value = true
         } else {
           currentUIControl.value = lastAssistantMsg.ui_control || currentUIControl.value
         }
       }
-      currentTurn.value = project.conversation_history.filter(m => m.role === 'assistant').length
+      if (currentTurn.value >= MAX_CONCEPT_TURNS && !showBlueprintConfirmation.value) {
+        confirmationMessage.value = '关键方向已确认，接下来按推荐方案补全次要设定。'
+        showBlueprintConfirmation.value = true
+      }
       await scrollToBottom()
     }
     if (!project.conversation_history?.length) {
@@ -824,6 +829,11 @@ const handleUserInput = async (
   retry = false,
 ) => {
   if (novelStore.isLoading || restoreFailed.value || isRestoringConversation.value) return
+  if (currentTurn.value >= MAX_CONCEPT_TURNS) {
+    confirmationMessage.value = '关键方向已经确认完成；其余细节将按推荐方案补全。'
+    showBlueprintConfirmation.value = true
+    return
+  }
   conversationError.value = ''
   const mergedOptions: ConversationOptions = retry ? options : {
     ...options,
@@ -854,7 +864,7 @@ const handleUserInput = async (
       content: response.ai_message,
       type: 'ai'
     })
-    currentTurn.value++
+    currentTurn.value = response.conversation_round ?? currentTurn.value + 1
 
     await scrollToBottom()
 
