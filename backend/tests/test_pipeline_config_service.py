@@ -40,7 +40,7 @@ def test_pipeline_config_service_resolves_fast_override():
 
 def test_pipeline_config_service_maps_literary_alias_to_premium():
     # 旧名 literary 在入口归一化为 premium（三档收敛后的官方映射）；
-    # 场景化分支不再随 preset 默认开启，只能 flow_config 显式覆写。
+    # 精品模式默认进入场景化质量主链；显式 false 才回退整章路径。
     service = PipelineConfigService(_DummySession())
 
     config = asyncio.run(service.resolve_config({"preset": "literary"}))
@@ -49,4 +49,4 @@ def test_pipeline_config_service_maps_literary_alias_to_premium():
     assert config.version_count == 1
     assert config.enable_memory is True
     assert config.enable_self_critique is True
-    assert config.enable_scene_by_scene is False
+    assert config.enable_scene_by_scene is True

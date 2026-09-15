@@ -18,6 +18,8 @@ from app.services.literary_generation_flow_service import (
     LiteraryGenerationFlowService,
 )
 from app.services.scene_generation_service import SceneGenerationService
+from app.services.generation_quality_gate import GenerationQualityError
+from tests.scene_fakes import scene_structured_response
 
 
 class _Guardrails:
@@ -43,6 +45,7 @@ class _Compression:
 
 
 def _scene_service(llm) -> SceneGenerationService:
+    llm.generate_structured = scene_structured_response
     return SceneGenerationService(llm, _Guardrails(), _Policy(), _Compression())
 
 
@@ -72,7 +75,7 @@ def _run_scenes(service, prompt_sections_data=None, chapter_mission=_MISSION_3_S
 # ---------- 1) 场景循环通用容错 ----------
 
 
-def test_scene_failure_retries_once_then_continues_with_missing_scene():
+def test_scene_failure_retries_once_then_blocks_chapter():
     class _LLM:
         def __init__(self):
             self.calls: list[str] = []
@@ -82,32 +85,28 @@ def test_scene_failure_retries_once_then_continues_with_missing_scene():
             self.calls.append(prompt)
             if "场景 2/3" in prompt:
                 raise TimeoutError("上游超时")
-            return "场景正文，江面起了雾。"
+            return "场景正文，江面起了雾。" * 10
 
     llm = _LLM()
-    result = _run_scenes(_scene_service(llm))
+    with pytest.raises(GenerationQualityError, match="重试后仍未完成"):
+        _run_scenes(_scene_service(llm))
 
     # 场景2：首次失败 + 重试一次 = 2 次调用；场景1/3 各 1 次 → 共 4 次
     scene2_attempts = [p for p in llm.calls if "场景 2/3" in p]
     assert len(scene2_attempts) == 2
-    assert len(llm.calls) == 4
-    # 整章完成：场景1/3 正常拼章，场景2 缺失并记录
-    assert result["content"] == "场景正文，江面起了雾。\n\n场景正文，江面起了雾。"
-    assert result["metadata"]["missing_scenes"] == [2]
+    assert len(llm.calls) == 3
 
 
-def test_scene_empty_output_recorded_as_missing():
+def test_scene_empty_output_blocks_chapter():
     class _LLM:
         async def get_llm_response(self, **kwargs):
             prompt = kwargs["conversation_history"][0]["content"]
             if "场景 3/3" in prompt:
                 return ""
-            return "场景正文，钟声敲了三下。"
+            return "场景正文，钟声敲了三下。" * 10
 
-    result = _run_scenes(_scene_service(_LLM()))
-
-    assert result["metadata"]["missing_scenes"] == [3]
-    assert "场景正文" in result["content"]
+    with pytest.raises(GenerationQualityError, match="重试后仍未完成"):
+        _run_scenes(_scene_service(_LLM()))
 
 
 def test_all_scenes_fail_raises_chapter_failure():
@@ -120,10 +119,10 @@ def test_all_scenes_fail_raises_chapter_failure():
             raise RuntimeError("5xx")
 
     llm = _LLM()
-    with pytest.raises(RuntimeError, match="全部"):
+    with pytest.raises(RuntimeError, match="未完成"):
         _run_scenes(_scene_service(llm))
-    # 每场景重试一次：3 场景 × 2 次
-    assert llm.call_count == 6
+    # 第一个场景重试后即阻断，后续场景不会建立在空前文上。
+    assert llm.call_count == 2
 
 
 # ---------- 3) 场景 2+ 硬约束不丢（P1-9） ----------
@@ -136,7 +135,7 @@ def test_scene3_prompt_carries_full_hard_constraints():
 
         async def get_llm_response(self, **kwargs):
             self.calls.append(kwargs["conversation_history"][0]["content"])
-            return "场景正文，江面起了雾。"
+            return "场景正文，江面起了雾。" * 10
 
     llm = _LLM()
     service = _scene_service(llm)

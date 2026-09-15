@@ -57,14 +57,14 @@ def test_enhanced_alias_maps_to_standard_with_worldbuilding():
 
 def test_literary_alias_maps_to_premium():
     # 旧名 literary → premium（2026-06 三档收敛后的官方映射）；
-    # 场景化分步分支不再随任何 preset 默认开启，只能 flow_config 显式覆写。
+    # 精品模式默认进入场景化质量主链，显式 false 才关闭。
     config = asyncio.run(_resolve({"preset": "literary"}))
     assert config.preset == "premium"
     assert config.version_count == 1
     assert config.enable_memory is True
     assert config.enable_self_critique is True
     assert config.enable_reader_sim is True
-    assert config.enable_scene_by_scene is False
+    assert config.enable_scene_by_scene is True
 
 
 def test_legacy_alias_matrix_resolves_without_recursion():

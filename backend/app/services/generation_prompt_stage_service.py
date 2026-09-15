@@ -22,6 +22,8 @@ class PromptStageResult:
     fusion_dna_text: str = ""
     reference_guidance_text: str = ""
     reference_beats_text: str = ""
+    reference_cards: list[dict] = None
+    outline_revision_text: str = ""
 
 
 class GenerationPromptStageService:
@@ -200,6 +202,15 @@ class GenerationPromptStageService:
             getattr(project, "reference_novel_ids", None),
         )
         fusion_dna_text = reference_guidance_text
+        reference_cards = []
+        try:
+            from .reference_runtime_service import ReferenceRuntimeService
+            reference_cards = ReferenceRuntimeService.build_cards(
+                project_reference_novels or [], getattr(project, "fusion_dna", None),
+                getattr(project, "reference_novel_ids", None),
+            )
+        except Exception as exc:
+            logger.warning("参考机制卡构建失败（不影响生成）: %s", exc)
         if reference_guidance_text:
             prompt_sections.append(("[参考阅读动力与融合指引]", reference_guidance_text))
 
@@ -257,4 +268,6 @@ class GenerationPromptStageService:
             fusion_dna_text=fusion_dna_text,
             reference_guidance_text=reference_guidance_text,
             reference_beats_text=beats_text[:1200],
+            reference_cards=reference_cards,
+            outline_revision_text=outline_revision_context or "",
         )

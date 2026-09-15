@@ -33,6 +33,7 @@ from ..services.context_planner_service import ContextPlan, ContextPlannerServic
 from ..services.evidence_router_service import EvidenceRouterService
 from ..services.history_context_service import HistoryContextService
 from ..services.generation_result_service import GenerationResultService
+from ..services.generation_quality_gate import GenerationQualityGate
 from ..services.generation_telemetry_service import GenerationTelemetryService
 from ..services.generation_policy_service import GenerationPolicyService
 from ..services.generation_background_task_service import GenerationBackgroundTaskService
@@ -90,9 +91,24 @@ logger = logging.getLogger(__name__)
 class PipelineOrchestrator(PipelineReviewMixin):
     """统一写作流水线编排器。"""
 
+    async def _consume_outline_revision_receipt(self, brief, project_id: str, chapter_number: int,
+                                                 source_version: int) -> None:
+        if not brief:
+            return
+        import re
+        match = re.search(r"\[revision_receipt:([0-9a-f]+)\]", brief)
+        if not match:
+            return
+        from .outline_revision_service import OutlineRevisionService
+        await OutlineRevisionService.consume_revision_hint(
+            session=self.session, project_id=project_id, chapter_number=chapter_number,
+            revision_id=match.group(1), source_version=source_version,
+        )
+
     def __init__(self, session: AsyncSession):
         self.session = session
         self.llm_service = LLMService(session)
+        self.quality_gate = GenerationQualityGate(self.llm_service)
         self.prompt_service = PromptService(session)
         self.novel_service = NovelService(session)
 
@@ -842,6 +858,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
         writing_strategy = evidence_stage.writing_strategy
         creative_memory_context = evidence_stage.creative_memory_context
         creative_memory_receipt = evidence_stage.creative_memory_receipt
+        from .narrative_state_service import NarrativeStateService
+        narrative_state, narrative_base = await NarrativeStateService.load(
+            self.session, project_id, chapter_number
+        )
         if creative_memory_receipt:
             # debug_metadata 会随生成结果返回，前端可解释“本章用了哪些确认规则”。
             context_plan_payload["creative_memory_receipt"] = creative_memory_receipt
@@ -899,15 +919,38 @@ class PipelineOrchestrator(PipelineReviewMixin):
         writer_prompt = prompt_stage.writer_prompt
         reference_prose_text = prompt_stage.reference_prose_text
         fusion_dna_text = prompt_stage.fusion_dna_text
+        reference_cards = prompt_stage.reference_cards or []
         await telemetry.emit_prompt_compile_summary(prompt_compile_summary)
         logger.debug("Pipeline prompt length: %s chars", len(prompt_input))
 
         _mark_stage("build_generation_prompt", stage_started)
         await _emit_stage("build_generation_prompt", "完成上下文组装，开始写作")
 
+        async def _verify_before_persist(versions_to_check):
+            if getattr(config, "preset", "fast") == "fast":
+                return
+            await _emit_stage("verify_before_commit", "检查正文事实、视角与情节完整性")
+            started = time.perf_counter()
+            await self.quality_gate.verify_versions(
+                versions_to_check, user_id=user_id,
+                context={"chapter_mission": chapter_mission, "outline": outline_summary,
+                         "blueprint": writer_blueprint, "memory": memory_context,
+                         "previous_summary": history_context.get("previous_summary"),
+                         "previous_tail": history_context.get("previous_tail"),
+                         "narrative_state": narrative_state,
+                         "require_narrative_delta": bool(getattr(config, "enable_reader_controller", False)),
+                         "forbidden_characters": forbidden_characters,
+                         "allowed_new_characters": allowed_new_characters},
+            )
+            for checked_version in versions_to_check:
+                checked_version.setdefault("metadata", {})["narrative_base"] = narrative_base
+            _mark_stage("verify_before_commit", started)
+
         # ========== Literary 模式：场景级分步生成 ==========
         if config.enable_scene_by_scene:
             await _emit_stage("generate_scene_by_scene", "按场景分步生成中")
+            async def _stream_scene_text(delta: str) -> None:
+                await telemetry.emit_text_delta(delta, "generate_scene_by_scene", chapter_number)
             # 关键路径软预算：与标准分支同一起点(total_started)、同一预算配置；只约束
             # literary 后处理链（雕塑/人味化/扩写/质检），场景生成本体不受预算约束。
             _literary_budget_sec = getattr(settings, "generation_time_budget_sec", 0) or 0
@@ -934,6 +977,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     "fusion_dna": fusion_dna_text,
                     "reference_guidance": prompt_stage.reference_guidance_text,
                     "reference_beats": prompt_stage.reference_beats_text,
+                    "reference_cards": reference_cards,
+                    "narrative_state": narrative_state,
+                    "narrative_base": narrative_base,
+                    "chapter_number": chapter_number,
+                    "reader_controller_enabled": bool(getattr(config, "enable_reader_controller", False)),
+                    "outline_revision": getattr(prompt_stage, "outline_revision_text", ""),
                     "creative_memory": creative_memory_context or "",
                     "significance": significance_context or "",
                     "emotional_core": emotional_core_brief(project),
@@ -957,6 +1006,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 run_quality_detection=self._run_quality_detection,
                 mark_stage=_mark_stage,
                 deadline=literary_deadline,
+                emit_text_delta=_stream_scene_text if stream_handler else None,
             )
             version = literary_result.version
             best_content = literary_result.best_content
@@ -964,12 +1014,16 @@ class PipelineOrchestrator(PipelineReviewMixin):
             six_dimension_payload = literary_result.six_dimension_payload
 
             # 持久化
+            await _verify_before_persist([version])
             await _emit_stage("persist_versions", "写入章节版本中")
             contents = [version["content"]]
             metadata_list = [{**(version.get("metadata") or {}),
                               "character_significance_enabled": config.enable_character_significance}]
             stage_started = time.perf_counter()
             versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata_list)
+            await self._consume_outline_revision_receipt(
+                outline_revision_context, project_id, chapter_number, versions_models[0].id
+            )
             _mark_stage("persist_versions", stage_started)
 
             self.generation_finalize_service.schedule_followups(
@@ -1075,6 +1129,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             review_summaries = fast_result.review_summaries
             _stage_b_params = fast_result.stage_b_params
 
+            await _verify_before_persist([version])
             stage_started = time.perf_counter()
             await _emit_stage("persist_versions", "写入章节版本中")
             versions_models = await self.novel_service.replace_chapter_versions(
@@ -1201,12 +1256,16 @@ class PipelineOrchestrator(PipelineReviewMixin):
         review_summaries = standard_result.review_summaries
         _stage_b_params = standard_result.stage_b_params
 
+        await _verify_before_persist(versions)
         contents = [v.get("content", "") for v in versions]
         metadata = [{**(v.get("metadata") or {}),
                      "character_significance_enabled": config.enable_character_significance} for v in versions]
         await _emit_stage("persist_versions", "写入章节版本中")
         stage_started = time.perf_counter()
         versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata)
+        await self._consume_outline_revision_receipt(
+            outline_revision_context, project_id, chapter_number, versions_models[0].id
+        )
         _mark_stage("persist_versions", stage_started)
 
         stage_started = time.perf_counter()

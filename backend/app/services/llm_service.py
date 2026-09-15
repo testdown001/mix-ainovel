@@ -17,6 +17,7 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel, ValidationError
 
 from ..utils.json_utils import remove_think_tags, repair_json, unwrap_markdown_json
+from ..utils.llm_capabilities import strict_response_format, supports_sampling, normalize_effort
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, InternalServerError, PermissionDeniedError, AuthenticationError, NotFoundError, BadRequestError
 
 from ..core.config import settings
@@ -142,7 +143,7 @@ class LLMService:
         temperature: float = 0.7,
         user_id: Optional[int] = None,
         timeout: float = 1500.0,
-        response_format: Optional[str] = "json_object",
+        response_format: Optional[str | dict] = "json_object",
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
         max_retries: int = 2,
@@ -233,7 +234,7 @@ class LLMService:
         user_id: Optional[int] = None,
         timeout: float = 1500.0,
         max_tokens: Optional[int] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         top_p: Optional[float] = None,
         fail_on_truncation: bool = False,
         max_retries: int = 2,
@@ -364,6 +365,7 @@ class LLMService:
         max_validation_retries: int = 1,
         default: Optional[_StructuredT] = None,
         responder: Optional[Callable[[str, str], Awaitable[str]]] = None,
+        config_override: Optional[Dict[str, Optional[str]]] = None,
         timeout: Optional[float] = None,
         request_max_retries: Optional[int] = None,
         reasoning_effort: Optional[str] = None,
@@ -381,7 +383,11 @@ class LLMService:
         - responder: 可选的"出口"回调 async (prompt, system_prompt) -> str，用于适配非默认
           LLM 通道（如证据评分专用的 get_grader_llm_response）。默认走 self.generate。
         """
-        schema_json = json.dumps(schema.model_json_schema(), ensure_ascii=False)
+        model_schema = schema.model_json_schema()
+        schema_json = json.dumps(model_schema, ensure_ascii=False)
+        native_format = strict_response_format(model_schema, schema.__name__)
+        if native_format is None:
+            logger.info("结构化 schema 含动态映射，保留 JSON + Pydantic 验证: schema=%s", schema.__name__)
         base_system = (
             (system_prompt or "你是一个严格输出 JSON 的助手。")
             + "\n\n你必须只输出符合以下 JSON Schema 的合法 JSON 对象，"
@@ -391,6 +397,8 @@ class LLMService:
 
         async def _default_responder(p: str, sys: str) -> str:
             request_options: Dict[str, Any] = {}
+            if config_override is not None:
+                request_options["config_override"] = config_override
             if timeout is not None:
                 request_options["timeout"] = timeout
             if request_max_retries is not None:
@@ -402,8 +410,9 @@ class LLMService:
                 system_prompt=sys,
                 temperature=temperature,
                 user_id=user_id,
-                response_format="json_object",
+                response_format=native_format or "json_object",
                 max_tokens=max_tokens,
+                fail_on_truncation=True,
                 **request_options,
             )
 
@@ -689,7 +698,7 @@ class LLMService:
     def _prefer_openai_responses_model(model_name: Optional[str]) -> bool:
         """判断模型是否更适合优先走 OpenAI Responses API。"""
         normalized = (model_name or "").strip().lower()
-        return normalized.startswith("gpt-5")
+        return normalized.split("/")[-1].startswith(("gpt-5", "gpt-6"))
 
     @staticmethod
     def _is_endpoint_not_supported_detail(detail: str) -> bool:
@@ -849,9 +858,9 @@ class LLMService:
         # JSON 判定烧掉 8257 个推理 token(≈49s)，且界面上完全看不出开关是失效的。
         # 改为「先试；被上游拒绝就按 base_url|model 记闩、去掉参数重试」，沿用
         # stream_options / response_format 既有的自愈范式：最坏每个上游组合每进程多一次往返。
-        effort = (reasoning_effort or "").strip().lower()
+        effort = normalize_effort(model_name, reasoning_effort)
         if (
-            effort in {"low", "medium", "high", "minimal"}
+            effort in {"none", "low", "medium", "high", "minimal", "xhigh"}
             and api_format in {"openai", "openai-responses"}
             and reasoning_effort_supported
         ):
@@ -875,7 +884,7 @@ class LLMService:
         user_id: Optional[int],
         timeout: float,
         config_override: Optional[Dict[str, Optional[str]]] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
         max_retries: int = 2,
@@ -970,7 +979,7 @@ class LLMService:
         user_id: Optional[int],
         timeout: float,
         config_override: Optional[Dict[str, Optional[str]]] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
         max_retries: int = 2,
@@ -1000,9 +1009,14 @@ class LLMService:
         effective_temperature = temperature
         effective_top_p = top_p
         effective_response_format = response_format
+        strict_requested = isinstance(response_format, dict) and response_format.get("type") == "json_schema"
+        if strict_requested and api_format not in {"openai", "openai-responses"}:
+            logger.info("通道不支持 OpenAI strict schema，使用本地 schema 校验: format=%s model=%s", api_format, model_name)
+            effective_response_format = "json_object"
         response_format_target = f"{(config.get('base_url') or '').rstrip('/')}|{model_name}"
         if (
             api_format == "openai"
+            and not strict_requested
             and effective_response_format is not None
             and response_format_target in self._UNSUPPORTED_RESPONSE_FORMAT_TARGETS
         ):
@@ -1073,10 +1087,14 @@ class LLMService:
         # 一章 203s 里有约 55s 花在这类调用的推理 token 上。正文创作（无 response_format）
         # 不受影响，仍用通道/模型目录配的推理档，付费档位的差异化不被削弱。
         # 调用方显式传 reasoning_effort_override 时以调用方为准，不做二次干预。
-        if response_format == "json_object" and not reasoning_effort_override:
+        if (response_format == "json_object" or strict_requested) and not reasoning_effort_override:
             aux_effort = await self._resolve_aux_reasoning_effort()
             if aux_effort:
                 reasoning_effort = aux_effort
+        reasoning_effort = normalize_effort(model_name, reasoning_effort)
+        if api_format in {"openai", "openai-responses"} and not supports_sampling(model_name, reasoning_effort):
+            effective_temperature = None
+            effective_top_p = None
         # response_format_target 就是「base_url|model」上游组合键，三个自愈闩共用同一个键
         reasoning_effort_supported = response_format_target not in self._UNSUPPORTED_REASONING_EFFORT_TARGETS
         last_exc = None
@@ -1288,6 +1306,7 @@ class LLMService:
                     and api_format in ("openai", "openai-responses")
                     and effective_response_format is not None
                     and not response_format_fallback_applied
+                    and not (strict_requested and api_format in ("openai", "openai-responses"))
                     and self._is_response_format_unsupported_error(exc)
                 ):
                     response_format_fallback_applied = True
@@ -1370,6 +1389,7 @@ class LLMService:
                     resp_status == 400
                     and effective_response_format is not None
                     and not response_format_fallback_applied
+                    and not (strict_requested and api_format in ("openai", "openai-responses"))
                 ):
                     response_format_fallback_applied = True
                     logger.warning(

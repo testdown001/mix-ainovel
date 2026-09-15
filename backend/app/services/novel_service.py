@@ -1332,13 +1332,19 @@ class NovelService:
         # M3/H2：重起草只追加待选候选，绝不删除历史，也不取消作者已经确认的正文。
         # selected_version_id / revision_id / content_hash / real_summary 只有作者明确选版
         # 后才能推进；生成候选本身不是正文变更，不能制造虚假的编辑冲突或让导出漏章。
+        from .generation_quality_gate import assert_selectable
+        # Check the entire batch before any session mutation; imports without gate metadata remain supported.
+        for index, content in enumerate(contents):
+            extra = metadata[index] if metadata and index < len(metadata) else None
+            assert_selectable(content, extra)
         versions: List[ChapterVersion] = []
         generation_batch = uuid.uuid4().hex
         for index, content in enumerate(contents):
             raw_extra = metadata[index] if metadata and index < len(metadata) else None
             extra = dict(raw_extra) if isinstance(raw_extra, dict) else {}
             extra["m3_generation_batch"] = generation_batch
-            text_content = _normalize_version_content(content, extra)
+            # Verified text is immutable: legacy unescaping would invalidate its verification hash.
+            text_content = content if extra.get("quality_gate") else _normalize_version_content(content, extra)
             version = ChapterVersion(
                 chapter_id=chapter.id,
                 content=text_content,
@@ -1388,6 +1394,9 @@ class NovelService:
         # 校验内容是否为空
         if not selected.content or len(selected.content.strip()) == 0:
             raise HTTPException(status_code=400, detail="选中的版本内容为空，无法确认为最终版")
+
+        from .generation_quality_gate import assert_selectable
+        assert_selectable(selected.content, selected.metadata)
         
         chapter.selected_version_id = selected.id
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value

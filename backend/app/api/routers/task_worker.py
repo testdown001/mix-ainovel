@@ -312,8 +312,9 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
             model_code = extra.get("model_code")
             # literary 分支（enable_scene_by_scene）的后处理链不含 polish 步，
             # 勾选也不会执行——不收附加费（收了必须交付，交付不了就不收）
-            enable_polish = bool(extra.get("enable_polish")) and not bool(
-                extra.get("enable_scene_by_scene")
+            from ...services.pipeline_config_service import scene_generation_requested
+            enable_polish = bool(extra.get("enable_polish")) and not scene_generation_requested(
+                {**extra, "preset": req.config.preset}
             )
             chapters = len(req.chapter_numbers) if req.chapter_numbers else 1
             async with AsyncSessionLocal() as gate_session:
