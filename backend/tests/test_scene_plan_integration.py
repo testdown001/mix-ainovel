@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app.services.context_planner_service import ContextPlannerService
 from app.services.prompt_compiler_service import PromptCompilerService
 from app.services.scene_generation_service import SceneGenerationService
+from tests.scene_fakes import scene_structured_response
 
 
 def test_prompt_compiler_injects_scene_plan_and_context_strategy():
@@ -33,9 +34,10 @@ def test_scene_generation_uses_compiled_scene_plan_when_mission_has_no_scene_lis
     calls = []
 
     class _LLM:
+        generate_structured = staticmethod(scene_structured_response)
         async def get_llm_response(self, **kwargs):
             calls.append(kwargs["conversation_history"][0]["content"])
-            return "林玄在阵中推进。"
+            return "林玄在阵中推进。" * 15
 
     class _Guardrails:
         def check(self, **kwargs):

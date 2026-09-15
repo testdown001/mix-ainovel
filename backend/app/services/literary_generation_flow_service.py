@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from ..db.session import AsyncSessionLocal
+from .generation_quality_gate import GenerationQualityGate
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class LiteraryGenerationFlowService:
         self.generation_policy_service = generation_policy_service
         self.text_compression_service = text_compression_service
         self.guardrails = guardrails
+        self.quality_gate = GenerationQualityGate(llm_service)
 
     async def run(
         self,
@@ -67,6 +69,7 @@ class LiteraryGenerationFlowService:
         run_quality_detection: Callable[..., Awaitable[Dict[str, Any]]],
         mark_stage: Optional[Callable[[str, float], None]] = None,
         deadline: Optional[float] = None,
+        emit_text_delta: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> LiteraryGenerationFlowResult:
         voice_samples_text = ""
         if voice_samples_task is not None:
@@ -90,6 +93,8 @@ class LiteraryGenerationFlowService:
             genre_profile=genre_profile,
             voice_samples_text=voice_samples_text,
             max_word_count=chapter_word_count_max,
+            target_word_count=chapter_target_word_count,
+            emit_text_delta=emit_text_delta,
             model_code=getattr(config, "model_code", None),
         )
         if mark_stage:
@@ -122,11 +127,17 @@ class LiteraryGenerationFlowService:
                 from .prose_sculptor_service import ProseSculptorService
 
                 sculptor = ProseSculptorService(self.llm_service)
-                best_content, rhythm_report = await sculptor.sculpt_rhythm(
+                original_content = best_content
+                candidate_content, rhythm_report = await sculptor.sculpt_rhythm(
                     best_content,
                     user_id=user_id,
                     max_word_count=chapter_word_count_max,
                 )
+                best_content, rewrite_guard = await self.quality_gate.accept_rewrite(
+                    original_content, candidate_content, user_id=user_id,
+                    context={"chapter_mission": chapter_mission}, max_word_count=chapter_word_count_max,
+                )
+                rhythm_report["semantic_guard"] = rewrite_guard
                 review_summaries["rhythm_sculpting"] = rhythm_report
 
                 # rhythm 与 density 是两次独立 LLM 调用：一次检查连跑两步会冲破
@@ -134,11 +145,17 @@ class LiteraryGenerationFlowService:
                 if _over_budget():
                     skipped_for_budget.append("density_sculpting")
                 else:
-                    best_content, density_report = await sculptor.sculpt_density(
+                    original_content = best_content
+                    candidate_content, density_report = await sculptor.sculpt_density(
                         best_content,
                         user_id=user_id,
                         max_word_count=chapter_word_count_max,
                     )
+                    best_content, rewrite_guard = await self.quality_gate.accept_rewrite(
+                        original_content, candidate_content, user_id=user_id,
+                        context={"chapter_mission": chapter_mission}, max_word_count=chapter_word_count_max,
+                    )
+                    density_report["semantic_guard"] = rewrite_guard
                     review_summaries["density_sculpting"] = density_report
 
         if literary_profile["enable_golden_paragraph"]:
@@ -148,11 +165,18 @@ class LiteraryGenerationFlowService:
                 from .prose_sculptor_service import ProseSculptorService
 
                 sculptor = ProseSculptorService(self.llm_service)
-                best_content, golden_report = await sculptor.enhance_peak_moments(
+                original_content = best_content
+                candidate_content, golden_report = await sculptor.enhance_peak_moments(
                     best_content,
                     user_id=user_id,
                     chapter_mission=chapter_mission,
                 )
+                best_content, rewrite_guard = await self.quality_gate.accept_rewrite(
+                    original_content, candidate_content, user_id=user_id,
+                    context={"chapter_mission": chapter_mission}, max_word_count=chapter_word_count_max,
+                    min_ratio=0.9,
+                )
+                golden_report["semantic_guard"] = rewrite_guard
                 review_summaries["golden_paragraph"] = golden_report
 
         if literary_profile["enable_humanization"] and _over_budget():
@@ -162,6 +186,7 @@ class LiteraryGenerationFlowService:
                 from .humanization_service import HumanizationService
 
                 humanization_service = HumanizationService(self.session, self.llm_service)
+                original_content = best_content
                 report = humanization_service.scan(best_content)
                 best_content = humanization_service.apply_rule_fixes(best_content, report)
                 report = humanization_service.scan(best_content)
@@ -173,10 +198,15 @@ class LiteraryGenerationFlowService:
                         user_id=user_id,
                     )
                     humanized = True
+                best_content, humanization_guard = await self.quality_gate.accept_rewrite(
+                    original_content, best_content, user_id=user_id,
+                    context={"chapter_mission": chapter_mission}, max_word_count=chapter_word_count_max,
+                )
                 review_summaries["humanization"] = {
                     "score": report.score,
                     "issues_count": len(report.issues),
                     "humanized": humanized,
+                    "semantic_guard": humanization_guard,
                 }
             except Exception as exc:
                 logger.warning("人味化检查失败: %s", exc)
@@ -184,14 +214,20 @@ class LiteraryGenerationFlowService:
         if _over_budget():
             skipped_for_budget.append("enrichment")
         else:
-            best_content, enrichment_report = await run_enrichment(
+            original_content = best_content
+            candidate_content, enrichment_report = await run_enrichment(
                 best_content,
                 user_id=user_id,
                 target_word_count=chapter_target_word_count,
                 min_word_count=chapter_word_count_min,
                 max_word_count=chapter_word_count_max,
             )
+            best_content, enrichment_guard = await self.quality_gate.accept_rewrite(
+                original_content, candidate_content, user_id=user_id,
+                context={"chapter_mission": chapter_mission}, max_word_count=chapter_word_count_max,
+            )
             if enrichment_report:
+                enrichment_report["semantic_guard"] = enrichment_guard
                 review_summaries["enrichment"] = enrichment_report
 
         guardrail_result = self.guardrails.check(
@@ -212,14 +248,20 @@ class LiteraryGenerationFlowService:
                 len(best_content),
                 chapter_word_count_max,
             )
-            best_content = await self.text_compression_service.compress_overlength(
+            original_content = best_content
+            candidate_content = await self.text_compression_service.compress_overlength(
                 best_content,
                 target_max=chapter_word_count_max,
                 user_id=user_id,
             )
+            best_content, compression_guard = await self.quality_gate.accept_rewrite(
+                original_content, candidate_content, user_id=user_id,
+                context={"chapter_mission": chapter_mission}, max_word_count=chapter_word_count_max,
+            )
+            review_summaries["compression_guard"] = compression_guard
         if len(best_content) > chapter_word_count_max:
-            logger.warning("Literary压缩后仍超限 (%d > %d)，触发硬截断", len(best_content), chapter_word_count_max)
-            best_content = self.text_compression_service.hard_trim_to_limit(best_content, chapter_word_count_max)
+            from .generation_quality_gate import GenerationQualityError
+            raise GenerationQualityError("章节无法在保留情节和结尾的前提下压缩至字数上限，请重试", partial_text=best_content)
 
         if config.enable_anti_hallucination:
             try:

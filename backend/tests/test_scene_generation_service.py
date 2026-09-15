@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services.scene_generation_service import SceneGenerationService
+from tests.scene_fakes import scene_structured_response
 
 
 def test_scene_generation_service_build_fallback_scenes():
@@ -61,10 +62,11 @@ def test_scene_calls_keep_emotional_intent_after_background_compression(nested, 
     monkeypatch.setattr("app.services.scene_generation_service.settings.writer_max_tokens", 8192)
 
     class LLM:
+        generate_structured = staticmethod(scene_structured_response)
         async def get_llm_response(self, **kwargs):
             calls.append(kwargs["conversation_history"][0]["content"])
             token_budgets.append(kwargs["max_tokens"])
-            return "他收好旧碗，抬头看了师姐一眼。"
+            return "他收好旧碗，抬头看了师姐一眼。" * 10
 
     def check(**kwargs):
         checked.append(kwargs)

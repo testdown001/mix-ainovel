@@ -181,7 +181,7 @@ def test_literary_does_not_charge_polish_surcharge(monkeypatch):
         x_internal_secret="s3cret",
     ))
     assert resp.status == "completed"
-    assert charge.await_args.args[3] is True  # 非 literary 照常收费
+    assert charge.await_args.args[3] is True  # 显式 polish 走标准后处理链并收费
 
 
 def test_missing_scenes_triggers_full_refund_and_degraded_flag(monkeypatch):

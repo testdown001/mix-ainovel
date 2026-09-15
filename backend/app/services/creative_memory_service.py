@@ -21,6 +21,7 @@ from ..models.creative_memory import (
 from ..models.novel import ChapterVersion, Volume
 from ..schemas.creative_memory import CreativeMemoryCreate, CreativeMemoryUpdate
 from .llm_service import LLMService
+from .narrative_state_service import relevance
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +213,7 @@ class CreativeMemoryService:
         return result.scalars().first()
 
     async def active_for_generation(
-        self, *, user_id: int, project_id: str, chapter_number: int
+        self, *, user_id: int, project_id: str, chapter_number: int, scene_query: str = ""
     ) -> List[CreativeMemoryItem]:
         volume_number = await self._resolve_volume_number(project_id, chapter_number)
         scope_condition = or_(
@@ -247,17 +248,24 @@ class CreativeMemoryService:
                 CreativeMemoryItem.confidence.desc(),
                 CreativeMemoryItem.updated_at.desc(),
             )
-            .limit(self.MAX_ACTIVE_ITEMS)
+            # Retrieve a wider pool before relevance ranking; confidence alone makes recent generic memories win.
+            .limit(48 if scene_query else self.MAX_ACTIVE_ITEMS)
         )
-        return list(result.scalars().all())
+        items = list(result.scalars().all())
+        if scene_query:
+            items.sort(key=lambda item: (relevance(scene_query, item.title + " " + item.content),
+                                         bool(item.pinned), item.confidence, item.updated_at), reverse=True)
+            return items[:self.MAX_ACTIVE_ITEMS]
+        return items
 
     async def build_generation_context(
-        self, *, user_id: int, project_id: str, chapter_number: int
+        self, *, user_id: int, project_id: str, chapter_number: int, scene_query: str = ""
     ) -> Dict[str, Any]:
         items = await self.active_for_generation(
             user_id=user_id,
             project_id=project_id,
             chapter_number=chapter_number,
+            scene_query=scene_query,
         )
         serialized = [self._serialize_receipt_item(item) for item in items]
         prompt = self._format_prompt(items)
@@ -284,7 +292,7 @@ class CreativeMemoryService:
 
     @classmethod
     async def prefetch_generation_context(
-        cls, *, user_id: int, project_id: str, chapter_number: int
+        cls, *, user_id: int, project_id: str, chapter_number: int, scene_query: str = ""
     ) -> Dict[str, Any]:
         from ..db.session import AsyncSessionLocal
 
@@ -293,6 +301,7 @@ class CreativeMemoryService:
                 user_id=user_id,
                 project_id=project_id,
                 chapter_number=chapter_number,
+                scene_query=scene_query,
             )
 
     async def learn_revision(

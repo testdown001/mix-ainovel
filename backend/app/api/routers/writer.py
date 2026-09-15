@@ -445,6 +445,8 @@ async def _finalize_chapter_async(
         if not selected_version or not selected_version.content:
             return
 
+        from ...services.generation_quality_gate import assert_selectable
+        assert_selectable(selected_version.content, selected_version.metadata)
         chapter.selected_version_id = selected_version.id
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
         chapter.word_count = len(selected_version.content or "")
@@ -566,9 +568,8 @@ def _sync_billing_args(flow_config: Any) -> tuple[Optional[str], bool]:
     """同步路径计费参数。literary(scene_by_scene) 分支后处理链不含 polish 步，
     勾选也不会执行 → 不收附加费（收了必须交付，与异步入口同口径）。"""
     model_code = getattr(flow_config, "model_code", None)
-    enable_polish = bool(getattr(flow_config, "enable_polish", None)) and not bool(
-        getattr(flow_config, "enable_scene_by_scene", None)
-    )
+    from ...services.pipeline_config_service import scene_generation_requested
+    enable_polish = bool(getattr(flow_config, "enable_polish", None)) and not scene_generation_requested(flow_config)
     return model_code, enable_polish
 
 
@@ -1096,6 +1097,8 @@ async def finalize_chapter(
     if not selected_version or not selected_version.content:
         raise HTTPException(status_code=400, detail="选中的版本不存在或内容为空")
 
+    from ...services.generation_quality_gate import assert_selectable
+    assert_selectable(selected_version.content, selected_version.metadata)
     chapter.selected_version_id = selected_version.id
     chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
     chapter.word_count = len(selected_version.content or "")

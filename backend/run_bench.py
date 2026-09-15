@@ -174,7 +174,8 @@ def _instance_from_schema(schema: Any, defs: Optional[Dict[str, Any]] = None) ->
             for key, value in (schema.get("properties") or {}).items()
         }
     if schema_type == "array":
-        return []
+        return [_instance_from_schema(schema.get("items", {}), defs)
+                for _ in range(int(schema.get("minItems", 0)))]
     if schema_type == "boolean":
         return False
     if schema_type in ("number", "integer"):
@@ -228,6 +229,16 @@ def _apply_dry_run_stubs():
 
     async def fake_llm_response(self, *args, **kwargs):
         system_prompt, response_format = _extract(args, kwargs)
+        if isinstance(response_format, dict) and response_format.get("type") == "json_schema":
+            descriptor = response_format["json_schema"]
+            payload = _instance_from_schema(descriptor["schema"])
+            if descriptor.get("name") == "SceneContracts":
+                prompt = kwargs["conversation_history"][-1]["content"]
+                source = json.loads(prompt.split("\n", 1)[1])
+                prototype = payload["scenes"][0]
+                payload["scenes"] = [{**prototype, "goal": scene.get("goal") or "占位"}
+                                     for scene in source["scenes"]]
+            return json.dumps(payload, ensure_ascii=False)
         if response_format in ("json", "json_object"):
             return _fake_json_reply(system_prompt)
         return _FAKE_CHAPTER

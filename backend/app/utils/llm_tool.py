@@ -14,6 +14,7 @@ import ssl
 
 import httpx
 from openai import AsyncOpenAI
+from .llm_capabilities import normalize_effort, supports_sampling
 
 logger = logging.getLogger(__name__)
 
@@ -242,7 +243,7 @@ class LLMClient:
         self,
         messages: List[ChatMessage],
         model: Optional[str] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -252,7 +253,7 @@ class LLMClient:
         # OpenAI chat/completions 不支持这些控制参数，移除避免透传导致 SDK 抛错
         kwargs.pop("thinking_budget", None)
         kwargs.pop("disable_thinking", None)
-        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        reasoning_effort = normalize_effort(model, kwargs.pop("reasoning_effort", None))
         enable_usage = kwargs.pop("enable_usage", False)
         use_max_completion_tokens = kwargs.pop("use_max_completion_tokens", False)
 
@@ -264,7 +265,9 @@ class LLMClient:
             **kwargs,
         }
         if response_format:
-            payload["response_format"] = {"type": response_format}
+            payload["response_format"] = response_format if isinstance(response_format, dict) else {"type": response_format}
+        if not supports_sampling(model, reasoning_effort):
+            temperature = top_p = None
         if temperature is not None:
             payload["temperature"] = temperature
         if top_p is not None:
@@ -454,7 +457,7 @@ class AnthropicLLMClient:
         self,
         messages: List[ChatMessage],
         model: Optional[str] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -926,7 +929,7 @@ class AnyRouterLLMClient:
         self,
         messages: List[ChatMessage],
         model: Optional[str] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -1076,7 +1079,7 @@ class GeminiLLMClient:
         self,
         messages: List[ChatMessage],
         model: Optional[str] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -1290,7 +1293,7 @@ class OpenAIResponsesLLMClient:
         self,
         messages: List[ChatMessage],
         model: Optional[str] = None,
-        response_format: Optional[str] = None,
+        response_format: Optional[str | dict] = None,
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -1309,7 +1312,7 @@ class OpenAIResponsesLLMClient:
         instructions = "\n\n".join(system_parts) if system_parts else None
 
         # 上层可能透传这些，但 Responses 仅用 reasoning_effort；其余在此消费避免污染 payload
-        reasoning_effort = kwargs.pop("reasoning_effort", None)
+        reasoning_effort = normalize_effort(model, kwargs.pop("reasoning_effort", None))
         kwargs.pop("thinking_budget", None)
         kwargs.pop("disable_thinking", None)
         kwargs.pop("enable_usage", None)
@@ -1322,8 +1325,13 @@ class OpenAIResponsesLLMClient:
         }
         if instructions:
             payload["instructions"] = instructions
-        if response_format == "json_object":
+        strict_requested = isinstance(response_format, dict) and response_format.get("type") == "json_schema"
+        if strict_requested:
+            payload["text"] = {"format": {"type": "json_schema", **response_format["json_schema"]}}
+        elif response_format == "json_object":
             payload["text"] = {"format": {"type": "json_object"}}
+        if not supports_sampling(model, reasoning_effort):
+            temperature = top_p = None
         if temperature is not None:
             payload["temperature"] = temperature
         if top_p is not None:
@@ -1359,7 +1367,7 @@ class OpenAIResponsesLLMClient:
 
         # 策略: 仅保留最有效的回退变体，避免过多重试增加延迟
         # 1. 移除 text.format（部分代理不支持）
-        if "text" in payload:
+        if "text" in payload and not strict_requested:
             without_text_payload = _clone_payload(payload)
             without_text_payload.pop("text", None)
             _add_variant("without_text_format", without_text_payload)
@@ -1368,7 +1376,8 @@ class OpenAIResponsesLLMClient:
         if instructions:
             system_in_input_payload = _clone_payload(payload)
             system_in_input_payload.pop("instructions", None)
-            system_in_input_payload.pop("text", None)  # 同时移除可能不支持的 text
+            if not strict_requested:
+                system_in_input_payload.pop("text", None)
             system_in_input_payload["input"] = [{"role": "system", "content": instructions}] + [
                 {"role": item["role"], "content": item["content"]} for item in api_input
             ]
@@ -1419,7 +1428,7 @@ class OpenAIResponsesLLMClient:
                 data_str = line[5:].strip()
                 if data_str == "[DONE]":
                     final_finish_reason = final_finish_reason or "stop"
-                    yield {"content": None, "finish_reason": "stop"}
+                    yield {"content": None, "finish_reason": final_finish_reason}
                     break
 
                 try:
@@ -1443,9 +1452,26 @@ class OpenAIResponsesLLMClient:
                         collected_reasoning += reasoning_text
                 elif event_type == "response.output_text.done":
                     pass  # 单个 output item 文本完成，等 response.completed
-                elif event_type == "response.completed":
-                    final_finish_reason = "stop"
-                    yield {"content": None, "finish_reason": "stop"}
+                elif event_type in {"response.completed", "response.incomplete"}:
+                    completed = data.get("response") or {}
+                    if not collected_content:
+                        for item in completed.get("output") or []:
+                            for part in item.get("content") or []:
+                                if part.get("type") == "output_text" and part.get("text"):
+                                    collected_content += part["text"]
+                                    yield {"content": part["text"], "finish_reason": None}
+                    incomplete = event_type == "response.incomplete" or completed.get("status") == "incomplete"
+                    reason = (completed.get("incomplete_details") or {}).get("reason")
+                    if incomplete and reason != "max_output_tokens":
+                        raise RuntimeError(f"Responses 未完成: {reason or 'unknown'}")
+                    final_finish_reason = "length" if incomplete else "stop"
+                    usage = completed.get("usage") or {}
+                    yield {"content": None, "finish_reason": final_finish_reason,
+                           "usage": {"prompt_tokens": usage.get("input_tokens", 0),
+                                     "completion_tokens": usage.get("output_tokens", 0),
+                                     "total_tokens": usage.get("total_tokens", 0)} if usage else None}
+                elif event_type == "response.refusal.delta":
+                    raise RuntimeError("Responses 拒绝了本次请求，未产生可用正文")
                 elif event_type == "response.failed":
                     error_info = data.get("response", {}).get("error", {})
                     error_msg = error_info.get("message", str(data))
@@ -1492,21 +1518,9 @@ class OpenAIResponsesLLMClient:
                         yield part
                     break
 
-            # 流结束：content 为空但 reasoning 有内容，fallback
-            if not collected_content and collected_reasoning:
-                logger.info(
-                    "content 为空但 reasoning 有内容（%d 字符），将 reasoning 作为响应内容",
-                    len(collected_reasoning),
-                )
-                yield {
-                    "content": collected_reasoning,
-                    "finish_reason": final_finish_reason or "stop",
-                }
-
-            # 流正常结束但未收到明确的结束事件
+            # Reasoning summaries are never chapter text. An EOF without completion is a broken stream.
             if final_finish_reason is None:
-                final_finish_reason = "stop"
-                yield {"content": None, "finish_reason": "stop"}
+                raise RuntimeError("Responses 流提前结束，未收到完成事件")
 
         except httpx.HTTPStatusError:
             raise

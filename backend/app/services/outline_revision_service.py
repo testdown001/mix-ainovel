@@ -19,6 +19,8 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -121,6 +123,9 @@ class OutlineRevisionService:
             "suggestion": item.suggestion or "",
             "status": "pending",
         }
+        new_meta["revision_hint"]["revision_id"] = hashlib.sha256(
+            json.dumps(new_meta["revision_hint"], ensure_ascii=False, sort_keys=True).encode()
+        ).hexdigest()[:24]
         outline.metadata = new_meta
 
     def _build_user_input(
@@ -197,7 +202,28 @@ class OutlineRevisionService:
             "- 说明：原大纲可能因前文实际走向而过时。请**参考**上述建议，"
             "但以全文连贯与作者意图为先；如与既定设定冲突，以连贯为准。"
         )
+        lines.append(f"[revision_receipt:{hint.get('revision_id', '')}]")
         return "\n".join(lines)
+
+    @classmethod
+    async def consume_revision_hint(cls, *, session: Any, project_id: str, chapter_number: int,
+                                    revision_id: str, source_version: int | None = None) -> bool:
+        """CAS consumption prevents a hint from being replayed indefinitely."""
+        if not revision_id:
+            return False
+        outline = await cls._get_outline(session, project_id, chapter_number)
+        current = (outline.metadata or {}).get("revision_hint") if outline is not None else None
+        if not isinstance(current, dict) or current.get("status") != "pending" or current.get("revision_id") != revision_id:
+            return False
+        from datetime import datetime, timezone
+        updated = dict(outline.metadata or {})
+        updated["revision_hint"] = {**current, "status": "consumed",
+            "consumed_by": f"chapter:{chapter_number}",
+            "consumed_at": datetime.now(timezone.utc).isoformat(),
+            "consumed_source_version": source_version}
+        outline.metadata = updated
+        await session.commit()
+        return True
 
     # ------------------------------------------------------------------ DB helpers
     @staticmethod

@@ -11,6 +11,24 @@ from ..services.writer_shared import resolve_version_count as _shared_resolve_ve
 logger = logging.getLogger(__name__)
 
 
+def scene_generation_requested(flow_config: Any) -> bool:
+    """Single source of truth for the quality path default and billing gates."""
+    override = flow_config.get("enable_scene_by_scene") if isinstance(flow_config, dict) else getattr(flow_config, "enable_scene_by_scene", None)
+    if override is not None:
+        return bool(override)
+    # Explicitly purchased polish uses the standard post-processing chain unless the caller
+    # explicitly opts into scene mode; this prevents billing for a step literary mode skips.
+    if (isinstance(flow_config, dict) and flow_config.get("enable_polish") is True) or (
+        not isinstance(flow_config, dict) and getattr(flow_config, "enable_polish", False) is True
+    ):
+        return False
+    preset = normalize_preset(
+        (flow_config or {}).get("preset") if isinstance(flow_config, dict)
+        else getattr(flow_config, "preset", "fast")
+    )
+    return preset == "premium" and not bool(getattr(settings, "writer_ultra_fast_mode", False))
+
+
 @dataclass
 class PipelineConfig:
     preset: str = "fast"  # 默认快速模式（免费档位）
@@ -26,6 +44,7 @@ class PipelineConfig:
     enable_six_dimension: bool = False
     six_dimension_min_score: int = 70
     enable_reader_sim: bool = False
+    enable_reader_controller: bool = False
     enable_self_critique: bool = False
     enable_memory: bool = False
     # 轻量状态记忆（CharacterState/TimelineEvent 抽取落库，不含 mem0）：纯 preset 驱动，
@@ -377,6 +396,11 @@ class PipelineConfigService:
             config.pacing_model = str(flow_config["pacing_model"])
         if flow_config.get("model_code"):
             config.model_code = str(flow_config["model_code"])
+
+        # 精品模式的质量主链默认场景化；显式 false 仍可用于快速回退。
+        config.enable_scene_by_scene = scene_generation_requested(flow_config)
+        # P1 reader-action search is enabled with the premium serial path; standard keeps its latency contract.
+        config.enable_reader_controller = bool(config.preset == "premium" and config.enable_scene_by_scene)
 
         return config
 
