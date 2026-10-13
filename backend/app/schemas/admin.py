@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Statistics(BaseModel):
@@ -61,4 +61,21 @@ class AdminNovelDeletionTicket(BaseModel):
 
 
 class AdminNovelDeleteRequest(AdminNovelDeletionConfirmation):
+    confirmation_token: str = Field(min_length=1, max_length=2048)
+
+
+class AdminNovelBatchDeletionConfirmation(AdminNovelDeletionConfirmation):
+    project_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("project_ids")
+    @classmethod
+    def validate_project_ids(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values):
+            raise ValueError("项目编号不能重复")
+        if any(not value or len(value) > 36 or value != value.strip() for value in values):
+            raise ValueError("项目编号无效")
+        return values
+
+
+class AdminNovelBatchDeleteRequest(AdminNovelBatchDeletionConfirmation):
     confirmation_token: str = Field(min_length=1, max_length=2048)

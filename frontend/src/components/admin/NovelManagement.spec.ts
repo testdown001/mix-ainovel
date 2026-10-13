@@ -9,6 +9,8 @@ vi.mock('@/api/admin', () => ({
     listNovels: vi.fn(),
     confirmNovelDeletion: vi.fn(),
     deleteNovel: vi.fn(),
+    confirmNovelsDeletion: vi.fn(),
+    deleteNovels: vi.fn(),
   },
 }))
 
@@ -65,6 +67,103 @@ beforeEach(() => {
     expires_in: 300,
   })
   vi.mocked(AdminAPI.deleteNovel).mockResolvedValue(undefined)
+  vi.mocked(AdminAPI.confirmNovelsDeletion).mockResolvedValue({
+    confirmation_token: 'batch-ticket',
+    expires_in: 300,
+  })
+  vi.mocked(AdminAPI.deleteNovels).mockResolvedValue(undefined)
+})
+
+describe('管理员小说批量删除', () => {
+  const systemNovel = { ...testNovel, id: 'system-book', creation_source: 'system' }
+
+  it('全选排除用户作品，锁定清单并经过两次输入后批量删除', async () => {
+    const vm = await mount()
+    vm.novels = [testNovel, systemNovel, userNovel]
+    vm.selectAllDeletable()
+    expect(vm.checkedProjectIds).toEqual(['test-book', 'system-book'])
+    vm.startBatchDeletion()
+    expect(vm.deletionTargets.map((novel: AdminNovelSummary) => novel.id)).toEqual([
+      'test-book',
+      'system-book',
+    ])
+    vm.updateSelection([])
+    expect(vm.checkedProjectIds).toHaveLength(2)
+    await vm.confirmFirstDeletion()
+    expect(AdminAPI.confirmNovelsDeletion).not.toHaveBeenCalled()
+    vm.firstConfirmation = '删除'
+    await vm.confirmFirstDeletion()
+    expect(AdminAPI.confirmNovelsDeletion).toHaveBeenCalledExactlyOnceWith(
+      ['test-book', 'system-book'],
+      '删除',
+    )
+    expect(AdminAPI.deleteNovels).not.toHaveBeenCalled()
+    expect(vm.secondConfirmation).toBe('')
+    vm.secondConfirmation = '删除'
+    await vm.confirmSecondDeletion()
+    expect(AdminAPI.deleteNovels).toHaveBeenCalledExactlyOnceWith(
+      ['test-book', 'system-book'],
+      '删除',
+      'batch-ticket',
+    )
+    expect(vm.novels.map((novel: AdminNovelSummary) => novel.id)).toEqual(['user-book'])
+    expect(vm.checkedProjectIds).toEqual([])
+    expect(AdminAPI.deleteNovel).not.toHaveBeenCalled()
+  })
+
+  it('手机选择及表格选择均排除受保护项目且每批不超过100项', async () => {
+    const vm = await mount()
+    vm.toggleSelection(userNovel, true)
+    expect(vm.checkedProjectIds).toEqual([])
+    vm.toggleSelection(testNovel, true)
+    expect(vm.checkedProjectIds).toEqual(['test-book'])
+    vm.toggleSelection(testNovel, false)
+    expect(vm.checkedProjectIds).toEqual([])
+    vm.novels = Array.from({ length: 101 }, (_, i) => ({ ...testNovel, id: `test-${i}` }))
+    vm.updateSelection(vm.novels.map((novel: AdminNovelSummary) => novel.id))
+    expect(vm.checkedProjectIds).toHaveLength(100)
+  })
+
+  it('被篡改或失效的选择拒绝整批确认', async () => {
+    const vm = await mount()
+    vm.checkedProjectIds = ['test-book', 'user-book']
+    vm.startBatchDeletion()
+    expect(vm.showFirstConfirmation).toBe(false)
+    expect(AdminAPI.confirmNovelsDeletion).not.toHaveBeenCalled()
+  })
+
+  it('失败时保留整批列表和选择，重新要求两次确认', async () => {
+    const vm = await mount()
+    vm.novels = [testNovel, systemNovel, userNovel]
+    vm.selectAllDeletable()
+    vm.startBatchDeletion()
+    vm.firstConfirmation = '删除'
+    await vm.confirmFirstDeletion()
+    vi.mocked(AdminAPI.deleteNovels).mockRejectedValueOnce(new Error('整批删除已拒绝'))
+    vm.secondConfirmation = '删除'
+    await vm.confirmSecondDeletion()
+    expect(vm.novels).toHaveLength(3)
+    expect(vm.checkedProjectIds).toHaveLength(2)
+    expect(vm.showFirstConfirmation).toBe(true)
+    expect(vm.showSecondConfirmation).toBe(false)
+    expect(vm.confirmationToken).toBe('')
+    expect(vm.firstConfirmation).toBe('')
+    expect(vm.secondConfirmation).toBe('')
+  })
+
+  it('取消后重新批量删除不会沿用输入或凭证', async () => {
+    const vm = await mount()
+    vm.selectAllDeletable()
+    vm.startBatchDeletion()
+    vm.firstConfirmation = '删除'
+    await vm.confirmFirstDeletion()
+    vm.cancelDeletion()
+    vm.startBatchDeletion()
+    expect(vm.firstConfirmation).toBe('')
+    expect(vm.confirmationToken).toBe('')
+    expect(vm.showFirstConfirmation).toBe(true)
+    expect(AdminAPI.deleteNovels).not.toHaveBeenCalled()
+  })
 })
 afterEach(() => {
   app?.unmount()

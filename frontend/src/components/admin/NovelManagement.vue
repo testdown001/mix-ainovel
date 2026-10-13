@@ -18,6 +18,31 @@
       <n-alert v-if="error" type="error" closable @close="error = null">
         {{ error }}
       </n-alert>
+      <n-space align="center">
+        <n-button
+          size="small"
+          :disabled="selectionLocked || !deletableNovels.length || deletableNovels.length > 100"
+          @click="selectAllDeletable"
+        >
+          全选可删除项目
+        </n-button>
+        <n-button
+          size="small"
+          :disabled="selectionLocked || !checkedProjectIds.length"
+          @click="updateSelection([])"
+        >
+          清空选择
+        </n-button>
+        <n-button
+          type="error"
+          size="small"
+          :disabled="selectionLocked || !selectedNovels.length"
+          @click="startBatchDeletion"
+        >
+          批量删除（{{ selectedNovels.length }}）
+        </n-button>
+        <span class="table-subtitle">每批最多 100 项；用户作品不可选</span>
+      </n-space>
 
       <n-spin :show="loading">
         <template #default>
@@ -37,6 +62,12 @@
               >
                 <template #header>
                   <div class="mobile-card-header">
+                    <n-checkbox
+                      :checked="checkedProjectIds.includes(novel.id)"
+                      :disabled="!canDelete(novel) || selectionLocked"
+                      @update:checked="(checked) => toggleSelection(novel, checked)"
+                      >选择</n-checkbox
+                    >
                     <span class="mobile-card-title">{{ novel.title }}</span>
                     <n-tag size="small" type="info" round>{{ novel.genre || '未分类' }}</n-tag>
                   </div>
@@ -84,6 +115,9 @@
               :columns="columns"
               :data="novels"
               :pagination="pagination"
+              :row-key="(row: AdminNovelSummary) => row.id"
+              :checked-row-keys="checkedProjectIds"
+              @update:checked-row-keys="updateSelection"
               :bordered="false"
               size="small"
               class="novel-table"
@@ -95,7 +129,7 @@
     <n-modal
       :show="showFirstConfirmation"
       preset="card"
-      title="删除项目：第一次确认"
+      :title="isBatchDeletion ? '批量删除：第一次确认' : '删除项目：第一次确认'"
       style="width: min(480px, calc(100vw - 32px))"
       :closable="!confirming"
       :mask-closable="!confirming"
@@ -103,8 +137,13 @@
       @update:show="cancelDeletion"
     >
       <n-space vertical>
-        <div>{{ selectedNovel?.title }}</div>
-        <div class="table-subtitle">项目编号：{{ selectedNovel?.id }}</div>
+        <div>将永久删除以下 {{ deletionTargets.length }} 个项目：</div>
+        <div class="deletion-targets">
+          <div v-for="novel in deletionTargets" :key="novel.id" class="deletion-target">
+            <div>{{ novel.title }}</div>
+            <div class="table-subtitle">项目编号：{{ novel.id }}</div>
+          </div>
+        </div>
         <n-alert type="warning">删除将永久移除该项目及关联章节、蓝图等数据。</n-alert>
         <n-alert v-if="deletionError" type="error">{{ deletionError }}</n-alert>
         <label for="first-delete-confirmation">请输入“删除”继续</label>
@@ -133,7 +172,7 @@
     <n-modal
       :show="showSecondConfirmation"
       preset="card"
-      title="删除项目：第二次确认"
+      :title="isBatchDeletion ? '批量删除：第二次确认' : '删除项目：第二次确认'"
       style="width: min(480px, calc(100vw - 32px))"
       :closable="!deleting"
       :mask-closable="!deleting"
@@ -141,8 +180,13 @@
       @update:show="cancelDeletion"
     >
       <n-space vertical>
-        <div>{{ selectedNovel?.title }}</div>
-        <div class="table-subtitle">项目编号：{{ selectedNovel?.id }}</div>
+        <div>最终确认删除以下 {{ deletionTargets.length }} 个项目：</div>
+        <div class="deletion-targets">
+          <div v-for="novel in deletionTargets" :key="novel.id" class="deletion-target">
+            <div>{{ novel.title }}</div>
+            <div class="table-subtitle">项目编号：{{ novel.id }}</div>
+          </div>
+        </div>
         <n-alert type="error">此操作无法撤销。请再次输入“删除”完成最终确认。</n-alert>
         <n-alert v-if="deletionError" type="error">{{ deletionError }}</n-alert>
         <label for="second-delete-confirmation">再次输入“删除”</label>
@@ -163,7 +207,7 @@
             :disabled="secondConfirmation !== '删除' || deleting"
             @click="confirmSecondDeletion"
           >
-            永久删除
+            永久删除 {{ deletionTargets.length }} 项
           </n-button>
         </n-space>
       </template>
@@ -172,12 +216,13 @@
 </template>
 
 <script setup lang="ts">
-import { h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   NAlert,
   NButton,
   NCard,
+  NCheckbox,
   NDataTable,
   NEmpty,
   NInput,
@@ -195,7 +240,9 @@ const novels = ref<AdminNovelSummary[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
 const success = ref<string | null>(null)
-const selectedNovel = ref<AdminNovelSummary | null>(null)
+const checkedProjectIds = ref<string[]>([])
+const deletionTargets = ref<AdminNovelSummary[]>([])
+const isBatchDeletion = ref(false)
 const showFirstConfirmation = ref(false)
 const showSecondConfirmation = ref(false)
 const firstConfirmation = ref('')
@@ -249,6 +296,40 @@ const viewDetails = (novelId: string) => {
 const canDelete = (novel: AdminNovelSummary) =>
   novel.can_delete === true && ['system', 'ai_test'].includes(novel.creation_source)
 
+const deletableNovels = computed(() => novels.value.filter(canDelete))
+const selectedNovels = computed(() =>
+  deletableNovels.value.filter((novel) => checkedProjectIds.value.includes(novel.id)),
+)
+const selectionLocked = computed(
+  () =>
+    showFirstConfirmation.value ||
+    showSecondConfirmation.value ||
+    confirming.value ||
+    deleting.value,
+)
+
+const updateSelection = (keys: (string | number)[]) => {
+  if (selectionLocked.value) return
+  const eligible = new Set(deletableNovels.value.map((novel) => novel.id))
+  checkedProjectIds.value = [...new Set(keys.map(String).filter((key) => eligible.has(key)))].slice(
+    0,
+    100,
+  )
+}
+
+const selectAllDeletable = () => {
+  if (deletableNovels.value.length <= 100)
+    updateSelection(deletableNovels.value.map((novel) => novel.id))
+}
+
+const toggleSelection = (novel: AdminNovelSummary, checked: boolean) => {
+  updateSelection(
+    checked
+      ? [...checkedProjectIds.value, novel.id]
+      : checkedProjectIds.value.filter((id) => id !== novel.id),
+  )
+}
+
 const sourceLabel = (novel: AdminNovelSummary) => {
   if (novel.creation_source === 'system') return '系统项目'
   if (novel.creation_source === 'ai_test') return 'AI 测试项目'
@@ -259,7 +340,8 @@ const sourceLabel = (novel: AdminNovelSummary) => {
 const resetDeletion = () => {
   showFirstConfirmation.value = false
   showSecondConfirmation.value = false
-  selectedNovel.value = null
+  deletionTargets.value = []
+  isBatchDeletion.value = false
   firstConfirmation.value = ''
   secondConfirmation.value = ''
   confirmationToken.value = ''
@@ -270,19 +352,37 @@ const cancelDeletion = () => {
   if (!confirming.value && !deleting.value) resetDeletion()
 }
 
-const startDeletion = (novel: AdminNovelSummary) => {
-  if (!canDelete(novel) || confirming.value || deleting.value) return
+const beginDeletion = (targets: AdminNovelSummary[], batch: boolean) => {
+  if (
+    !targets.length ||
+    targets.length > 100 ||
+    targets.some((novel) => !canDelete(novel)) ||
+    selectionLocked.value
+  )
+    return
   resetDeletion()
   success.value = null
-  selectedNovel.value = novel
+  // Freeze the exact confirmation set, independently of later checkbox updates.
+  deletionTargets.value = targets.map((novel) => ({ ...novel }))
+  isBatchDeletion.value = batch
   showFirstConfirmation.value = true
 }
 
+const startDeletion = (novel: AdminNovelSummary) => beginDeletion([novel], false)
+
+const startBatchDeletion = () => {
+  if (selectedNovels.value.length !== checkedProjectIds.value.length) {
+    error.value = '部分选择已失效，请刷新列表后重新选择'
+    return
+  }
+  beginDeletion(selectedNovels.value, true)
+}
+
 const confirmFirstDeletion = async () => {
-  const novel = selectedNovel.value
+  const targets = deletionTargets.value
   if (
-    !novel ||
-    !canDelete(novel) ||
+    !targets.length ||
+    targets.some((novel) => !canDelete(novel)) ||
     !showFirstConfirmation.value ||
     firstConfirmation.value !== '删除' ||
     confirming.value
@@ -291,7 +391,12 @@ const confirmFirstDeletion = async () => {
   confirming.value = true
   deletionError.value = null
   try {
-    const ticket = await AdminAPI.confirmNovelDeletion(novel.id, firstConfirmation.value)
+    const ticket = isBatchDeletion.value
+      ? await AdminAPI.confirmNovelsDeletion(
+          targets.map((novel) => novel.id),
+          firstConfirmation.value,
+        )
+      : await AdminAPI.confirmNovelDeletion(targets[0]!.id, firstConfirmation.value)
     confirmationToken.value = ticket.confirmation_token
     secondConfirmation.value = ''
     showFirstConfirmation.value = false
@@ -304,10 +409,10 @@ const confirmFirstDeletion = async () => {
 }
 
 const confirmSecondDeletion = async () => {
-  const novel = selectedNovel.value
+  const targets = deletionTargets.value
   if (
-    !novel ||
-    !canDelete(novel) ||
+    !targets.length ||
+    targets.some((novel) => !canDelete(novel)) ||
     !showSecondConfirmation.value ||
     secondConfirmation.value !== '删除' ||
     !confirmationToken.value ||
@@ -317,9 +422,16 @@ const confirmSecondDeletion = async () => {
   deleting.value = true
   deletionError.value = null
   try {
-    await AdminAPI.deleteNovel(novel.id, secondConfirmation.value, confirmationToken.value)
-    novels.value = novels.value.filter((item) => item.id !== novel.id)
-    success.value = `项目“${novel.title}”已删除`
+    const ids = targets.map((novel) => novel.id)
+    if (isBatchDeletion.value) {
+      await AdminAPI.deleteNovels(ids, secondConfirmation.value, confirmationToken.value)
+    } else {
+      await AdminAPI.deleteNovel(ids[0]!, secondConfirmation.value, confirmationToken.value)
+    }
+    const deletedIds = new Set(ids)
+    novels.value = novels.value.filter((item) => !deletedIds.has(item.id))
+    checkedProjectIds.value = checkedProjectIds.value.filter((id) => !deletedIds.has(id))
+    success.value = `已删除 ${targets.length} 个项目`
     resetDeletion()
   } catch (e) {
     deletionError.value = e instanceof Error ? e.message : '删除失败，请重新完成两次确认后重试'
@@ -335,6 +447,10 @@ const confirmSecondDeletion = async () => {
 }
 
 const columns: DataTableColumns<AdminNovelSummary> = [
+  {
+    type: 'selection',
+    disabled: (row) => !canDelete(row) || selectionLocked.value,
+  },
   {
     title: '项目',
     key: 'title',
@@ -424,6 +540,7 @@ const fetchNovels = async () => {
   error.value = null
   try {
     novels.value = await AdminAPI.listNovels()
+    updateSelection(checkedProjectIds.value)
   } catch (e) {
     error.value = e instanceof Error ? e.message : '获取小说数据失败'
   } finally {
@@ -464,6 +581,16 @@ onBeforeUnmount(() => {
 
 .novel-table {
   width: 100%;
+}
+
+.deletion-targets {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.deletion-target {
+  padding: 8px 0;
+  border-bottom: 1px solid #2a2a2a;
 }
 
 .table-title-cell {

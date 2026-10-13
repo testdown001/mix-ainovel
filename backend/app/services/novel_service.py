@@ -357,10 +357,20 @@ class NovelService:
     async def delete_projects(self, project_ids: List[str], user_id: int) -> None:
         # 先完成全部归属校验和数据库事务；文件清理放在提交之后，避免事务失败时
         # 用户仍有作品记录却丢失封面。文件清理失败不会伪装成作品删除失败。
-        for pid in project_ids:
-            project = await self.ensure_project_owner(pid, user_id)
-            await self.repo.delete(project)
-        await self.session.commit()
+        projects = [await self.ensure_project_owner(pid, user_id) for pid in project_ids]
+        await self._delete_project_records(projects)
+
+    async def _delete_project_records(self, projects: Iterable[NovelProject]) -> None:
+        """Delete an already-authorized set atomically; clean files only after commit."""
+        projects = list(projects)
+        project_ids = [project.id for project in projects]
+        try:
+            for project in projects:
+                await self.repo.delete(project)
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
         from .cover_storage_service import delete_cover_file
 
         for pid in project_ids:

@@ -361,6 +361,23 @@ export class AdminAPI {
     })
   }
 
+  static confirmNovelsDeletion(projectIds: string[], confirmation: string): Promise<{
+    confirmation_token: string
+    expires_in: number
+  }> {
+    return this.request('/novel-projects/deletion-confirmation', {
+      method: 'POST',
+      body: JSON.stringify({ project_ids: projectIds, confirmation })
+    })
+  }
+
+  static deleteNovels(projectIds: string[], confirmation: string, confirmationToken: string): Promise<void> {
+    return this.request('/novel-projects', {
+      method: 'DELETE',
+      body: JSON.stringify({ project_ids: projectIds, confirmation, confirmation_token: confirmationToken })
+    })
+  }
+
   static getNovelSection(projectId: string, section: NovelSectionType): Promise<NovelSectionResponse> {
     return this.request(`/novel-projects/${projectId}/sections/${section}`)
   }
