@@ -1,5 +1,6 @@
 const REVIEW_DIMENSION_LABELS: Record<string, string> = {
   opening_strength: '开局强度',
+  character_attachment: '人物牵挂与选择',
   first_coolpoint_timing: '首个爽点时机',
   hook_chain: '章末钩子链',
   volume_escalation: '分卷升级梯度',
@@ -29,6 +30,10 @@ const SETTING_LABELS: Record<string, string> = {
 }
 
 const TECHNICAL_TERMS: Array<[RegExp, string]> = [
+  [/\bcharacter_attachment\b/gi, '人物牵挂与选择'],
+  [/\bcharacter_focus\b/gi, '人物与阅读期待'],
+  [/\brelationship_change\b/gi, '关系变化'],
+  [/\bnext_expectation\b/gi, '后续阅读期待'],
   [/\bfirst_coolpoint_timing\b/gi, '首个爽点时机'],
   [/\bforeshadowing_payoff\b/gi, '伏笔兑现'],
   [/\banticipation_delivery\b/gi, '期待感兑现'],

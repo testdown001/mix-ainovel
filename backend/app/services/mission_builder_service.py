@@ -29,6 +29,7 @@ class MissionBuilderService:
         previous_tail: str,
         chapter_blueprint,
         user_id: int,
+        character_context: str = "",
     ) -> Optional[Dict[str, object]]:
         plan_lite_prompt = await self.prompt_service.get_prompt("chapter_plan_lite")
         if not plan_lite_prompt:
@@ -54,6 +55,12 @@ class MissionBuilderService:
 [当前章节大纲]
 标题：{outline_title}
 摘要：{outline_summary}
+
+[人物行动依据与本书情感承诺]
+{character_context or "未提供；不要虚构过去经历或关系事实"}
+
+[本章人物选择规划]
+{json.dumps(constraints.get("character_focus") or {}, ensure_ascii=False)}
 
 [写作指令]
 {writing_notes or "无额外指令"}
@@ -84,6 +91,7 @@ class MissionBuilderService:
                 outline_summary=outline_summary,
                 writing_notes=writing_notes,
                 chapter_blueprint=chapter_blueprint,
+                character_context=character_context,
             )
             result = dict(fallback)
             result.update({key: value for key, value in parsed.items() if value is not None})
@@ -93,6 +101,12 @@ class MissionBuilderService:
             if isinstance(raw_budget, dict):
                 merged_budget.update({key: value for key, value in raw_budget.items() if value is not None})
             result["word_budget"] = merged_budget
+            # Confirmed chapter planning is authoritative; model output may add execution detail,
+            # but cannot replace the author's selected desire, choice or personal stakes.
+            if fallback.get("character_focus"):
+                result["character_focus"] = fallback["character_focus"]
+            if character_context:
+                result["character_context"] = character_context
 
             if not isinstance(result.get("satisfaction_design"), dict):
                 sat_type = result.get("satisfaction_design") or fallback.get("satisfaction_design", {}).get("type") or "推进成长"
@@ -123,6 +137,7 @@ class MissionBuilderService:
         outline_summary: str,
         writing_notes: str,
         chapter_blueprint,
+        character_context: str = "",
     ) -> Dict[str, object]:
         constraints = (
             dict(chapter_blueprint.mission_constraints or {})
@@ -182,4 +197,6 @@ class MissionBuilderService:
             "must_include": must_include,
             "must_not_include": must_not_include,
             "pov": pov_character,
+            "character_focus": constraints.get("character_focus") or {},
+            "character_context": character_context,
         }

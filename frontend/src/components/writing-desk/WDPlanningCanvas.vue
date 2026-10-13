@@ -68,10 +68,35 @@
         </div>
       </section>
 
+      <section class="planning-card character-focus-card">
+        <div class="section-head">
+          <div><span class="section-index">02</span><h2>人物与阅读期待</h2></div>
+          <button v-if="!editingPlanning" type="button" class="text-action" @click="beginPlanningEdit">调整人物牵挂</button>
+        </div>
+        <p class="character-focus-note">规划中的人物选择与后果，生成后可以调整；留空也能继续创作。</p>
+        <dl v-if="!editingPlanning && hasCharacterFocus" class="character-focus-grid">
+          <div v-for="field in characterFocusFields" :key="field.key">
+            <dt>{{ field.label }}</dt>
+            <dd>{{ planning.character_focus?.[field.key] || '尚未设定' }}</dd>
+          </div>
+        </dl>
+        <p v-else-if="!editingPlanning" class="character-focus-empty">尚未规划人物牵挂。可在规划时补充；新生成章纲会尝试提供。</p>
+        <div v-else class="planning-form">
+          <label v-for="field in characterFocusFields" :key="field.key" :class="{ full: field.key !== 'character_name' && field.key !== 'wants' }">
+            {{ field.label }}
+            <textarea v-model="characterFocusDraft[field.key]" rows="2" maxlength="600" :placeholder="field.placeholder" />
+          </label>
+          <div class="edit-actions full">
+            <button type="button" class="text-action" @click="editingPlanning = false">取消</button>
+            <button type="button" class="save-action" :disabled="planningSaving" @click="savePlanning">{{ planningSaving ? '保存中…' : '保存本章规划' }}</button>
+          </div>
+        </div>
+      </section>
+
       <section class="planning-card beats-card">
         <div class="section-head">
           <div>
-            <span class="section-index">02</span>
+            <span class="section-index">03</span>
             <h2>情节拍</h2>
             <span class="section-note">{{ beats.length ? `${beats.length} 个节拍` : '生成正文时自动梳理' }}</span>
           </div>
@@ -128,7 +153,7 @@
 
       <section class="planning-card reference-card">
         <div class="section-head">
-          <div><span class="section-index">03</span><h2>登场与引用</h2></div>
+          <div><span class="section-index">04</span><h2>登场与引用</h2></div>
           <span class="section-note">自动从蓝图中匹配</span>
         </div>
         <div class="reference-grid">
@@ -183,6 +208,7 @@ import { invalidatePrediction } from '@/utils/writingWorkflow'
 import type {
   ChapterBeat,
   ChapterPlanning,
+  CharacterFocus,
   Character,
   NovelProject,
 } from '@/api/novel'
@@ -204,6 +230,19 @@ const novelStore = useNovelStore()
 const editingPlanning = ref(false)
 const planningSaving = ref(false)
 const planningDraft = ref<ChapterPlanning>({})
+const characterFocusFields: { key: keyof CharacterFocus; label: string; placeholder: string }[] = [
+  { key: 'character_name', label: '这章关注谁', placeholder: '本章做出关键选择的人物' },
+  { key: 'wants', label: '他想争取什么', placeholder: '眼下具体想保住或得到的东西' },
+  { key: 'stakes', label: '失败会失去什么', placeholder: '为什么这件事值得在意' },
+  { key: 'choice', label: '他必须怎样选择', placeholder: '用行动表现两难，不必每章都有重大抉择' },
+  { key: 'cost', label: '选择要付出什么', placeholder: '本章行动带来的真实代价' },
+  { key: 'relationship_change', label: '关系留下什么变化', placeholder: '之后的称呼、信任或行动有什么不同' },
+  { key: 'next_expectation', label: '读者下一章想知道什么', placeholder: '一个值得继续关注的问题，也可以是平静的期待' },
+]
+const emptyCharacterFocus = (): CharacterFocus => ({
+  character_name: '', wants: '', stakes: '', choice: '', cost: '', relationship_change: '', next_expectation: '',
+})
+const characterFocusDraft = ref<CharacterFocus>(emptyCharacterFocus())
 const mustNotDraft = ref('')
 const editingBeats = ref(false)
 const beatsSaving = ref(false)
@@ -215,6 +254,9 @@ const outline = computed(() =>
   ),
 )
 const planning = computed<ChapterPlanning>(() => outline.value?.metadata?.planning || {})
+const hasCharacterFocus = computed(() => characterFocusFields.some(
+  (field) => planning.value.character_focus?.[field.key]?.trim(),
+))
 const prediction = computed(() => outline.value?.metadata?.prediction || null)
 const beats = computed<ChapterBeat[]>(() => prediction.value?.beats || [])
 const predictionGenerating = computed(
@@ -286,6 +328,7 @@ function beatLabel(type: ChapterBeat['type']): string {
 
 function beginPlanningEdit() {
   planningDraft.value = { ...planning.value }
+  characterFocusDraft.value = { ...emptyCharacterFocus(), ...planning.value.character_focus }
   mustNotDraft.value = (planning.value.must_not_include || []).join('\n')
   editingPlanning.value = true
 }
@@ -298,6 +341,9 @@ async function savePlanning() {
       ...planning.value,
       ...planningDraft.value,
       must_not_include: mustNotDraft.value.split('\n').map((item) => item.trim()).filter(Boolean),
+      character_focus: Object.fromEntries(characterFocusFields.map(
+        (field) => [field.key, characterFocusDraft.value[field.key].trim()],
+      )) as unknown as CharacterFocus,
     }
     const metadata = invalidatePrediction(outline.value.metadata)
     await novelStore.updateChapterOutline({
@@ -391,6 +437,12 @@ watch(
 .section-index { color: #d1c31d; font-size: 9px; font-weight: 850; letter-spacing: .09em; }
 .section-head h2 { margin: 0; color: #ecece5; font-size: 14px; font-weight: 680; }
 .section-note { color: #696c65; font-size: 9px; }
+.character-focus-note, .character-focus-empty { color: #8b8e83; font-size: 11px; line-height: 1.8; }
+.character-focus-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px 22px; margin: 16px 0 0; }
+.character-focus-grid > div { min-width: 0; }
+.character-focus-grid dt { color: #a1a68f; font-size: 10px; margin-bottom: 5px; }
+.character-focus-grid dd { margin: 0; color: #d1d4c8; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .character-focus-grid { grid-template-columns: 1fr; } }
 .text-action { padding: 4px 1px; border: 0; color: #85887f; font-size: 10px; background: transparent; }
 .text-action:hover { color: #ffe500; }
 .edit-actions { display: flex; align-items: center; gap: 10px; }

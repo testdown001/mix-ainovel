@@ -17,6 +17,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.chapter_blueprint import ChapterBlueprint
+from .character_planning_context import clean_character_focus
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,35 @@ _FUNCTION_TO_TWIST: Dict[str, int] = {
 _VALID_FS_OPS = {"plant", "develop", "payoff"}
 # develop 在 chapter_blueprints.foreshadowing_ops 的既有枚举里叫 reinforce
 _FS_OP_STORE_MAP = {"plant": "plant", "develop": "reinforce", "payoff": "payoff"}
+
+PLANNING_METADATA_FIELDS = frozenset({
+    "chapter_function", "hook_type", "coolpoint", "foreshadowing_ops", "must_not_include",
+    "narrative_phase", "emotion_hook", "foreshadowing", "character_focus",
+})
+
+
+def get_outline_planning(metadata: Any) -> Dict[str, Any]:
+    """Read both historical flat fields and the current metadata.planning contract."""
+    if not isinstance(metadata, dict):
+        return {}
+    planning = {key: value for key, value in metadata.items() if key in PLANNING_METADATA_FIELDS}
+    nested = metadata.get("planning")
+    if isinstance(nested, dict):
+        planning.update(nested)
+    if "character_focus" in planning:
+        planning["character_focus"] = clean_character_focus(planning["character_focus"])
+    return planning
+
+
+def normalize_outline_metadata(metadata: Any) -> Dict[str, Any]:
+    """Migrate only planning keys, leaving predictions and other metadata intact."""
+    if not isinstance(metadata, dict):
+        return {}
+    normalized = {key: value for key, value in metadata.items() if key not in PLANNING_METADATA_FIELDS}
+    planning = get_outline_planning(metadata)
+    if planning or isinstance(metadata.get("planning"), dict):
+        normalized["planning"] = planning
+    return normalized
 
 
 def _clean_str(value: Any, limit: int = 200) -> str:
@@ -121,8 +151,11 @@ def extract_planning_from_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]
             planning["foreshadowing_ops"] = ops[:6]
 
     must_not = _clean_str_list(item.get("must_not_include"))
-    if must_not:
+    if must_not or isinstance(item.get("must_not_include"), list):
         planning["must_not_include"] = must_not
+
+    if isinstance(item.get("character_focus"), dict):
+        planning["character_focus"] = clean_character_focus(item["character_focus"])
 
     return planning or None
 
@@ -172,9 +205,14 @@ def map_planning_to_blueprint_fields(planning: Dict[str, Any]) -> Dict[str, Any]
         if names:
             fields["involved_foreshadowings"] = names
 
+    constraints: Dict[str, Any] = {}
     must_not = planning.get("must_not_include")
-    if isinstance(must_not, list) and must_not:
-        fields["mission_constraints"] = {"must_not_include": list(must_not)}
+    if isinstance(must_not, list):
+        constraints["must_not_include"] = list(must_not)
+    if isinstance(planning.get("character_focus"), dict):
+        constraints["character_focus"] = clean_character_focus(planning["character_focus"])
+    if constraints:
+        fields["mission_constraints"] = constraints
 
     if fields:
         fields["extra"] = {"planning": planning}
@@ -252,4 +290,7 @@ async def upsert_chapter_blueprint(
         ))
         return
     for key, value in fields.items():
+        if key in {"mission_constraints", "extra"} and isinstance(value, dict):
+            previous = getattr(row, key, None)
+            value = {**(previous if isinstance(previous, dict) else {}), **value}
         setattr(row, key, value)

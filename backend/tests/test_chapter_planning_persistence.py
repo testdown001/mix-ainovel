@@ -218,3 +218,65 @@ async def test_upsert_preserves_status_columns(db_session):
     # planning 为空时 no-op
     await upsert_chapter_blueprint(db_session, PROJECT_ID, 12, None)
     await upsert_chapter_blueprint(db_session, PROJECT_ID, 12, {})
+
+
+@pytest.mark.asyncio
+async def test_generated_flat_planning_reaches_director_and_keeps_other_metadata(db_session):
+    await _seed_user_project(db_session)
+    db_session.add(ChapterOutline(project_id=PROJECT_ID, chapter_number=2, title="旧", summary="旧",
+                                 metadata={"prediction": {"hits": 2}, "emotion_hook": "旧的牵挂"}))
+    await db_session.flush()
+    focus = {"character_name": "小夏", "wants": "保住师父的信任", "choice": "决定坦白", "cost": "承认曾经说谎"}
+    outline = await NovelService(db_session).update_or_create_outline(
+        PROJECT_ID, 2, "坦白", "师父没有拆穿她",
+        metadata=extract_outline_planning_metadata({"chapter_function": "收束", "character_focus": focus,
+                                                  "emotion_hook": "会不会被原谅"}),
+    )
+    assert outline.metadata["prediction"] == {"hits": 2}
+    assert outline.metadata["planning"]["character_focus"] == focus
+    assert "emotion_hook" not in outline.metadata
+    await db_session.flush()
+    blueprint = await GenerationSupportService(db_session).load_chapter_blueprint(PROJECT_ID, 2)
+    assert blueprint.chapter_function == "resolution"
+    assert blueprint.mission_constraints["character_focus"] == focus
+    assert blueprint.extra["planning"]["emotion_hook"] == "会不会被原谅"
+
+
+@pytest.mark.asyncio
+async def test_legacy_planning_is_read_without_persisting_or_using_stale_table(db_session):
+    await _seed_user_project(db_session)
+    focus = {"wants": "留下陪伴", "relationship_change": "开始愿意求助"}
+    db_session.add(ChapterOutline(project_id=PROJECT_ID, chapter_number=5, title="关门", summary="日常",
+                                 metadata={"chapter_function": "收束", "character_focus": focus}))
+    await db_session.commit()
+    service = GenerationSupportService(db_session)
+    projected = await service.load_chapter_blueprint(PROJECT_ID, 5)
+    assert projected.chapter_function == "resolution"
+    assert projected.mission_constraints["character_focus"] == focus
+    assert projected not in db_session
+    db_session.add(ChapterBlueprint(project_id=PROJECT_ID, chapter_number=5, chapter_function="climax",
+                                   is_finalized=True, mission_constraints={"must_not_include": ["新反派"]}))
+    await db_session.commit()
+    current = await service.load_chapter_blueprint(PROJECT_ID, 5)
+    assert current.chapter_function == "resolution"
+    assert current.mission_constraints["must_not_include"] == ["新反派"]
+    assert current.mission_constraints["character_focus"] == focus
+    assert current.is_finalized is True
+    assert not db_session.is_modified(current)
+
+
+@pytest.mark.asyncio
+async def test_clearing_focus_preserves_scene_constraints_and_status(db_session):
+    await _seed_user_project(db_session)
+    db_session.add(ChapterBlueprint(project_id=PROJECT_ID, chapter_number=4, is_finalized=True,
+        mission_constraints={"character_focus": {"wants": "旧目标"}, "scene_list": [{"goal": "告别"}],
+                             "must_not_include": ["新危机"]}, extra={"author_note": "保留留白"}))
+    await db_session.commit()
+    await upsert_chapter_blueprint(db_session, PROJECT_ID, 4, {"character_focus": {}, "must_not_include": []})
+    row = (await db_session.execute(select(ChapterBlueprint).where(
+        ChapterBlueprint.project_id == PROJECT_ID, ChapterBlueprint.chapter_number == 4))).scalar_one()
+    assert row.mission_constraints["character_focus"] == {}
+    assert row.mission_constraints["must_not_include"] == []
+    assert row.mission_constraints["scene_list"] == [{"goal": "告别"}]
+    assert row.extra["author_note"] == "保留留白"
+    assert row.is_finalized is True

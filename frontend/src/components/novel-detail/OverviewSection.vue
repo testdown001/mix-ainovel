@@ -89,8 +89,8 @@
               </svg>
             </div>
             <div class="flex items-baseline gap-1">
-              <span class="text-2xl font-bold text-white">{{ avgQuality > 0 ? avgQuality : '—' }}</span>
-              <span v-if="avgQuality > 0" class="text-sm text-[#666]">/100</span>
+              <span class="font-bold text-white" :class="avgQuality === null ? 'text-sm' : 'text-2xl'">{{ avgQuality ?? '尚未评估' }}</span>
+              <span v-if="avgQuality !== null" class="text-sm text-[#666]">/100</span>
             </div>
             <div class="text-xs text-[#555] mt-1">平均质量</div>
           </div>
@@ -209,12 +209,12 @@
             <div v-for="dim in analysisDimensions" :key="dim.key">
               <div class="flex items-center justify-between mb-2">
                 <span class="text-sm" style="color: #888;">{{ dim.label }}</span>
-                <span class="text-sm font-semibold" :style="{ color: dim.color }">{{ dim.score }}</span>
+                <span class="text-sm font-semibold" :style="{ color: dim.score === null ? '#888' : dim.color }">{{ dim.score ?? '尚未评估' }}</span>
               </div>
               <div class="h-1.5 rounded-full overflow-hidden" style="background: #2A2A2A;">
                 <div
                   class="h-full rounded-full transition-all duration-700"
-                  :style="{ width: dim.score + '%', background: dim.color }"
+                  :style="{ width: (dim.score ?? 0) + '%', background: dim.color }"
                 ></div>
               </div>
             </div>
@@ -243,6 +243,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { getChapterReviewScore, getOverviewReviewQuality, getOverviewReviewScores } from '@/utils/overviewReviewScores'
 
 interface OverviewData {
   one_sentence_summary?: string | null
@@ -344,21 +345,7 @@ const aiRate = computed(() => {
   return Math.min(100, Math.round((completedChapters.value / total) * 100))
 })
 
-const avgQuality = computed(() => {
-  if (props.analysisData?.overall_score) return props.analysisData.overall_score
-  if (!props.chapters) return 0
-  const scores: number[] = []
-  for (const ch of props.chapters) {
-    const s = getChapterScore(ch)
-    if (s !== null && s > 0) scores.push(s)
-  }
-  if (scores.length === 0) {
-    const dims = computeAnalysisScores()
-    const vals = [dims.pacing, dims.character, dims.worldbuilding, dims.tension].filter(v => v > 0)
-    return vals.length > 0 ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0
-  }
-  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-})
+const avgQuality = computed(() => getOverviewReviewQuality(props.analysisData, props.chapters))
 
 const recentChapters = computed(() => {
   if (!props.chapters) return []
@@ -374,7 +361,7 @@ const displayCharacters = computed(() => {
 })
 
 const analysisDimensions = computed(() => {
-  const scores = computeAnalysisScores()
+  const scores = getOverviewReviewScores(props.analysisData, props.chapters)
   return [
     { key: 'pacing', label: '故事节奏', score: scores.pacing, color: '#FFE500' },
     { key: 'character', label: '人物塑造', score: scores.character, color: '#A855F7' },
@@ -385,22 +372,23 @@ const analysisDimensions = computed(() => {
 
 const analysisSummary = computed(() => {
   if (completedChapters.value === 0) {
-    return '暂无足够的章节数据进行分析。请先生成章节内容。'
+    return '尚未评估。请先生成章节内容，再获取 AI 深度分析。'
   }
 
-  const dims = analysisDimensions.value
-  const hasScores = dims.some(d => d.score > 0)
+  const dims = analysisDimensions.value.filter((dimension): dimension is typeof dimension & { score: number } => dimension.score !== null)
 
-  if (!hasScores) {
-    return `已完成${completedChapters.value}章，共${formatNumber(totalWords.value)}字。点击下方按钮获取AI深度分析。`
+  if (!dims.length) {
+    return `尚未评估。已完成${completedChapters.value}章，共${formatNumber(totalWords.value)}字；点击下方按钮获取 AI 深度分析。`
   }
 
   const parts: string[] = []
   const quality = avgQuality.value
-  if (quality >= 85) parts.push('整体质量优秀')
-  else if (quality >= 70) parts.push('整体质量良好')
-  else if (quality >= 50) parts.push('整体质量中等')
-  else parts.push('整体质量有提升空间')
+  if (quality !== null) {
+    if (quality >= 85) parts.push('整体质量优秀')
+    else if (quality >= 70) parts.push('整体质量良好')
+    else if (quality >= 50) parts.push('整体质量中等')
+    else parts.push('整体质量有提升空间')
+  }
 
   const sorted = [...dims].sort((a, b) => b.score - a.score)
   if (sorted[0].score > 0) parts.push(`${sorted[0].label}表现突出`)
@@ -415,96 +403,8 @@ const analysisSummary = computed(() => {
   return parts.join('，') + '。'
 })
 
-function computeAnalysisScores() {
-  const defaults = { pacing: 0, character: 0, worldbuilding: 0, tension: 0 }
-
-  // Priority 1: Use aggregated ChapterReview data (six-dimension gatekeeper scores)
-  if (props.analysisData?.dimensions) {
-    const d = props.analysisData.dimensions
-    return {
-      pacing: d.pacing || 0,
-      character: d.character_depth || 0,
-      worldbuilding: Math.round(((d.consistency || 0) + (d.prose_quality || 0)) / 2) || 0,
-      tension: Math.round(((d.foreshadowing || 0) + (d.emotion_curve || 0)) / 2) || 0,
-    }
-  }
-
-  if (!props.chapters || props.chapters.length === 0) return defaults
-
-  // Priority 2: Use ai_review scores from version metadata
-  const scoreMap: Record<string, number[]> = {
-    pacing: [], character: [], worldbuilding: [], tension: []
-  }
-
-  const keyMapping: Record<string, string> = {
-    pacing: 'pacing', rhythm: 'pacing', '节奏': 'pacing',
-    character: 'character', characterization: 'character', character_depth: 'character', '人物': 'character',
-    worldbuilding: 'worldbuilding', world: 'worldbuilding', immersion: 'worldbuilding',
-    consistency: 'worldbuilding', prose_quality: 'worldbuilding', '世界观': 'worldbuilding',
-    tension: 'tension', plot: 'tension', hook: 'tension',
-    foreshadowing: 'tension', emotion_curve: 'tension', '张力': 'tension', '情节': 'tension',
-  }
-
-  for (const ch of props.chapters) {
-    if (!ch.version_metadata?.length) continue
-    const selectedIdx = ch.recommended_version_index ?? 0
-    const meta = ch.version_metadata[selectedIdx]
-    if (!meta?.ai_review?.scores) continue
-
-    for (const [key, val] of Object.entries(meta.ai_review.scores)) {
-      if (typeof val !== 'number' || val === 0) continue
-      const mapped = keyMapping[key.toLowerCase()]
-      if (mapped && scoreMap[mapped]) {
-        scoreMap[mapped].push(val)
-      }
-    }
-  }
-
-  const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0
-
-  const result = {
-    pacing: avg(scoreMap.pacing),
-    character: avg(scoreMap.character),
-    worldbuilding: avg(scoreMap.worldbuilding),
-    tension: avg(scoreMap.tension),
-  }
-
-  // Priority 3: Compute from chapter statistics when no review data exists
-  if (result.pacing === 0 && result.character === 0 && result.worldbuilding === 0 && result.tension === 0) {
-    const completed = props.chapters.filter(c => c.generation_status === 'successful')
-    if (completed.length >= 3) {
-      const wordCounts = completed.map(c => c.word_count || 0).filter(w => w > 0)
-      if (wordCounts.length >= 3) {
-        const mean = wordCounts.reduce((a, b) => a + b, 0) / wordCounts.length
-        const variance = wordCounts.reduce((a, w) => a + (w - mean) ** 2, 0) / wordCounts.length
-        const cv = Math.sqrt(variance) / mean
-        result.pacing = Math.round(Math.max(40, Math.min(95, 95 - cv * 200)))
-
-        const totalOutlines = props.totalOutlines || completed.length
-        const completionRate = Math.min(1, completed.length / totalOutlines)
-        result.tension = Math.round(Math.max(40, Math.min(90, 50 + completionRate * 40)))
-
-        const avgWords = Math.round(mean)
-        result.character = Math.round(Math.max(40, Math.min(90, avgWords >= 3000 && avgWords <= 5000 ? 80 : 60)))
-        result.worldbuilding = Math.round(Math.max(40, Math.min(85, 50 + completed.length * 0.5)))
-      }
-    }
-  }
-
-  return result
-}
-
 function getChapterScore(chapter: ChapterItem): number | null {
-  if (!chapter.version_metadata?.length) return null
-  const selectedIdx = chapter.recommended_version_index ?? 0
-  const meta = chapter.version_metadata[selectedIdx]
-  if (!meta?.ai_review?.scores) return null
-  const scores = meta.ai_review.scores
-  if (typeof scores.overall === 'number') return Math.round(scores.overall)
-  if (typeof scores.total === 'number') return Math.round(scores.total)
-  const numericValues = Object.values(scores).filter((v): v is number => typeof v === 'number')
-  if (numericValues.length === 0) return null
-  return Math.round(numericValues.reduce((a, b) => a + b, 0) / numericValues.length)
+  return getChapterReviewScore(chapter)
 }
 
 function formatNumber(num: number): string {

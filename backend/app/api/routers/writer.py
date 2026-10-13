@@ -91,6 +91,8 @@ from ...services.batch_generation_service import BatchGenerationService
 from ...services.llm_service import LLMService
 from ...services.mission_pregen_service import pregen_next_chapter_mission
 from ...services.novel_service import NovelService
+from ...services.character_planning_context import build_character_planning_context, clean_character_focus
+from ...services.chapter_planning_service import get_outline_planning, normalize_outline_metadata
 from ...services.outline_generation_task_service import OutlineGenerationTaskService
 from ...services.prompt_service import PromptService
 from ...services.writer_context_builder import default_context_builder
@@ -1388,11 +1390,17 @@ async def update_chapter_outline(
 
     outline.title = request.title
     outline.summary = request.summary
-    meta = dict(outline.metadata or {})
+    meta = normalize_outline_metadata(outline.metadata)
     if request.metadata:
-        meta.update(request.metadata)
+        incoming = normalize_outline_metadata(request.metadata)
+        if isinstance(incoming.get("planning"), dict):
+            incoming["planning"] = {**get_outline_planning(meta), **incoming["planning"]}
+        meta.update(incoming)
     planning = request.planning if request.planning is not None else meta.get("planning")
     if isinstance(planning, dict):
+        planning = dict(planning)
+        if isinstance(planning.get("character_focus"), dict):
+            planning["character_focus"] = clean_character_focus(planning["character_focus"])
         meta["planning"] = planning
         from ...services.chapter_planning_service import upsert_chapter_blueprint
         await upsert_chapter_blueprint(session, project_id, request.chapter_number, planning)
@@ -1437,6 +1445,10 @@ async def generate_chapters_outline(
     # 同时保证无 volumes 的旧蓝图 prompt 与 schema 加字段前逐字一致
     blueprint_volumes = blueprint_dict.pop("volumes", None) or []
     blueprint_text = json.dumps(blueprint_dict, ensure_ascii=False, indent=2)
+    character_context = build_character_planning_context(
+        blueprint_dict, dossier=getattr(project, "concept_dossier", None),
+        query=getattr(request, "user_prompt", None) or "",
+    )
     
     # 获取已有的章节大纲（历史注入治理：近 OUTLINE_CONTEXT_RECENT_CHAPTERS 章全量，更早仅标题）
     outline_entries = [
@@ -1471,7 +1483,7 @@ async def generate_chapters_outline(
         if volume_phase:
             phase = volume_phase
         elif progress_pct < 20:
-            phase = "开篇期（前20%）——应着重世界观铺设、角色登场、主线冲突引入"
+            phase = "开篇期（前20%）——建立人物处境、行动动机、核心关系与主线冲突"
         elif progress_pct < 70:
             phase = "发展期（20%-70%）——应多线并行、支线展开、不断引入新事件新对手新挑战"
         elif progress_pct < 90:
@@ -1484,12 +1496,14 @@ async def generate_chapters_outline(
 - 本次生成范围：第 {request.start_chapter} 章 ~ 第 {end_chapter} 章
 - 当前进度：约 {progress_pct}%
 - 当前所处阶段：{phase}
-- ⚠️ {"严禁在本批次安排故事结局！必须持续展开新事件和冲突，以「未完待续」的悬念结束本批次。" if progress_pct < 90 else "已进入收束期，可以安排故事走向结局。"}
+- {"保留既定长线目标，未到终局时不得提前结束全书；本批次不是故事节点，允许局部兑现、关系推进与情绪余波，不因批次结束强加新危机或悬念。" if progress_pct < 90 else "已进入收束期，可以安排故事走向结局。"}
 """
 
     user_prompt_context = ""
     if request.user_prompt and request.user_prompt.strip():
         user_prompt_context = f"\n[用户附加剧情提示（必须融入接下来几章的大纲中）]\n{request.user_prompt.strip()}\n"
+    if character_context:
+        user_prompt_context += "\n[人物选择与阅读期待依据]\n" + character_context + "\n"
 
     volume_block = f"\n{volume_section}\n" if volume_section else ""
     prompt_input = f"""
@@ -1869,7 +1883,7 @@ async def _run_rolling_outline_review(
 
     min_score = await reviewer.get_min_score()
     chapter_issues = report.issues_for_chapters()
-    if report.total_score < min_score and chapter_issues:
+    if report.needs_revision(min_score) and chapter_issues:
         target_numbers: set = set()
         for issue in chapter_issues:
             span_range = parse_chapter_range(issue.target or "")
@@ -1990,7 +2004,8 @@ async def regenerate_chapter_outlines(
     # 只保留对大纲生成有指导意义的字段
     slim_blueprint = {
         k: blueprint_data[k]
-        for k in ("title", "genre", "style", "tone", "target_audience", "one_sentence_summary", "world_setting")
+        for k in ("title", "genre", "style", "tone", "target_audience", "one_sentence_summary", "world_setting",
+                  "characters", "relationships", "golden_finger")
         if k in blueprint_data and blueprint_data[k]
     }
     blueprint_text = json.dumps(slim_blueprint, ensure_ascii=False, indent=2)
@@ -2028,6 +2043,11 @@ async def regenerate_chapter_outlines(
 
     prompt_parts.append(f"[故事简介（核心指导）]\n{full_synopsis}" if full_synopsis else "[故事简介（核心指导）]\n暂无")
     prompt_parts.append(f"[世界蓝图]\n{blueprint_text}")
+    character_context = build_character_planning_context(
+        blueprint_data, dossier=getattr(project, "concept_dossier", None),
+    )
+    if character_context:
+        prompt_parts.append("[人物选择与阅读期待依据]\n" + character_context)
 
     if completed_summaries:
         # 有已完成章节时，包含其大纲和摘要作为参考（近 20 章全量，更早仅标题）
@@ -2176,7 +2196,7 @@ async def regenerate_chapter_outlines(
 3. 每个章节的大纲摘要应详细描述该章的核心事件和情节推进
 4. 返回 JSON 格式：{{"chapters": [...]}}，数组内恰好包含 {batch_count} 个元素，每个元素包含 chapter_number, title, summary
 5. 确认返回的 chapters 数组长度恰好为 {batch_count}
-6. 本批次最后一章必须以新悬念或新冲突结束，为后续章节留下发展空间""")
+6. 本批次边界不是故事节点；按章节功能自然收住，允许兑现、关系变化与余波，后续牵挂来自既定目标或选择后果，不强加新冲突""")
 
             batch_prompt_input = "\n\n".join(batch_prompt_parts)
 

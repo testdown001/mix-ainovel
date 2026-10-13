@@ -53,6 +53,16 @@ def test_fingerprint_tolerates_none_fields():
     )
 
 
+def test_pregen_expires_when_character_choice_or_context_changes():
+    baseline = _outline(metadata={"planning": {"character_focus": {"choice": "拒绝陪伴"}}})
+    changed = _outline(metadata={"planning": {"character_focus": {"choice": "接受陪伴"}}})
+    assert mission_fingerprint(baseline, 1, "不愿拖累朋友") != mission_fingerprint(changed, 1, "不愿拖累朋友")
+    assert mission_fingerprint(baseline, 1, "不愿拖累朋友") != mission_fingerprint(baseline, 1, "开始愿意求助")
+    baseline.metadata_["prediction"] = {"hits": 2}
+    assert mission_fingerprint(baseline, 1, "不愿拖累朋友") == mission_fingerprint(
+        _outline(metadata={"planning": {"character_focus": {"choice": "拒绝陪伴"}}}), 1, "不愿拖累朋友")
+
+
 # ---------------------------------------------------------------------------
 # 消费端纯函数：查找 + 校验 + 清除
 # ---------------------------------------------------------------------------

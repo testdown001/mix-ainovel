@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas.concept_dossier import BlueprintReviewReport
 from ..utils.json_utils import parse_llm_json, remove_think_tags
+from .character_planning_context import build_character_planning_context
 from .llm_service import LLMService
 from .prompt_service import PromptService
 
@@ -57,6 +58,7 @@ _REVISABLE_SETTINGS_KEYS = {
     "world_setting",
     "golden_finger",
     "characters",
+    "relationships",
     "volumes",
     "foreshadowings",
 }
@@ -74,6 +76,19 @@ def _outline_lines(outline_items: List[Dict[str, Any]], limit_chars: int = 24000
             extras.append(f"钩子={planning['hook_type']}")
         if planning.get("coolpoint"):
             extras.append(f"爽点={planning['coolpoint']}")
+        focus = planning.get("character_focus")
+        if isinstance(focus, dict):
+            focus_text = "；".join(
+                f"{label}={focus[key].strip()[:80]}"
+                for key, label in (
+                    ("character_name", "人物"), ("wants", "想要"), ("stakes", "在乎"),
+                    ("choice", "选择"), ("cost", "代价"), ("relationship_change", "关系变化"),
+                    ("next_expectation", "延续牵挂"),
+                )
+                if isinstance(focus.get(key), str) and focus[key].strip()
+            )
+            if focus_text:
+                extras.append(f"人物规划={focus_text}")
         ops = planning.get("foreshadowing_ops")
         if isinstance(ops, list) and ops:
             ops_text = "、".join(
@@ -167,6 +182,13 @@ class BlueprintReviewService:
                 "【蓝图设定】\n" + json.dumps(slim_settings, ensure_ascii=False, indent=1),
                 "【逐章章纲】\n" + _outline_lines(outline_items),
             ]
+            # 期待承诺保留在下方独立段，人物摘要只携带其余立项依据，避免重复。
+            character_dossier = {
+                k: value for k, value in (dossier or {}).items() if k != "anticipation"
+            } if isinstance(dossier, dict) else None
+            character_context = build_character_planning_context(settings_data, dossier=character_dossier)
+            if character_context:
+                parts.append(character_context)
             if isinstance(dossier, dict) and isinstance(dossier.get("anticipation"), dict):
                 parts.append(
                     "【立项书期待感承诺（核对兑现路径）】\n"

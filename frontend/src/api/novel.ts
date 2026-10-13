@@ -339,10 +339,21 @@ export interface ChapterPrediction {
   beats?: ChapterBeat[]
 }
 
+export interface CharacterFocus {
+  character_name: string
+  wants: string
+  stakes: string
+  choice: string
+  cost: string
+  relationship_change: string
+  next_expectation: string
+}
+
 export interface ChapterPlanning {
   chapter_function?: string
   hook_type?: string
   coolpoint?: string
+  character_focus?: Partial<CharacterFocus>
   foreshadowing_ops?: { op: string; name: string }[]
   must_not_include?: string[]
 }

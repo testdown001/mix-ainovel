@@ -237,7 +237,14 @@ async def test_blueprint_receives_emotional_core_and_only_active_selected_voice(
     _install_spy(monkeypatch, _SpyReviewer(db_session))
     project = await db_session.get(NovelProject, PROJECT_ID)
     project.concept_dossier = {
-        "dossier": {"emotional_core": {"cherished": "后院给师弟留着空位的饭桌"}},
+        "dossier": {
+            "protagonist": {"name": "甲", "desire": "重新开张旧店", "flaw": "不肯向师弟认错"},
+            "emotional_core": {
+                "cherished": "后院给师弟留着空位的饭桌",
+                "hard_choice": "开张的钱先拿去给师弟买药",
+            },
+            "anticipation": {"ten_chapters": "师弟愿意回来同桌吃饭", "long_term": "两人一起守住旧店"},
+        },
         "voice_trial": {"candidates": [{"text": "未选候选里的意外身世"}]},
     }
     db_session.add(CreativeMemoryItem(
@@ -252,6 +259,14 @@ async def test_blueprint_receives_emotional_core_and_only_active_selected_voice(
     assert "后院给师弟留着空位的饭桌" in history
     assert ("只借助停顿与对白传达关心" in history) == (status == "active")
     assert "未选候选里的意外身世" not in history
+    # 情感和主角行动依据必须直接进入每批排章输入，而非只在设定段出现。
+    for call in calls[1:]:
+        batch_input = call["conversation_history"][0]["content"]
+        assert "后院给师弟留着空位的饭桌" in batch_input
+        assert "开张的钱先拿去给师弟买药" in batch_input
+        assert "不肯向师弟认错" in batch_input
+        assert "师弟愿意回来同桌吃饭" in batch_input
+        assert "两人一起守住旧店" in batch_input
 
 
 @pytest.mark.asyncio

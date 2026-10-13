@@ -28,7 +28,7 @@ def extract_tail_excerpt(text: Optional[str], limit: int = 500) -> str:
 
 
 def extract_outline_planning_metadata(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """从大纲生成的单章条目里挑出结构化规划字段，供落库到 `outline.metadata["planning"]`。
+    """提取规划内层字典，由 NovelService 统一归一化到 outline.metadata.planning。
 
     `prompts/outline_generation.md` 每章都要求 LLM 产出 `narrative_phase` /
     `foreshadowing.plant|payoff` / `emotion_hook`，而落库只取 title+summary
@@ -153,6 +153,7 @@ async def generate_chapter_mission(
     user_id: int,
     temperature: float = 0.7,
     pattern_constraint: str = "",
+    character_context: str = "",
 ) -> Optional[dict]:
     """
     L2 Director: 生成章节导演脚本（ChapterMission）。
@@ -164,6 +165,13 @@ async def generate_chapter_mission(
     if not plan_prompt:
         logger.warning("未配置 chapter_plan 提示词，跳过导演脚本生成")
         return None
+
+    if not character_context:
+        from .character_planning_context import build_character_planning_context
+
+        character_context = build_character_planning_context(
+            blueprint_dict, query=f"{outline_title}\n{outline_summary}\n{writing_notes}",
+        )
 
     plan_input = f"""
 [上一章摘要]
@@ -184,6 +192,9 @@ async def generate_chapter_mission(
 
 [蓝图硬约束摘要]
 {blueprint_constraints or "无"}
+
+[人物行动依据与本书情感承诺]
+{character_context or "未提供；不要虚构过去经历或关系事实"}
 
 [写作指令]
 {writing_notes or "无额外指令"}
@@ -236,6 +247,8 @@ async def generate_chapter_mission(
             outline_summary=outline_summary, previous_summary=previous_summary,
             temperature=temperature, user_id=user_id,
         )
+        if character_context and isinstance(mission, dict):
+            mission["character_context"] = character_context
         return mission
     except Exception as exc:
         logger.warning("生成章节导演脚本失败，将使用默认模式: %s", exc)
@@ -255,7 +268,7 @@ async def _review_and_maybe_fix_mission(
 ) -> dict:
     """对导演脚本做一次轻量前置评审（评分通道，未配置则跳过，绝不阻断主流程）。
 
-    评 3 项：宏观节拍是否推进主线 / 是否与前文冲突 / 章尾钩子是否有效。
+    评 3 项：是否产生有意义的剧情或人物关系变化 / 是否与前文冲突 / 后续期待是否有依据。
     不达标则带反馈重生成一次；任何异常都原样返回原脚本。
     依据 CritiCS：评审施加于规划阶段比正文阶段收益更高。
     """
@@ -282,9 +295,9 @@ async def _review_and_maybe_fix_mission(
     review_system = "你是严格的网文章节规划审稿人。只输出 JSON，不要解释。"
     review_user = (
         "审查以下章节导演脚本，针对三项各给 true/false：\n"
-        "1. advances_mainline：宏观节拍是否推进主线（而非原地打转/纯过渡）\n"
+        "1. advances_mainline：是否有意义地推进剧情、人物选择或关系；日常、余波和安静理解可以成立\n"
         "2. conflicts_prev：是否与[前文摘要]存在设定或情节冲突\n"
-        "3. hook_effective：章尾钩子是否具体有效（而非空泛升华）\n\n"
+        "3. hook_effective：是否因人物在意的得失、关系牵挂或后果产生有依据的后续期待；不强求新危机\n\n"
         f"[前文摘要]\n{(previous_summary or '无')[:800]}\n\n"
         f"[本章大纲摘要]\n{(outline_summary or '无')[:500]}\n\n"
         f"[导演脚本]\n{json.dumps(mission, ensure_ascii=False)[:2500]}\n\n"

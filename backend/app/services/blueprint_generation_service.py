@@ -33,6 +33,7 @@ from ..models.novel import Chapter, ChapterVersion
 from ..models.writer_persona import WriterPersona
 from ..schemas.novel import Blueprint, BlueprintGenerationResponse
 from ..services.chapter_planning_service import extract_planning_from_item
+from ..services.character_planning_context import build_character_planning_context
 from ..services.concept_dossier_service import format_dossier_for_prompt
 from ..services.llm_service import LLMService
 from ..services.novel_service import NovelService
@@ -223,6 +224,8 @@ def _build_settings_summary(
     settings_data: Dict[str, Any],
     volumes: List[Dict[str, Any]],
     promised: Optional[int] = None,
+    *,
+    dossier: Optional[Dict[str, Any]] = None,
 ) -> str:
     """把设定段产出压缩为章纲段的输入摘要。
 
@@ -254,15 +257,9 @@ def _build_settings_summary(
                 f"{volume['arc_goal']}；卷末高潮：{volume['climax_hint']}"
             )
 
-    characters = settings_data.get("characters")
-    if isinstance(characters, list) and characters:
-        lines.append("主要角色：")
-        for character in characters:
-            if not isinstance(character, dict):
-                continue
-            lines.append(
-                f"- {character.get('name', '')}（{character.get('identity', '')}）：{character.get('goals', '')}"
-            )
+    character_context = build_character_planning_context(settings_data, dossier=dossier)
+    if character_context:
+        lines.append(character_context)
 
     golden_finger = settings_data.get("golden_finger")
     if isinstance(golden_finger, dict) and golden_finger.get("name"):
@@ -577,7 +574,7 @@ async def generate_blueprint_for_project(
             f"{structure_reference}"
         )
     outline_prompt = _inject_blueprint_exclusions(outline_prompt, exclusions)
-    settings_digest = _build_settings_summary(settings_data, volumes, promised=None)
+    settings_digest = _build_settings_summary(settings_data, volumes, promised=None, dossier=dossier)
 
     outline_items: List[Dict[str, Any]] = []
     batch_total = math.ceil(promised / OUTLINE_BATCH_SIZE)
@@ -731,11 +728,11 @@ async def generate_blueprint_for_project(
                         review_span.set("auto_revise", auto_revise)
                         if (
                             auto_revise
-                            and report.total_score < min_score
+                            and report.needs_revision(min_score)
                             and report.issues
                         ):
                             logger.info(
-                                "项目 %s 蓝图审稿未达标（%d < %d），触发定向修订",
+                                "项目 %s 蓝图总分或人物牵挂审稿未达标（总分=%d，阈值=%d），触发定向修订",
                                 project_id, report.total_score, min_score,
                             )
                             settings_data = await reviewer.revise_settings_blocks(
@@ -748,7 +745,7 @@ async def generate_blueprint_for_project(
                             volumes = _sanitize_volumes(settings_data.get("volumes"))
                             settings_data["volumes"] = volumes
                             settings_digest = _build_settings_summary(
-                                settings_data, volumes, promised=None
+                                settings_data, volumes, promised=None, dossier=dossier
                             )
                             outline_items = await reviewer.revise_chapter_ranges(
                                 outline_items=outline_items,
