@@ -19,6 +19,8 @@ from ..core.constants import StageStatus, WritingStage
 from ..db.session import AsyncSessionLocal
 from ..models.novel import Chapter, ChapterVersion
 from ..services.chapter_guardrails import default_guardrails
+from ..services.chapter_planning_service import get_outline_planning
+from ..services.character_planning_context import build_character_planning_context
 from ..services.llm_service import LLMService
 from ..services.entity_registry_service import EntityRegistryService
 from ..services.cache_service import CacheService
@@ -498,6 +500,19 @@ class PipelineOrchestrator(PipelineReviewMixin):
         )
 
         all_characters = [c.get("name") for c in blueprint_dict.get("characters", []) if c.get("name")]
+        chapter_planning = get_outline_planning(getattr(outline, "metadata_", None))
+        blueprint_mission_constraints = getattr(chapter_blueprint, "mission_constraints", None)
+        if not chapter_planning.get("character_focus") and isinstance(blueprint_mission_constraints, dict):
+            if blueprint_mission_constraints.get("character_focus"):
+                chapter_planning = {**chapter_planning, "character_focus": blueprint_mission_constraints["character_focus"]}
+        dossier_state = getattr(project, "concept_dossier", None)
+        character_dossier = dossier_state.get("dossier") if isinstance(dossier_state, dict) else None
+        character_query = f"{outline_title}\n{outline_summary}\n{writing_notes}"
+        planning_character_context = build_character_planning_context(
+            blueprint_dict, dossier=character_dossier, planning=chapter_planning, query=character_query,
+        )
+        focus_name = (chapter_planning.get("character_focus") or {}).get("character_name")
+        planned_focus_characters = [focus_name] if focus_name in all_characters else []
 
         alias_map: Dict[str, str] = {}
         name_lock_text = ""
@@ -520,7 +535,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             outline_title=outline_title,
             outline_summary=outline_summary,
             writing_notes=writing_notes,
-            allowed_new_characters=[],
+            allowed_new_characters=planned_focus_characters,
             alias_map=alias_map,
         )
         introduced_characters_for_mission = visibility_context["introduced_characters"]
@@ -621,6 +636,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 previous_tail=history_context["previous_tail"],
                 chapter_blueprint=chapter_blueprint,
                 user_id=user_id,
+                character_context=planning_character_context,
             )
             if chapter_mission is None:
                 chapter_mission = self.mission_builder_service.build_fast_chapter_mission(
@@ -629,6 +645,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     outline_summary=outline_summary,
                     writing_notes=writing_notes,
                     chapter_blueprint=chapter_blueprint,
+                    character_context=planning_character_context,
                 )
         else:
             # 先查选版时后台预生成的使命（mission_pregen_service）：指纹匹配且本次
@@ -636,6 +653,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
             expected_fingerprint = mission_fingerprint(
                 outline,
                 await load_selected_version_id(self.session, project_id, chapter_number - 1),
+                character_context=planning_character_context,
             )
             chapter_mission, pregen_state = take_valid_pregen_mission(
                 outline, expected_fingerprint, has_writing_notes
@@ -671,7 +689,11 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     user_id=user_id,
                     temperature=0.3,
                     pattern_constraint=pattern_constraint,
+                    character_context=planning_character_context,
                 )
+        if isinstance(chapter_mission, dict):
+            if chapter_planning.get("character_focus"):
+                chapter_mission["character_focus"] = chapter_planning["character_focus"]
         _mark_stage("generate_chapter_mission", stage_started)
 
         # 等待 Pacing 结果（与 Mission 并行计算完毕）并注入到 writing_notes
@@ -740,6 +762,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _mark_stage("build_visibility_context", stage_started)
 
         writer_blueprint = visibility_context["writer_blueprint"]
+        writer_character_context = build_character_planning_context(
+            writer_blueprint, dossier=character_dossier, planning=chapter_planning,
+            query=character_query, max_chars=3000,
+        )
         forbidden_characters = visibility_context["forbidden_characters"]
         introduced_characters = visibility_context["introduced_characters"]
 
@@ -916,6 +942,12 @@ class PipelineOrchestrator(PipelineReviewMixin):
         prompt_sections = prompt_stage.prompt_sections
         prompt_compile_summary = prompt_stage.prompt_compile_summary
         prompt_input = prompt_stage.prompt_input
+        if writer_character_context:
+            # Character motives are execution inputs, not expendable background prose.
+            # Keep the bounded card outside optional module filtering and prefix truncation.
+            prompt_sections = [*prompt_sections, ("[本章人物行动依据]", writer_character_context)]
+            prompt_input += "\n\n[本章人物行动依据]\n" + writer_character_context
+            prompt_compile_summary["character_context_chars"] = len(writer_character_context)
         writer_prompt = prompt_stage.writer_prompt
         reference_prose_text = prompt_stage.reference_prose_text
         fusion_dna_text = prompt_stage.fusion_dna_text
@@ -935,6 +967,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 versions_to_check, user_id=user_id,
                 context={"chapter_mission": chapter_mission, "outline": outline_summary,
                          "blueprint": writer_blueprint, "memory": memory_context,
+                         "character_context": writer_character_context,
                          "previous_summary": history_context.get("previous_summary"),
                          "previous_tail": history_context.get("previous_tail"),
                          "narrative_state": narrative_state,
@@ -972,6 +1005,10 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     "previous_summary": history_context["previous_summary"],
                     "previous_tail": history_context["previous_tail"],
                     "writer_blueprint": json.dumps(writer_blueprint, ensure_ascii=False, indent=2)[:3000],
+                    "character_blueprint": writer_blueprint,
+                    "character_dossier": character_dossier,
+                    "character_planning": chapter_planning,
+                    "character_context": writer_character_context,
                     "forbidden_characters": ", ".join(forbidden_characters) if forbidden_characters else "",
                     "reference_prose": reference_prose_text,
                     "fusion_dna": fusion_dna_text,

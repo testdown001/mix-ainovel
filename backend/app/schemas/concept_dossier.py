@@ -176,7 +176,7 @@ class BlueprintReviewReport(BaseModel):
     total_score: int = Field(default=0, ge=0, le=100)
     dimension_scores: Dict[str, int] = Field(
         default_factory=dict,
-        description="各维度得分（0-100）：opening_strength/first_coolpoint_timing/hook_chain/volume_escalation/foreshadowing_payoff/anticipation_delivery/toxic_recheck",
+        description="各维度得分（0-100）：opening_strength/character_attachment/first_coolpoint_timing/hook_chain/volume_escalation/foreshadowing_payoff/anticipation_delivery/toxic_recheck；旧报告可缺 character_attachment",
     )
     verdict: str = Field(default="", description="总评一句话")
     issues: List[ReviewIssue] = Field(default_factory=list)
@@ -188,6 +188,23 @@ class BlueprintReviewReport(BaseModel):
 
     def issues_for_chapters(self) -> List[ReviewIssue]:
         return [i for i in self.issues if (i.target or "").startswith("chapters:")]
+
+    def needs_revision(self, min_score: int) -> bool:
+        """A grounded character defect cannot be hidden by unrelated high scores.
+
+        Missing attachment scores in legacy reviews do not create a new failure.
+        The existing one-pass revision budget and author choice stay unchanged.
+        """
+        if not self.issues:
+            return False
+        if self.total_score < min_score:
+            return True
+        attachment = self.dimension_scores.get("character_attachment")
+        return any(
+            issue.dimension == "character_attachment" and issue.target
+            and (issue.severity in {"高", "高危", "high"} or (attachment is not None and attachment < min_score))
+            for issue in self.issues
+        )
 
 
 # ---------------------------------------------------------------------------

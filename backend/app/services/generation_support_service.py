@@ -10,6 +10,8 @@ from sqlalchemy.orm.attributes import set_committed_value
 
 from ..db.init_db import repair_schema_if_needed
 from ..models.chapter_blueprint import ChapterBlueprint
+from ..models.novel import ChapterOutline
+from .chapter_planning_service import get_outline_planning, map_planning_to_blueprint_fields
 from .reference_reading_contract import is_current
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ class GenerationSupportService:
         self,
         project_id: str,
         chapter_number: int,
+        outline_metadata: Optional[dict] = None,
     ) -> Optional[ChapterBlueprint]:
         stmt = select(ChapterBlueprint).where(
             ChapterBlueprint.project_id == project_id,
@@ -37,7 +40,28 @@ class GenerationSupportService:
             if not repaired:
                 raise
             result = await self.session.execute(stmt)
-        return result.scalars().first()
+        row = result.scalars().first()
+        if outline_metadata is None:
+            outline_result = await self.session.execute(
+                select(ChapterOutline.metadata_).where(
+                    ChapterOutline.project_id == project_id,
+                    ChapterOutline.chapter_number == chapter_number,
+                ).order_by(ChapterOutline.id.asc()).limit(1)
+            )
+            outline_metadata = outline_result.scalars().first()
+        planning = get_outline_planning(outline_metadata)
+        fields = map_planning_to_blueprint_fields(planning)
+        if not fields:
+            return row
+        if row is None:
+            # Historical flat metadata may never have populated the planning table.
+            # Return a detached read projection; normal outline writes perform migration.
+            return ChapterBlueprint(project_id=project_id, chapter_number=chapter_number, **fields)
+        for key, value in fields.items():
+            if key in {"mission_constraints", "extra"}:
+                value = {**(getattr(row, key, None) or {}), **value}
+            set_committed_value(row, key, value)
+        return row
 
     async def load_project_reference_novels(
         self,

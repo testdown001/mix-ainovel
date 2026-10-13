@@ -16,12 +16,14 @@ import pytest
 from app.schemas.concept_dossier import BlueprintReviewReport, ReviewIssue
 from app.services.blueprint_generation_service import (
     _build_batch_task,
+    _build_settings_summary,
     _extract_outline_items,
     _format_outline_tail,
     _inject_blueprint_exclusions,
 )
 from app.services.blueprint_review_service import (
     BlueprintReviewService,
+    _outline_lines,
     parse_chapter_range,
 )
 from app.services.llm_service import LLMService
@@ -66,6 +68,7 @@ def test_extract_outline_items_with_planning():
                 "coolpoint": "信息差打脸：识破赝品",
                 "foreshadowing_ops": [{"op": "plant", "name": "死当账本"}],
                 "must_not_include": ["提前揭示会长身份"],
+                "character_focus": {"character_name": "主角", "choice": "留下晚饭等师弟回来", "next_expectation": "师弟会不会赴约"},
             },
             {"chapter_number": 2, "title": "无规划章", "summary": "过渡"},
         ]
@@ -74,6 +77,7 @@ def test_extract_outline_items_with_planning():
     assert items[0]["planning"]["chapter_function"] == "爽点"
     assert items[0]["planning"]["foreshadowing_ops"] == [{"op": "plant", "name": "死当账本"}]
     assert items[0]["planning"]["must_not_include"] == ["提前揭示会长身份"]
+    assert items[0]["planning"]["character_focus"]["choice"] == "留下晚饭等师弟回来"
     assert "planning" not in items[1]  # 缺规划字段 → 无 planning 键，下游 no-op
 
 
@@ -99,6 +103,83 @@ def test_inject_blueprint_exclusions():
     assert "创作禁区" in injected and "不要后宫" in injected
 
 
+def test_settings_summary_retains_character_motives_relationships_and_promises():
+    summary = _build_settings_summary(
+        {
+            "title": "旧店重开",
+            "characters": [{"name": "师弟", "goals": "讨回自己的诊金", "personality": "不愿受施舍"}],
+            "relationships": [{"character_from": "师兄", "character_to": "师弟", "description": "上次争吵后尚未和解"}],
+        },
+        [],
+        dossier={
+            "protagonist": {"name": "师兄", "desire": "把旧店开起来", "flaw": "不肯承认错误"},
+            "emotional_core": {"cherished": "给师弟留着的饭桌", "hard_choice": "开店的钱用来买药"},
+            "anticipation": {"ten_chapters": "师弟愿意回来吃饭", "fifty_chapters": "两人共同接下旧店", "long_term": "一起守住这个家"},
+        },
+    )
+    for evidence in (
+        "讨回自己的诊金", "不愿受施舍", "上次争吵后尚未和解", "不肯承认错误",
+        "给师弟留着的饭桌", "开店的钱用来买药", "师弟愿意回来吃饭", "两人共同接下旧店", "一起守住这个家",
+    ):
+        assert evidence in summary
+
+
+def test_outline_review_lines_include_optional_character_choice_evidence():
+    text = _outline_lines([
+        {"chapter_number": 1, "title": "留座", "summary": "师兄给师弟留了饭。", "planning": {
+            "character_focus": {"character_name": "师兄", "wants": "等师弟回来", "choice": "把最后一碗饭留下", "relationship_change": "开始回应师弟的沉默", "next_expectation": "师弟会不会赴约"},
+        }},
+        {"chapter_number": 2, "title": "安静吃饭", "summary": "两人吃完饭，各自收拾碗筷。"},
+    ])
+    assert "把最后一碗饭留下" in text
+    assert "开始回应师弟的沉默" in text
+    assert "师弟会不会赴约" in text
+    assert "第2章" in text
+
+
+@pytest.mark.asyncio
+async def test_review_sees_character_attachment_sources_and_accepts_legacy_seven_dimensions(db_session, monkeypatch):
+    service = BlueprintReviewService(db_session)
+    captured = {}
+
+    async def fake_prompt(name):
+        return "REVIEW"
+
+    legacy_dimensions = {
+        "opening_strength": 80, "first_coolpoint_timing": 80, "hook_chain": 80,
+        "volume_escalation": 80, "foreshadowing_payoff": 80, "anticipation_delivery": 80,
+        "toxic_recheck": 80,
+    }
+
+    async def fake_structured(**kwargs):
+        captured.update(kwargs)
+        return BlueprintReviewReport(total_score=80, dimension_scores=legacy_dimensions)
+
+    monkeypatch.setattr(service.prompt_service, "get_prompt", fake_prompt)
+    monkeypatch.setattr(service.llm_service, "generate_structured", fake_structured)
+    report = await service.review(
+        settings_data={
+            "title": "旧店重开", "characters": [{"name": "师弟", "goals": "拿回诊金", "personality": "不愿受施舍"}],
+            "relationships": [{"character_from": "师兄", "character_to": "师弟", "description": "争吵之后尚未和解"}],
+        },
+        outline_items=[{"chapter_number": 1, "title": "留座", "summary": "师兄留下晚饭。", "planning": {
+            "character_focus": {"character_name": "师兄", "choice": "把最后一碗饭留下", "next_expectation": "师弟会不会赴约"},
+        }}],
+        stress_report=None,
+        dossier={
+            "protagonist": {"name": "师兄", "flaw": "不肯承认错误"},
+            "emotional_core": {"cherished": "给师弟留着的饭桌"},
+            "anticipation": {"ten_chapters": "师弟愿意回来吃饭"},
+        },
+        user_id=7,
+    )
+    for evidence in ("不肯承认错误", "不愿受施舍", "争吵之后尚未和解", "给师弟留着的饭桌", "把最后一碗饭留下", "师弟会不会赴约"):
+        assert evidence in captured["prompt"]
+    assert captured["prompt"].count("师弟愿意回来吃饭") == 1
+    assert report.total_score == 80
+    assert report.dimension_scores == legacy_dimensions
+
+
 # ---------------------------------------------------------------------------
 # 定向修订：设定块
 # ---------------------------------------------------------------------------
@@ -110,12 +191,14 @@ async def test_revise_settings_blocks_merges_whitelisted_and_type_guarded(db_ses
         "golden_finger": {"name": "当铺系统", "limitations": "无"},
         "world_setting": {"core_rules": "旧规则"},
         "full_synopsis": "旧梗概",
+        "relationships": [{"character_from": "师兄", "character_to": "师弟", "description": "盟友"}],
     }
     report = BlueprintReviewReport(
         total_score=50,
         issues=[
             ReviewIssue(target="settings:golden_finger", severity="高", problem="限制形同虚设", fix_hint="加代价"),
             ReviewIssue(target="settings:title", severity="中", problem="标题平庸", fix_hint="加冲突感"),
+            ReviewIssue(target="settings:relationships", severity="中", problem="只有盟友标签", fix_hint="写清彼此尚未说破的事"),
         ],
     )
 
@@ -126,6 +209,7 @@ async def test_revise_settings_blocks_merges_whitelisted_and_type_guarded(db_ses
                 "title": "新标题",
                 "world_setting": "标量污染",   # 未点名 + 类型不符 → 双重拒绝
                 "full_synopsis": "未点名的重写",  # 未点名 → 拒绝
+                "relationships": [{"character_from": "师兄", "character_to": "师弟", "description": "争吵后仍为对方留饭"}],
             }
         }, ensure_ascii=False)
 
@@ -138,6 +222,7 @@ async def test_revise_settings_blocks_merges_whitelisted_and_type_guarded(db_ses
     assert merged["title"] == "新标题"
     assert merged["world_setting"] == {"core_rules": "旧规则"}  # 类型守卫
     assert merged["full_synopsis"] == "旧梗概"  # 未点名不改
+    assert merged["relationships"][0]["description"] == "争吵后仍为对方留饭"
 
 
 @pytest.mark.asyncio

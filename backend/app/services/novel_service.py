@@ -177,6 +177,7 @@ from ..schemas.novel import (
 )
 from ..services.cache_service import CacheService
 from ..services.chapter_ingest_service import ChapterIngestionService
+from ..services.chapter_planning_service import get_outline_planning, normalize_outline_metadata
 from ..services.llm_service import LLMService
 from ..utils.chapter_status import effective_chapter_status
 
@@ -410,8 +411,8 @@ class NovelService:
     @staticmethod
     def _strip_revision_hint(metadata: Optional[dict]) -> Optional[dict]:
         """大纲被整体重建时剔除 revision_hint（其依据的旧大纲已不存在），保留导演脚本等其他键。"""
-        if isinstance(metadata, dict) and "revision_hint" in metadata:
-            return {k: v for k, v in metadata.items() if k != "revision_hint"}
+        if isinstance(metadata, dict):
+            return {k: v for k, v in normalize_outline_metadata(metadata).items() if k != "revision_hint"}
         return metadata
 
     async def replace_blueprint(self, project_id: str, blueprint: Blueprint) -> None:
@@ -543,7 +544,7 @@ class NovelService:
             planning_rows = [
                 {
                     "chapter_number": number_map[outline.chapter_number],
-                    "planning": (outline.metadata or {}).get("planning")
+                    "planning": get_outline_planning(outline.metadata)
                     if isinstance(getattr(outline, "metadata", None), dict)
                     else None,
                 }
@@ -1136,6 +1137,9 @@ class NovelService:
         metadata: Optional[dict] = None,
     ) -> ChapterOutline:
         """更新或创建章节大纲，支持 metadata 存储导演脚本等信息。"""
+        from .chapter_planning_service import normalize_outline_metadata, upsert_chapter_blueprint
+
+        metadata = normalize_outline_metadata(metadata) if metadata is not None else None
         lock = await _get_chapter_record_lock(project_id, chapter_number)
         async with lock:
             stmt = (
@@ -1176,7 +1180,7 @@ class NovelService:
                 # 大纲被重写(title/summary 更新)后，旧的 revision_hint 依据已失效，必须清除。
                 # 传入的 metadata 与既有键**合并**而非整体替换：outline.metadata 上还挂着
                 # prediction(writer.py 写)、导演脚本等别处写入的键，整体替换会把它们静默抹掉。
-                existing_meta = outline.metadata if isinstance(outline.metadata, dict) else None
+                existing_meta = normalize_outline_metadata(outline.metadata) if isinstance(outline.metadata, dict) else None
                 needs_rewrite = bool(metadata) or (
                     existing_meta is not None and "revision_hint" in existing_meta
                 )
@@ -1185,6 +1189,9 @@ class NovelService:
                         k: v for k, v in (existing_meta or {}).items() if k != "revision_hint"
                     }
                     if metadata:
+                        if isinstance(metadata.get("planning"), dict):
+                            merged["planning"] = {**(merged.get("planning") or {}), **metadata["planning"]}
+                            metadata = {**metadata, "planning": merged["planning"]}
                         merged.update(metadata)
                     outline.metadata = merged  # 整体重赋值以触发 SQLAlchemy 变更检测
             else:
@@ -1201,8 +1208,6 @@ class NovelService:
             # （续排/重排路径的写入方；只更新规划列、保留状态列，失败不阻断大纲写入）
             if isinstance(metadata, dict) and isinstance(metadata.get("planning"), dict):
                 try:
-                    from .chapter_planning_service import upsert_chapter_blueprint
-
                     await upsert_chapter_blueprint(
                         self.session, project_id, chapter_number, metadata["planning"]
                     )
@@ -1720,7 +1725,7 @@ class NovelService:
                         chapter_number=outline.chapter_number,
                         title=outline.title,
                         summary=outline.summary or "",
-                        metadata=outline.metadata_,
+                        metadata=normalize_outline_metadata(outline.metadata_) if outline.metadata_ is not None else None,
                     )
                     for outline in sorted(project.outlines, key=lambda o: o.chapter_number)
                 ],

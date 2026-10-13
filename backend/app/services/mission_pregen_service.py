@@ -10,8 +10,8 @@ json_object 辅助调用，自动吃 `llm.aux_reasoning_effort` 降档，单次�
 
 存储：结果存 ChapterOutline.metadata_["pregen_mission"]（JSON 列，零表结构变更）。
 该列同时被 scenes/planning 等使用，写入必须整体替换 dict 且保留其它 key。
-指纹 = sha256(outline.title + "\\n" + outline.summary + "\\n" + str(前一章
-selected_version_id)) 前 16 位；大纲被改或前章重选版本都会使指纹失配，消费端
+指纹涵盖章纲标题/摘要/人物选择规划、人物行动依据及前章 selected_version_id；
+大纲、人物动机、关系、情感核心被改或前章重选版本都会使指纹失配，消费端
 即视为过期丢弃。命中即清（一次性使用），带 writing_notes 的请求不消费。
 """
 from __future__ import annotations
@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import json
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
@@ -29,6 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db.session import AsyncSessionLocal
 from ..models.novel import Chapter
 from ..models.system_config import SystemConfig
+from .chapter_planning_service import get_outline_planning
+from .character_planning_context import build_character_planning_context
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +57,35 @@ _SUMMARY_WAIT_POLL_SEC = 5.0
 def mission_fingerprint(
     outline: Any,
     prev_selected_version_id: Optional[int],
+    character_context: str = "",
 ) -> str:
     """预生成结果的有效性指纹。用原始 outline.title/summary（不带「第N章/暂无摘要」
     兜底填充），生产/消费两端必须走同一函数保证口径一致。"""
-    raw = "\n".join(
-        [
-            (getattr(outline, "title", None) or ""),
-            (getattr(outline, "summary", None) or ""),
-            str(prev_selected_version_id),
-        ]
-    )
+    # Version the inputs so old caches that never saw character motives cannot be reused.
+    raw = json.dumps({
+        "version": 2,
+        "title": getattr(outline, "title", None) or "",
+        "summary": getattr(outline, "summary", None) or "",
+        "selected_version": prev_selected_version_id,
+        "planning": get_outline_planning(getattr(outline, "metadata_", None)),
+        "character_context": character_context,
+    }, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+async def _character_context_for_outline(novel_service, project, outline) -> str:
+    """Use the same canonical blueprint, chapter planning and query as the foreground path."""
+    from .writer_shared import normalize_blueprint_relationships
+
+    project_schema = await novel_service._serialize_project(project, use_cache=False)
+    blueprint = normalize_blueprint_relationships(project_schema.blueprint.model_dump())
+    state = getattr(project, "concept_dossier", None)
+    dossier = state.get("dossier") if isinstance(state, dict) else None
+    return build_character_planning_context(
+        blueprint, dossier=dossier,
+        planning=get_outline_planning(getattr(outline, "metadata_", None)),
+        query=f"{outline.title or f'第{outline.chapter_number}章'}\n{outline.summary or '暂无摘要'}\n无额外写作指令",
+    )
 
 
 def take_valid_pregen_mission(
@@ -197,7 +218,9 @@ async def _pregen_next_chapter_mission(
     prev_version_id = await load_selected_version_id(
         session, project_id, just_selected_chapter_number
     )
-    fingerprint = mission_fingerprint(outline, prev_version_id)
+    project = await novel_service.ensure_project_owner(project_id, user_id)
+    character_context = await _character_context_for_outline(novel_service, project, outline)
+    fingerprint = mission_fingerprint(outline, prev_version_id, character_context=character_context)
 
     existing = (outline.metadata_ or {}).get(PREGEN_KEY)
     if (
@@ -223,6 +246,7 @@ async def _pregen_next_chapter_mission(
         outline_title=outline_title,
         outline_summary=outline_summary,
         user_id=user_id,
+        character_context=character_context,
     )
     if not isinstance(mission, dict) or not mission:
         return "empty_mission"
@@ -236,7 +260,9 @@ async def _pregen_next_chapter_mission(
     prev_version_id_now = await load_selected_version_id(
         session, project_id, just_selected_chapter_number
     )
-    if mission_fingerprint(outline, prev_version_id_now) != fingerprint:
+    project = await novel_service.ensure_project_owner(project_id, user_id)
+    current_character_context = await _character_context_for_outline(novel_service, project, outline)
+    if mission_fingerprint(outline, prev_version_id_now, character_context=current_character_context) != fingerprint:
         return "stale_abort"
 
     outline.metadata_ = {
@@ -286,6 +312,7 @@ async def _build_mission_for_outline(
     outline_title: str,
     outline_summary: str,
     user_id: int,
+    character_context: str = "",
 ) -> Optional[dict]:
     """按 pipeline_orchestrator 非 fast 路径的口径组装输入并生成 mission。
     输入组装方式必须与正式路径一致，否则预生成的 mission 质量走样。"""
@@ -351,6 +378,15 @@ async def _build_mission_for_outline(
         outline_title=outline_title,
         outline_summary=outline_summary,
     )
+    if not character_context:
+        target_outline = outlines_map.get(chapter_number)
+        state = getattr(project, "concept_dossier", None)
+        dossier = state.get("dossier") if isinstance(state, dict) else None
+        character_context = build_character_planning_context(
+            blueprint_dict, dossier=dossier,
+            planning=get_outline_planning(getattr(target_outline, "metadata_", None)),
+            query=f"{outline_title}\n{outline_summary}\n{writing_notes}",
+        )
 
     return await generate_chapter_mission(
         llm_service,
@@ -367,4 +403,5 @@ async def _build_mission_for_outline(
         user_id=user_id,
         temperature=0.3,  # 与 pipeline_orchestrator 正式路径一致
         pattern_constraint=pattern_constraint,
+        character_context=character_context,
     )

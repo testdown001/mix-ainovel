@@ -84,8 +84,8 @@ async def test_planning_metadata_is_persisted_on_create(db_session):
             "narrative_phase": "事件", "emotion_hook": "悬念",
         }),
     )
-    assert outline.metadata["narrative_phase"] == "事件"
-    assert outline.metadata["emotion_hook"] == "悬念"
+    assert outline.metadata["planning"]["narrative_phase"] == "事件"
+    assert outline.metadata["planning"]["emotion_hook"] == "悬念"
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_regenerating_outline_does_not_wipe_prediction(db_session):
         metadata=extract_outline_planning_metadata({"narrative_phase": "挑衅1"}),
     )
     assert outline.metadata["prediction"] == {"hits": 3}   # 别处的键还在
-    assert outline.metadata["narrative_phase"] == "挑衅1"
+    assert outline.metadata["planning"]["narrative_phase"] == "挑衅1"
 
 
 @pytest.mark.asyncio

@@ -99,6 +99,10 @@ def test_scene_calls_keep_emotional_intent_after_background_compression(nested, 
     result = asyncio.run(service.generate_scene_by_scene(
         prompt_sections_data={
             "mission_brief": "背景" * 3000, "previous_tail": "上章结尾",
+            "character_blueprint": {"characters": [{"name": "林玄", "goals": "想留住一起吃饭的日子",
+                                                     "personality": "不愿让旁人担心自己"}]},
+            "character_planning": {"character_focus": {"character_name": "林玄", "choice": "接受师姐陪伴",
+                                                       "cost": "承认自己需要帮助"}},
             "significance": "历史心结：不愿将后背交给师兄",
             "emotional_core": "本书情感核心：珍惜一起吃饭的日子",
             "creative_memory": "选中口吻：让停顿承载关心，口吻样本不是正史",
@@ -118,6 +122,8 @@ def test_scene_calls_keep_emotional_intent_after_background_compression(nested, 
         for intent in ("余波章", "悲伤渐渐沉静", "收完碗后静坐", "不说破旧碗的主人", "略写赶路，详写门口停顿"):
             assert intent in prompt
         assert "视角(POV)：林玄" in prompt
+        assert "想留住一起吃饭的日子" in prompt
+        assert "承认自己需要帮助" in prompt
         assert "不愿将后背交给师兄" in prompt
         assert "珍惜一起吃饭的日子" in prompt
         assert "让停顿承载关心" in prompt and "不是正史" in prompt

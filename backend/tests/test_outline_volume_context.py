@@ -26,6 +26,23 @@ VOLS = [
 ]
 
 
+def test_both_outline_routes_receive_character_motives_and_relationship_promises(monkeypatch):
+    blueprint = {"title": "药铺", "characters": [{"name": "小夏", "personality": "嘴硬却总替师父留茶",
+                                                   "goals": "守住药铺"}],
+                 "relationships": [{"character_from": "小夏", "character_to": "师父", "description": "不愿彼此失望"}]}
+    project = NS(outlines=[], chapters=[], concept_dossier={"dossier": {
+        "protagonist": {"name": "小夏", "flaw": "不肯求助"},
+        "emotional_core": {"cherished": "一起喝茶的日子", "emotional_promise": "能够向对方坦白"},
+    }})
+    direct = _run_generate(monkeypatch, blueprint, estimated_total_chapters=100, project=project)
+    regenerated = _run_regen_fresh(monkeypatch, blueprint, 2, [_payload([1, 2])], project=project)[0]
+    for prompt in (direct, regenerated):
+        for value in ("嘴硬却总替师父留茶", "不愿彼此失望", "不肯求助", "一起喝茶的日子", "能够向对方坦白"):
+            assert value in prompt
+        assert "必须以新悬念或新冲突结束" not in prompt
+        assert "必须持续展开新事件和冲突" not in prompt
+
+
 # ---------------------------------------------------------------------------
 # _build_volume_context 单元
 # ---------------------------------------------------------------------------
@@ -148,10 +165,10 @@ def _install_fakes(monkeypatch, blueprint_dict, project):
 
 
 def _run_generate(monkeypatch, blueprint_dict, start_chapter=1, num_chapters=5,
-                  estimated_total_chapters=None):
+                  estimated_total_chapters=None, project=None):
     _ScriptedLLM.responses = [_payload(range(start_chapter, start_chapter + num_chapters))]
     _ScriptedLLM.calls = []
-    _install_fakes(monkeypatch, blueprint_dict, NS(outlines=[], chapters=[]))
+    _install_fakes(monkeypatch, blueprint_dict, project or NS(outlines=[], chapters=[]))
     request = NS(
         start_chapter=start_chapter,
         num_chapters=num_chapters,
@@ -166,10 +183,10 @@ def _run_generate(monkeypatch, blueprint_dict, start_chapter=1, num_chapters=5,
     return _ScriptedLLM.calls[0]
 
 
-def _run_regen_fresh(monkeypatch, blueprint_dict, total_chapters, responses):
+def _run_regen_fresh(monkeypatch, blueprint_dict, total_chapters, responses, project=None):
     _ScriptedLLM.responses = list(responses)
     _ScriptedLLM.calls = []
-    _install_fakes(monkeypatch, blueprint_dict, NS(outlines=[], chapters=[]))
+    _install_fakes(monkeypatch, blueprint_dict, project or NS(outlines=[], chapters=[]))
     request = NS(total_chapters=total_chapters, chapter_numbers=None)
     asyncio.run(
         writer.regenerate_chapter_outlines(
@@ -190,8 +207,8 @@ def _expected_prompt_without_volumes(blueprint_text):
 - 预计总章节数：100 章
 - 本次生成范围：第 1 章 ~ 第 5 章
 - 当前进度：约 5.0%
-- 当前所处阶段：开篇期（前20%）——应着重世界观铺设、角色登场、主线冲突引入
-- ⚠️ 严禁在本批次安排故事结局！必须持续展开新事件和冲突，以「未完待续」的悬念结束本批次。
+- 当前所处阶段：开篇期（前20%）——建立人物处境、行动动机、核心关系与主线冲突
+- 保留既定长线目标，未到终局时不得提前结束全书；本批次不是故事节点，允许局部兑现、关系推进与情绪余波，不因批次结束强加新危机或悬念。
 """
     return f"""
 [世界蓝图]
@@ -237,7 +254,7 @@ def test_generate_outline_with_volumes_injects_section_and_stage(monkeypatch):
     assert "开篇期（前20%）" not in prompt
     # 全书进度与防结局约束仍保留
     assert "当前进度：约 3.1%" in prompt
-    assert "严禁在本批次安排故事结局" in prompt
+    assert "不得提前结束全书" in prompt
 
 
 def test_generate_outline_with_volumes_but_out_of_range_falls_back(monkeypatch):

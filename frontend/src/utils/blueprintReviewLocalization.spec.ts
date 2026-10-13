@@ -7,6 +7,12 @@ import {
 } from './blueprintReviewLocalization'
 
 describe('蓝图审稿字段中文化', () => {
+  it('展示人物牵挂评分与关系修订建议', () => {
+    expect(reviewDimensionLabel('character_attachment')).toBe('人物牵挂与选择')
+    expect(localizeReviewText('character_focus 中的 relationship_change 和 next_expectation')).toBe(
+      '人物与阅读期待 中的 关系变化 和 后续阅读期待',
+    )
+  })
   it('翻译当前商业量表的七个评分项', () => {
     expect(reviewDimensionLabel('opening_strength')).toBe('开局强度')
     expect(reviewDimensionLabel('first_coolpoint_timing')).toBe('首个爽点时机')
