@@ -175,3 +175,126 @@ async def test_admin_required_and_missing_project_404(db_session):
         holder["user"] = ADMIN.model_copy(update={"is_admin": False})
         assert (await first(client)).status_code == 403
         assert (await final(client, token)).status_code == 403
+
+
+async def batch_first(client, ids=("test-book", "system-book"), confirmation="删除"):
+    return await client.post("/api/admin/novel-projects/deletion-confirmation", json={
+        "project_ids": list(ids), "confirmation": confirmation,
+    })
+
+
+async def batch_final(client, token, ids=("test-book", "system-book"), confirmation="删除"):
+    return await client.request("DELETE", "/api/admin/novel-projects", json={
+        "project_ids": list(ids), "confirmation": confirmation, "confirmation_token": token,
+    })
+
+
+@pytest.mark.asyncio
+async def test_batch_deletes_confirmed_set_across_owners_and_preserves_other_projects(db_session):
+    await seed(db_session)
+    system = await db_session.get(NovelProject, "system-book")
+    system.user_id = 1
+    for project_id in ["test-book", "system-book"]:
+        db_session.add(NovelBlueprint(project_id=project_id, title="蓝图"))
+        db_session.add(ChapterOutline(project_id=project_id, chapter_number=1, title="首章"))
+        chapter = Chapter(project_id=project_id, chapter_number=1)
+        db_session.add(chapter)
+        await db_session.flush()
+        version = ChapterVersion(chapter_id=chapter.id, content="正文")
+        db_session.add(version)
+        await db_session.flush()
+        chapter.selected_version_id = version.id
+    await db_session.commit()
+    async with client_for(db_session, {"user": ADMIN}) as client:
+        ticket = (await batch_first(client)).json()
+        assert await db_session.scalar(select(func.count(NovelProject.id))) == 4
+        # The exact set is bound; order changes do not alter the set.
+        assert (await batch_final(client, ticket["confirmation_token"], ["system-book", "test-book"])).status_code == 204
+    assert set((await db_session.execute(select(NovelProject.id))).scalars()) == {"user-book", "unknown-book"}
+    for model in [Chapter, ChapterVersion, ChapterOutline, NovelBlueprint]:
+        assert await db_session.scalar(select(func.count()).select_from(model)) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ids,status_code", [
+    (["test-book", "user-book"], 403),
+    (["system-book", "unknown-book"], 403),
+    (["test-book", "missing"], 404),
+])
+async def test_batch_with_protected_or_missing_project_rejects_entire_set(db_session, ids, status_code):
+    await seed(db_session)
+    async with client_for(db_session, {"user": ADMIN}) as client:
+        assert (await batch_first(client, ids)).status_code == status_code
+        token = (await batch_first(client)).json()["confirmation_token"]
+        assert (await batch_final(client, token, ids)).status_code == status_code
+    assert await db_session.scalar(select(func.count(NovelProject.id))) == 4
+
+
+@pytest.mark.asyncio
+async def test_batch_ticket_cannot_be_reused_for_subset_other_admin_or_single_delete(db_session):
+    await seed(db_session)
+    holder = {"user": ADMIN}
+    async with client_for(db_session, holder) as client:
+        token = (await batch_first(client)).json()["confirmation_token"]
+        assert (await batch_final(client, token, ["test-book"])).status_code == 403
+        assert (await final(client, token)).status_code == 403
+        single_ticket = (await first(client)).json()["confirmation_token"]
+        assert (await batch_final(client, single_ticket)).status_code == 403
+        holder["user"] = ADMIN.model_copy(update={"id": 100})
+        assert (await batch_final(client, token)).status_code == 403
+        holder["user"] = ADMIN.model_copy(update={"is_admin": False})
+        assert (await batch_first(client)).status_code == 403
+        assert (await batch_final(client, token)).status_code == 403
+    assert await db_session.scalar(select(func.count(NovelProject.id))) == 4
+
+
+@pytest.mark.asyncio
+async def test_batch_input_limits_expiry_and_changed_provenance(db_session):
+    await seed(db_session)
+    async with client_for(db_session, {"user": ADMIN}) as client:
+        for ids in [[], ["test-book", "test-book"], [""], [" test-book"], ["x" * 37], [str(i) for i in range(101)]]:
+            assert (await batch_first(client, ids)).status_code == 422
+        assert (await batch_first(client, confirmation="确认")).status_code == 422
+        token = (await batch_first(client)).json()["confirmation_token"]
+        assert (await batch_final(client, token, confirmation="确认")).status_code == 422
+        assert (await batch_final(client, "forged")).status_code == 403
+        claims = jwt.get_unverified_claims(token)
+        claims["exp"] = datetime.now(timezone.utc) - timedelta(seconds=5)
+        expired = jwt.encode(claims, _confirmation_key(), algorithm=settings.jwt_algorithm)
+        assert (await batch_final(client, expired)).status_code == 403
+        project = await db_session.get(NovelProject, "system-book")
+        project.user_id = 1
+        await db_session.commit()
+        assert (await batch_final(client, token)).status_code == 403
+        token = (await batch_first(client)).json()["confirmation_token"]
+        project.creation_source = "user"
+        await db_session.commit()
+        assert (await batch_final(client, token)).status_code == 403
+    assert await db_session.scalar(select(func.count(NovelProject.id))) == 4
+
+
+@pytest.mark.asyncio
+async def test_batch_database_failure_rolls_back_all_projects_and_skips_cleanup(db_session, monkeypatch):
+    from app.repositories.novel_repository import NovelRepository
+    from app.services.admin_novel_deletion_service import AdminNovelDeletionService
+
+    await seed(db_session)
+    service = AdminNovelDeletionService(db_session)
+    ticket = await service.confirm_many(["test-book", "system-book"], ADMIN.id, "删除")
+    original_delete = NovelRepository.delete
+    calls = []
+
+    async def fail_second_delete(repo, project):
+        calls.append(project.id)
+        if len(calls) == 2:
+            raise RuntimeError("simulated database failure")
+        await original_delete(repo, project)
+        await repo.session.flush()
+
+    cleanup = AsyncMock()
+    monkeypatch.setattr(NovelRepository, "delete", fail_second_delete)
+    monkeypatch.setattr(CacheService, "invalidate_project_cascade", cleanup)
+    with pytest.raises(RuntimeError, match="simulated database failure"):
+        await service.delete_many(["test-book", "system-book"], ADMIN.id, "删除", ticket.confirmation_token)
+    assert await db_session.scalar(select(func.count(NovelProject.id))) == 4
+    cleanup.assert_not_called()
