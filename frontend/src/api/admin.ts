@@ -206,6 +206,8 @@ export interface NovelProjectSummary {
 export interface AdminNovelSummary extends NovelProjectSummary {
   owner_id: number
   owner_username: string
+  creation_source: string
+  can_delete: boolean
 }
 
 export interface Chapter {
@@ -340,6 +342,23 @@ export class AdminAPI {
 
   static getNovelDetails(projectId: string): Promise<NovelProject> {
     return this.request(`/novel-projects/${projectId}`)
+  }
+
+  static confirmNovelDeletion(projectId: string, confirmation: string): Promise<{
+    confirmation_token: string
+    expires_in: number
+  }> {
+    return this.request(`/novel-projects/${projectId}/deletion-confirmation`, {
+      method: 'POST',
+      body: JSON.stringify({ confirmation })
+    })
+  }
+
+  static deleteNovel(projectId: string, confirmation: string, confirmationToken: string): Promise<void> {
+    return this.request(`/novel-projects/${projectId}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ confirmation, confirmation_token: confirmationToken })
+    })
   }
 
   static getNovelSection(projectId: string, section: NovelSectionType): Promise<NovelSectionResponse> {

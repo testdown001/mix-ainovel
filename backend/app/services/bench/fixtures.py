@@ -235,6 +235,7 @@ async def _seed_scenario_inner(
         title=_project_title(scenario, run_tag),
         initial_prompt=scenario.description,
         status="writing",
+        creation_source="ai_test",
     )
     session.add(project)
     await session.flush()

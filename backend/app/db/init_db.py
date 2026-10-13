@@ -29,6 +29,7 @@ _SCHEMA_MISMATCH_MARKERS = (
     "Unknown column 'novel_projects.reference_novel_ids'",
     "Unknown column 'novel_projects.fusion_dna'",
     "Unknown column 'novel_projects.cover_image'",
+    "Unknown column 'novel_projects.creation_source'",
     "Unknown column 'chapter_blueprints.strand_type'",
     "Unknown column 'chapter_blueprints.strand_weight'",
     "Unknown column 'chapter_outlines.volume_id'",
@@ -268,6 +269,7 @@ async def _ensure_schema_updates() -> None:
                     "exclusions": "exclusions TEXT NULL",
                     "ai_assisted": "ai_assisted TINYINT(1) NOT NULL DEFAULT 0",
                     "cover_image": "cover_image JSON",
+                    "creation_source": "creation_source VARCHAR(32) NOT NULL DEFAULT 'user'",
                 },
             )
             _ensure_columns(

@@ -50,6 +50,10 @@ class NovelProject(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     initial_prompt: Mapped[Optional[str]] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="draft")
+    # 创建来源只由可信创建入口设置；使用 AI 创作的用户作品仍为 user。
+    creation_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="user", server_default="user"
+    )
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default="0")
     # 公开分享令牌：NULL = 未分享；非空 = 凭 /share/{token} 免登录可读已完稿章节。
     # 关闭分享置 NULL、再开启生成新 token——旧链接即作废，无需单独的「重新生成」入口。
