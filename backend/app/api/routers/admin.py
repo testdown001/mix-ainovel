@@ -19,6 +19,9 @@ from ...models.plan import Plan
 from ...models.user_quota import UserQuota
 from ...db.session import AsyncSessionLocal
 from ...schemas.admin import (
+    AdminNovelDeleteRequest,
+    AdminNovelDeletionConfirmation,
+    AdminNovelDeletionTicket,
     AdminNovelSummary,
     DailyRequestLimit,
     Statistics,
@@ -44,6 +47,7 @@ from ...services.auth_service import AuthService
 from ...services.admin_setting_service import AdminSettingService
 from ...services.config_service import ConfigService
 from ...services.novel_service import NovelService
+from ...services.admin_novel_deletion_service import AdminNovelDeletionService
 from ...services.prompt_service import PromptService
 from ...services.quota_service import QuotaService
 from ...services.update_log_service import UpdateLogService
@@ -512,6 +516,28 @@ async def get_novel_project(
 ) -> NovelProjectSchema:
     logger.info("管理员查看项目详情：%s", project_id)
     return await service.get_project_schema_for_admin(project_id)
+
+
+@router.post("/novel-projects/{project_id}/deletion-confirmation", response_model=AdminNovelDeletionTicket)
+async def confirm_novel_project_deletion(
+    project_id: str,
+    payload: AdminNovelDeletionConfirmation,
+    session: AsyncSession = Depends(get_session),
+    current_admin=Depends(get_current_admin),
+) -> AdminNovelDeletionTicket:
+    return await AdminNovelDeletionService(session).confirm(project_id, current_admin.id, payload.confirmation)
+
+
+@router.delete("/novel-projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_novel_project(
+    project_id: str,
+    payload: AdminNovelDeleteRequest,
+    session: AsyncSession = Depends(get_session),
+    current_admin=Depends(get_current_admin),
+) -> None:
+    await AdminNovelDeletionService(session).delete(
+        project_id, current_admin.id, payload.confirmation, payload.confirmation_token,
+    )
 
 
 @router.get("/novel-projects/{project_id}/sections/{section}", response_model=NovelSectionResponse)

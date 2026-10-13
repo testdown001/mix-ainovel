@@ -1,6 +1,6 @@
 # AIMETA P=管理员模式_管理API请求响应结构|R=用户管理_统计响应|NR=不含业务逻辑|E=AdminSchema|X=internal|A=Pydantic模式|D=pydantic|S=none|RD=./README.ai
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,3 +47,18 @@ class AdminNovelSummary(BaseModel):
     last_edited: str
     completed_chapters: int
     total_chapters: int
+    creation_source: str = "user"
+    can_delete: bool = False
+
+
+class AdminNovelDeletionConfirmation(BaseModel):
+    confirmation: Literal["删除"]
+
+
+class AdminNovelDeletionTicket(BaseModel):
+    confirmation_token: str
+    expires_in: int
+
+
+class AdminNovelDeleteRequest(AdminNovelDeletionConfirmation):
+    confirmation_token: str = Field(min_length=1, max_length=2048)

@@ -9,6 +9,12 @@
     </template>
 
     <n-space vertical size="large">
+      <n-alert type="info" :bordered="false">
+        仅系统项目和 AI 测试项目可在后台删除，用户作品受保护。删除需在两个弹窗中分别输入“删除”。
+      </n-alert>
+      <n-alert v-if="success" type="success" closable @close="success = null">
+        {{ success }}
+      </n-alert>
       <n-alert v-if="error" type="error" closable @close="error = null">
         {{ error }}
       </n-alert>
@@ -44,6 +50,10 @@
                   <span class="mobile-value">{{ novel.owner_username }}</span>
                 </div>
                 <div class="mobile-meta">
+                  <span class="mobile-label">来源</span>
+                  <span class="mobile-value">{{ sourceLabel(novel) }}</span>
+                </div>
+                <div class="mobile-meta">
                   <span class="mobile-label">进度</span>
                   <span class="mobile-value">{{ formatProgress(novel) }}</span>
                 </div>
@@ -52,9 +62,20 @@
                   <span class="mobile-value">{{ formatDate(novel.last_edited) }}</span>
                 </div>
                 <template #footer>
-                  <n-button type="primary" size="small" block @click="viewDetails(novel.id)">
-                    查看详情
-                  </n-button>
+                  <n-space vertical>
+                    <n-button type="primary" size="small" block @click="viewDetails(novel.id)">
+                      查看详情
+                    </n-button>
+                    <n-button
+                      v-if="canDelete(novel)"
+                      type="error"
+                      size="small"
+                      block
+                      @click="startDeletion(novel)"
+                    >
+                      删除测试 / 系统项目
+                    </n-button>
+                  </n-space>
                 </template>
               </n-card>
             </n-space>
@@ -71,6 +92,82 @@
         </template>
       </n-spin>
     </n-space>
+    <n-modal
+      :show="showFirstConfirmation"
+      preset="card"
+      title="删除项目：第一次确认"
+      style="width: min(480px, calc(100vw - 32px))"
+      :closable="!confirming"
+      :mask-closable="!confirming"
+      :close-on-esc="!confirming"
+      @update:show="cancelDeletion"
+    >
+      <n-space vertical>
+        <div>{{ selectedNovel?.title }}</div>
+        <div class="table-subtitle">项目编号：{{ selectedNovel?.id }}</div>
+        <n-alert type="warning">删除将永久移除该项目及关联章节、蓝图等数据。</n-alert>
+        <n-alert v-if="deletionError" type="error">{{ deletionError }}</n-alert>
+        <label for="first-delete-confirmation">请输入“删除”继续</label>
+        <n-input
+          v-model:value="firstConfirmation"
+          placeholder="删除"
+          :disabled="confirming"
+          :input-props="{ id: 'first-delete-confirmation', autocomplete: 'off' }"
+          @keydown.enter="confirmFirstDeletion"
+        />
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button :disabled="confirming" @click="cancelDeletion">取消</n-button>
+          <n-button
+            type="warning"
+            :loading="confirming"
+            :disabled="firstConfirmation !== '删除' || confirming"
+            @click="confirmFirstDeletion"
+          >
+            进入第二次确认
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
+    <n-modal
+      :show="showSecondConfirmation"
+      preset="card"
+      title="删除项目：第二次确认"
+      style="width: min(480px, calc(100vw - 32px))"
+      :closable="!deleting"
+      :mask-closable="!deleting"
+      :close-on-esc="!deleting"
+      @update:show="cancelDeletion"
+    >
+      <n-space vertical>
+        <div>{{ selectedNovel?.title }}</div>
+        <div class="table-subtitle">项目编号：{{ selectedNovel?.id }}</div>
+        <n-alert type="error">此操作无法撤销。请再次输入“删除”完成最终确认。</n-alert>
+        <n-alert v-if="deletionError" type="error">{{ deletionError }}</n-alert>
+        <label for="second-delete-confirmation">再次输入“删除”</label>
+        <n-input
+          v-model:value="secondConfirmation"
+          placeholder="删除"
+          :disabled="deleting"
+          :input-props="{ id: 'second-delete-confirmation', autocomplete: 'off' }"
+          @keydown.enter="confirmSecondDeletion"
+        />
+      </n-space>
+      <template #footer>
+        <n-space justify="end">
+          <n-button :disabled="deleting" @click="cancelDeletion">取消</n-button>
+          <n-button
+            type="error"
+            :loading="deleting"
+            :disabled="secondConfirmation !== '删除' || deleting"
+            @click="confirmSecondDeletion"
+          >
+            永久删除
+          </n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </n-card>
 </template>
 
@@ -83,10 +180,12 @@ import {
   NCard,
   NDataTable,
   NEmpty,
+  NInput,
+  NModal,
   NSpin,
   NTag,
   NSpace,
-  type DataTableColumns
+  type DataTableColumns,
 } from 'naive-ui'
 
 import { AdminAPI } from '@/api/admin'
@@ -95,12 +194,22 @@ import type { AdminNovelSummary } from '@/api/admin'
 const novels = ref<AdminNovelSummary[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const success = ref<string | null>(null)
+const selectedNovel = ref<AdminNovelSummary | null>(null)
+const showFirstConfirmation = ref(false)
+const showSecondConfirmation = ref(false)
+const firstConfirmation = ref('')
+const secondConfirmation = ref('')
+const confirmationToken = ref('')
+const confirming = ref(false)
+const deleting = ref(false)
+const deletionError = ref<string | null>(null)
 const isMobile = ref(false)
 const router = useRouter()
 
 const pagination = {
   pageSize: 8,
-  showSizePicker: false
+  showSizePicker: false,
 }
 
 const updateLayout = () => {
@@ -112,20 +221,22 @@ const formatDate = (value: string | null | undefined) => {
   try {
     const date = new Date(value)
     if (isNaN(date.getTime())) return '未记录'
-    
+
     const year = date.getFullYear()
     const month = String(date.getMonth() + 1).padStart(2, '0')
     const day = String(date.getDate()).padStart(2, '0')
     const hours = String(date.getHours()).padStart(2, '0')
     const minutes = String(date.getMinutes()).padStart(2, '0')
-    
+
     return `${year}年${month}月${day}日 ${hours}:${minutes}`
   } catch (error) {
     return '未记录'
   }
 }
 
-const formatProgress = (novel: Pick<AdminNovelSummary, 'completed_chapters' | 'total_chapters'>) => {
+const formatProgress = (
+  novel: Pick<AdminNovelSummary, 'completed_chapters' | 'total_chapters'>,
+) => {
   const total = novel.total_chapters || 0
   const completed = novel.completed_chapters || 0
   return `${completed} / ${total}`
@@ -133,6 +244,94 @@ const formatProgress = (novel: Pick<AdminNovelSummary, 'completed_chapters' | 't
 
 const viewDetails = (novelId: string) => {
   router.push(`/admin/novel/${novelId}`)
+}
+
+const canDelete = (novel: AdminNovelSummary) =>
+  novel.can_delete === true && ['system', 'ai_test'].includes(novel.creation_source)
+
+const sourceLabel = (novel: AdminNovelSummary) => {
+  if (novel.creation_source === 'system') return '系统项目'
+  if (novel.creation_source === 'ai_test') return 'AI 测试项目'
+  if (novel.creation_source === 'user') return '用户作品（受保护）'
+  return '来源未确认（受保护）'
+}
+
+const resetDeletion = () => {
+  showFirstConfirmation.value = false
+  showSecondConfirmation.value = false
+  selectedNovel.value = null
+  firstConfirmation.value = ''
+  secondConfirmation.value = ''
+  confirmationToken.value = ''
+  deletionError.value = null
+}
+
+const cancelDeletion = () => {
+  if (!confirming.value && !deleting.value) resetDeletion()
+}
+
+const startDeletion = (novel: AdminNovelSummary) => {
+  if (!canDelete(novel) || confirming.value || deleting.value) return
+  resetDeletion()
+  success.value = null
+  selectedNovel.value = novel
+  showFirstConfirmation.value = true
+}
+
+const confirmFirstDeletion = async () => {
+  const novel = selectedNovel.value
+  if (
+    !novel ||
+    !canDelete(novel) ||
+    !showFirstConfirmation.value ||
+    firstConfirmation.value !== '删除' ||
+    confirming.value
+  )
+    return
+  confirming.value = true
+  deletionError.value = null
+  try {
+    const ticket = await AdminAPI.confirmNovelDeletion(novel.id, firstConfirmation.value)
+    confirmationToken.value = ticket.confirmation_token
+    secondConfirmation.value = ''
+    showFirstConfirmation.value = false
+    showSecondConfirmation.value = true
+  } catch (e) {
+    deletionError.value = e instanceof Error ? e.message : '第一次删除确认失败'
+  } finally {
+    confirming.value = false
+  }
+}
+
+const confirmSecondDeletion = async () => {
+  const novel = selectedNovel.value
+  if (
+    !novel ||
+    !canDelete(novel) ||
+    !showSecondConfirmation.value ||
+    secondConfirmation.value !== '删除' ||
+    !confirmationToken.value ||
+    deleting.value
+  )
+    return
+  deleting.value = true
+  deletionError.value = null
+  try {
+    await AdminAPI.deleteNovel(novel.id, secondConfirmation.value, confirmationToken.value)
+    novels.value = novels.value.filter((item) => item.id !== novel.id)
+    success.value = `项目“${novel.title}”已删除`
+    resetDeletion()
+  } catch (e) {
+    deletionError.value = e instanceof Error ? e.message : '删除失败，请重新完成两次确认后重试'
+    // Failed/expired tickets must go through both confirmations again.
+    confirmationToken.value = ''
+    secondConfirmation.value = ''
+    firstConfirmation.value = ''
+    showSecondConfirmation.value = false
+    showFirstConfirmation.value = true
+  } finally {
+    deleting.value = false
+  }
 }
 
 const columns: DataTableColumns<AdminNovelSummary> = [
@@ -143,9 +342,9 @@ const columns: DataTableColumns<AdminNovelSummary> = [
     render(row) {
       return h('div', { class: 'table-title-cell' }, [
         h('div', { class: 'table-title' }, row.title),
-        h('div', { class: 'table-subtitle' }, row.id)
+        h('div', { class: 'table-subtitle' }, row.id),
       ])
-    }
+    },
   },
   {
     title: '类型',
@@ -154,48 +353,70 @@ const columns: DataTableColumns<AdminNovelSummary> = [
       return h(
         NTag,
         { type: 'info', size: 'small', round: true, bordered: false },
-        { default: () => row.genre || '未分类' }
+        { default: () => row.genre || '未分类' },
       )
-    }
+    },
   },
   {
     title: '创作者',
     key: 'owner_username',
     render(row) {
       return h('span', { class: 'table-owner' }, row.owner_username)
-    }
+    },
+  },
+  {
+    title: '来源',
+    key: 'creation_source',
+    render: sourceLabel,
   },
   {
     title: '进度',
     key: 'progress',
     render(row) {
       return h('span', { class: 'table-progress' }, formatProgress(row))
-    }
+    },
   },
   {
     title: '最近更新',
     key: 'last_edited',
     render(row) {
       return h('span', { class: 'table-date' }, formatDate(row.last_edited))
-    }
+    },
   },
   {
     title: '操作',
     key: 'actions',
     align: 'center',
     render(row) {
-      return h(
-        NButton,
-        {
-          size: 'small',
-          type: 'primary',
-          tertiary: true,
-          onClick: () => viewDetails(row.id)
-        },
-        { default: () => '详情' }
-      )
-    }
-  }
+      const actions = [
+        h(
+          NButton,
+          {
+            size: 'small',
+            type: 'primary',
+            tertiary: true,
+            onClick: () => viewDetails(row.id),
+          },
+          { default: () => '详情' },
+        ),
+      ]
+      if (canDelete(row)) {
+        actions.push(
+          h(
+            NButton,
+            {
+              size: 'small',
+              type: 'error',
+              tertiary: true,
+              onClick: () => startDeletion(row),
+            },
+            { default: () => '删除' },
+          ),
+        )
+      }
+      return h(NSpace, { justify: 'center' }, { default: () => actions })
+    },
+  },
 ]
 
 const fetchNovels = async () => {
@@ -237,7 +458,7 @@ onBeforeUnmount(() => {
 .card-title {
   font-size: 1.25rem;
   font-weight: 600;
-  color: #FFFFFF;
+  color: #ffffff;
   font-family: 'Space Grotesk', sans-serif;
 }
 
@@ -253,7 +474,7 @@ onBeforeUnmount(() => {
 
 .table-title {
   font-weight: 600;
-  color: #FFFFFF;
+  color: #ffffff;
 }
 
 .table-subtitle {
@@ -265,13 +486,13 @@ onBeforeUnmount(() => {
 .table-owner,
 .table-progress,
 .table-date {
-  color: #CCCCCC;
+  color: #cccccc;
 }
 
 .novel-card {
   border-radius: 12px;
-  background: #1C1C1C !important;
-  border: 1px solid #2A2A2A !important;
+  background: #1c1c1c !important;
+  border: 1px solid #2a2a2a !important;
 }
 
 .mobile-card-header {
@@ -284,7 +505,7 @@ onBeforeUnmount(() => {
 .mobile-card-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #FFFFFF;
+  color: #ffffff;
 }
 
 .mobile-meta {
@@ -293,7 +514,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   margin-top: 10px;
   font-size: 0.875rem;
-  color: #CCCCCC;
+  color: #cccccc;
   word-break: break-word;
 }
 
@@ -302,7 +523,7 @@ onBeforeUnmount(() => {
 }
 
 .mobile-value {
-  color: #FFFFFF;
+  color: #ffffff;
   font-weight: 500;
   text-align: right;
   margin-left: 12px;

@@ -178,6 +178,7 @@ from ..schemas.novel import (
 from ..services.cache_service import CacheService
 from ..services.chapter_ingest_service import ChapterIngestionService
 from ..services.chapter_planning_service import get_outline_planning, normalize_outline_metadata
+from ..core.project_source import ADMIN_DELETABLE_SOURCES, ProjectSource
 from ..services.llm_service import LLMService
 from ..utils.chapter_status import effective_chapter_status
 
@@ -203,12 +204,16 @@ class NovelService:
     # ------------------------------------------------------------------
     # 项目与摘要
     # ------------------------------------------------------------------
-    async def create_project(self, user_id: int, title: str, initial_prompt: str) -> NovelProject:
+    async def create_project(
+        self, user_id: int, title: str, initial_prompt: str,
+        *, creation_source: ProjectSource = ProjectSource.USER,
+    ) -> NovelProject:
         project = NovelProject(
             id=str(uuid.uuid4()),
             user_id=user_id,
             title=title,
             initial_prompt=initial_prompt,
+            creation_source=ProjectSource(creation_source).value,
         )
         blueprint = NovelBlueprint(project=project)
         self.session.add_all([project, blueprint])
@@ -339,6 +344,8 @@ class NovelService:
                     title=project.title,
                     owner_id=owner.id if owner else 0,
                     owner_username=owner.username if owner else "未知",
+                    creation_source=project.creation_source or ProjectSource.USER.value,
+                    can_delete=project.creation_source in ADMIN_DELETABLE_SOURCES,
                     genre=genre,
                     last_edited=project.updated_at.isoformat() if project.updated_at else "",
                     completed_chapters=completed,
