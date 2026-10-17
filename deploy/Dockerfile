@@ -77,6 +77,18 @@ COPY deploy/nginx.standalone.conf /etc/nginx/nginx.conf
 COPY deploy/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
 
+# 发布身份随镜像保存；不读取宿主 .git/.env，部署事件不写进镜像。
+# ARG 在 RUN 中以环境变量传给 JSON 序列化器，避免分支名被当成 shell 代码。
+COPY deploy/scripts/release_metadata.py /tmp/release_metadata.py
+ARG APP_GIT_COMMIT=""
+ARG APP_GIT_BRANCH=""
+ARG APP_GIT_COMMIT_TIME=""
+ARG APP_GIT_DIRTY=""
+ARG APP_BUILT_AT=""
+ARG APP_BUILD_ID=""
+RUN python /tmp/release_metadata.py image --file /app/release-info.json && \
+    chmod 444 /app/release-info.json && rm /tmp/release_metadata.py
+
 # 允许入口脚本在启动时修正宿主机挂载目录权限
 RUN chmod +x /app/docker-entrypoint.sh
 

@@ -140,7 +140,7 @@ if ! docker compose version >/dev/null 2>&1 && ! command -v docker-compose >/dev
     apt-get update -y && apt-get install -y docker-compose-plugin
 fi
 
-# 4. 构建并起容器（迁移与缓存策略由 deploy_docker.sh 按环境变量处理）
+# 4. 构建并起容器（迁移、缓存、镜像身份及唯一部署事件由 deploy_docker.sh 统一处理）
 # COMPOSE_FILE 为空时不要导出：docker compose 见到空值会当成"没提供配置文件"而报错。
 [ -n "$COMPOSE_FILE" ] && export COMPOSE_FILE || unset COMPOSE_FILE
 export RUN_MIGRATIONS NO_CACHE

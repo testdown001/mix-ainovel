@@ -25,6 +25,9 @@
 
 # 部署目标（服务器地址/仓库/分支等本机默认值，见 deploy/scripts/quick_deploy.sh）
 deploy/.deploy-target
+/deploy/.release.env
+/deploy/.release-*.tmp
+/backend/release-info.json
 
 __pycache__/
 *.py[cod]

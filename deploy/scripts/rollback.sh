@@ -95,6 +95,9 @@ ok "数据已恢复"
 # ---- 重启并检查 ---------------------------------------------------------------
 echo ""
 info "重启服务…"
+# This is a database restore, not a code/image deployment. load_env already
+# restored the persistent release event; do not collect the host checkout SHA
+# or assign a new deployment timestamp here.
 dc up -d
 
 info "等待服务就绪…"

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +45,8 @@ from ...schemas.user import (
     UserCreateAdmin,
     UserUpdateAdmin,
 )
+from ...schemas.system_info import SystemInformation
+from ...services.release_info_service import get_system_information
 from ...services.auth_service import AuthService
 from ...services.admin_setting_service import AdminSettingService
 from ...services.config_service import ConfigService
@@ -208,6 +210,13 @@ def get_user_service(session: AsyncSession = Depends(get_session)) -> UserServic
 
 def get_auth_service(session: AsyncSession = Depends(get_session)) -> AuthService:
     return AuthService(session)
+
+
+@router.get("/system-info", response_model=SystemInformation)
+def read_system_information(response: Response, _: Any = Depends(get_current_admin)) -> SystemInformation:
+    """Expose only curated running-build metadata, never host/environment details."""
+    response.headers["Cache-Control"] = "no-store"
+    return get_system_information()
 
 
 @router.get("/stats", response_model=Statistics)

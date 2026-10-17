@@ -66,6 +66,8 @@ fi
 dcp() { ( cd "$DEPLOY_DIR" && "${DCP[@]}" "$@" ); }
 
 # ---- 停旧 / 构建 / 起新 -------------------------------------------------------
+# Read Git once for this build. Build time and deployment time are different.
+. "$SCRIPT_DIR/prepare_release_metadata.sh" build
 echo ""
 info "停止旧容器…"
 dcp down || true
@@ -81,7 +83,10 @@ fi
 
 echo ""
 info "启动容器…"
-dcp up -d
+# One explicit event is shared by every app replica; a plain restart does not
+# pass through this command and retains the previous event.
+. "$SCRIPT_DIR/prepare_release_metadata.sh" deploy
+dcp up -d --no-build
 
 echo ""
 info "容器状态："

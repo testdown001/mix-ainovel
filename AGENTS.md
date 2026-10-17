@@ -135,6 +135,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 These are separate topologies; inspect their required variables before switching. The standalone stack defaults to an external MySQL host; selecting SQLite does not remove all Compose-required variable interpolation.
 
+For recorded release identity, use the deployment scripts or the `build` -> Compose build -> `deploy` -> Compose `up --no-build` sequence in `docs/admin-release-info.md`. Source `deploy/scripts/prepare_release_metadata.sh` in the same shell. Direct builds without metadata remain supported and report unknown values. Image `/app/release-info.json` is immutable build identity; only an explicit deployment records the shared event. Restart/recreate and database restore must not refresh it. `deploy/.release.env` is ignored non-secret metadata, never shell-source it; only three deployment keys are updated in the existing configuration `.env`.
+
 For container migrations, prefer `bash deploy/scripts/run_migrations.sh` from the repository root. It uses the app's configured database, backs up MySQL, and validates legacy schema shape before allowing a stamp. Never blindly `alembic stamp head` to silence missing-column errors.
 
 Health endpoints: Python `GET /api/health`; Go `GET /health`.
@@ -354,6 +356,7 @@ Other API/state entry points: `api/model_catalog.ts`, `api/payment.ts`, `api/pla
 
 `AdminView.vue` is a sidebar-driven lazy component shell. Admin modules include API/provider management, LLM diagnostics, model catalog, feature gating, quality loops, skills, users, protected novel deletion, prompts, auth settings, plans, and payments.
 
+- `Statistics.vue` includes `SystemVersionCard.vue`, backed by administrator-only `GET /api/admin/system-info` and `release_info_service.py`. Running-image metadata takes precedence over environment/development Git; deployment time is shown only for a matching image `build_id`. Never substitute build/start time or current host HEAD for a missing deployment record.
 - `LLMDiagnostics.vue`, `ModelCatalogConfig.vue`, `FeatureGatingConfig.vue`, and `QualityLoopConfig.vue` reflect backend operational config, not standalone frontend flags.
 - Settings includes credit history and referral rewards; pricing/checkout supports membership and credit packs.
 - Prefer Naive UI and existing shared component patterns.
@@ -404,6 +407,7 @@ Prefer the smallest focused regression that protects the changed contract. Impor
 | LLM/provider/diagnostics | `test_generate_structured.py`, `test_thinking_model_compat.py`, `test_reasoning_effort_dispatch.py`, `test_responses_quality_contract.py`, `test_llm_fallback_channel.py`, `test_llm_call_telemetry.py` |
 | Credits/auth/payment | `test_generation_billing.py`, `test_credit_quota.py`, `test_credit_purchased_pool.py`, `test_credit_pack_payment.py`, `test_payment_stripe.py`, `test_auth_login_methods.py` |
 | Source/share/admin/skills | `test_admin_novel_deletion.py`, `test_project_creation_source_migration.py`, `test_public_share.py`, `test_versioned_skill_policy.py`, `test_writing_skill_registry_service.py` |
+| Admin release information | `test_system_information.py`, `deploy/tests/test_release_metadata.py`, `SystemVersionCard.spec.ts`, `versionInformation.spec.ts` |
 | Async delivery | `test_task_worker.py`, `test_task_worker_blueprint.py`, `test_outline_generation_task_service.py`, `test_generation_interrupt_cleanup.py`, `test_writer_progress_authz.py` |
 
 Also run related service-specific tests discovered through the index. A passing orchestrator test alone does not validate all specialized services.

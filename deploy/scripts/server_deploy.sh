@@ -46,6 +46,7 @@ info "检查基础软件…"
 command -v git >/dev/null 2>&1 || { apt-get update -y && apt-get install -y git; }
 command -v curl >/dev/null 2>&1 || apt-get install -y curl
 command -v openssl >/dev/null 2>&1 || apt-get install -y openssl
+command -v python3 >/dev/null 2>&1 || apt-get install -y python3
 
 if ! command -v docker >/dev/null 2>&1; then
     info "安装 Docker…"
@@ -149,8 +150,11 @@ fi
 # ---- 5. 构建并启动 ------------------------------------------------------------
 info "构建并启动容器（首次约需数分钟）…"
 cd "$DEPLOY_DIR"
+. "$PROJECT_DIR/deploy/scripts/prepare_release_metadata.sh" build
 "${DC[@]}" down 2>/dev/null || true
-"${DC[@]}" up -d --build
+"${DC[@]}" build
+. "$PROJECT_DIR/deploy/scripts/prepare_release_metadata.sh" deploy
+"${DC[@]}" up -d --no-build
 ok "容器已启动"
 
 # ---- 6. 健康检查 --------------------------------------------------------------

@@ -11,6 +11,8 @@
     </template>
 
     <n-space vertical size="large">
+      <SystemVersionCard />
+
       <n-alert v-if="error" type="error" closable @close="error = null">
         {{ error }}
       </n-alert>
@@ -61,6 +63,7 @@ import {
 } from 'naive-ui'
 
 import { AdminAPI, type Statistics } from '@/api/admin'
+import SystemVersionCard from './SystemVersionCard.vue'
 
 const stats = ref<Statistics | null>(null)
 const loading = ref(false)

@@ -78,6 +78,13 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
+      args:
+        APP_GIT_COMMIT: ${APP_GIT_COMMIT:-}
+        APP_GIT_BRANCH: ${APP_GIT_BRANCH:-}
+        APP_GIT_COMMIT_TIME: ${APP_GIT_COMMIT_TIME:-}
+        APP_GIT_DIRTY: ${APP_GIT_DIRTY:-}
+        APP_BUILT_AT: ${APP_BUILT_AT:-}
+        APP_BUILD_ID: ${APP_BUILD_ID:-}
     image: arboris-app:latest
     deploy:
       replicas: 3  # 3 个 API 实例
@@ -89,6 +96,11 @@ services:
           cpus: '1'
           memory: 1G
     environment:
+      # Real release event, persisted by prepare_release_metadata.sh deploy.
+      # Empty/unknown for legacy/manual deployments; never use container start time.
+      APP_DEPLOYED_AT: ${APP_DEPLOYED_AT:-}
+      APP_DEPLOYMENT_ID: ${APP_DEPLOYMENT_ID:-}
+      APP_DEPLOYED_BUILD_ID: ${APP_DEPLOYED_BUILD_ID:-}
       SECRET_KEY: ${SECRET_KEY:?请设置SECRET_KEY}
       ENVIRONMENT: production
       DEBUG: false

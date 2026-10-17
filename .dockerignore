@@ -25,6 +25,9 @@ Jenkinsfile
 .DS_Store
 
 # Environment files
+/deploy/.release.env
+/deploy/.release-*.tmp
+/backend/release-info.json
 .env
 .env.*
 !.env.example

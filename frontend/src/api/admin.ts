@@ -99,6 +99,18 @@ export interface Statistics {
   api_request_count: number
 }
 
+export interface SystemInformation {
+  git_commit: string | null
+  git_short_commit: string | null
+  git_branch: string | null
+  git_commit_time: string | null
+  git_dirty: boolean | null
+  built_at: string | null
+  deployed_at: string | null
+  deployment_id: string | null
+  source: 'image' | 'environment' | 'git' | 'unknown'
+}
+
 export interface AdminUser {
   id: number
   username: string
@@ -286,6 +298,10 @@ export class AdminAPI {
   // Overview
   static getStatistics(): Promise<Statistics> {
     return this.request('/stats')
+  }
+
+  static getSystemInformation(): Promise<SystemInformation> {
+    return this.request('/system-info')
   }
 
   // Users

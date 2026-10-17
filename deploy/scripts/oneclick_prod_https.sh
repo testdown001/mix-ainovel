@@ -328,7 +328,11 @@ ok "compose 装配有效"
 
 # ---- 8. 构建并启动 ------------------------------------------------------------
 warn "即将构建镜像（前端 npm build + 后端 pip + Go 网关），首次约需数分钟…"
-(cd "$DEPLOY_DIR" && "${COMPOSE[@]}" up -d --build) || die "启动失败，查看日志：cd $DEPLOY_DIR && ${COMPOSE[*]} logs"
+command -v python3 >/dev/null 2>&1 || apt-get install -y python3
+. "$SCRIPT_DIR/prepare_release_metadata.sh" build
+(cd "$DEPLOY_DIR" && "${COMPOSE[@]}" build) || die "镜像构建失败"
+. "$SCRIPT_DIR/prepare_release_metadata.sh" deploy
+(cd "$DEPLOY_DIR" && "${COMPOSE[@]}" up -d --no-build) || die "启动失败，查看日志：cd $DEPLOY_DIR && ${COMPOSE[*]} logs"
 ok "容器已启动"
 
 # ---- 9. 健康检查（直连 app 容器内 uvicorn，最可靠）-----------------------------
@@ -382,7 +386,7 @@ echo "    查看状态： ${COMPOSE[*]} ps"
 echo "    查看日志： ${COMPOSE[*]} logs -f app gateway nginx"
 echo "    重启：     ${COMPOSE[*]} restart"
 echo "    停止：     ${COMPOSE[*]} down"
-echo "    更新代码后重建： git pull && ${COMPOSE[*]} up -d --build"
+echo "    更新代码后重建： git pull && COMPOSE_FILE=docker-compose.prod.yml:docker-compose.https.yml bash scripts/deploy_docker.sh"
 echo ""
 warn "提醒：① 登录后立即修改管理员密码；② 若用了占位 OPENAI_API_KEY，请在后台「API 管理」填真实 Key 后才能生成章节；"
 warn "      ③ prod.yml 的 replicas 是 Swarm 语法，本脚本用普通 compose 起的是单副本。"

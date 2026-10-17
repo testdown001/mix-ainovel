@@ -92,6 +92,8 @@ load_env() {
     # shellcheck disable=SC1090
     . <(tr -d '\000-\010\013-\037\177' < "$ENV_FILE")
     set +a
+    # Deployment keys persist in this same .env, so maintenance/recreate retains
+    # the original event without collecting Git or assigning a new timestamp.
 }
 
 # require_env VAR...：校验必需变量已设置且非空
