@@ -19,7 +19,7 @@ from ..core.constants import StageStatus, WritingStage
 from ..db.session import AsyncSessionLocal
 from ..models.novel import Chapter, ChapterVersion
 from ..services.chapter_guardrails import default_guardrails
-from ..services.chapter_planning_service import get_outline_planning
+from ..services.chapter_planning_service import get_outline_planning, resolve_emotional_intent
 from ..services.character_planning_context import build_character_planning_context
 from ..services.llm_service import LLMService
 from ..services.entity_registry_service import EntityRegistryService
@@ -694,19 +694,32 @@ class PipelineOrchestrator(PipelineReviewMixin):
         if isinstance(chapter_mission, dict):
             if chapter_planning.get("character_focus"):
                 chapter_mission["character_focus"] = chapter_planning["character_focus"]
+        volume_emotional_plan = next((volume for volume in (blueprint_dict.get("volumes") or [])
+            if isinstance(volume, dict) and isinstance(volume.get("start_chapter"), int)
+            and isinstance(volume.get("end_chapter"), int)
+            and volume["start_chapter"] <= chapter_number <= volume["end_chapter"]), {})
+        if isinstance(volume_emotional_plan.get("extra"), dict):
+            volume_emotional_plan = {**volume_emotional_plan["extra"], **volume_emotional_plan}
+        emotional_intent = resolve_emotional_intent(chapter_planning, chapter_mission, volume_emotional_plan)
+        if isinstance(chapter_mission, dict) and emotional_intent:
+            overrides = {key: value for key, value in emotional_intent.items() if key != "source"}
+            chapter_mission.update(overrides)
+            for container in ("hard_constraints", "soft_suggestions"):
+                if isinstance(chapter_mission.get(container), dict):
+                    chapter_mission[container].update(overrides)
         _mark_stage("generate_chapter_mission", stage_started)
 
         # 等待 Pacing 结果（与 Mission 并行计算完毕）并注入到 writing_notes
         if _pacing_task is not None:
             pacing_constraint = await _pacing_task
-            if pacing_constraint:
+            if pacing_constraint and emotional_intent.get("emotional_intent") != "quiet":
                 writing_notes = (writing_notes or "") + "\n\n" + pacing_constraint
 
         # 推送 Mission 中间产物
         await telemetry.emit_mission(chapter_mission if isinstance(chapter_mission, dict) else {})
 
         # 变更6: 爽点节奏验证 — 在mission生成完成后检查并可能修改mission
-        coolpoint_rhythm_directive = await self.generation_support_service.validate_coolpoint_rhythm(
+        coolpoint_rhythm_directive = "" if emotional_intent.get("emotional_intent") == "quiet" else await self.generation_support_service.validate_coolpoint_rhythm(
             project_id=project_id,
             chapter_number=chapter_number,
             chapter_mission=chapter_mission,
@@ -872,6 +885,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _user_style_preset = evidence_stage.user_style_preset
         fingerprint_context = evidence_stage.fingerprint_context
         trajectory_context = evidence_stage.trajectory_context
+        if emotional_intent.get("emotional_intent") == "quiet":
+            trajectory_context = "本章为作者确认的安静/余波章节：通用曲线不得要求增加高潮、牺牲或反转。人物情绪峰值不等于读者感受。"
         outline_revision_context = evidence_stage.outline_revision_context
         volume_replan_context = evidence_stage.volume_replan_context
         significance_context = evidence_stage.significance_context
@@ -958,8 +973,27 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _mark_stage("build_generation_prompt", stage_started)
         await _emit_stage("build_generation_prompt", "完成上下文组装，开始写作")
 
+        from .context_receipt_service import collect_receipt_sources, build_execution_receipt
+        receipt_sources = collect_receipt_sources(rag_context, history_context)
+        for kind, text in (("reference_analysis", prompt_stage.reference_guidance_text),
+                           ("ai_imitation", reference_prose_text)):
+            if text:
+                receipt_sources.append({"kind": kind, "text": text,
+                    "source_ids": list(getattr(project, "reference_novel_ids", None) or []),
+                    "original_full_text_read": False})
+        derivation_profile = {
+            "memory": bool(config.enable_memory), "state": bool(config.enable_state_tracking),
+            "foreshadowing": True, "outline_revision": bool(config.enable_outline_revision),
+            "volume_retrospective": bool(config.enable_volume_retrospective),
+            "character_names": list(introduced_characters),
+        }
+
         async def _verify_before_persist(versions_to_check):
             if getattr(config, "preset", "fast") == "fast":
+                for candidate in versions_to_check:
+                    metadata = candidate.setdefault("metadata", {})
+                    metadata["narrative_delta_status"] = "not_requested"
+                    metadata["execution_receipt"] = build_execution_receipt(metadata)
                 return
             await _emit_stage("verify_before_commit", "检查正文事实、视角与情节完整性")
             started = time.perf_counter()
@@ -971,12 +1005,14 @@ class PipelineOrchestrator(PipelineReviewMixin):
                          "previous_summary": history_context.get("previous_summary"),
                          "previous_tail": history_context.get("previous_tail"),
                          "narrative_state": narrative_state,
-                         "require_narrative_delta": bool(getattr(config, "enable_reader_controller", False)),
+                         "require_narrative_delta": True,
                          "forbidden_characters": forbidden_characters,
                          "allowed_new_characters": allowed_new_characters},
             )
             for checked_version in versions_to_check:
-                checked_version.setdefault("metadata", {})["narrative_base"] = narrative_base
+                metadata = checked_version.setdefault("metadata", {})
+                metadata["narrative_base"] = narrative_base
+                metadata["execution_receipt"] = build_execution_receipt(metadata)
             _mark_stage("verify_before_commit", started)
 
         # ========== Literary 模式：场景级分步生成 ==========
@@ -1017,7 +1053,9 @@ class PipelineOrchestrator(PipelineReviewMixin):
                     "reference_cards": reference_cards,
                     "narrative_state": narrative_state,
                     "narrative_base": narrative_base,
+                    "context_sources": receipt_sources,
                     "chapter_number": chapter_number,
+                    "project_id": project_id,
                     "reader_controller_enabled": bool(getattr(config, "enable_reader_controller", False)),
                     "outline_revision": getattr(prompt_stage, "outline_revision_text", ""),
                     "creative_memory": creative_memory_context or "",
@@ -1055,7 +1093,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
             await _emit_stage("persist_versions", "写入章节版本中")
             contents = [version["content"]]
             metadata_list = [{**(version.get("metadata") or {}),
-                              "character_significance_enabled": config.enable_character_significance}]
+                              "character_significance_enabled": config.enable_character_significance,
+                     "derivation_profile": derivation_profile}]
             stage_started = time.perf_counter()
             versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata_list)
             await self._consume_outline_revision_receipt(
@@ -1139,6 +1178,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 await telemetry.emit_text_delta(delta, "generate_fast_version", chapter_number)
 
             fast_result = await self.fast_generation_flow_service.run(
+                context_sources=receipt_sources,
                 prompt_input=prompt_input,
                 writer_prompt=writer_prompt,
                 project_id=project_id,
@@ -1173,7 +1213,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
                 chapter,
                 [version["content"]],
                 [{**(version.get("metadata") or {}),
-                  "character_significance_enabled": config.enable_character_significance}],
+                  "character_significance_enabled": config.enable_character_significance,
+                     "derivation_profile": derivation_profile}],
             )
             _mark_stage("persist_versions", stage_started)
 
@@ -1258,6 +1299,7 @@ class PipelineOrchestrator(PipelineReviewMixin):
         _budget_sec = getattr(settings, "generation_time_budget_sec", 0) or 0
         postproc_deadline = (total_started + _budget_sec) if _budget_sec > 0 else None
         standard_result = await self.standard_generation_flow_service.run(
+            context_sources=receipt_sources,
             prompt_input=prompt_input,
             prompt_sections=prompt_sections,
             writer_prompt=writer_prompt,
@@ -1296,7 +1338,8 @@ class PipelineOrchestrator(PipelineReviewMixin):
         await _verify_before_persist(versions)
         contents = [v.get("content", "") for v in versions]
         metadata = [{**(v.get("metadata") or {}),
-                     "character_significance_enabled": config.enable_character_significance} for v in versions]
+                     "character_significance_enabled": config.enable_character_significance,
+                     "derivation_profile": derivation_profile} for v in versions]
         await _emit_stage("persist_versions", "写入章节版本中")
         stage_started = time.perf_counter()
         versions_models = await self.novel_service.replace_chapter_versions(chapter, contents, metadata)

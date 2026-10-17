@@ -429,7 +429,10 @@ class NovelService:
     def _strip_revision_hint(metadata: Optional[dict]) -> Optional[dict]:
         """大纲被整体重建时剔除 revision_hint（其依据的旧大纲已不存在），保留导演脚本等其他键。"""
         if isinstance(metadata, dict):
-            return {k: v for k, v in normalize_outline_metadata(metadata).items() if k != "revision_hint"}
+            normalized = normalize_outline_metadata(metadata)
+            if "revision_hint" not in metadata and normalized == metadata:
+                return metadata
+            return {k: v for k, v in normalized.items() if k != "revision_hint"}
         return metadata
 
     async def replace_blueprint(self, project_id: str, blueprint: Blueprint) -> None:
@@ -935,6 +938,7 @@ class NovelService:
                 project_id=project_id,
                 chapter_number=chapter_number,
                 sort_key=chapter_number * 1000,
+                content_hash=sha256(b"").hexdigest(),
             )
             self.session.add(chapter)
             chapter_map[chapter_number] = chapter
@@ -958,6 +962,7 @@ class NovelService:
                     chapter_number=payload["chapter_number"],
                     content=payload["content"],
                     type=payload["type"],
+                    origin="blueprint",
                     status="planted",
                     name=payload["name"],
                     target_reveal_chapter=payload["target_reveal_chapter"],
@@ -1387,7 +1392,11 @@ class NovelService:
         await self._touch_project(chapter.project_id)
         return versions
 
-    async def select_chapter_version(self, chapter: Chapter, version_index: int) -> ChapterVersion:
+    async def select_chapter_version(
+        self, chapter: Chapter, version_index: int | None = None, *, version_id: int | None = None,
+        expected_revision_id: int | None = None, expected_content_hash: str | None = None,
+        actor_user_id: int | None = None,
+    ) -> ChapterVersion:
         stmt = select(ChapterVersion).where(ChapterVersion.chapter_id == chapter.id).order_by(ChapterVersion.created_at)
         result = await self.session.execute(stmt)
         versions = result.scalars().all()
@@ -1409,9 +1418,15 @@ class NovelService:
         else:
             selectable_versions = versions
         
-        if not selectable_versions or version_index < 0 or version_index >= len(selectable_versions):
-            raise HTTPException(status_code=400, detail="版本索引无效")
-        selected = selectable_versions[version_index]
+        if version_id is not None:
+            selected = next((version for version in versions if version.id == version_id), None)
+            if selected is None:
+                raise HTTPException(status_code=404, detail="指定版本不属于当前章节")
+        else:
+            if (not selectable_versions or version_index is None or version_index < 0
+                    or version_index >= len(selectable_versions)):
+                raise HTTPException(status_code=400, detail="版本索引无效")
+            selected = selectable_versions[version_index]
         
         # 校验内容是否为空
         if not selected.content or len(selected.content.strip()) == 0:
@@ -1420,12 +1435,12 @@ class NovelService:
         from .generation_quality_gate import assert_selectable
         assert_selectable(selected.content, selected.metadata)
         
-        chapter.selected_version_id = selected.id
-        chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
-        chapter.word_count = len(selected.content or "")
-        chapter.revision_id = int(chapter.revision_id or 0) + 1
-        chapter.content_hash = sha256((selected.content or "").encode("utf-8")).hexdigest()
-        await self.session.commit()
+        from .chapter_revision_service import ChapterRevisionService
+        await ChapterRevisionService(self.session).adopt(
+            project_id=chapter.project_id, chapter_number=chapter.chapter_number,
+            version_id=selected.id, expected_revision_id=expected_revision_id,
+            expected_content_hash=expected_content_hash, actor_user_id=actor_user_id,
+        )
         await self.session.refresh(chapter)
         await self._touch_project(chapter.project_id)
         return selected
@@ -1986,7 +2001,7 @@ class NovelService:
             revision_id=int(vars(chapter).get("revision_id", 0) or 0) if chapter else 0,
             content_hash=(
                 sha256((chapter.selected_version.content if chapter and chapter.selected_version else "").encode("utf-8")).hexdigest()
-                if chapter else None
+                if chapter else sha256(b"").hexdigest()
             ),
             selected_version_id=vars(chapter).get("selected_version_id") if chapter else None,
             updated_at=updated_at,

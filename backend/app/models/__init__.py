@@ -86,6 +86,8 @@ from .faction import (
 from .user_quota import UserQuota
 from .writer_persona import WriterPersona
 from .outline_generation_task import OutlineGenerationTask
+from .chapter_derivation import ChapterDerivationJob
+from .derived_state_repair import DerivedStateRepair
 from .creative_memory import (
     CreativeMemoryItem,
     CreativeMemoryLearningEvent,
@@ -165,6 +167,8 @@ __all__ = [
     "UserQuota",
     "WriterPersona",
     "OutlineGenerationTask",
+    "ChapterDerivationJob",
+    "DerivedStateRepair",
     "CreativeMemoryItem",
     "CreativeMemoryLearningEvent",
     "CreativeMemoryReceipt",

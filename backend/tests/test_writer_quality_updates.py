@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.api.routers import novels, writer
 from app.db.init_db import is_schema_mismatch_error
 import app.services.novel_service as novel_service_module
@@ -132,7 +134,7 @@ def test_schema_mismatch_error_detects_missing_columns():
 
 
 def test_select_chapter_version_uses_outline_title_for_ingest(monkeypatch):
-    selected_version = SimpleNamespace(content="章节正文")
+    selected_version = SimpleNamespace(id=11, content="章节正文")
     chapter = SimpleNamespace(real_summary="已有摘要")
     novel_service = SimpleNamespace(
         ensure_project_owner=AsyncMock(return_value=SimpleNamespace()),
@@ -145,18 +147,23 @@ def test_select_chapter_version_uses_outline_title_for_ingest(monkeypatch):
     monkeypatch.setattr(writer, "NovelService", lambda session: novel_service)
     monkeypatch.setattr(writer, "LLMService", lambda session: SimpleNamespace())
     monkeypatch.setattr(writer, "_load_project_schema", load_schema)
+    monkeypatch.setattr(writer, "pregen_next_chapter_mission", AsyncMock())
+    monkeypatch.setattr(writer, "review_creative_memory_selection", AsyncMock())
 
     result = asyncio.run(
         writer.select_chapter_version(
             "project-1",
-            SimpleNamespace(chapter_number=1, version_index=0),
+            writer.SelectVersionRequest(chapter_number=1, version_index=0, version_id=11,
+                expected_revision_id=2, expected_content_hash="seen-hash"),
             fake_session,
             SimpleNamespace(id=7),
         )
     )
 
     assert result == "schema"
-    novel_service.select_chapter_version.assert_awaited_once_with(chapter, 0)
+    novel_service.select_chapter_version.assert_awaited_once_with(
+        chapter, 0, version_id=11, expected_revision_id=2, expected_content_hash="seen-hash", actor_user_id=7,
+    )
     load_schema.assert_awaited_once()
 
 
@@ -304,7 +311,7 @@ def test_advanced_generate_stream_uses_internal_session_scope(monkeypatch):
 
     class _FlowConfig:
         use_agent = False
-        preset = "balanced"
+        preset = "standard"
         async_finalize = False
 
         def model_dump(self):
@@ -333,6 +340,10 @@ def test_advanced_generate_stream_uses_internal_session_scope(monkeypatch):
             chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
         return "".join(chunks)
 
+    owner_check = AsyncMock(return_value=SimpleNamespace(id="project-1"))
+    baseline = AsyncMock(return_value=SimpleNamespace(revision_id=4, content_hash="seen-hash"))
+    monkeypatch.setattr(writer, "NovelService", lambda session: SimpleNamespace(ensure_project_owner=owner_check))
+    monkeypatch.setattr(writer, "ChapterRevisionService", lambda session: SimpleNamespace(get_revision=baseline))
     monkeypatch.setattr(writer, "AsyncSessionLocal", lambda: _SessionContext())
     monkeypatch.setattr(hybrid_executor_module, "HybridExecutor", _FakeHybridExecutor)
 
@@ -360,13 +371,74 @@ def test_advanced_generate_stream_uses_internal_session_scope(monkeypatch):
             current_user=SimpleNamespace(id=7),
         )
     )
-    payload = asyncio.run(_collect_stream(response))
+    payload = asyncio.run(asyncio.wait_for(_collect_stream(response), timeout=2))
 
     assert captured["session"] is fake_session
     assert captured["user_id"] == 7
     assert captured["kwargs"]["project_id"] == "project-1"
     assert captured["kwargs"]["chapter_number"] == 3
+    owner_check.assert_awaited_once_with("project-1", 7)
+    baseline.assert_awaited_once_with("project-1", 3)
     assert session_lifecycle == ["enter", "exit"]
     assert "event: started" in payload
     assert "event: stage" in payload
     assert "event: completed" in payload
+
+
+@pytest.mark.parametrize("failure_location", ["baseline", "session_enter"])
+def test_stream_initialization_failure_terminates_and_refunds(monkeypatch, failure_location):
+    """Even failures before generation starts must send a terminal event and refund once."""
+    import app.agents.hybrid_executor as hybrid_executor_module
+    import app.services.quota_service as quota_service_module
+
+    fake_session = SimpleNamespace(rollback=AsyncMock())
+    owner_check = AsyncMock(return_value=SimpleNamespace(id="project-1"))
+    baseline = AsyncMock(side_effect=RuntimeError("baseline unavailable"))
+    refund = AsyncMock()
+    generation = AsyncMock(side_effect=AssertionError("generation must not start"))
+
+    class SessionContext:
+        async def __aenter__(self):
+            if failure_location == "session_enter":
+                raise RuntimeError("session unavailable")
+            return fake_session
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    flow = SimpleNamespace(preset="standard", use_agent=False, async_finalize=False,
+        model_dump=lambda: {"preset": "standard", "use_agent": False, "async_finalize": False})
+    monkeypatch.setattr(writer, "AsyncSessionLocal", lambda: SessionContext())
+    monkeypatch.setattr(writer, "NovelService", lambda session: SimpleNamespace(ensure_project_owner=owner_check))
+    monkeypatch.setattr(writer, "ChapterRevisionService", lambda session: SimpleNamespace(get_revision=baseline))
+    monkeypatch.setattr(quota_service_module, "QuotaService", lambda session: SimpleNamespace(
+        get_or_create_quota=AsyncMock(return_value=SimpleNamespace(effective_tier="flagship"))))
+    for name in ("ensure_generation_preset_allowed", "ensure_flow_overrides_allowed", "ensure_model_allowed"):
+        monkeypatch.setattr(writer, name, AsyncMock())
+    monkeypatch.setattr(writer, "charge_generation", AsyncMock(return_value=True))
+    monkeypatch.setattr(writer, "_refund_sync_generation_safely", refund)
+    monkeypatch.setattr(writer, "_set_chapter_failed_status", AsyncMock())
+    monkeypatch.setattr(writer, "_mark_chapter_interrupted_safely", AsyncMock())
+    monkeypatch.setattr(hybrid_executor_module, "HybridExecutor", lambda *args, **kwargs: SimpleNamespace(
+        generate_chapter=generation))
+
+    async def exercise():
+        response = await writer.advanced_generate_chapter_stream(
+            SimpleNamespace(project_id="project-1", chapter_number=3, writing_notes="", flow_config=flow),
+            session=SimpleNamespace(), current_user=SimpleNamespace(id=7))
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    payload = asyncio.run(asyncio.wait_for(exercise(), timeout=2))
+    assert "event: error" in payload
+    assert "event: completed" not in payload
+    generation.assert_not_awaited()
+    refund.assert_awaited_once()
+    user_id, ref_key = refund.await_args.args
+    assert user_id == 7 and ref_key.startswith("sync:")
+    if failure_location == "baseline":
+        baseline.assert_awaited_once_with("project-1", 3)
+    else:
+        baseline.assert_not_awaited()

@@ -119,7 +119,9 @@ def test_get_memory_context_uses_async_search():
             result = await svc.get_memory_context("project-1", 5, ["角色A"])
 
         mock_memory.search.assert_awaited_once()
-        assert "角色A获得了神秘卷轴" in result
+        # Old unprovenanced cache content must not silently enter canon.
+        assert "角色A获得了神秘卷轴" not in result
+        assert mock_memory.search.await_args.kwargs["filters"] == {"provenance_schema": 2}
 
     asyncio.run(_run())
 
@@ -127,6 +129,9 @@ def test_get_memory_context_uses_async_search():
 def test_update_memory_uses_async_add():
     """update_memory_after_chapter 应使用 AsyncMemory.add 而非 asyncio.to_thread。"""
     svc = _make_service()
+    async def extraction(name, producer):
+        return await producer()
+    svc._extraction_checkpoint = extraction
 
     # Mock LLM 提取
     svc.extract_character_states_from_chapter = AsyncMock(return_value=[])
@@ -138,10 +143,13 @@ def test_update_memory_uses_async_add():
 
     # Mock AsyncMemory
     mock_memory = AsyncMock()
-    mock_memory.add = AsyncMock(return_value=None)
+    mock_memory.add = AsyncMock(return_value={"results": [
+        {"id": "m1", "memory": "角色A在第3章获得了神秘卷轴"},
+        {"id": "m2", "memory": "角色B的左臂受了重伤"},
+    ]})
 
     async def _run():
-        with patch(
+        with patch("app.services.memory_layer_service.require_current_source", new_callable=AsyncMock), patch(
             "app.services.memory_layer_service.AsyncMemory.from_config",
             new_callable=AsyncMock,
             return_value=mock_memory,
@@ -152,10 +160,13 @@ def test_update_memory_uses_async_add():
                 chapter_content="测试章节内容",
                 character_names=["角色A", "角色B"],
                 user_id=1,
+                source_ref={"project_id": "project-1", "source_derivation_id": "job-1"},
             )
 
         mock_memory.add.assert_awaited_once()
         assert result["mem0_memories_added"] == 2
+        assert mock_memory.add.await_args.kwargs["infer"] is False
+        assert result["memory_ids"] == ["m1", "m2"]
 
     asyncio.run(_run())
 

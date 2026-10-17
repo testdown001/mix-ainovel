@@ -93,6 +93,7 @@ class GenerationContextResolutionService:
             elif getattr(prefetch_tasks, "rag_task", None) is not None:
                 routed_local = await prefetch_tasks.rag_task
                 rag_context = {
+                    **dict(routed_local or {}),
                     "chunks": list((routed_local or {}).get("chunks") or []),
                     "summaries": list((routed_local or {}).get("summaries") or []),
                 }
@@ -127,6 +128,16 @@ class GenerationContextResolutionService:
                 creative_memory_receipt = result
                 if creative_memory_receipt:
                     await telemetry.emit_creative_memory_receipt(creative_memory_receipt)
+
+        if rag_context:
+            from .chapter_context_service import validate_rag_payload
+            from .retrieval_scope import build_retrieval_scope
+            try:
+                scope = await build_retrieval_scope(project_id=project_id, before_chapter=chapter_number, session=self.session)
+                rag_context = validate_rag_payload(rag_context, scope)
+            except Exception:
+                rag_context = {"chunks": [], "summaries": [], "chunk_records": [], "summary_records": [],
+                               "context_receipt": {"status": "skipped", "reason": "scope_unavailable"}}
 
         return ResolvedPrefetchContext(
             enhanced_context=enhanced_context,

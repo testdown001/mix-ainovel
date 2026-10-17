@@ -79,7 +79,8 @@ def test_write_hint_merges_without_clobbering_director_script():
     assert outline.metadata["director_script"] == {"beats": [1, 2]}  # 未被覆盖
     assert outline.metadata["foo"] == "bar"
     hint = outline.metadata["revision_hint"]
-    assert hint == {
+    assert len(hint["revision_id"]) == 24
+    assert {key: value for key, value in hint.items() if key != "revision_id"} == {
         "source_chapter": 5,
         "severity": "high",
         "reason": "和解了",

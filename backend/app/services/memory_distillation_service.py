@@ -71,6 +71,8 @@ class MemoryDistillationService:
             # 命名空间与 MemoryLayerService 写入侧一致（user_id=project_id）
             result = await memory.get_all(user_id=project_id, limit=DISTILL_THRESHOLD + 1)
             memories = result.get("results", []) if isinstance(result, dict) else result
+            if any((m.get("metadata") or {}).get("provenance_schema") == 2 for m in memories or []):
+                return False
             return len(memories) >= DISTILL_THRESHOLD
         except Exception:
             logger.warning("记忆蒸馏: 检查条目数失败", exc_info=True)
@@ -106,6 +108,9 @@ class MemoryDistillationService:
 
         if not all_memories:
             return {"status": "skipped", "reason": "empty", "before": 0, "after": 0}
+        if any((m.get("metadata") or {}).get("provenance_schema") == 2 for m in all_memories):
+            # The legacy delete-and-merge algorithm cannot preserve source receipts.
+            return {"status": "skipped", "reason": "version_bound_memories", "before": len(all_memories)}
 
         before_count = len(all_memories)
         logger.info(

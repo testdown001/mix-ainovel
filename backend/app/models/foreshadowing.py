@@ -54,6 +54,8 @@ class Foreshadowing(Base):
     # 元数据
     is_manual: Mapped[bool] = mapped_column(default=False)
     ai_confidence: Mapped[Optional[float]] = mapped_column(Float)
+    source_derivation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="legacy", server_default="legacy")
     author_note: Mapped[Optional[str]] = mapped_column(Text)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -87,6 +89,7 @@ class ForeshadowingResolution(Base):
     # 评估
     quality_score: Mapped[Optional[int]] = mapped_column(Integer)  # 1-10
     reader_satisfaction: Mapped[Optional[int]] = mapped_column(Integer)  # 1-10
+    source_derivation_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -129,6 +129,7 @@ class SceneGenerationService:
         chapter_number = int(prompt_sections_data.get("chapter_number") or 1)
         reader_enabled = bool(prompt_sections_data.get("reader_controller_enabled"))
         beat_receipts: List[dict] = []
+        context_receipts: List[dict] = []
 
         for index, scene in enumerate(scenes):
             scene_start = time.perf_counter()
@@ -253,6 +254,20 @@ class SceneGenerationService:
             scene_text = ""
             for attempt in range(2):
                 try:
+                    from .context_receipt_service import build_context_receipt
+                    call_receipt = build_context_receipt(
+                        system_prompt=writer_prompt,
+                        user_prompt=scene_call_kwargs["conversation_history"][0]["content"],
+                        project_id=prompt_sections_data.get("project_id"),
+                        chapter_number=chapter_number, scope="scene", scene_number=index + 1,
+                        sources=prompt_sections_data.get("context_sources"))
+                    if reader_enabled and beat_receipts:
+                        beat = beat_receipts[-1]
+                        call_receipt["reference_decisions"] = {
+                            "status": beat.get("status", "unknown"),
+                            "reference_provenance": beat.get("reference_provenance", []),
+                            "sources": beat.get("sources", []), "original_full_text_read": False,
+                        }
                     response = await self._invoke_scene_llm(
                         scene_max_tokens=scene_max_tokens,
                         scene_call_kwargs=scene_call_kwargs,
@@ -269,6 +284,7 @@ class SceneGenerationService:
                                  "state_delta": state_delta, "previous_tail": (
                                      chapter_parts[-1][-2000:] if chapter_parts else prompt_sections_data.get("previous_tail"))},
                     )
+                    context_receipts.append(call_receipt)
                     scene_checks.append(checked)
                     state_delta.extend(checked["state_delta"])
                     if reader_enabled and checked.get("narrative_delta"):
@@ -316,6 +332,9 @@ class SceneGenerationService:
         metadata["scene_timings_ms"] = scene_timings
         metadata["scene_count"] = len(scenes)
         metadata["scene_checks"] = scene_checks
+        metadata["context_receipt"] = {"schema_version": 1, "status": "recorded",
+            "scope": "scene_by_scene", "chapter_number": chapter_number, "scenes": context_receipts,
+            "limits": "每场独立记录实际发送内容；章级规划模块不等于各场实际注入。"}
         metadata["state_delta"] = state_delta
         metadata["reader_actions"] = beat_receipts
         metadata["scene_plan_applied"] = bool(prompt_sections_data.get("scene_plan"))

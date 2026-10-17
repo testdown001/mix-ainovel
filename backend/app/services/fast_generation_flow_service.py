@@ -58,12 +58,14 @@ class FastGenerationFlowService:
         history_context: Dict[str, Any],
         emit_text_delta: Optional[Callable[[str], Awaitable[None]]] = None,
         mark_stage: Optional[Callable[[str, float], None]] = None,
+        context_sources: Optional[list[dict]] = None,
         run_polish: Optional[Callable[..., Awaitable[tuple[str, Dict[str, Any]]]]] = None,
     ) -> FastGenerationFlowResult:
         stage_started = time.perf_counter()
         version = await self.single_version_generation_service.generate(
             index=0,
             prompt_input=prompt_input,
+            context_sources=context_sources,
             writer_prompt=writer_prompt,
             style_hint=None,
             project_id=project_id,

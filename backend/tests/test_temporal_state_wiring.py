@@ -173,6 +173,20 @@ def _make_plan(state_mode):
 
 
 async def _seed_states(db_session):
+    from app.models.novel import Chapter, ChapterVersion, NovelProject
+    from app.services.chapter_derivation_service import build_source_ref
+    db_session.add(NovelProject(id="p1", user_id=1, title="时序状态测试"))
+    for number in (3, 4):
+        chapter = Chapter(project_id="p1", chapter_number=number, revision_id=1)
+        db_session.add(chapter)
+        await db_session.flush()
+        version = ChapterVersion(chapter_id=chapter.id, content=f"第{number}章已确认正文")
+        db_session.add(version)
+        await db_session.flush()
+        chapter.selected_version_id = version.id
+    await db_session.flush()
+    sources = {number: (await build_source_ref(db_session, project_id="p1", chapter_number=number)).model_dump()
+               for number in (3, 4)}
     # CharacterState.id 是纯 BigInteger 主键，sqlite 播种须显式赋 id
     db_session.add(
         CharacterState(
@@ -181,6 +195,7 @@ async def _seed_states(db_session):
             character_id=1,
             character_name="林玄",
             chapter_number=4,
+            extra={"provenance": sources[4]},
             location="青云山",
             emotion="坚定",
             health_status="healthy",
@@ -195,6 +210,7 @@ async def _seed_states(db_session):
             character_id=2,
             character_name="苏璃",
             chapter_number=3,
+            extra={"provenance": sources[3]},
             location="南荒",
             emotion="担忧",
             health_status="injured",
@@ -250,9 +266,10 @@ async def test_route_state_temporal_supplements_structured_products(db_session):
 @pytest.mark.asyncio
 async def test_get_world_snapshot_serial_with_seeded_data(db_session):
     await _seed_states(db_session)
-    db_session.add(
-        StoryTimeTracker(id=1, project_id="p1", chapter_time_map={"4": "第七日"})
-    )
+    from app.services.chapter_derivation_service import build_source_ref
+    source = (await build_source_ref(db_session, project_id="p1", chapter_number=4)).model_dump()
+    db_session.add(StoryTimeTracker(id=1, project_id="p1", chapter_time_map={"4": "第七日"},
+                                  extra={"chapter_sources": {"4": source}}))
     await db_session.commit()
 
     service = TemporalStateService(db_session)
@@ -288,3 +305,52 @@ async def test_get_world_snapshot_empty_db_no_raise_and_session_stays_usable(db_
     # 降级后共享 session 必须仍可用（rollback 复位），否则下游状态查询全部失效
     result = await db_session.execute(select(CharacterState))
     assert result.scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_temporal_snapshot_rejects_current_future_and_legacy_state(db_session):
+    await _seed_states(db_session)
+    from app.services.chapter_derivation_service import build_source_ref
+    source = (await build_source_ref(db_session, project_id="p1", chapter_number=4)).model_dump()
+    db_session.add_all([
+        CharacterState(id=3, project_id="p1", character_id=3, character_name="未来角色", chapter_number=5,
+                       emotion="第5章结果", extra={"provenance": source}),
+        CharacterState(id=4, project_id="p1", character_id=4, character_name="旧脏数据", chapter_number=2,
+                       emotion="没有来源"),
+        StoryTimeTracker(id=1, project_id="p1", chapter_time_map={"4":"第七日", "5":"未来日", "1":"未验证"},
+                         extra={"chapter_sources":{"4":source,"5":source}}),
+    ])
+    await db_session.commit()
+    snapshot = await TemporalStateService(db_session).get_world_snapshot("p1",5,include_foreshadowing=False)
+    assert {character["name"] for character in snapshot.characters} == {"林玄", "苏璃"}
+    assert snapshot.story_time["chapter_time_map"] == {"4":"第七日"}
+
+
+@pytest.mark.asyncio
+async def test_world_state_seed_rejects_unadopted_and_invalidated_slices(db_session):
+    await _seed_states(db_session)
+    from app.models.novel import Chapter, ChapterVersion
+    from app.schemas.world_state import WorldStateSnapshotCreateRequest
+    from app.services.world_state_service import WorldStateService
+    service = WorldStateService(db_session)
+    accepted = await service.create_snapshot("p1",4,WorldStateSnapshotCreateRequest.model_validate({
+        "state":{"facts":{"城门":"封锁"}}}))
+    chapter = (await db_session.execute(select(Chapter).where(Chapter.chapter_number==4))).scalars().first()
+    candidate = ChapterVersion(chapter_id=chapter.id, content="未采用的另一种结局")
+    db_session.add(candidate)
+    await db_session.flush()
+    draft = await service.create_snapshot("p1",4,WorldStateSnapshotCreateRequest.model_validate({
+        "source_version_id":candidate.id,"state":{"facts":{"城门":"开放"}}}))
+    await db_session.commit()
+    assert (await service.seed_for_chapter("p1",5)).source_snapshot_id == accepted.id
+    assert (await service.latest_for_chapter("p1",4)).id != draft.id
+    assert (await service.seed_for_chapter("p1",4)).state is None
+    earlier = (await db_session.execute(select(Chapter).where(Chapter.chapter_number==3))).scalars().first()
+    changed = ChapterVersion(chapter_id=earlier.id, content="第3章被作者改写")
+    db_session.add(changed)
+    await db_session.flush()
+    earlier.selected_version_id = changed.id
+    earlier.revision_id += 1
+    await db_session.commit()
+    assert (await service.seed_for_chapter("p1",5)).state is None
+    assert await service.latest_for_chapter("p1",4) is None

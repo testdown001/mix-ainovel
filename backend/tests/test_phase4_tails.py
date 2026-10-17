@@ -121,12 +121,14 @@ async def test_urgency_brief_uses_scaled_threshold(db_session):
         Foreshadowing(
             project_id="p300", chapter_id=1, chapter_number=1,
             content="三百章项目的旧伏笔", type="hint", status="planted", name="旧伏笔",
+            origin="blueprint",
         )
     )
     db_session.add(
         Foreshadowing(
             project_id="p-none", chapter_id=1, chapter_number=1,
             content="无大纲项目的旧伏笔", type="hint", status="planted", name="旧伏笔",
+            origin="blueprint",
         )
     )
     await db_session.commit()

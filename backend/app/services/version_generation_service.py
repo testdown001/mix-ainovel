@@ -36,6 +36,7 @@ class VersionGenerationService:
         chapter_word_count_max: int,
         genre_profile: Optional[Dict[str, Any]],
         stream_callback: Optional[Callable[[str], Any]] = None,
+        context_sources: Optional[list[dict]] = None,
     ) -> Dict[str, Any]:
         orchestrator = self.orchestrator
         version_style_hints = orchestrator.generation_policy_service.resolve_style_hints(
@@ -72,6 +73,7 @@ class VersionGenerationService:
                 orchestrator.single_version_generation_service.generate(
                     index=idx,
                     prompt_input=draft_input,
+                    context_sources=context_sources,
                     writer_prompt=writer_prompt,
                     style_hint=style_hint,
                     project_id=project_id,

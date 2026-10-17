@@ -42,7 +42,7 @@ def _build_prefetch_service():
             prefetch_enhanced_context=lambda **kwargs: _return({})
         ),
         context_access_service=SimpleNamespace(
-            prefetch_project_memory_text=lambda project_id: _return("memory")
+            prefetch_project_memory_text=lambda project_id, **kwargs: _return("memory")
         ),
         evidence_router=SimpleNamespace(
             prefetch_local_plot=lambda **kwargs: _return({"chunks": []}),
@@ -324,11 +324,10 @@ async def test_prefetch_long_range_memory_reads_db(db_session):
     )
 
     assert result is not None
-    # 第35章属第4卷：取当前卷及前2卷（2/3/4），不含第1卷
-    assert "卷4摘要内容" in result["volume_summaries_text"]
-    assert "卷2摘要内容" in result["volume_summaries_text"]
-    assert "卷1摘要内容" not in result["volume_summaries_text"]
-    assert result["book_summary_text"] == "全书总结内容"
+    # Legacy aggregates have neither selected-version provenance nor a temporal
+    # contribution manifest. They must not leak the completed 40th chapter into 35.
+    assert result["volume_summaries_text"] is None
+    assert result["book_summary_text"] is None
 
 
 @pytest.mark.asyncio

@@ -81,6 +81,13 @@ class WorldStateService:
 
         state_data = request.state.model_dump(mode="json")
         state_hash = self.source_hash(state_data)
+        # Bind server-owned provenance only when this is the current adopted text.
+        # Draft-linked/manual-unbound snapshots remain stored but are not canon seeds.
+        from .chapter_derivation_service import build_source_ref, require_current_source
+        source = await build_source_ref(self.session, project_id=project_id, chapter_number=chapter_number)
+        if source is not None and request.source_version_id in (None, source.source_version_id):
+            await require_current_source(self.session, source, lock=True)
+            state_data["_source_ref"] = source.model_dump()
         # 一个切片描述的是本章定稿后的状态，因此父节点只能来自此前章节。
         # 同章的多次确认也各自保留，不互相篡改历史证据链。
         parent = await self.latest_before(project_id, chapter_number)
@@ -88,7 +95,7 @@ class WorldStateService:
             project_id=project_id,
             chapter_id=chapter.id,
             chapter_number=chapter_number,
-            source_version_id=request.source_version_id,
+            source_version_id=request.source_version_id if request.source_version_id is not None else (source.source_version_id if source else None),
             parent_snapshot_id=parent.id if parent else None,
             origin=request.origin,
             schema_version=request.state.schema_version,
@@ -121,9 +128,8 @@ class WorldStateService:
                 ChapterWorldState.chapter_number < target_chapter_number,
             )
             .order_by(ChapterWorldState.chapter_number.desc(), ChapterWorldState.id.desc())
-            .limit(1)
         )
-        return result.scalars().first()
+        return await self._first_current(result.scalars().all(), project_id, target_chapter_number)
 
     async def latest_for_chapter(
         self,
@@ -137,9 +143,21 @@ class WorldStateService:
                 ChapterWorldState.chapter_number == chapter_number,
             )
             .order_by(ChapterWorldState.id.desc())
-            .limit(1)
         )
-        return result.scalars().first()
+        return await self._first_current(result.scalars().all(), project_id, chapter_number + 1)
+
+    async def _first_current(self, records, project_id: str, before_chapter: int) -> ChapterWorldState | None:
+        from .retrieval_scope import build_retrieval_scope
+        scope = await build_retrieval_scope(project_id=project_id, before_chapter=before_chapter, session=self.session)
+        for record in records:
+            state = record.state or {}
+            source = state.get("_source_ref") or {}
+            visible = {key: value for key, value in state.items() if key != "_source_ref"}
+            if (record.source_version_id == source.get("source_version_id")
+                    and self.source_hash(visible) == record.source_hash
+                    and scope.accepts(record.chapter_number, source, require_index=False)):
+                return record
+        return None
 
     async def seed_for_chapter(
         self,

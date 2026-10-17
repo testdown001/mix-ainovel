@@ -61,11 +61,15 @@ class OutlineRevisionService:
         prompt_service: Any,
         user_id: int = 0,
         lookahead: Optional[int] = None,
+        source_ref=None,
     ) -> Dict[str, int]:
         """章节定稿后评审后续 K 章大纲是否过时，对需调整者写入 revision_hint。
 
         返回统计 {reviewed, hints_written}；无后续大纲/未配置提示词/异常 → 不写入并降级返回。
         """
+        if source_ref is not None:
+            from .chapter_derivation_service import require_current_source
+            await require_current_source(session, source_ref)
         lookahead = lookahead or self.DEFAULT_LOOKAHEAD
         stats = {"reviewed": 0, "hints_written": 0}
 
@@ -86,21 +90,40 @@ class OutlineRevisionService:
         stats["reviewed"] = len(downstream)
 
         user_input = self._build_user_input(chapter_content, current, downstream)
-        result = await llm_service.generate_structured(
-            prompt=user_input,
-            schema=OutlineRevisionResult,
-            system_prompt=prompt,
-            temperature=0.2,
-            user_id=user_id,
-            default=OutlineRevisionResult(),
-        )
+        before_plans = {outline.chapter_number: (outline.title, outline.summary) for outline in downstream}
+        from .chapter_derivation_service import load_derivation_checkpoint, save_derivation_checkpoint
+        cached = await load_derivation_checkpoint(session, source_ref, "extraction_outline") if source_ref else None
+        if cached:
+            result = OutlineRevisionResult.model_validate(cached)
+        else:
+            result = await llm_service.generate_structured(
+                prompt=user_input,
+                schema=OutlineRevisionResult,
+                system_prompt=prompt,
+                temperature=0.2,
+                user_id=user_id,
+                default=OutlineRevisionResult(),
+            )
 
+            if source_ref is not None:
+                await save_derivation_checkpoint(session, source_ref, "extraction_outline", result.model_dump())
+
+        if source_ref is not None:
+            await require_current_source(session, source_ref, lock=True)
         by_number = {o.chapter_number: o for o in downstream}
         for item in result.revisions:
             outline = by_number.get(item.chapter_number)
             if outline is None:
                 continue  # 越界/幻觉章号跳过
+            if source_ref is not None:
+                await session.refresh(outline)
+                if (outline.title, outline.summary) != before_plans[outline.chapter_number]:
+                    continue
             self._write_hint(outline, source_chapter=finalized_chapter_number, item=item)
+            if source_ref is not None:
+                meta = dict(outline.metadata or {})
+                meta["revision_hint"] = {**meta["revision_hint"], "source_ref": dict(source_ref)}
+                outline.metadata = meta
             stats["hints_written"] += 1
 
         if stats["hints_written"]:
@@ -170,6 +193,11 @@ class OutlineRevisionService:
                 hint = meta.get("revision_hint") if isinstance(meta, dict) else None
                 if not isinstance(hint, dict) or hint.get("status") != "pending":
                     return None
+                provenance = hint.get("source_ref")
+                if provenance:
+                    from .chapter_derivation_service import source_is_current
+                    if provenance.get("chapter_number", chapter_number) >= chapter_number or not await source_is_current(sess, provenance):
+                        return None
                 return self._format_brief(hint)
 
             if session is not None:

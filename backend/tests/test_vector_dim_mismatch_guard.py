@@ -18,6 +18,8 @@ from app.services.vector_store_service import VectorStoreService
 
 def _service(existing_dim):
     svc = VectorStoreService.__new__(VectorStoreService)
+    svc._embedding_fingerprint = "test-space"
+    svc._embedding_dimension = None
     svc._schema_ready = False
     client = AsyncMock()
     client.collection_exists = AsyncMock(return_value=True)  # 集合已存在 → 走校验分支

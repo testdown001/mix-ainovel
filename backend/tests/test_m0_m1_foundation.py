@@ -84,6 +84,14 @@ async def test_world_state_is_immutable_and_next_chapter_reads_previous_seed(db_
     version = ChapterVersion(chapter_id=first.id, content="陆沉在城门外拔剑。")
     db_session.add(version)
     await db_session.flush()
+    first.selected_version_id = version.id
+    first.revision_id = 1
+    second_version = ChapterVersion(chapter_id=second.id, content="陆沉回到城门，封锁已经解除。")
+    db_session.add(second_version)
+    await db_session.flush()
+    second.selected_version_id = second_version.id
+    second.revision_id = 1
+    await db_session.flush()
 
     service = WorldStateService(db_session)
     first_snapshot = await service.create_snapshot(

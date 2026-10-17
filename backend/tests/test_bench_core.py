@@ -213,21 +213,22 @@ async def test_seed_scenario_vectors_ingests_each_prior_chapter(db_session, monk
     calls = []
 
     class FakeIngestion:
-        def __init__(self, *, llm_service):
+        def __init__(self, session, llm_service):
             pass
 
         async def ingest_chapter(self, **kwargs):
             calls.append(kwargs)
 
     monkeypatch.setattr(bench_fixtures, "LLMService", _FakeLLMForVectors)
-    monkeypatch.setattr(bench_fixtures, "ChapterIngestionService", FakeIngestion)
+    monkeypatch.setattr(bench_fixtures, "ChapterPostProcessor", FakeIngestion)
 
     scenario = _demo()
-    ok = await seed_scenario_vectors(db_session, scenario, "pid-vec")
+    project_id = await seed_scenario(db_session, scenario, "vectors-success")
+    ok = await seed_scenario_vectors(db_session, scenario, project_id)
     assert ok is True
     assert [call["chapter_number"] for call in calls] == [1, 2, 3]
     for call, prior in zip(calls, scenario.prior_chapters):
-        assert call["project_id"] == "pid-vec"
+        assert call["project_id"] == project_id
         assert call["content"] == prior.content
         assert call["summary"] == prior.summary
 
@@ -240,40 +241,22 @@ async def test_seed_scenario_vectors_degrades_on_failure(db_session, monkeypatch
     monkeypatch.setattr(type(bench_fixtures.settings), "vector_store_enabled", False)
     assert await seed_scenario_vectors(db_session, scenario, "pid") is False
 
-    # ② embedding 探针失败（返回 []）：False，且不逐章调用
+    # No independent embedding probe: production ingestion prepares the complete
+    # batch and returns an acknowledged receipt or raises. Missing project is safe.
     _enable_vector_store(monkeypatch)
-    calls = []
+    assert await seed_scenario_vectors(db_session, scenario, "not-a-project") is False
+    project_id = await seed_scenario(db_session, scenario, "vectors-failure")
 
-    class ProbeFailLLM:
-        def __init__(self, session):
-            pass
-
-        async def get_embedding(self, text, **kwargs):
-            return []
-
-    class NeverIngestion:
-        def __init__(self, *, llm_service):
-            pass
-
-        async def ingest_chapter(self, **kwargs):
-            calls.append(kwargs)
-
-    monkeypatch.setattr(bench_fixtures, "LLMService", ProbeFailLLM)
-    monkeypatch.setattr(bench_fixtures, "ChapterIngestionService", NeverIngestion)
-    assert await seed_scenario_vectors(db_session, scenario, "pid") is False
-    assert calls == []
-
-    # ③ 入库中途抛异常（如 Qdrant 挂了）：捕获降级 False，不上抛
-    class BoomIngestion:
-        def __init__(self, *, llm_service):
+    class BoomProcessor:
+        def __init__(self, session, llm_service):
             pass
 
         async def ingest_chapter(self, **kwargs):
             raise RuntimeError("qdrant down")
 
     monkeypatch.setattr(bench_fixtures, "LLMService", _FakeLLMForVectors)
-    monkeypatch.setattr(bench_fixtures, "ChapterIngestionService", BoomIngestion)
-    assert await seed_scenario_vectors(db_session, scenario, "pid") is False
+    monkeypatch.setattr(bench_fixtures, "ChapterPostProcessor", BoomProcessor)
+    assert await seed_scenario_vectors(db_session, scenario, project_id) is False
 
 
 # ---------------------------------------------------------------------------

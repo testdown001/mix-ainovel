@@ -360,6 +360,8 @@ class BatchGenerateResponse(BaseModel):
 class FinalizeChapterRequest(BaseModel):
     project_id: str
     selected_version_id: int
+    expected_revision_id: Optional[int] = Field(default=None, ge=0)
+    expected_content_hash: Optional[str] = None
     skip_vector_update: Optional[bool] = Field(default=False, description="是否跳过向量库更新")
 
 
@@ -372,7 +374,10 @@ class FinalizeChapterResponse(BaseModel):
 
 class SelectVersionRequest(BaseModel):
     chapter_number: int
-    version_index: int
+    version_index: Optional[int] = Field(default=None, ge=0)
+    version_id: Optional[int] = Field(default=None, gt=0)
+    expected_revision_id: Optional[int] = Field(default=None, ge=0)
+    expected_content_hash: Optional[str] = None
 
 
 class EvaluateChapterRequest(BaseModel):

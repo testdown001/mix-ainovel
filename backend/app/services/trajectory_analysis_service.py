@@ -27,6 +27,12 @@ class TrajectoryAnalysisService:
         两部分各自独立 try/except 降级：偏差比对仅在精品档(有 CharacterState 快照)产出，
         其余档位静默返回 None，不改变既有行为。
         """
+        from .chapter_planning_service import get_outline_planning, resolve_emotional_intent
+        outline = next((item for item in (getattr(project, "outlines", None) or [])
+                        if getattr(item, "chapter_number", None) == chapter_number), None)
+        intention = resolve_emotional_intent(get_outline_planning(getattr(outline, "metadata_", None)))
+        if intention.get("emotional_intent") == "quiet":
+            return "本章是安静/余波章节：保留人物选择和关系的余波，不按通用曲线强加高潮、牺牲或反转。"
         guidance_text = await self._build_guidance_text(
             project_id=project_id, project=project, chapter_number=chapter_number
         )
@@ -100,7 +106,7 @@ class TrajectoryAnalysisService:
             )
             text = "\n".join(
                 [
-                    f"故事形状: {analysis.shape.value} (置信度{analysis.shape_confidence:.0%})",
+                    f"人物情绪状态代理（不是读者情绪测量）\n故事形状: {analysis.shape.value} (置信度{analysis.shape_confidence:.0%})",
                     f"波动性: {analysis.volatility:.2f}",
                     f"总体评估: {guidance.overall_assessment}",
                     "建议:",
@@ -170,7 +176,7 @@ class TrajectoryAnalysisService:
             selected_version = getattr(chapter, "selected_version", None)
             if not selected_version:
                 continue
-            metadata = getattr(selected_version, "metadata_", None) or {}
+            metadata = getattr(selected_version, "metadata_", None) or getattr(selected_version, "metadata", None) or {}
             mission = metadata.get("chapter_mission", {}) if isinstance(metadata, dict) else {}
             satisfaction = mission.get("satisfaction_design", {}) if isinstance(mission, dict) else {}
             # 优先用 CharacterState 实际情绪峰值；缺则退回 mission 规划强度（当前全仓从无写入）；再退默认 5.0

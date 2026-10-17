@@ -350,6 +350,8 @@ export interface CharacterFocus {
 }
 
 export interface ChapterPlanning {
+  emotional_intent?: 'quiet' | 'balanced' | 'intense'
+  reader_effect?: string
   chapter_function?: string
   hook_type?: string
   coolpoint?: string
@@ -1456,12 +1458,14 @@ export class NovelAPI {
     projectId: string,
     chapterNumber: number,
     versionIndex: number,
+    baseline: { version_id: number; expected_revision_id: number; expected_content_hash: string },
   ): Promise<NovelProject> {
     return request(`${WRITER_BASE}/${projectId}/chapters/select`, {
       method: 'POST',
       body: JSON.stringify({
         chapter_number: chapterNumber,
         version_index: versionIndex,
+        ...baseline,
       }),
     })
   }
@@ -2113,7 +2117,13 @@ export interface WritingArchive {
   created_at: string | null
 }
 
-export interface WritingArchiveDetail extends WritingArchive {
+export interface GenerationReceipts {
+  version_id?: number | null
+  context_receipt?: Record<string, unknown> | null
+  execution_receipt?: Record<string, unknown> | null
+}
+
+export interface WritingArchiveDetail extends WritingArchive, GenerationReceipts {
   stages: Record<string, any> | null
   logs: Array<{
     timestamp: string
@@ -2146,9 +2156,9 @@ export const archiveApi = {
   },
 
   // 获取章节最新档案
-  async getLatestArchive(projectId: string, chapterNumber: number): Promise<WritingArchive> {
+  async getLatestArchive(projectId: string, chapterNumber: number, versionId?: number): Promise<WritingArchive> {
     return request(
-      `${API_PREFIX}/writer/novels/${projectId}/archives/chapter/${chapterNumber}/latest`,
+      `${API_PREFIX}/writer/novels/${projectId}/archives/chapter/${chapterNumber}/latest${versionId ? `?version_id=${versionId}` : ''}`,
     )
   },
 
@@ -2173,12 +2183,76 @@ export const archiveApi = {
 // ---- 诊断 API ----
 export const diagnosticApi = {
   // 诊断单章生成质量和性能
-  async diagnoseChapter(projectId: string, chapterNumber: number) {
-    return request(`${API_PREFIX}/writer/novels/${projectId}/chapters/${chapterNumber}/diagnose`)
+  async diagnoseChapter(projectId: string, chapterNumber: number, versionId?: number) {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/chapters/${chapterNumber}/diagnose${versionId ? `?version_id=${versionId}` : ''}`)
   },
 
   // 诊断整本书生成质量和性能
   async diagnoseProject(projectId: string) {
     return request(`${API_PREFIX}/writer/novels/${projectId}/diagnose`)
+  },
+}
+
+// Version-bound, read-only canon immediately before the requested chapter.
+export type NarrativeCoverageStatus = 'ready' | 'missing' | 'invalid' | 'stale' | 'not_requested'
+
+export interface NarrativeFact {
+  entity: string
+  attribute: string
+  value: string
+  evidence: string
+  related_entities?: string[]
+  source_chapter: number
+  source_version?: number | null
+}
+
+export interface NarrativePromise {
+  id: string
+  question: string
+  character: string
+  evidence: string
+  status: 'open' | 'closed'
+  source_chapter: number
+  source_version?: number | null
+  expected_payoff_chapter?: number | null
+  resolved_chapter?: number
+  resolution?: { evidence: string; change: string }
+}
+
+export interface NarrativeStateView {
+  project_id: string
+  chapter_number: number
+  lineage: string
+  facts: NarrativeFact[]
+  relationships: NarrativeFact[]
+  open_promises: NarrativePromise[]
+  closed_promises: NarrativePromise[]
+  conflicts: NarrativeFact[][]
+  reader: Record<string, unknown>
+  reference_contract?: {
+    status: string
+    source_kind: string
+    original_full_text_read: boolean
+    sources: { id: number; title: string; status: string }[]
+    structure_references: { from?: string; source?: string; role: string; take: string; adapt: string; evidence: string }[]
+    evidence_limits: string
+  }
+  coverage: {
+    status: 'ready' | 'partial' | 'missing'
+    total_chapters: number
+    ready_chapters: number
+    chapters: {
+      chapter_number: number
+      version_id: number | null
+      content_hash?: string
+      status: NarrativeCoverageStatus
+      reason?: string
+    }[]
+  }
+}
+
+export const narrativeStateApi = {
+  async get(projectId: string, chapterNumber: number): Promise<NarrativeStateView> {
+    return request(`${API_PREFIX}/writer/novels/${projectId}/chapters/${chapterNumber}/narrative-state`)
   },
 }

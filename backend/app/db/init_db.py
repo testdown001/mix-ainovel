@@ -38,6 +38,7 @@ _SCHEMA_MISMATCH_MARKERS = (
     "Unknown column 'chapters.sort_key'",
     "Unknown column 'chapters.revision_id'",
     "Unknown column 'chapters.content_hash'",
+    "Unknown column 'chapters.active_index_revision_id'",
     "Unknown column 'chapter_versions.parent_version_id'",
     "Unknown column 'chapter_versions.source'",
     "Unknown column 'chapter_versions.content_hash'",
@@ -229,6 +230,7 @@ async def _ensure_schema_updates() -> None:
                     "sort_key": "sort_key INT NOT NULL DEFAULT 0",
                     "revision_id": "revision_id INT NOT NULL DEFAULT 0",
                     "content_hash": "content_hash VARCHAR(64) NULL",
+                    "active_index_revision_id": "active_index_revision_id VARCHAR(64) NULL",
                 },
             )
 
@@ -239,6 +241,13 @@ async def _ensure_schema_updates() -> None:
                     "benchmark_texts": "benchmark_texts JSON",
                 },
             )
+            _ensure_columns("foreshadowings", {
+                "source_derivation_id": "source_derivation_id VARCHAR(36) NULL",
+                "origin": "origin VARCHAR(16) NOT NULL DEFAULT 'legacy'",
+            })
+            _ensure_columns("foreshadowing_resolutions", {
+                "source_derivation_id": "source_derivation_id VARCHAR(36) NULL",
+            })
 
             _ensure_columns(
                 "novel_blueprints",

@@ -109,6 +109,10 @@ def test_task_worker_uses_hybrid_executor_contract(monkeypatch):
         "versions_count": 1,
         "best_version_index": 0,
         "preset": "agent",
+        "best_version_id": 7,
+        "version_ids": [7],
+        "adoption_baseline": {"revision_id": 0,
+            "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
         "performance": {
             "stage_timings_ms": {"total_pipeline": 1200},
             "llm_metrics": {"summary": {"call_count": 1}, "calls": [{"duration_ms": 900}]},
@@ -153,6 +157,8 @@ def test_batch_generate_auto_selects_best_version_and_reports_partial(monkeypatc
         schedule_next_mission=False,
         schedule_post_process=False,
         deferred_post_process=[],
+        version_id=None,
+        adoption_baseline=None,
     )
     first_generate_request = generate.await_args_list[0].args[0]
     assert first_generate_request.config.extra["skip_history_summary_backfill"] is True
@@ -212,6 +218,8 @@ def test_batch_generate_reuses_completed_chapter_without_regenerating(monkeypatc
         schedule_next_mission=False,
         schedule_post_process=False,
         deferred_post_process=[],
+        version_id=None,
+        adoption_baseline=None,
     )
     assert result["completed"] == 2
     assert result["failed"] == 0
@@ -244,6 +252,8 @@ def test_batch_generate_defers_post_process_and_reports_atomic_eta(monkeypatch):
         schedule_next_mission,
         schedule_post_process,
         deferred_post_process,
+        version_id=None,
+        adoption_baseline=None,
     ):
         assert schedule_next_mission is False
         assert schedule_post_process is False
@@ -331,7 +341,7 @@ def test_single_generation_auto_selects_when_requested(monkeypatch):
 
     assert response.status == "completed"
     assert response.result["selected_version_id"] == 901
-    select.assert_awaited_once_with(req, 9, 1)
+    select.assert_awaited_once_with(req, 9, 1, version_id=None, adoption_baseline=None)
 
 
 def test_progress_reporter_sends_internal_secret(monkeypatch):

@@ -6,7 +6,7 @@
    partial_text 保留半截内容，且不触发兜底通道重试（截断非通道故障）；
 3. 写作路径（single_version）：截断→提升 max_tokens 重试一次；再截断→502 失败；
    与无效正文重试不叠加，全程最多 3 次调用；
-4. 场景路径（scene）：截断→提升 max_tokens 重试一次；再截断→保留 partial_text，场景级不整章失败。
+4. 场景路径（scene）：截断→提升 max_tokens 重试；仍失败则局部重试本场，最终失败保留已完成场景作为 partial_text，不发布残章。
 """
 import asyncio
 from types import SimpleNamespace
@@ -20,6 +20,8 @@ from app.core.config import settings
 from app.services.llm_service import LLMResponseTruncated, LLMService
 from app.services.generation_telemetry_service import GenerationTelemetryService
 from app.services.scene_generation_service import SceneGenerationService
+from app.services.generation_quality_gate import GenerationQualityError
+from tests.scene_fakes import scene_structured_response
 from app.services.single_version_generation_service import SingleVersionGenerationService
 
 VALID_CHAPTER_BODY = (
@@ -145,6 +147,11 @@ class _ScriptedLLM:
     def __init__(self, script):
         self.script = list(script)
         self.calls = []
+        self.structured_calls = []
+
+    async def generate_structured(self, **kwargs):
+        self.structured_calls.append(kwargs)
+        return await scene_structured_response(**kwargs)
 
     async def get_llm_response(self, **kwargs):
         self.calls.append(kwargs)
@@ -313,7 +320,7 @@ def _run_scene(service):
 
 def test_scene_truncation_retries_with_raised_max_tokens():
     llm = _ScriptedLLM(
-        [LLMResponseTruncated("场景一残句"), "场景一正文，江面起了雾。", "场景二正文，钟声敲了三下。"]
+        [LLMResponseTruncated("场景一残句"), "场景一正文，江面起了雾。" * 12, "场景二正文，钟声敲了三下。" * 12]
     )
     service = _scene_service(llm)
 
@@ -329,22 +336,28 @@ def test_scene_truncation_retries_with_raised_max_tokens():
     assert "场景一正文" in result["content"]
     assert "场景二正文" in result["content"]
     assert "残句" not in result["content"]
+    assert len(llm.structured_calls) == 3  # director + the two complete scene checks
 
 
-def test_scene_double_truncation_keeps_partial_text():
-    """场景重试仍截断：保留 partial_text 继续拼章，不整章失败。"""
-    llm = _ScriptedLLM(
-        [
-            LLMResponseTruncated("场景一残句甲"),
-            LLMResponseTruncated("场景一残句乙"),
-            "场景二正文，钟声敲了三下。",
-        ]
-    )
+def test_scene_repeated_truncation_preserves_completed_partial_without_publishing():
+    """Missing scenes fail closed, while a completed predecessor remains recoverable."""
+    first_scene = "场景一正文，江面起了雾。" * 12
+    llm = _ScriptedLLM([
+        first_scene,
+        LLMResponseTruncated("场景二残句甲"), LLMResponseTruncated("场景二残句乙"),
+        LLMResponseTruncated("场景二残句丙"), LLMResponseTruncated("场景二残句丁"),
+    ])
     service = _scene_service(llm)
-
-    result = _run_scene(service)
-
-    assert len(llm.calls) == 3
-    # 保留的是重试那次的半截内容
-    assert "场景一残句乙" in result["content"]
-    assert "场景二正文" in result["content"]
+    with pytest.raises(GenerationQualityError) as failed:
+        _run_scene(service)
+    # Complete scene one is retained for recovery, never overwritten by an incomplete scene.
+    assert failed.value.partial_text == first_scene
+    assert "残句" not in failed.value.partial_text
+    assert failed.value.report["missing_scenes"] == [2]
+    assert failed.value.report["completed_scenes"] == 1
+    assert len(llm.calls) == 5
+    assert all(call["fail_on_truncation"] is True for call in llm.calls)
+    assert llm.calls[1]["max_tokens"] == llm.calls[3]["max_tokens"] == 1260
+    assert llm.calls[2]["max_tokens"] == llm.calls[4]["max_tokens"] == min(settings.writer_max_tokens, 1890)
+    # One director contract call and one successful scene verification; no fake verification of partial prose.
+    assert len(llm.structured_calls) == 2

@@ -172,3 +172,23 @@ Qdrant 里该项目的章节向量（Qdrant 不可用时仅 warning，不阻断�
 - bench 用户不做积分计费（走同步管线路径，不经 task_worker 扣费口），成本就是 LLM 调用本身。
 - `fast` 档不在内置配置里（它是免费兜底档，不参与质量对比）；需要时可在
   `configs.py` 里加 `BenchConfig(name="fast", preset="fast")`。
+
+## 采用稿、执行收据与成本口径
+
+- 先行章在独立 `ai_test` 项目中具有修订号、正文哈希和摘要来源。向量播种走完整写入收据与采用来源 CAS 激活；没有有效来源或写入失败的样本标记 `vectors_seeded=false`，不拿旧向量假装检索有效，也不额外请求 embedding 探针。
+- 真实落库的最佳候选由统一采用服务选为 benchmark 正文，JSON 的 `output_basis=adopted_manuscript` 和 `adoption_receipt` 保留版本、哈希与修订号。未持久化的测试替身只算 `recommended_candidate`，不进入每千字采用稿统计；真实作者项目不能被此路径采用或改写。
+- `resolved_config` 缺失时仅记录 `configured_stages` 并标记 `completeness=partial`。`execution_receipt` 优先保存最佳候选的真实步骤收据；旧数据保持 `unknown`，配置开启不等于实际执行、评审完成不等于修改正文。
+- token 来自已有 `debug_metadata.llm_metrics`，不增加模型请求，沿用已有“提供方实际 usage 优先、缺失则原有估算”的精度。统计范围是章节生成，不含夹具索引、独立评审和后台派生。
+- 可在通用系统配置中设置 `bench.model_prices` JSON，键为真实 provider 模型标识，单价为管理员提供的每百万输入/输出 token 价格。该配置仅用于报告估算，不改变作者积分计费。例如以下数值是**格式示例而非真实报价**：
+
+```json
+{
+  "your-provider-model": {
+    "currency": "USD",
+    "input_per_million": 1.0,
+    "output_per_million": 2.0
+  }
+}
+```
+
+运行开始时冻结价格快照。金额非账单实付；任一模型未定价、用量缺失或混用币种时显示 `unknown`，不当作零费用。报告新增每千字采用稿的 token、时延与模型费用；不同币种不相加。

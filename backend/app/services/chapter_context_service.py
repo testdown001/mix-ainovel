@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from dataclasses import asdict, dataclass, field, replace
+from typing import Any, Dict, List, Optional, Sequence
 
 from ..core.config import settings
 from ..services.llm_service import LLMService
 from .vector_store_service import RetrievedChunk, RetrievedSummary, VectorStoreService
+from .retrieval_scope import RetrievalScope, build_retrieval_scope
+from .embedding_index_config import resolve_embedding_identity
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,7 @@ class ChapterRAGContext:
     query: str
     chunks: List[RetrievedChunk]
     summaries: List[RetrievedSummary]
+    receipt: Dict[str, Any] = field(default_factory=dict)
 
     def chunk_texts(self) -> List[str]:
         """将检索到的 chunk 转换成带序号的 Markdown 段落。"""
@@ -48,6 +51,32 @@ class ChapterRAGContext:
         return lines
 
 
+    def to_payload(self) -> Dict[str, Any]:
+        return {"chunks": self.chunk_texts(), "summaries": self.summary_lines(),
+                "chunk_records": [asdict(chunk) for chunk in self.chunks],
+                "summary_records": [asdict(summary) for summary in self.summaries],
+                "context_receipt": dict(self.receipt)}
+
+
+def validate_rag_payload(payload: Dict[str, Any], scope: RetrievalScope) -> Dict[str, Any]:
+    """Revalidate prefetched evidence at the final consumer; never trust old strings."""
+    chunks = [RetrievedChunk(**{key: item[key] for key in
+              ("content", "chapter_number", "chapter_title", "score", "metadata", "score_kind")
+              if key in item})
+              for item in payload.get("chunk_records", []) if isinstance(item, dict)
+              and scope.accepts(item.get("chapter_number"), item.get("metadata"))]
+    summaries = [RetrievedSummary(**{key: item[key] for key in
+                 ("chapter_number", "title", "summary", "score", "metadata", "score_kind")
+                 if key in item})
+                 for item in payload.get("summary_records", []) if isinstance(item, dict)
+                 and (scope.accepts_aggregate(item.get("metadata"))
+                      if (item.get("metadata") or {}).get("contributing_sources")
+                      else scope.accepts(item.get("chapter_number"), item.get("metadata")))]
+    receipt = dict(payload.get("context_receipt") or {})
+    receipt.update(revalidated=True, injected=len(chunks), summaries=len(summaries))
+    return ChapterRAGContext("", chunks, summaries, receipt).to_payload()
+
+
 class ChapterContextService:
     """章节上下文服务，整合查询、格式化与容错逻辑。"""
 
@@ -61,271 +90,149 @@ class ChapterContextService:
         self._vector_store = vector_store
 
     async def retrieve_for_generation(
-        self,
-        *,
-        project_id: str,
-        query_text: str,
-        user_id: int,
-        top_k_chunks: Optional[int] = None,
-        top_k_summaries: Optional[int] = None,
-        retrieval_mode: str = "vector",
+        self, *, project_id: str, query_text: str, user_id: int,
+        top_k_chunks: Optional[int] = None, top_k_summaries: Optional[int] = None,
+        retrieval_mode: str = "vector", scope: Optional[RetrievalScope] = None,
+        before_chapter: Optional[int] = None,
     ) -> ChapterRAGContext:
-        """根据章节摘要构造检索向量，并返回 RAG 上下文。"""
-        query = self._normalize(query_text)
-        if not settings.vector_store_enabled or not self._vector_store:
-            logger.error("向量库未启用或初始化失败，跳过检索: project=%s", project_id)
-            return ChapterRAGContext(query=query, chunks=[], summaries=[])
-
-        # get_embedding 会自动根据配置选择正确的模型
-        embedding = await self._llm_service.get_embedding(query, user_id=user_id)
-        if not embedding:
-            logger.warning("检索查询向量生成失败: project=%s chapter_query=%s", project_id, query)
-            return ChapterRAGContext(query=query, chunks=[], summaries=[])
-
-        from ..utils.rerank_utils import is_rerank_enabled, rerank_documents
-        need_rerank = await is_rerank_enabled()
-
-        # 混合检索模式
-        if retrieval_mode == "hybrid":
-            try:
-                from .hybrid_retrieval_service import HybridRetrievalService
-                effective_top_k_hybrid = top_k_chunks or settings.vector_top_k_chunks
-                hybrid = HybridRetrievalService(
-                    vector_store=self._vector_store,
-                    llm_service=self._llm_service,
-                )
-                hybrid_results = await hybrid.hybrid_search(
-                    project_id=project_id,
-                    query_text=query,
-                    query_embedding=embedding,
-                    top_k=effective_top_k_hybrid * 2 if need_rerank else effective_top_k_hybrid,
-                    user_id=user_id,
-                )
-                chunks = hybrid_results.get("chunks", [])
-                summaries = hybrid_results.get("summaries", [])
-
-                if need_rerank and chunks:
-                    docs = [c.content for c in chunks]
-                    orig = [c.score for c in chunks]
-                    scored = await rerank_documents(query, docs, original_scores=orig, top_n=len(docs))
-                    if scored:
-                        reranked = []
-                        for item in scored:
-                            idx = item["index"]
-                            if idx < len(chunks):
-                                chunks[idx] = RetrievedChunk(
-                                    content=chunks[idx].content,
-                                    chapter_number=chunks[idx].chapter_number,
-                                    chapter_title=chunks[idx].chapter_title,
-                                    score=item["combined_score"],
-                                    metadata=chunks[idx].metadata,
-                                )
-                                reranked.append(chunks[idx])
-                        chunks = reranked[:effective_top_k_hybrid]
-
-                logger.info(
-                    "混合检索完成: project=%s chunks=%d summaries=%d reranked=%s",
-                    project_id, len(chunks), len(summaries), need_rerank,
-                )
-                return ChapterRAGContext(query=query, chunks=chunks, summaries=summaries)
-            except Exception as exc:
-                logger.warning("混合检索失败，回退到纯向量检索: %s", exc)
-
-        effective_top_k = top_k_chunks or settings.vector_top_k_chunks
-
-        chunks = await self._vector_store.query_chunks(
-            project_id=project_id,
-            embedding=embedding,
-            top_k=effective_top_k * 2 if need_rerank else effective_top_k,
+        """The single-query path shares the same filtering and receipt contract."""
+        return await self.retrieve_multi_query(
+            project_id=project_id, queries=[query_text], user_id=user_id,
+            top_k_chunks=top_k_chunks, top_k_summaries=top_k_summaries,
+            retrieval_mode=retrieval_mode, scope=scope, before_chapter=before_chapter,
         )
-
-        if need_rerank and chunks:
-            documents = [c.content for c in chunks]
-            original_scores = [c.score for c in chunks]
-            scored = await rerank_documents(
-                query, documents, original_scores=original_scores, top_n=len(documents),
-            )
-            if scored:
-                reranked = []
-                for item in scored:
-                    idx = item["index"]
-                    if idx < len(chunks):
-                        chunks[idx] = RetrievedChunk(
-                            content=chunks[idx].content,
-                            chapter_number=chunks[idx].chapter_number,
-                            chapter_title=chunks[idx].chapter_title,
-                            score=item["combined_score"],
-                            metadata=chunks[idx].metadata,
-                        )
-                        reranked.append(chunks[idx])
-                chunks = reranked[:effective_top_k]
-
-        summaries = await self._vector_store.query_summaries(
-            project_id=project_id,
-            embedding=embedding,
-            top_k=top_k_summaries,
-        )
-        logger.info(
-            "章节上下文检索完成: project=%s chunks=%d summaries=%d reranked=%s query_preview=%s",
-            project_id,
-            len(chunks),
-            len(summaries),
-            need_rerank,
-            query[:80],
-        )
-        return ChapterRAGContext(query=query, chunks=chunks, summaries=summaries)
 
     async def retrieve_multi_query(
-        self,
-        *,
-        project_id: str,
-        queries: List[str],
-        user_id: int,
-        top_k_chunks: Optional[int] = None,
-        top_k_summaries: Optional[int] = None,
-        retrieval_mode: str = "vector",
-        min_score: Optional[float] = None,
+        self, *, project_id: str, queries: List[str], user_id: int,
+        top_k_chunks: Optional[int] = None, top_k_summaries: Optional[int] = None,
+        retrieval_mode: str = "vector", min_score: Optional[float] = None,
+        scope: Optional[RetrievalScope] = None, before_chapter: Optional[int] = None,
     ) -> ChapterRAGContext:
-        """多查询检索：每个 query 独立 embedding+检索，合并去重后返回。
-
-        相比单查询，多查询可避免长文本向量被稀释的问题，
-        每个聚焦查询独立匹配，命中率更高。
-        """
-        if not queries:
-            return ChapterRAGContext(query="", chunks=[], summaries=[])
-
-        if not settings.vector_store_enabled or not self._vector_store:
-            logger.error("向量库未启用或初始化失败，跳过检索: project=%s", project_id)
-            return ChapterRAGContext(query=queries[0], chunks=[], summaries=[])
-
+        """Retrieve factual evidence, never compare RRF/rerank scores with cosine."""
+        normalized = [self._normalize(q) for q in queries if q and q.strip()]
+        query = normalized[0] if normalized else ""
+        receipt: Dict[str, Any] = {"status": "skipped", "mode": retrieval_mode,
+                                  "raw": 0, "deduped": 0, "threshold_filtered": 0,
+                                  "provenance_filtered": 0, "injected": 0}
+        empty = ChapterRAGContext(query, [], [], receipt)
+        if not normalized or not settings.vector_store_enabled or not self._vector_store:
+            receipt["reason"] = "empty_queries_or_store_unavailable"
+            return empty
+        if scope is None and before_chapter is not None:
+            try:
+                scope = await build_retrieval_scope(project_id=project_id, before_chapter=before_chapter)
+            except Exception:
+                logger.exception("Unable to construct factual retrieval scope: project=%s", project_id)
+                receipt["reason"] = "scope_unavailable"
+                return empty
+        if scope is None or scope.project_id != project_id:
+            receipt["reason"] = "missing_retrieval_scope"
+            return empty
+        receipt["before_chapter"] = scope.before_chapter
         if min_score is None:
             min_score = getattr(settings, "rag_min_score", 0.35)
-
-        effective_top_k = top_k_chunks or settings.vector_top_k_chunks
-
+        top_k = top_k_chunks or settings.vector_top_k_chunks
         from ..utils.rerank_utils import is_rerank_enabled, rerank_documents
         need_rerank = await is_rerank_enabled()
-        per_query_k = effective_top_k  # 每个 query 取 top_k 条
+        identity = await resolve_embedding_identity(self._llm_service, user_id=user_id)
+        embeddings = await self._llm_service.get_embeddings_batch(normalized, user_id=user_id)
+        if identity != await resolve_embedding_identity(self._llm_service, user_id=user_id):
+            receipt["reason"] = "embedding_configuration_changed_during_query"
+            return empty
+        dimensions = {len(embedding) for embedding in embeddings if embedding}
+        if len(dimensions) > 1:
+            receipt["reason"] = "inconsistent_embedding_dimensions"
+            return empty
+        configure = getattr(self._vector_store, "configure_embedding", None)
+        if dimensions and configure is not None:
+            fingerprint = await configure(dimension=next(iter(dimensions)), identity=identity)
+            receipt["embedding_fingerprint"] = fingerprint
 
-        # ---- 批量生成所有 query 的 embedding ----
-        normalized = [self._normalize(q) for q in queries if q and q.strip()]
-        if not normalized:
-            return ChapterRAGContext(query="", chunks=[], summaries=[])
-
-        embeddings: List[List[float]] = await self._llm_service.get_embeddings_batch(
-            normalized, user_id=user_id,
-        )
-
-        # ---- 并行检索每个 query ----
-        async def _search_single(query_text: str, emb: Sequence[float]) -> List[RetrievedChunk]:
+        async def search_one(text: str, embedding: Sequence[float]) -> List[RetrievedChunk]:
             if retrieval_mode == "hybrid":
                 try:
                     from .hybrid_retrieval_service import HybridRetrievalService
-                    hybrid = HybridRetrievalService(
-                        vector_store=self._vector_store,
-                        llm_service=self._llm_service,
+                    result = await HybridRetrievalService(self._vector_store).hybrid_search(
+                        project_id=project_id, query_text=text, query_embedding=embedding,
+                        top_k=top_k, user_id=user_id, scope=scope,
                     )
-                    result = await hybrid.hybrid_search(
-                        project_id=project_id,
-                        query_text=query_text,
-                        query_embedding=emb,
-                        top_k=per_query_k,
-                        user_id=user_id,
-                    )
-                    return result.get("chunks", [])
-                except Exception:
-                    pass  # 回退到纯向量
-
-            return await self._vector_store.query_chunks(
-                project_id=project_id,
-                embedding=emb,
-                top_k=per_query_k,
+                    chunks = result.get("chunks", [])
+                    # Defend the merge boundary even against legacy hybrid adapters.
+                    if all(getattr(chunk, "score_kind", "cosine") == "rrf" for chunk in chunks):
+                        return chunks
+                    return self._as_rank_scores(chunks)
+                except Exception as exc:
+                    logger.warning("Hybrid query degraded to vector ranking: %s", exc)
+                    receipt["degraded"] = True
+            chunks = await self._vector_store.query_chunks(
+                project_id=project_id, embedding=embedding, top_k=top_k, scope=scope,
             )
+            if retrieval_mode == "hybrid":
+                return self._as_rank_scores(chunks)
+            return chunks
 
-        search_tasks = []
-        valid_queries = []
-        for q, emb in zip(normalized, embeddings):
-            if emb:
-                search_tasks.append(_search_single(q, emb))
-                valid_queries.append(q)
-
-        if not search_tasks:
-            logger.warning("多查询RAG: 所有 embedding 生成失败 project=%s", project_id)
-            return ChapterRAGContext(query=normalized[0], chunks=[], summaries=[])
-
-        all_chunk_results: List[List[RetrievedChunk]] = await asyncio.gather(*search_tasks)
-
-        # ---- 合并去重：按 chunk_id 保留最高分 ----
+        results = await asyncio.gather(*(
+            search_one(text, embedding) for text, embedding in zip(normalized, embeddings) if embedding
+        ))
         merged: Dict[str, RetrievedChunk] = {}
-        total_raw = 0
-        for chunk_list in all_chunk_results:
-            total_raw += len(chunk_list)
-            for chunk in chunk_list:
-                cid = chunk.metadata.get("chunk_id", f"{chunk.chapter_number}:{chunk.content[:50]}")
-                if cid not in merged or chunk.score > merged[cid].score:
-                    merged[cid] = chunk
-
-        deduped = list(merged.values())
-        deduped_count = len(deduped)
-
-        # ---- 分数门槛过滤 ----
-        if min_score > 0:
-            deduped = [c for c in deduped if c.score >= min_score]
-        filtered_count = len(deduped)
-
-        # ---- 排序 + 截断 ----
-        deduped.sort(key=lambda c: c.score, reverse=True)
-        final_chunks = deduped[:effective_top_k * 2 if need_rerank else effective_top_k]
-
-        # ---- Rerank（合并后统一重排） ----
-        if need_rerank and final_chunks:
-            combined_query = " ".join(valid_queries[:2])  # 用前两个 query 做 rerank
-            docs = [c.content for c in final_chunks]
-            orig_scores = [c.score for c in final_chunks]
-            scored = await rerank_documents(
-                combined_query, docs, original_scores=orig_scores, top_n=len(docs),
-            )
-            if scored:
-                reranked = []
-                for item in scored:
-                    idx = item["index"]
-                    if idx < len(final_chunks):
-                        final_chunks[idx] = RetrievedChunk(
-                            content=final_chunks[idx].content,
-                            chapter_number=final_chunks[idx].chapter_number,
-                            chapter_title=final_chunks[idx].chapter_title,
-                            score=item["combined_score"],
-                            metadata=final_chunks[idx].metadata,
-                        )
-                        reranked.append(final_chunks[idx])
-                final_chunks = reranked[:effective_top_k]
-            else:
-                final_chunks = final_chunks[:effective_top_k]
-        final_count = len(final_chunks)
-
-        # ---- 摘要检索：用第一个有效 embedding ----
-        summaries: List[RetrievedSummary] = []
-        first_emb = next((e for e in embeddings if e), None)
-        if first_emb:
+        for chunks in results:
+            receipt["raw"] += len(chunks)
+            for chunk in chunks:
+                metadata = chunk.metadata if isinstance(chunk.metadata, dict) else {}
+                if not scope.accepts(chunk.chapter_number, metadata):
+                    receipt["provenance_filtered"] += 1
+                    continue
+                if chunk.score_kind == "cosine" and min_score > 0 and chunk.score < min_score:
+                    receipt["threshold_filtered"] += 1
+                    continue
+                key = metadata.get("chunk_id") or f"{chunk.chapter_number}:{chunk.content}"
+                if key not in merged or chunk.score > merged[key].score:
+                    merged[key] = chunk
+        receipt["deduped"] = len(merged)
+        ordered = sorted(merged.values(), key=lambda chunk: chunk.score, reverse=True)
+        chunks = ordered[:top_k * 2 if need_rerank else top_k]
+        if need_rerank and chunks:
+            try:
+                scored = await rerank_documents(
+                    " ".join(normalized[:2]), [chunk.content for chunk in chunks],
+                    original_scores=[chunk.score for chunk in chunks], top_n=len(chunks),
+                )
+                if scored:
+                    reranked = [replace(chunks[item["index"]], score=item["combined_score"],
+                                        score_kind="rerank", metadata={**chunks[item["index"]].metadata,
+                                            "original_score": chunks[item["index"]].score,
+                                            "original_score_kind": chunks[item["index"]].score_kind})
+                                for item in scored if 0 <= item["index"] < len(chunks)]
+                    if reranked:
+                        chunks = reranked
+                        receipt["reranked"] = True
+            except Exception as exc:
+                logger.warning("Rerank failed, retaining retrieval order: %s", exc)
+                receipt["rerank_status"] = "failed"
+        chunks = chunks[:top_k]
+        first_embedding = next((embedding for embedding in embeddings if embedding), None)
+        summaries = []
+        if first_embedding:
             summaries = await self._vector_store.query_summaries(
-                project_id=project_id,
-                embedding=first_emb,
-                top_k=top_k_summaries,
+                project_id=project_id, embedding=first_embedding,
+                top_k=top_k_summaries, scope=scope,
             )
+            summaries = [summary for summary in summaries
+                         if (scope.accepts_aggregate(summary.metadata)
+                             if summary.metadata.get("contributing_sources")
+                             else scope.accepts(summary.chapter_number, summary.metadata))]
+        receipt.update(status="completed", injected=len(chunks), summaries=len(summaries),
+                       budget_trimmed=max(0, len(ordered) - len(chunks)))
+        logger.info("RAG retrieval receipt: project=%s receipt=%s", project_id, receipt)
+        return ChapterRAGContext(query, chunks, summaries, receipt)
 
-        hit_chapters = sorted({c.chapter_number for c in final_chunks})
-        logger.info(
-            "多查询RAG检索完成: project=%s queries=%d raw=%d deduped=%d filtered=%d final=%d "
-            "min_score=%.2f hit_chapters=%s reranked=%s",
-            project_id, len(valid_queries), total_raw, deduped_count,
-            filtered_count, final_count, min_score, hit_chapters, need_rerank,
-        )
-
-        return ChapterRAGContext(
-            query=normalized[0],
-            chunks=final_chunks,
-            summaries=summaries,
-        )
+    @staticmethod
+    def _as_rank_scores(chunks: List[RetrievedChunk]) -> List[RetrievedChunk]:
+        return [replace(chunk, score=1.0 / (60 + rank), score_kind="rrf",
+                        metadata={**(chunk.metadata or {}), "vector_rank": rank,
+                                  "vector_score": chunk.score, "retrieval_sources": ["vector"],
+                                  "degraded": "vector_only"})
+                for rank, chunk in enumerate(chunks)]
 
     @staticmethod
     def _normalize(text: str) -> str:

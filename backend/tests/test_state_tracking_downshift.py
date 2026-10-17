@@ -83,7 +83,7 @@ def test_state_tracking_not_flow_overridable():
 # ── A2. 写侧派发分流：schedule_followups ──
 
 
-def _dispatch_followups(*, enable_memory: bool, enable_state_tracking: bool):
+async def _dispatch_followups_async(*, enable_memory: bool, enable_state_tracking: bool):
     bg = SimpleNamespace(
         run_memory_update=AsyncMock(),
         run_state_update=AsyncMock(),
@@ -117,32 +117,54 @@ def _dispatch_followups(*, enable_memory: bool, enable_state_tracking: bool):
         )
         await asyncio.gather(*list(registry))
 
-    asyncio.run(_run())
+    await _run()
     return bg
 
 
-def test_standard_dispatches_light_state_path_without_mem0():
-    bg = _dispatch_followups(enable_memory=False, enable_state_tracking=True)
-    bg.run_state_update.assert_awaited_once_with(
-        project_id="p1",
-        chapter_number=3,
-        chapter_content="正文",
-        character_names=["林玄"],
-        user_id=1,
-    )
-    bg.run_memory_update.assert_not_awaited()
+def _dispatch_followups(**kwargs):
+    return asyncio.run(_dispatch_followups_async(**kwargs))
 
 
-def test_premium_keeps_full_memory_path():
-    bg = _dispatch_followups(enable_memory=True, enable_state_tracking=True)
-    bg.run_memory_update.assert_awaited_once_with(
-        project_id="p1",
-        chapter_number=3,
-        chapter_content="正文",
-        character_names=["林玄"],
-        user_id=1,
-    )
+async def _adopt_memory_profile(db_session, *, enable_memory, enable_state_tracking):
+    from sqlalchemy import select
+    from app.models.chapter_derivation import ChapterDerivationJob
+    from app.models.novel import Chapter, ChapterVersion, NovelProject
+    from app.models.user import User
+    from app.services.chapter_revision_service import ChapterRevisionService
+    db_session.add(User(id=7631, username="downshift", email="downshift@example.com", hashed_password="hash"))
+    db_session.add(NovelProject(id="downshift-project", user_id=7631, title="采用记忆档位"))
+    await db_session.flush()
+    chapter = Chapter(project_id="downshift-project", chapter_number=3)
+    db_session.add(chapter)
+    await db_session.flush()
+    candidate = ChapterVersion(chapter_id=chapter.id, content="林玄站在山门前。", source="generation",
+        metadata_={"derivation_profile": {"memory": enable_memory, "state": enable_state_tracking}})
+    db_session.add(candidate)
+    await db_session.commit()
+    assert (await db_session.execute(select(ChapterDerivationJob))).scalars().all() == []
+    await ChapterRevisionService(db_session).adopt(project_id="downshift-project", chapter_number=3,
+                                                  version_id=candidate.id)
+    return set((await db_session.execute(select(ChapterDerivationJob.kind))).scalars())
+
+
+@pytest.mark.asyncio
+async def test_standard_defers_light_state_path_until_adoption_without_mem0(db_session):
+    bg = await _dispatch_followups_async(enable_memory=False, enable_state_tracking=True)
     bg.run_state_update.assert_not_awaited()
+    bg.run_memory_update.assert_not_awaited()
+    bg.run_foreshadowing_extraction.assert_not_awaited()
+    kinds = await _adopt_memory_profile(db_session, enable_memory=False, enable_state_tracking=True)
+    assert "state" in kinds and "memory" not in kinds
+
+
+@pytest.mark.asyncio
+async def test_premium_defers_full_memory_path_until_adoption(db_session):
+    bg = await _dispatch_followups_async(enable_memory=True, enable_state_tracking=True)
+    bg.run_memory_update.assert_not_awaited()
+    bg.run_state_update.assert_not_awaited()
+    bg.run_foreshadowing_extraction.assert_not_awaited()
+    kinds = await _adopt_memory_profile(db_session, enable_memory=True, enable_state_tracking=True)
+    assert "memory" in kinds and "state" not in kinds
 
 
 def test_fast_dispatches_neither_path():
@@ -187,7 +209,7 @@ def test_update_state_after_chapter_extracts_states_and_never_touches_mem0():
     svc._ensure_memory.assert_not_awaited()
 
 
-def test_update_memory_after_chapter_reuses_state_split_and_still_adds_mem0():
+def test_update_memory_after_chapter_reuses_state_split_and_still_adds_mem0(monkeypatch):
     svc = _make_memory_service()
     svc.update_state_after_chapter = AsyncMock(
         return_value={
@@ -198,7 +220,15 @@ def test_update_memory_after_chapter_reuses_state_split_and_still_adds_mem0():
     )
     svc._extract_mem0_facts = AsyncMock(return_value=["林玄获得神秘卷轴"])
     mock_memory = AsyncMock()
+    mock_memory.add.return_value = {"results": [{"id": "memory-1", "memory": "林玄获得神秘卷轴"}]}
     svc._ensure_memory = AsyncMock(return_value=mock_memory)
+    source_ref = {"project_id": "p1", "chapter_id": 10, "chapter_number": 3,
+                  "source_version_id": 31, "source_content_hash": "content-hash",
+                  "adoption_revision_id": 1, "narrative_base": "base", "source_derivation_id": "job-1"}
+    monkeypatch.setattr("app.services.memory_layer_service.require_current_source", AsyncMock())
+    async def extraction_checkpoint(_key, operation):
+        return await operation()
+    svc._extraction_checkpoint = extraction_checkpoint
 
     result = asyncio.run(
         svc.update_memory_after_chapter(
@@ -207,11 +237,15 @@ def test_update_memory_after_chapter_reuses_state_split_and_still_adds_mem0():
             chapter_content="章节内容",
             character_names=["林玄"],
             user_id=1,
+            source_ref=source_ref,
         )
     )
 
     svc.update_state_after_chapter.assert_awaited_once()
     mock_memory.add.assert_awaited_once()
+    assert mock_memory.add.await_args.kwargs["infer"] is False
+    assert mock_memory.add.await_args.kwargs["metadata"]["source_derivation_id"] == "job-1"
+    assert result["memory_ids"] == ["memory-1"]
     assert result["character_states_updated"] == 2
     assert result["timeline_events_added"] == 1
     assert result["mem0_memories_added"] == 1

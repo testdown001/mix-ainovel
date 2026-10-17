@@ -93,7 +93,7 @@ class GenerationPrefetchService:
 
         memory_text_task = asyncio.create_task(
             self.async_task_service.run_with_timeout(
-                self.context_access_service.prefetch_project_memory_text(project_id),
+                self.context_access_service.prefetch_project_memory_text(project_id, chapter_number=chapter_number),
                 timeout_sec=10,
                 task_name="project_memory",
             )
@@ -123,6 +123,7 @@ class GenerationPrefetchService:
                         user_id=user_id,
                         queries=rag_queries or [outline_title or outline_summary],
                         retrieval_mode=config.rag_retrieval_mode,
+                        chapter_number=chapter_number,
                     ),
                     timeout_sec=20,
                     task_name="rag_retrieval",
@@ -316,7 +317,7 @@ class GenerationPrefetchService:
                 volumes = await VolumeSummaryService(sess, None).get_relevant_volume_summaries(
                     project_id, chapter_number, max_volumes=3
                 )
-                book_summary = await BookSummaryService(sess, None).get_book_summary(project_id)
+                book_summary = await BookSummaryService(sess, None).get_book_summary(project_id, before_chapter=chapter_number)
                 return {
                     "volume_summaries_text": self._format_volume_summaries(volumes),
                     "book_summary_text": (book_summary or "").strip() or None,

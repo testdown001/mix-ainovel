@@ -9,12 +9,14 @@ import asyncio
 import json
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models as rest
 from ..core.config import settings
+from .retrieval_scope import RetrievalScope
+from .embedding_index_config import embedding_fingerprint, resolve_embedding_identity
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,7 @@ class RetrievedChunk:
     chapter_title: Optional[str]
     score: float
     metadata: Dict[str, Any]
+    score_kind: str = "cosine"
 
 
 @dataclass
@@ -38,6 +41,14 @@ class RetrievedSummary:
     title: str
     summary: str
     score: float
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    score_kind: str = "cosine"
+
+
+@dataclass(frozen=True)
+class VectorWriteReceipt:
+    written: int
+    bm25_status: str = "not_requested"
 
 
 class VectorStoreService:
@@ -47,6 +58,9 @@ class VectorStoreService:
     COLLECTION_SUMMARIES = "rag_summaries"
 
     def __init__(self) -> None:
+        self._embedding_identity = None
+        self._embedding_fingerprint = None
+        self._embedding_dimension = None
         self._enabled = settings.vector_store_enabled
         if not self._enabled:
             logger.warning("未开启向量库配置，RAG 检索将被跳过。")
@@ -69,6 +83,28 @@ class VectorStoreService:
             self._schema_ready = False
             logger.info("Qdrant 客户端初始化成功，等待检查 Collection。")
 
+    async def configure_embedding(self, *, dimension: int, identity: Optional[Dict[str, Any]] = None,
+                                  llm_service: Any = None, user_id: Optional[int] = None) -> str:
+        identity = identity or await resolve_embedding_identity(llm_service, user_id=user_id)
+        fingerprint = embedding_fingerprint(identity, dimension)
+        if getattr(self, "_embedding_fingerprint", None) != fingerprint:
+            self._embedding_identity = dict(identity)
+            self._embedding_fingerprint = fingerprint
+            self._embedding_dimension = dimension
+            self.COLLECTION_CHUNKS = f"rag_chunks_{fingerprint}"
+            self.COLLECTION_SUMMARIES = f"rag_summaries_{fingerprint}"
+            self._schema_ready = False
+        return fingerprint
+
+    def _collection_for_revision(self, revision: str, *, summaries: bool = False) -> str:
+        prefix = "rag_summaries" if summaries else "rag_chunks"
+        parts = revision.split(":")
+        if len(parts) == 3 and len(parts[0]) == 16 and all(c in "0123456789abcdef" for c in parts[0]):
+            return f"{prefix}_{parts[0]}"
+        # Only explicit SQL-active, provenance-checked legacy points may be
+        # text-refilled; hash-only old chapters never have an active pointer.
+        return prefix
+
     async def _resolve_vector_size(self) -> int:
         """从系统配置优先读取向量维度，回退到 .env，最终默认 3072。"""
         try:
@@ -82,14 +118,19 @@ class VectorStoreService:
                     return int(record.value)
         except Exception:
             pass
-        return settings.embedding_model_vector_size or 3072
+        dimension = settings.embedding_model_vector_size
+        if not dimension:
+            raise RuntimeError("embedding_dimension_unknown: configure dimension or use an actual embedding")
+        return dimension
 
     async def ensure_schema(self) -> None:
         """初始化向量表结构，保证系统首次运行即可使用。"""
         if not self._client or self._schema_ready:
             return
 
-        vector_size = await self._resolve_vector_size()
+        vector_size = getattr(self, "_embedding_dimension", None) or await self._resolve_vector_size()
+        if not getattr(self, "_embedding_fingerprint", None):
+            await self.configure_embedding(dimension=vector_size)
 
         async def _warn_if_dim_mismatch(collection_name: str) -> None:
             """既有集合与当前 embedding 维度不一致时大声报错。
@@ -154,6 +195,7 @@ class VectorStoreService:
         embedding: Sequence[float],
         project_id: str,
         limit: int,
+        scope: Optional[RetrievalScope] = None,
     ) -> List[rest.ScoredPoint]:
         """兼容不同 qdrant-client 版本的检索接口。"""
         query_filter = rest.Filter(
@@ -164,6 +206,24 @@ class VectorStoreService:
                 )
             ]
         )
+
+        if scope is not None:
+            if scope.project_id != project_id:
+                return []
+            # Include aggregates only when they carry an explicit last contributing
+            # chapter; provenance validation below remains authoritative.
+            query_filter.must.append(rest.FieldCondition(
+                key="chapter_number", range=rest.Range(gt=0, lt=scope.before_chapter),
+            ))
+            active_revisions = [str(source["active_index_revision_id"])
+                                for source in scope.canon_manifest.values()
+                                if source.get("active_index_revision_id")]
+            allowed = [rest.FieldCondition(key="metadata.aggregate_kind",
+                       match=rest.MatchAny(any=["volume", "book"]))]
+            if active_revisions:
+                allowed.append(rest.FieldCondition(key="metadata.index_revision_id",
+                               match=rest.MatchAny(any=active_revisions)))
+            query_filter.must.append(rest.Filter(should=allowed))
 
         # qdrant-client>=1.12 使用 query_points，旧版本仍可能保留 search。
         if hasattr(self._client, "query_points"):
@@ -191,11 +251,14 @@ class VectorStoreService:
         project_id: str,
         embedding: Sequence[float],
         top_k: Optional[int] = None,
+        scope: Optional[RetrievalScope] = None,
     ) -> List[RetrievedChunk]:
         """根据查询向量检索剧情片段，结果已按相似度排序。"""
-        if not self._client or not embedding:
+        if not self._client or not embedding or scope is None or scope.project_id != project_id:
             return []
 
+        if not getattr(self, "_embedding_fingerprint", None):
+            await self.configure_embedding(dimension=len(embedding))
         await self.ensure_schema()
         top_k = top_k or settings.vector_top_k_chunks
         if top_k <= 0:
@@ -206,7 +269,8 @@ class VectorStoreService:
                 collection_name=self.COLLECTION_CHUNKS,
                 embedding=embedding,
                 project_id=project_id,
-                limit=top_k,
+                limit=top_k * 4,
+                scope=scope,
             )
         except Exception as exc:
             logger.warning("向量检索剧情片段失败: %s", exc)
@@ -217,6 +281,10 @@ class VectorStoreService:
             payload = hit.payload or {}
             meta = dict(payload.get("metadata") or {})
             meta.setdefault("chunk_id", str(hit.id))
+            if (payload.get("project_id") != project_id
+                    or meta.get("embedding_fingerprint") != self._embedding_fingerprint
+                    or not scope.accepts(payload.get("chapter_number", 0), meta)):
+                continue
             items.append(
                 RetrievedChunk(
                     content=payload.get("content", ""),
@@ -226,18 +294,17 @@ class VectorStoreService:
                     metadata=meta,
                 )
             )
-        return items
+        return items[:top_k]
 
     async def retrieve_chunks_by_ids(
         self,
         *,
         chunk_ids: Sequence[str],
+        scope: Optional[RetrievalScope] = None,
     ) -> Dict[str, RetrievedChunk]:
         """按 Qdrant point ID 批量获取 chunk 内容，返回 {chunk_id: RetrievedChunk}。"""
-        if not self._client or not chunk_ids:
+        if not self._client or not chunk_ids or scope is None:
             return {}
-
-        await self.ensure_schema()
 
         import uuid as _uuid
         qdrant_ids: List[str] = []
@@ -251,19 +318,22 @@ class VectorStoreService:
             qdrant_ids.append(qid)
             id_map[qid] = cid
 
-        try:
-            points = await self._client.retrieve(
-                collection_name=self.COLLECTION_CHUNKS,
-                ids=qdrant_ids,
-                with_payload=True,
-            )
-        except Exception as exc:
-            logger.warning("按 ID 批量获取 chunk 失败: %s", exc)
-            return {}
+        points = []
+        collections = {self._collection_for_revision(str(source["active_index_revision_id"]))
+                       for source in scope.canon_manifest.values() if source.get("active_index_revision_id")}
+        for collection in collections:
+            try:
+                points.extend(await self._client.retrieve(collection_name=collection,
+                    ids=qdrant_ids, with_payload=True))
+            except Exception as exc:
+                logger.warning("Chunk text refill failed for active space %s: %s", collection, exc)
 
         result: Dict[str, RetrievedChunk] = {}
         for pt in points:
             payload = pt.payload or {}
+            meta = payload.get("metadata") or {}
+            if payload.get("project_id") != scope.project_id or not scope.accepts(payload.get("chapter_number", 0), meta):
+                continue
             original_id = id_map.get(str(pt.id), str(pt.id))
             result[original_id] = RetrievedChunk(
                 content=payload.get("content", ""),
@@ -280,11 +350,14 @@ class VectorStoreService:
         project_id: str,
         embedding: Sequence[float],
         top_k: Optional[int] = None,
+        scope: Optional[RetrievalScope] = None,
     ) -> List[RetrievedSummary]:
         """根据查询向量检索章节摘要列表。"""
-        if not self._client or not embedding:
+        if not self._client or not embedding or scope is None or scope.project_id != project_id:
             return []
 
+        if not getattr(self, "_embedding_fingerprint", None):
+            await self.configure_embedding(dimension=len(embedding))
         await self.ensure_schema()
         top_k = top_k or settings.vector_top_k_summaries
         if top_k <= 0:
@@ -295,7 +368,8 @@ class VectorStoreService:
                 collection_name=self.COLLECTION_SUMMARIES,
                 embedding=embedding,
                 project_id=project_id,
-                limit=top_k,
+                limit=top_k * 4,
+                scope=scope,
             )
         except Exception as exc:
             logger.warning("向量检索章节摘要失败: %s", exc)
@@ -304,26 +378,37 @@ class VectorStoreService:
         items = []
         for hit in search_result:
             payload = hit.payload or {}
+            meta = payload.get("metadata") or {}
+            if payload.get("project_id") != project_id:
+                continue
+            if meta.get("embedding_fingerprint") != self._embedding_fingerprint:
+                continue
+            if not (scope.accepts_aggregate(meta) if meta.get("contributing_sources")
+                    else scope.accepts(payload.get("chapter_number", 0), meta)):
+                continue
             items.append(
                 RetrievedSummary(
                     chapter_number=payload.get("chapter_number", 0),
                     title=payload.get("title", ""),
                     summary=payload.get("summary", ""),
                     score=hit.score,
+                    metadata=meta,
                 )
             )
-        return items
+        return items[:top_k]
 
     async def upsert_chunks(
         self,
         *,
         records: Iterable[Dict[str, Any]],
         sync_bm25: Optional[bool] = None,
-    ) -> None:
-        """批量写入章节片段，供后续检索使用。"""
+    ) -> VectorWriteReceipt:
+        """Write acknowledged vectors; failures must not advance SQL ingest state."""
         if not self._client:
-            return
-
+            raise RuntimeError("vector_store_unavailable")
+        records = list(records)
+        if records and not getattr(self, "_embedding_fingerprint", None):
+            await self.configure_embedding(dimension=len(records[0].get("embedding") or []))
         await self.ensure_schema()
         
         points = []
@@ -341,7 +426,7 @@ class VectorStoreService:
                 "chunk_index": item.get("chunk_index"),
                 "chapter_title": item.get("chapter_title"),
                 "content": item.get("content"),
-                "metadata": item.get("metadata", {}),
+                "metadata": {**item.get("metadata", {}), "embedding_fingerprint": self._embedding_fingerprint},
                 "type": "chunk" # optional metadata
             }
             
@@ -352,16 +437,19 @@ class VectorStoreService:
             ))
 
         if not points:
-            return
+            return VectorWriteReceipt(0)
 
         try:
-            await self._client.upsert(
+            result = await self._client.upsert(
                 collection_name=self.COLLECTION_CHUNKS,
                 points=points,
+                wait=True,
             )
+            self._require_acknowledged(result)
             logger.debug("已写入章节片段: 数量 %d", len(points))
         except Exception as exc:
             logger.error("写入 rag_chunks 失败: %s", exc)
+            raise
 
         # 同步 BM25 索引（仅在 hybrid 模式下）
         enable_bm25 = (
@@ -369,6 +457,7 @@ class VectorStoreService:
             if sync_bm25 is not None
             else getattr(settings, "rag_retrieval_mode", "vector") == "hybrid"
         )
+        bm25_status = "not_requested"
         if enable_bm25 and points:
             try:
                 from .bm25_index_service import BM25IndexService
@@ -381,18 +470,23 @@ class VectorStoreService:
                         chapter_number=item["chapter_number"],
                         content=item.get("content", ""),
                     )
+                bm25_status = "completed"
             except Exception as exc:
+                bm25_status = "degraded"
                 logger.warning("BM25 索引同步失败（不影响向量写入）: %s", exc)
+        return VectorWriteReceipt(len(points), bm25_status)
 
     async def upsert_summaries(
         self,
         *,
         records: Iterable[Dict[str, Any]],
-    ) -> None:
-        """同步章节摘要向量，供摘要层检索使用。"""
+    ) -> VectorWriteReceipt:
+        """Synchronize summaries, returning only acknowledged success."""
         if not self._client:
-            return
-
+            raise RuntimeError("vector_store_unavailable")
+        records = list(records)
+        if records and not getattr(self, "_embedding_fingerprint", None):
+            await self.configure_embedding(dimension=len(records[0].get("embedding") or []))
         await self.ensure_schema()
         
         points = []
@@ -408,6 +502,7 @@ class VectorStoreService:
                 "chapter_number": item.get("chapter_number"),
                 "title": item.get("title"),
                 "summary": item.get("summary"),
+                "metadata": {**item.get("metadata", {}), "embedding_fingerprint": self._embedding_fingerprint},
             }
             
             points.append(rest.PointStruct(
@@ -417,16 +512,62 @@ class VectorStoreService:
             ))
 
         if not points:
-            return
+            return VectorWriteReceipt(0)
 
         try:
-            await self._client.upsert(
+            result = await self._client.upsert(
                 collection_name=self.COLLECTION_SUMMARIES,
                 points=points,
+                wait=True,
             )
+            self._require_acknowledged(result)
             logger.debug("已写入章节摘要向量: 数量 %d", len(points))
         except Exception as exc:
             logger.error("写入 rag_summaries 失败: %s", exc)
+            raise
+        return VectorWriteReceipt(len(points))
+
+    @staticmethod
+    def _require_acknowledged(result: Any) -> None:
+        status = getattr(result, "status", None)
+        status = getattr(status, "value", status)
+        if status != "completed":
+            raise RuntimeError(f"vector_write_not_completed:{status}")
+
+    async def sync_bm25_revision(self, *, scope: RetrievalScope, chapter_number: int) -> VectorWriteReceipt:
+        """Repair only the active lexical index, without another embedding/LLM call."""
+        if not self._client:
+            raise RuntimeError("vector_store_unavailable")
+        source = scope.canon_manifest.get(chapter_number) or {}
+        revision = source.get("active_index_revision_id")
+        if not revision:
+            raise RuntimeError("no_active_index_revision")
+        from .bm25_index_service import BM25IndexService
+        service = BM25IndexService()
+        offset = None
+        written = 0
+        while True:
+            points, offset = await self._client.scroll(
+                collection_name=self._collection_for_revision(str(revision)),
+                scroll_filter=rest.Filter(must=[
+                    rest.FieldCondition(key="project_id", match=rest.MatchValue(value=scope.project_id)),
+                    rest.FieldCondition(key="chapter_number", match=rest.MatchValue(value=chapter_number)),
+                    rest.FieldCondition(key="metadata.index_revision_id", match=rest.MatchValue(value=revision)),
+                ]), limit=256, offset=offset, with_payload=True, with_vectors=False,
+            )
+            for point in points:
+                payload = point.payload or {}
+                if payload.get("project_id") != scope.project_id or not scope.accepts(
+                        payload.get("chapter_number", 0), payload.get("metadata")):
+                    raise RuntimeError("bm25_repair_source_mismatch")
+                await service.index_chunk(project_id=scope.project_id, chunk_id=str(point.id),
+                    chapter_number=chapter_number, content=payload.get("content") or "")
+                written += 1
+            if offset is None:
+                break
+        if written == 0:
+            raise RuntimeError("active_index_revision_has_no_chunks")
+        return VectorWriteReceipt(written, "completed")
 
     @staticmethod
     async def get_ingest_state_from_db(session: Any, project_id: str) -> Dict[int, str]:
@@ -481,8 +622,6 @@ class VectorStoreService:
         if not self._client or not chapter_numbers:
             return
 
-        await self.ensure_schema()
-
         filter_condition = rest.Filter(
             must=[
                 rest.FieldCondition(
@@ -497,15 +636,19 @@ class VectorStoreService:
         )
 
         try:
-            await self._client.delete(
-                collection_name=self.COLLECTION_CHUNKS,
-                points_selector=filter_condition
-            )
-            await self._client.delete(
-                collection_name=self.COLLECTION_SUMMARIES,
-                points_selector=filter_condition
-            )
-            
+            try:
+                import re
+                response = await self._client.get_collections()
+                collections = [collection.name for collection in response.collections
+                               if re.fullmatch(r"rag_(?:chunks|summaries)(?:_[0-9a-f]{16})?", collection.name)]
+            except Exception:
+                collections = [self.COLLECTION_CHUNKS, self.COLLECTION_SUMMARIES]
+            for collection in collections:
+                try:
+                    await self._client.delete(collection_name=collection, points_selector=filter_condition, wait=True)
+                except Exception as exc:
+                    logger.warning("Collection cleanup failed: collection=%s project=%s error=%s", collection, project_id, exc)
+
             # 同步清理 BM25 索引
             if getattr(settings, "rag_retrieval_mode", "vector") == "hybrid":
                 try:

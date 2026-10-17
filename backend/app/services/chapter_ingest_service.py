@@ -9,11 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+import hashlib
+import uuid
+from dataclasses import dataclass, asdict
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from ..core.config import settings
 from ..services.llm_service import LLMService
-from ..services.vector_store_service import VectorStoreService
+from .embedding_index_config import embedding_fingerprint, resolve_embedding_identity
+from ..services.vector_store_service import VectorStoreService, VectorWriteReceipt
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,17 @@ try:  # noqa: SIM105 - 提示缺少可选依赖
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 except ImportError:  # pragma: no cover - 未安装时会走后备方案
     RecursiveCharacterTextSplitter = None  # type: ignore[assignment]
+
+
+@dataclass(frozen=True)
+class IngestionReceipt:
+    index_revision_id: str
+    chunk_count: int
+    summary_count: int
+    bm25_status: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 
 class ChapterIngestionService:
@@ -46,109 +61,85 @@ class ChapterIngestionService:
         summary: Optional[str],
         user_id: int = 0,
         sync_bm25: Optional[bool] = None,
-    ) -> None:
-        """将章节正文与摘要写入向量库，供后续 RAG 检索使用。"""
-        if not settings.vector_store_enabled:
-            logger.warning("向量库未启用，跳过章节向量写入: project=%s chapter=%s", project_id, chapter_number)
-            return
-        if not content.strip():
-            logger.warning("章节正文为空，跳过向量写入: project=%s chapter=%s", project_id, chapter_number)
-            return
+        source_ref: Optional[Mapping[str, Any]] = None,
+    ) -> IngestionReceipt:
+        """Prepare all embeddings, stage a new revision, then return a write receipt.
 
+        The caller activates this revision in SQL with a source CAS. Old points are
+        never deleted first; an abandoned staged revision is invisible to readers.
+        Unproven legacy/fixture writes may be staged but cannot pass RetrievalScope.
+        """
+        if not settings.vector_store_enabled:
+            raise RuntimeError("vector_store_disabled")
+        if not content.strip():
+            raise ValueError("empty_chapter_content")
+        provenance = dict(source_ref or {})
+        if provenance and (provenance.get("project_id") != project_id
+                           or provenance.get("chapter_number") != chapter_number
+                           or provenance.get("source_content_hash") != hashlib.sha256(content.encode()).hexdigest()):
+            raise ValueError("index_source_scope_or_content_mismatch")
         chunks = self._split_into_chunks(content)
         if not chunks:
-            logger.warning("章节正文切分后为空，跳过向量写入: project=%s chapter=%s", project_id, chapter_number)
-            return
+            raise ValueError("empty_chapter_chunks")
 
-        logger.info(
-            "开始写入章节向量: project=%s chapter=%s chunks=%d",
-            project_id,
-            chapter_number,
-            len(chunks),
-        )
-        await self._vector_store.delete_by_chapters(project_id, [chapter_number])
-
-        # 构建语境化前缀：让 embedding 编码章节级上下文（Contextual Retrieval）
+        identity = await resolve_embedding_identity(self._llm_service, user_id=user_id)
         ctx_prefix = f"[第{chapter_number}章·{title}]"
         if summary:
             ctx_prefix += f" {summary[:200]}"
-
-        # 批量生成 embeddings（单次请求处理所有 chunks）
-        contextual_inputs = [f"{ctx_prefix}\n{chunk}" for chunk in chunks]
         embeddings = await self._llm_service.get_embeddings_batch(
-            contextual_inputs,
-            user_id=user_id,
+            [f"{ctx_prefix}\n{chunk}" for chunk in chunks], user_id=user_id,
         )
+        if len(embeddings) != len(chunks) or any(not embedding for embedding in embeddings):
+            raise RuntimeError("incomplete_chunk_embeddings")
+        dimensions = {len(embedding) for embedding in embeddings}
+        cleaned_summary = (summary or "").strip()
+        summary_embedding = None
+        if cleaned_summary:
+            summary_embedding = await self._llm_service.get_embedding(cleaned_summary, user_id=user_id)
+            if not summary_embedding or len(summary_embedding) not in dimensions:
+                raise RuntimeError("incomplete_summary_embedding")
+        if len(dimensions) != 1:
+            raise RuntimeError("inconsistent_embedding_dimensions")
 
-        # 构建 chunk records
-        chunk_records = []
-        for index, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
-            if not embedding:
-                logger.warning(
-                    "生成章节片段向量失败，已跳过: project=%s chapter=%s chunk=%d",
-                    project_id,
-                    chapter_number,
-                    index,
-                )
-                continue
-
-            record_id = f"{project_id}:{chapter_number}:{index}"
-            chunk_records.append({
-                "id": record_id,
+        if identity != await resolve_embedding_identity(self._llm_service, user_id=user_id):
+            raise RuntimeError("embedding_configuration_changed_during_ingestion")
+        dimension = next(iter(dimensions))
+        fingerprint = embedding_fingerprint(identity, dimension)
+        configure = getattr(self._vector_store, "configure_embedding", None)
+        if configure is not None:
+            await configure(dimension=dimension, identity=identity)
+        revision = f"{fingerprint}:{dimension}:{uuid.uuid4().hex}"
+        metadata = {**provenance, "source_ref": provenance, "index_revision_id": revision,
+                    "embedding_fingerprint": fingerprint, "embedding_dimension": dimension}
+        records = [{
+            "id": str(uuid.uuid5(uuid.NAMESPACE_OID, f"{project_id}:{chapter_number}:{revision}:{index}")),
+            "project_id": project_id,
+            "chapter_number": chapter_number,
+            "chunk_index": index,
+            "chapter_title": title,
+            "content": text,
+            "embedding": embedding,
+            "metadata": {**metadata, "chunk_id": str(uuid.uuid5(uuid.NAMESPACE_OID, f"{project_id}:{chapter_number}:{revision}:{index}")),
+                         "chunk_index": index, "length": len(text), "contextual_prefix": ctx_prefix},
+        } for index, (text, embedding) in enumerate(zip(chunks, embeddings))]
+        chunk_receipt = await self._vector_store.upsert_chunks(records=records, sync_bm25=sync_bm25)
+        if not isinstance(chunk_receipt, VectorWriteReceipt) or chunk_receipt.written != len(records):
+            raise RuntimeError("missing_chunk_write_receipt")
+        summary_count = 0
+        if cleaned_summary:
+            receipt = await self._vector_store.upsert_summaries(records=[{
+                "id": f"{project_id}:{chapter_number}:{revision}:summary",
                 "project_id": project_id,
                 "chapter_number": chapter_number,
-                "chunk_index": index,
-                "chapter_title": title,
-                "content": chunk_text,
-                "embedding": embedding,
-                "metadata": {
-                    "chunk_id": record_id,
-                    "length": len(chunk_text),
-                    "contextual_prefix": ctx_prefix,
-                },
-            })
-
-        if chunk_records:
-            await self._vector_store.upsert_chunks(records=chunk_records, sync_bm25=sync_bm25)
-            logger.info(
-                "章节正文向量写入完成: project=%s chapter=%s 成功片段=%d",
-                project_id,
-                chapter_number,
-                len(chunk_records),
-            )
-
-        if summary:
-            cleaned_summary = summary.strip()
-            if cleaned_summary:
-                summary_embedding = await self._llm_service.get_embedding(
-                    cleaned_summary,
-                    user_id=user_id,
-                )
-                if summary_embedding:
-                    summary_id = f"{project_id}:{chapter_number}:summary"
-                    await self._vector_store.upsert_summaries(
-                        records=[
-                            {
-                                "id": summary_id,
-                                "project_id": project_id,
-                                "chapter_number": chapter_number,
-                                "title": title,
-                                "summary": cleaned_summary,
-                                "embedding": summary_embedding,
-                            }
-                        ]
-                    )
-                    logger.info(
-                        "章节摘要向量写入完成: project=%s chapter=%s",
-                        project_id,
-                        chapter_number,
-                    )
-                else:
-                    logger.warning(
-                        "生成章节摘要向量失败，已跳过: project=%s chapter=%s",
-                        project_id,
-                        chapter_number,
-                    )
+                "title": title,
+                "summary": cleaned_summary,
+                "embedding": summary_embedding,
+                "metadata": metadata,
+            }])
+            if not isinstance(receipt, VectorWriteReceipt) or receipt.written != 1:
+                raise RuntimeError("missing_summary_write_receipt")
+            summary_count = 1
+        return IngestionReceipt(revision, len(records), summary_count, chunk_receipt.bm25_status)
 
     async def delete_chapters(self, project_id: str, chapter_numbers: Sequence[int]) -> None:
         """从向量库中删除指定章节的所有片段与摘要。"""

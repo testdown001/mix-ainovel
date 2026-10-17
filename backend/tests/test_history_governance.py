@@ -164,10 +164,26 @@ class _DummyResult:
     def all(self):
         return self._rows
 
+    def scalars(self):
+        return self
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
 
 class _DummySession:
-    def __init__(self):
-        self.execute = AsyncMock(return_value=_DummyResult())
+    def __init__(self, chapters=()):
+        import hashlib
+        for chapter in chapters:
+            chapter.id = chapter.chapter_number
+            chapter.revision_id = 1
+            chapter.content_hash = hashlib.sha256(chapter.selected_version.content.encode()).hexdigest()
+            chapter.selected_version.id = chapter.chapter_number
+        async def execute(query):
+            if "JOIN chapter_versions" in str(query):
+                return _DummyResult([(chapter, chapter.selected_version) for chapter in chapters])
+            return _DummyResult()
+        self.execute = AsyncMock(side_effect=execute)
         self.committed = False
 
     async def commit(self):
@@ -192,8 +208,8 @@ class _ConcurrencyTrackingLLM:
         return f"回填摘要:{content[:6]}"
 
 
-def test_backfill_concurrency_capped_and_bounded():
-    """40 章缺摘要：只回填最近 30 章，并发受限；更早 10 章不回填但走正文节选兜底进入上下文。"""
+def test_history_read_uses_adopted_excerpts_without_model_backfill():
+    """40 章缺摘要：不在读路径调用模型，保留已采用正文证据。"""
     chapters = [
         SimpleNamespace(
             chapter_number=i,
@@ -204,7 +220,7 @@ def test_backfill_concurrency_capped_and_bounded():
     ]
     llm = _ConcurrencyTrackingLLM()
     prompt_service = SimpleNamespace(get_prompt=AsyncMock(return_value="extraction prompt"))
-    session = _DummySession()
+    session = _DummySession(chapters)
     svc = HistoryContextService(session, prompt_service, llm)
 
     result = asyncio.run(
@@ -218,16 +234,11 @@ def test_backfill_concurrency_capped_and_bounded():
         )
     )
 
-    assert llm.call_count == SUMMARY_BACKFILL_MAX_CHAPTERS == 30
-    assert llm.max_active <= SUMMARY_BACKFILL_CONCURRENCY == 5
-    # 最近 30 章（11-40）被回填，更早 10 章不写 real_summary
-    for ch in chapters:
-        if ch.chapter_number >= 11:
-            assert ch.real_summary and ch.real_summary.startswith("回填摘要:")
-        else:
-            assert ch.real_summary is None
-    assert session.committed is True
-    # 被回填上限跳过的远章不消失：走大纲/正文节选兜底进入上下文
+    # Legacy opt-in parameter cannot launch unbudgeted model repair during a read.
+    assert llm.call_count == 0
+    assert all(ch.real_summary is None for ch in chapters)
+    assert session.committed is False
+    assert all(entry["summary_kind"] == "adopted_excerpt" for entry in result["completed_chapters"])
     nums = [c["chapter_number"] for c in result["completed_chapters"]]
     assert nums == list(range(1, 41))
     fallback_entries = [c for c in result["completed_chapters"] if c["chapter_number"] <= 10]
@@ -399,7 +410,7 @@ def test_skeleton_keeps_anchors_when_priority_chapters_flood():
     assert len(far_nums) <= SKELETON_FAR_QUOTA
 
 
-def test_backfill_total_timeout_falls_back(monkeypatch):
+def test_slow_summary_model_is_not_on_history_read_path(monkeypatch):
     """回填超总墙钟上限：不阻塞生成，未完成章走大纲/正文节选兜底进入上下文。"""
     import app.services.history_context_service as hcs
 
@@ -419,7 +430,7 @@ def test_backfill_total_timeout_falls_back(monkeypatch):
         for i in range(1, 9)
     ]
     prompt_service = SimpleNamespace(get_prompt=AsyncMock(return_value="extraction prompt"))
-    session = _DummySession()
+    session = _DummySession(chapters)
     svc = HistoryContextService(session, prompt_service, _SlowLLM())
 
     result = asyncio.run(

@@ -3,14 +3,15 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import json
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..models.novel import Chapter, ChapterOutline
-from ..models.project_memory import VolumeSummary
+from ..models.novel import Chapter, ChapterOutline, ChapterVersion
+from ..models.project_memory import ProjectMemory, VolumeSummary
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class VolumeSummaryService:
 
         # 检查是否需要更新
         existing = await self._get_existing(project_id, volume_number)
-        if existing and existing.source_hash == new_hash:
+        if existing and existing.source_hash == new_hash and await self._has_valid_provenance(existing):
             logger.debug("卷 %d 摘要未变化，跳过更新", volume_number)
             return existing
 
@@ -120,6 +121,10 @@ class VolumeSummaryService:
         if not summary_text:
             return existing
 
+        if await self._sources_changed(project_id, chapter_start, chapter_end, new_hash):
+            logger.info("Discarding stale volume summary: project=%s volume=%s", project_id, volume_number)
+            return None
+        await self._store_provenance(project_id, volume_number, summary_text, chapter_summaries)
         actual_end = chapter_summaries[-1]["chapter_number"]
 
         if existing:
@@ -187,7 +192,7 @@ class VolumeSummaryService:
             new_hash = self._compute_source_hash(chapter_summaries)
             existing = await self._get_existing(project_id, vol_num)
 
-            if not force and existing and existing.source_hash == new_hash:
+            if not force and existing and existing.source_hash == new_hash and await self._has_valid_provenance(existing):
                 skipped += 1
                 continue
 
@@ -201,6 +206,10 @@ class VolumeSummaryService:
                 skipped += 1
                 continue
 
+            if await self._sources_changed(project_id, chapter_start, chapter_end, new_hash):
+                skipped += 1
+                continue
+            await self._store_provenance(project_id, vol_num, summary_text, chapter_summaries)
             actual_end = chapter_summaries[-1]["chapter_number"]
             if existing:
                 existing.chapter_start = chapter_start
@@ -227,14 +236,17 @@ class VolumeSummaryService:
 
         return {"updated": updated, "skipped": skipped, "total_volumes": total_volumes}
 
-    async def get_all_volume_summaries(self, project_id: str) -> List[VolumeSummary]:
+    async def get_all_volume_summaries(self, project_id: str, *, verified_only: bool = False) -> List[VolumeSummary]:
         """获取项目的所有卷级摘要。"""
         result = await self.session.execute(
             select(VolumeSummary)
             .where(VolumeSummary.project_id == project_id)
             .order_by(VolumeSummary.volume_number)
         )
-        return list(result.scalars().all())
+        volumes = list(result.scalars().all())
+        if not verified_only:
+            return volumes
+        return [volume for volume in volumes if await self._has_valid_provenance(volume)]
 
     async def get_relevant_volume_summaries(
         self,
@@ -255,6 +267,7 @@ class VolumeSummaryService:
                 VolumeSummary.project_id == project_id,
                 VolumeSummary.volume_number >= start_vol,
                 VolumeSummary.volume_number <= current_vol,
+                VolumeSummary.chapter_end < current_chapter,
             )
             .order_by(VolumeSummary.volume_number)
         )
@@ -268,7 +281,7 @@ class VolumeSummaryService:
                 "chapter_count": v.chapter_count,
             }
             for v in volumes
-            if v.summary
+            if v.summary and await self._has_valid_provenance(v, before_chapter=current_chapter)
         ]
 
     # ------------------------------------------------------------------
@@ -279,38 +292,74 @@ class VolumeSummaryService:
         self, project_id: str, chapter_start: int, chapter_end: int
     ) -> List[Dict[str, Any]]:
         """加载章节范围内有摘要的章节。"""
+        from .retrieval_scope import build_retrieval_scope
+        scope = await build_retrieval_scope(project_id=project_id, before_chapter=chapter_end + 1, session=self.session)
+        memory = await self._get_provenance_memory(project_id)
+        receipts = ((memory.extra or {}).get("chapter_summary_sources") or {}) if memory else {}
         result = await self.session.execute(
             select(Chapter.chapter_number, Chapter.real_summary)
-            .where(
-                Chapter.project_id == project_id,
-                Chapter.chapter_number >= chapter_start,
-                Chapter.chapter_number <= chapter_end,
-                Chapter.real_summary.isnot(None),
-            )
+            .where(Chapter.project_id == project_id, Chapter.chapter_number >= chapter_start,
+                   Chapter.chapter_number <= chapter_end, Chapter.real_summary.isnot(None),
+                   Chapter.selected_version_id.isnot(None))
             .order_by(Chapter.chapter_number)
         )
         rows = result.all()
-
-        # 加载大纲标题
         title_result = await self.session.execute(
             select(ChapterOutline.chapter_number, ChapterOutline.title)
-            .where(
-                ChapterOutline.project_id == project_id,
-                ChapterOutline.chapter_number >= chapter_start,
-                ChapterOutline.chapter_number <= chapter_end,
-            )
+            .where(ChapterOutline.project_id == project_id,
+                   ChapterOutline.chapter_number >= chapter_start, ChapterOutline.chapter_number <= chapter_end)
         )
-        title_map = {row[0]: row[1] for row in title_result.all()}
+        titles = dict(title_result.all())
+        summaries = []
+        for number, summary in rows:
+            receipt = receipts.get(str(number)) or {}
+            source = receipt.get("source_ref") or {}
+            if (not summary or receipt.get("summary_hash") != hashlib.sha256(summary.encode()).hexdigest()
+                    or not scope.accepts(number, source, require_index=False)):
+                continue
+            summaries.append({"chapter_number": number, "title": titles.get(number, f"第{number}章"),
+                              "summary": summary, "source_ref": source})
+        return summaries
 
-        return [
-            {
-                "chapter_number": row[0],
-                "title": title_map.get(row[0], f"第{row[0]}章"),
-                "summary": row[1],
-            }
-            for row in rows
-            if row[1] and row[1].strip()
-        ]
+    async def _get_provenance_memory(self, project_id: str, *, lock: bool = False) -> Optional[ProjectMemory]:
+        if lock:
+            # An actual write serializes SQLite too; FOR UPDATE alone is ignored
+            # there. Refresh under this lock before merging the shared JSON map.
+            await self.session.execute(update(ProjectMemory).where(ProjectMemory.project_id == project_id)
+                .values(version=ProjectMemory.version + 1))
+        return (await self.session.execute(
+            select(ProjectMemory).where(ProjectMemory.project_id == project_id)
+            .execution_options(populate_existing=True)
+        )).scalars().first()
+
+    async def _store_provenance(self, project_id: str, volume_number: int, summary: str,
+                                chapters: List[Dict[str, Any]]) -> None:
+        memory = await self._get_provenance_memory(project_id, lock=True)
+        if memory is None:
+            memory = ProjectMemory(project_id=project_id, extra={})
+            self.session.add(memory)
+        extra = dict(memory.extra or {})
+        records = dict(extra.get("volume_summary_sources") or {})
+        records[str(volume_number)] = {
+            "summary_hash": hashlib.sha256(summary.encode()).hexdigest(),
+            "contributing_sources": [chapter["source_ref"] for chapter in chapters],
+        }
+        extra["volume_summary_sources"] = records
+        memory.extra = extra
+
+    async def _has_valid_provenance(self, volume: VolumeSummary, *, before_chapter: Optional[int] = None) -> bool:
+        from .retrieval_scope import build_retrieval_scope
+        memory = await self._get_provenance_memory(volume.project_id)
+        record = (((memory.extra or {}).get("volume_summary_sources") or {}).get(str(volume.volume_number)) or {}) if memory else {}
+        if not volume.summary or record.get("summary_hash") != hashlib.sha256(volume.summary.encode()).hexdigest():
+            return False
+        scope = await build_retrieval_scope(project_id=volume.project_id,
+                before_chapter=before_chapter or (volume.chapter_end + 1), session=self.session)
+        return scope.accepts_aggregate(record)
+
+    async def _sources_changed(self, project_id: str, start: int, end: int, expected_hash: str) -> bool:
+        chapters = await self._load_chapter_summaries(project_id, start, end)
+        return self._compute_source_hash(chapters) != expected_hash
 
     async def _generate_volume_summary(
         self,
@@ -357,16 +406,27 @@ class VolumeSummaryService:
             if not vector_store:
                 return
 
+            from .embedding_index_config import resolve_embedding_identity
+            identity = await resolve_embedding_identity(self.llm_service, user_id=user_id)
             embedding = await self.llm_service.get_embedding(summary, user_id=user_id)
             if not embedding:
                 return
+            if identity != await resolve_embedding_identity(self.llm_service, user_id=user_id):
+                return
+            await vector_store.configure_embedding(dimension=len(embedding), identity=identity)
 
-            summary_id = f"{project_id}:volume:{volume_number}:summary"
+            memory = await self._get_provenance_memory(project_id)
+            provenance = (((memory.extra or {}).get("volume_summary_sources") or {}).get(str(volume_number)) or {}) if memory else {}
+            sources = provenance.get("contributing_sources") or []
+            if not sources:
+                return
+            summary_id = f"{project_id}:volume:{volume_number}:{provenance['summary_hash']}:summary"
             await vector_store.upsert_summaries(
                 records=[{
                     "id": summary_id,
                     "project_id": project_id,
-                    "chapter_number": 0,
+                    "chapter_number": max(source["chapter_number"] for source in sources),
+                    "metadata": {**provenance, "aggregate_kind": "volume"},
                     "title": title,
                     "summary": summary,
                     "embedding": embedding,
@@ -388,7 +448,5 @@ class VolumeSummaryService:
     @staticmethod
     def _compute_source_hash(chapter_summaries: List[Dict[str, Any]]) -> str:
         """基于章节摘要内容计算 hash，用于增量更新判断。"""
-        content = "|".join(
-            f"{ch['chapter_number']}:{ch['summary']}" for ch in chapter_summaries
-        )
+        content = json.dumps(chapter_summaries, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()[:16]

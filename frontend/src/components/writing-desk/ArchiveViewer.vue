@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import GenerationReceiptPanel from '@/components/shared/GenerationReceiptPanel.vue'
 import { archiveApi, type WritingArchive, type WritingArchiveDetail, type ArchiveStats } from '@/api/novel'
 
 const props = defineProps<{ projectId?: string }>()
@@ -13,6 +14,10 @@ const stats = ref<ArchiveStats | null>(null)
 const loading = ref(false)
 const selectedArchive = ref<WritingArchive | WritingArchiveDetail | null>(null)
 const showDetail = ref(false)
+let archiveRequestSequence = 0
+
+const detailReceipt = computed(() => selectedArchive.value && 'final_version_id' in selectedArchive.value
+  ? selectedArchive.value as WritingArchiveDetail : null)
 
 // 分页
 const offset = ref(0)
@@ -59,10 +64,12 @@ async function loadStats() {
 
 // 查看档案详情
 async function viewArchive(archive: WritingArchive) {
+  const sequence = ++archiveRequestSequence
   selectedArchive.value = archive
   showDetail.value = true
   try {
-    selectedArchive.value = await archiveApi.getArchiveDetail(projectId.value, archive.id)
+    const detail = await archiveApi.getArchiveDetail(projectId.value, archive.id)
+    if (sequence === archiveRequestSequence && selectedArchive.value?.id === archive.id) selectedArchive.value = detail
   } catch (e) {
     console.error('加载档案详情失败:', e)
   }
@@ -70,6 +77,7 @@ async function viewArchive(archive: WritingArchive) {
 
 // 关闭详情
 function closeDetail() {
+  archiveRequestSequence++
   showDetail.value = false
   selectedArchive.value = null
 }
@@ -166,6 +174,11 @@ onMounted(() => {
             <p>{{ selectedArchive.writing_notes }}</p>
           </div>
 
+          <GenerationReceiptPanel v-if="detailReceipt"
+            :version-id="detailReceipt.version_id ?? detailReceipt.final_version_id"
+            :context-receipt="detailReceipt.context_receipt"
+            :execution-receipt="detailReceipt.execution_receipt"
+          />
           <div class="detail-row">
             <div class="detail-item">
               <span class="label">开始时间</span>

@@ -25,6 +25,9 @@ from ..repositories.system_config_repository import SystemConfigRepository
 from ..utils.json_utils import parse_llm_json
 from .llm_service import LLMService
 from .prompt_service import PromptService
+from .memory_provenance import (
+    filter_current_rows, filter_mem0_results, require_current_source, source_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,7 @@ class MemoryLayerService:
         self.llm_service = llm_service
         self.prompt_service = prompt_service
         self._memory: Optional[AsyncMemory] = None
+        self._source_ref = None
 
     async def _cfg(self, key: str) -> Optional[str]:
         """按全系统统一口径解析通道配置：SystemConfig 优先，env 兜底。
@@ -95,6 +99,7 @@ class MemoryLayerService:
             embedder_config["embedding_dims"] = int(vector_dims)
 
         return {
+            "graph_store": None,
             "vector_store": {
                 "provider": "qdrant",
                 "config": qdrant_config,
@@ -116,9 +121,10 @@ class MemoryLayerService:
     async def _ensure_memory(self) -> AsyncMemory:
         """异步延迟初始化 AsyncMemory 实例，缓存到实例属性。"""
         if self._memory is None:
+            from .mem0_compat import ProvenanceMemory
             config = await self._build_mem0_config()
             logger.info("初始化 mem0 AsyncMemory 实例...")
-            self._memory = await AsyncMemory.from_config(config_dict=config)
+            self._memory = await ProvenanceMemory.from_config(config_dict=config)
         return self._memory
 
     # ===== 角色状态管理 =====
@@ -127,7 +133,8 @@ class MemoryLayerService:
         self, 
         project_id: str, 
         character_name: str, 
-        chapter_number: Optional[int] = None
+        chapter_number: Optional[int] = None,
+        *, allow_legacy: bool = False,
     ) -> Optional[CharacterState]:
         """获取角色在指定章节的状态（默认最新）"""
         query = select(CharacterState).where(
@@ -137,50 +144,42 @@ class MemoryLayerService:
             )
         )
         
-        if chapter_number:
+        if chapter_number is not None:
             query = query.where(CharacterState.chapter_number <= chapter_number)
         
-        query = query.order_by(desc(CharacterState.chapter_number)).limit(1)
+        query = query.order_by(desc(CharacterState.chapter_number), desc(CharacterState.id))
         
         result = await self.db.execute(query)
-        return result.scalar_one_or_none()
+        rows = list(result.scalars().all())
+        if not allow_legacy:
+            before = chapter_number + 1 if chapter_number is not None else max(
+                (int(row.chapter_number) for row in rows), default=0,
+            ) + 1
+            rows = await filter_current_rows(self.db, rows, project_id, before)
+        return rows[0] if rows else None
 
     async def get_all_character_states(
-        self, 
-        project_id: str, 
-        chapter_number: int
+        self,
+        project_id: str,
+        chapter_number: int,
     ) -> List[CharacterState]:
-        """获取所有角色在指定章节的最新状态"""
-        # 使用子查询获取每个角色的最新状态
-        subquery = (
-            select(
-                CharacterState.character_name,
-                func.max(CharacterState.chapter_number).label("max_chapter")
-            )
-            .where(
-                and_(
-                    CharacterState.project_id == project_id,
-                    CharacterState.chapter_number <= chapter_number
-                )
-            )
-            .group_by(CharacterState.character_name)
-            .subquery()
-        )
-        
-        query = (
-            select(CharacterState)
-            .join(
-                subquery,
-                and_(
-                    CharacterState.character_name == subquery.c.character_name,
-                    CharacterState.chapter_number == subquery.c.max_chapter
-                )
-            )
-            .where(CharacterState.project_id == project_id)
-        )
-        
+        """Pick the latest *valid* snapshot per character, after provenance filtering.
+
+        A newer draft/legacy row must not hide an older adopted state. Stable ID
+        ordering also prevents duplicate rows from one chapter entering the prompt.
+        """
+        query = (select(CharacterState).where(
+            CharacterState.project_id == project_id,
+            CharacterState.chapter_number <= chapter_number,
+        ).order_by(desc(CharacterState.chapter_number), desc(CharacterState.id)))
         result = await self.db.execute(query)
-        return list(result.scalars().all())
+        rows = await filter_current_rows(
+            self.db, list(result.scalars().all()), project_id, chapter_number + 1,
+        )
+        latest = {}
+        for row in rows:
+            latest.setdefault(row.character_name, row)
+        return list(latest.values())
 
     async def _safe_rollback(self) -> None:
         """异常后复位共享 session（可能已处于待回滚状态）。
@@ -193,6 +192,22 @@ class MemoryLayerService:
         except Exception:
             pass
 
+    async def _extraction_checkpoint(self, name: str, producer):
+        """Persist completed extraction before materialization, so retries reuse it."""
+        from ..models.chapter_derivation import ChapterDerivationJob
+        raw = source_payload(self._source_ref)
+        job_id = raw.get("source_derivation_id")
+        job = await self.db.get(ChapterDerivationJob, job_id) if job_id else None
+        key = "extraction_" + name
+        if isinstance(job, ChapterDerivationJob) and key in (job.result or {}):
+            return job.result[key]
+        value = await producer()
+        if isinstance(job, ChapterDerivationJob):
+            await require_current_source(self.db, self._source_ref)
+            job.result = {**(job.result or {}), key: value}
+            await self.db.commit()
+        return value
+
     async def update_character_state(
         self,
         project_id: str,
@@ -203,9 +218,21 @@ class MemoryLayerService:
     ) -> CharacterState:
         """更新角色状态（创建新的状态快照）"""
         # 获取上一章的状态作为基础
-        prev_state = await self.get_character_state(project_id, character_name, chapter_number - 1)
+        prev_state = await self.get_character_state(
+            project_id, character_name, chapter_number - 1, allow_legacy=self._source_ref is None,
+        )
         
         # 创建新状态
+        await require_current_source(self.db, self._source_ref)
+        provenance = source_payload(self._source_ref)
+        if provenance.get("source_derivation_id"):
+            existing = (await self.db.execute(select(CharacterState).where(
+                CharacterState.project_id == project_id, CharacterState.chapter_number == chapter_number,
+                CharacterState.character_name == character_name,
+            ))).scalars().all()
+            for state in existing:
+                if (state.extra or {}).get("provenance", {}).get("source_derivation_id") == provenance["source_derivation_id"]:
+                    return state
         new_state = CharacterState(
             project_id=project_id,
             character_id=character_id or (prev_state.character_id if prev_state else None),
@@ -224,11 +251,16 @@ class MemoryLayerService:
         
         # 应用更新
         for key, value in state_updates.items():
-            if hasattr(new_state, key):
+            if key not in {"id", "project_id", "chapter_number", "character_id", "extra"} and hasattr(new_state, key):
                 setattr(new_state, key, value)
+        if self._source_ref is not None:
+            new_state.extra = {"provenance": source_payload(self._source_ref)}
         
         self.db.add(new_state)
-        await self.db.commit()
+        if self._source_ref is not None:
+            await self.db.flush()
+        else:
+            await self.db.commit()
         await self.db.refresh(new_state)
         return new_state
 
@@ -287,6 +319,8 @@ class MemoryLayerService:
                 return result.get("character_states", [])
         except Exception as e:
             logger.warning(f"提取角色状态失败: {e}")
+            if self._source_ref is not None:
+                raise
         
         return []
 
@@ -309,7 +343,10 @@ class MemoryLayerService:
         query = query.order_by(TimelineEvent.chapter_number, TimelineEvent.id)
         
         result = await self.db.execute(query)
-        return list(result.scalars().all())
+        rows = list(result.scalars().all())
+        if end_chapter is not None:
+            rows = await filter_current_rows(self.db, rows, project_id, end_chapter + 1)
+        return rows
 
     async def add_timeline_event(
         self,
@@ -325,6 +362,16 @@ class MemoryLayerService:
         is_turning_point: bool = False
     ) -> TimelineEvent:
         """添加时间线事件"""
+        await require_current_source(self.db, self._source_ref)
+        provenance = source_payload(self._source_ref)
+        if provenance.get("source_derivation_id"):
+            existing = (await self.db.execute(select(TimelineEvent).where(
+                TimelineEvent.project_id == project_id, TimelineEvent.chapter_number == chapter_number,
+                TimelineEvent.event_title == event_title,
+            ))).scalars().all()
+            for item in existing:
+                if (item.extra or {}).get("provenance", {}).get("source_derivation_id") == provenance["source_derivation_id"]:
+                    return item
         event = TimelineEvent(
             project_id=project_id,
             chapter_number=chapter_number,
@@ -338,7 +385,11 @@ class MemoryLayerService:
             is_turning_point=is_turning_point
         )
         self.db.add(event)
-        await self.db.commit()
+        if self._source_ref is not None:
+            event.extra = {"provenance": source_payload(self._source_ref)}
+            await self.db.flush()
+        else:
+            await self.db.commit()
         await self.db.refresh(event)
         return event
 
@@ -389,22 +440,28 @@ class MemoryLayerService:
                 return result.get("events", [])
         except Exception as e:
             logger.warning(f"提取时间线事件失败: {e}")
+            if self._source_ref is not None:
+                raise
         
         return []
 
     # ===== 因果链管理 =====
 
-    async def get_pending_causal_chains(self, project_id: str) -> List[CausalChain]:
+    async def get_pending_causal_chains(self, project_id: str, before_chapter: Optional[int] = None) -> List[CausalChain]:
         """获取待解决的因果链"""
-        result = await self.db.execute(
-            select(CausalChain).where(
+        query = select(CausalChain).where(
                 and_(
                     CausalChain.project_id == project_id,
                     CausalChain.status == "pending"
                 )
             ).order_by(CausalChain.cause_chapter)
-        )
-        return list(result.scalars().all())
+        if before_chapter is not None:
+            query = query.where(CausalChain.cause_chapter < before_chapter)
+        result = await self.db.execute(query)
+        rows = list(result.scalars().all())
+        if before_chapter is not None:
+            rows = await filter_current_rows(self.db, rows, project_id, before_chapter)
+        return rows
 
     async def build_chapter_state_context(
         self,
@@ -420,7 +477,7 @@ class MemoryLayerService:
 
         # 1. 角色当前状态
         try:
-            states = await self.get_all_character_states(project_id, chapter_number)
+            states = await self.get_all_character_states(project_id, chapter_number - 1)
             if involved_characters:
                 # 优先展示本章涉及角色，其余角色简略
                 involved_set = set(involved_characters)
@@ -470,7 +527,7 @@ class MemoryLayerService:
 
         # 3. 待解决因果链（top-3）
         try:
-            chains = await self.get_pending_causal_chains(project_id)
+            chains = await self.get_pending_causal_chains(project_id, before_chapter=chapter_number)
             if chains:
                 chain_lines = []
                 for c in chains[:3]:
@@ -561,6 +618,7 @@ class MemoryLayerService:
         duration: str
     ) -> StoryTimeTracker:
         """更新章节时间"""
+        await require_current_source(self.db, self._source_ref)
         tracker = await self.get_or_create_time_tracker(project_id)
         
         chapter_time_map = tracker.chapter_time_map or {}
@@ -571,6 +629,11 @@ class MemoryLayerService:
         }
         tracker.chapter_time_map = chapter_time_map
         tracker.current_time = end_time
+        if self._source_ref is not None:
+            extra = dict(tracker.extra or {})
+            extra["chapter_sources"] = {**extra.get("chapter_sources", {}),
+                                        str(chapter_number): source_payload(self._source_ref)}
+            tracker.extra = extra
         
         await self.db.commit()
         await self.db.refresh(tracker)
@@ -620,7 +683,7 @@ class MemoryLayerService:
             lines.append("")
         
         # 3. 待解决的因果链
-        pending_chains = await self.get_pending_causal_chains(project_id)
+        pending_chains = await self.get_pending_causal_chains(project_id, before_chapter=chapter_number)
         if pending_chains:
             lines.append("## 待解决的因果链\n")
             for chain in pending_chains[:5]:  # 最多显示 5 个
@@ -629,12 +692,21 @@ class MemoryLayerService:
             lines.append("")
         
         # 4. 故事时间
-        tracker = await self.get_or_create_time_tracker(project_id)
-        if tracker.current_time:
+        tracker = (await self.db.execute(select(StoryTimeTracker).where(
+            StoryTimeTracker.project_id == project_id,
+        ))).scalar_one_or_none()
+        time_value = None
+        if tracker is not None:
+            from .memory_provenance import valid_provenance
+            extra = tracker.extra if isinstance(getattr(tracker, "extra", None), dict) else {}
+            mapping = tracker.chapter_time_map if isinstance(tracker.chapter_time_map, dict) else {}
+            for number in sorted((int(n) for n in mapping if str(n).isdigit() and int(n) < chapter_number), reverse=True):
+                if await valid_provenance(self.db, extra.get("chapter_sources", {}).get(str(number)), project_id, chapter_number):
+                    time_value = mapping[str(number)].get("end_time")
+                    break
+        if time_value:
             lines.append("## 故事时间\n")
-            lines.append(f"- 当前时间：{tracker.current_time}")
-            if tracker.current_date:
-                lines.append(f"- 当前日期：{tracker.current_date}")
+            lines.append(f"- 当前时间：{time_value}")
             lines.append("")
 
         # 5. Mem0 长期记忆检索
@@ -647,9 +719,12 @@ class MemoryLayerService:
         query = "\n".join(query_parts)
         try:
             memory = await self._ensure_memory()
-            results = await memory.search(query, user_id=project_id)
+            results = await memory.search(
+                query, user_id=project_id, filters={"provenance_schema": 2}, limit=100, rerank=False,
+            )
             # AsyncMemory.search 返回 {"results": [...]} 格式
             result_list = results.get("results", []) if isinstance(results, dict) else results
+            result_list = await filter_mem0_results(self.db, result_list or [], project_id, chapter_number)
             if result_list:
                 for res in result_list:
                     mem_text = res.get('memory', '')
@@ -704,7 +779,8 @@ class MemoryLayerService:
         chapter_number: int,
         chapter_content: str,
         character_names: List[str],
-        user_id: int
+        user_id: int,
+        source_ref: Any = None,
     ) -> Dict[str, Any]:
         """轻量状态记忆更新：仅抽取并落库状态类记忆（CharacterState/TimelineEvent），不碰 mem0。
 
@@ -717,28 +793,40 @@ class MemoryLayerService:
             "timeline_events_added": 0,
             "causal_chains_added": 0,
         }
+        self._source_ref = source_ref
+        await require_current_source(self.db, source_ref, lock=False)
 
         # ---- 顺序执行 2 个 LLM 提取（共享同一 async session，不可并发） ----
         character_states: Any = []
         events: Any = []
 
         try:
-            character_states = await self.extract_character_states_from_chapter(
-                project_id, chapter_number, chapter_content, character_names, user_id
+            character_states = await self._extraction_checkpoint(
+                "character_states", lambda: self.extract_character_states_from_chapter(
+                    project_id, chapter_number, chapter_content, character_names, user_id,
+                ),
             )
         except Exception as e:
             logger.warning(f"提取角色状态失败: {e}")
+            if source_ref is not None:
+                raise
 
         try:
-            events = await self.extract_timeline_events_from_chapter(
-                project_id, chapter_number, chapter_content, user_id
+            events = await self._extraction_checkpoint(
+                "timeline", lambda: self.extract_timeline_events_from_chapter(
+                    project_id, chapter_number, chapter_content, user_id,
+                ),
             )
         except Exception as e:
             logger.warning(f"提取时间线事件失败: {e}")
+            if source_ref is not None:
+                raise
 
         # ---- 步骤 1: 写入角色状态（独立错误隔离） ----
+        await require_current_source(self.db, source_ref)
         try:
             for state_data in character_states:
+                state_data = dict(state_data)
                 char_name = state_data.pop("character_name", None)
                 if char_name:
                     await self.update_character_state(
@@ -747,6 +835,8 @@ class MemoryLayerService:
                     results["character_states_updated"] += 1
         except Exception as e:
             logger.warning(f"写入角色状态到数据库失败: {e}")
+            if source_ref is not None:
+                raise
             # 失败的 flush 会让 session 停在待回滚态，不复位则"独立错误隔离"名存实亡：
             # 步骤 2 必然连带报 PendingRollbackError（线上实测角色状态与时间线总是同时丢）。
             await self._safe_rollback()
@@ -762,6 +852,8 @@ class MemoryLayerService:
                 results["timeline_events_added"] += 1
         except Exception as e:
             logger.warning(f"写入时间线事件到数据库失败: {e}")
+            if source_ref is not None:
+                raise
             await self._safe_rollback()
 
         return results
@@ -772,7 +864,8 @@ class MemoryLayerService:
         chapter_number: int,
         chapter_content: str,
         character_names: List[str],
-        user_id: int
+        user_id: int,
+        source_ref: Any = None,
     ) -> Dict[str, Any]:
         """章节完成后更新完整记忆层：状态类抽取落库（复用 update_state_after_chapter）
         + 提取新事实存入 mem0。每个步骤独立错误隔离。
@@ -783,22 +876,30 @@ class MemoryLayerService:
             "causal_chains_added": 0,
             "mem0_memories_added": 0
         }
+        self._source_ref = source_ref
+        await require_current_source(self.db, source_ref, lock=False)
 
         # ---- 状态类抽取落库（CharacterState/TimelineEvent，内部已独立错误隔离） ----
         try:
             state_results = await self.update_state_after_chapter(
-                project_id, chapter_number, chapter_content, character_names, user_id
+                project_id, chapter_number, chapter_content, character_names, user_id, source_ref=source_ref,
             )
             results.update(state_results)
         except Exception as e:
             logger.warning(f"状态类记忆更新失败: {e}")
+            if source_ref is not None:
+                raise
 
         # ---- mem0 事实提取（独立错误隔离） ----
         facts: Any = []
         try:
-            facts = await self._extract_mem0_facts(chapter_content, user_id)
+            facts = await self._extraction_checkpoint(
+                "mem0_facts", lambda: self._extract_mem0_facts(chapter_content, user_id),
+            )
         except Exception as e:
             logger.warning(f"提取 mem0 事实失败: {e}")
+            if source_ref is not None:
+                raise
             facts = []
 
         # ---- 存入 mem0 长期记忆（独立错误隔离） ----
@@ -807,10 +908,28 @@ class MemoryLayerService:
             if facts:
                 messages = [{"role": "user", "content": fact} for fact in facts]
                 memory = await self._ensure_memory()
-                await memory.add(messages, user_id=project_id)
-                results["mem0_memories_added"] = len(facts)
+                # No inference/merging in the external cache: SQL owns canon.
+                await require_current_source(self.db, source_ref)
+                raw = source_payload(source_ref)
+                if raw and raw.get("source_derivation_id"):
+                    added = await memory.add(
+                        messages, user_id=project_id, infer=False,
+                        metadata={**raw, "provenance_schema": 2},
+                    )
+                    import hashlib
+                    entries = added.get("results", []) if isinstance(added, dict) else added
+                    results["memory_ids"] = [str(e["id"]) for e in entries or [] if e.get("id")]
+                    results["memory_hashes"] = {
+                        str(e["id"]): hashlib.sha256((e.get("memory") or "").encode()).hexdigest()
+                        for e in entries or [] if e.get("id")
+                    }
+                    if len(results["memory_ids"]) != len(messages) or len(results["memory_hashes"]) != len(messages):
+                        raise RuntimeError("Mem0 未确认完整写入，不能发布成功收据")
+                    results["mem0_memories_added"] = len(results["memory_ids"])
         except Exception as e:
             logger.warning(f"存入 mem0 记忆失败: {e}")
+            if source_ref is not None:
+                raise
 
         logger.info(
             f"项目 {project_id} 第 {chapter_number} 章记忆层更新完成: "

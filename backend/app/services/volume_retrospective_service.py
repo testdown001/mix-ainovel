@@ -92,11 +92,15 @@ class VolumeRetrospectiveService:
         llm_service: Any,
         prompt_service: Any,
         user_id: int = 0,
+        source_ref=None,
     ) -> Dict[str, Any]:
         """某章定稿后，若它是所属卷的最后一章则复盘该卷并重规划下一卷。
 
         返回统计字典；任何前置条件不满足都以 `{"skipped": 原因}` 返回，不抛异常。
         """
+        if source_ref is not None:
+            from .chapter_derivation_service import require_current_source
+            await require_current_source(session, source_ref)
         stats: Dict[str, Any] = {"reviewed": False}
 
         from ..models.novel import NovelBlueprint
@@ -124,17 +128,32 @@ class VolumeRetrospectiveService:
             # 卷摘要尚未生成（卷内仍有章节缺 real_summary）——没有「实际」就无从对比
             return {"skipped": "no_volume_summary"}
 
-        result = await self._ask_llm(
-            current=current,
-            next_volume=volumes[idx + 1],
-            volume_summary=volume_summary,
-            llm_service=llm_service,
-            prompt_service=prompt_service,
-            user_id=user_id,
-        )
+        import json
+        before_plan = json.dumps(blueprint.volumes, ensure_ascii=False, sort_keys=True)
+        from .chapter_derivation_service import load_derivation_checkpoint, save_derivation_checkpoint
+        cached = await load_derivation_checkpoint(session, source_ref, "extraction_retrospective") if source_ref else None
+        if cached:
+            result = VolumeRetrospectiveResult.model_validate(cached)
+        else:
+            result = await self._ask_llm(
+                current=current,
+                next_volume=volumes[idx + 1],
+                volume_summary=volume_summary,
+                llm_service=llm_service,
+                prompt_service=prompt_service,
+                user_id=user_id,
+            )
+            if result is not None and source_ref is not None:
+                await save_derivation_checkpoint(session, source_ref, "extraction_retrospective", result.model_dump())
         if result is None:
             return {"skipped": "llm_failed"}
 
+        if source_ref is not None:
+            await require_current_source(session, source_ref, lock=True)
+            # Reload planning after the model call, so an author edit is not lost.
+            await session.refresh(blueprint)
+            if json.dumps(blueprint.volumes, ensure_ascii=False, sort_keys=True) != before_plan:
+                return {"skipped": "planning_changed"}
         # 先读后并整体重赋值：JSON 列必须换新对象才触发 SQLAlchemy 变更检测
         new_volumes = [dict(v) for v in (blueprint.volumes or [])]
         new_volumes[idx] = {
@@ -159,6 +178,10 @@ class VolumeRetrospectiveService:
                 },
             }
             stats["replanned_volume"] = idx + 2  # 1-based 卷号，便于日志对照
+        if source_ref is not None:
+            new_volumes[idx]["retrospective"]["source_ref"] = dict(source_ref)
+            if result.next_volume is not None:
+                new_volumes[idx + 1]["replan"]["source_ref"] = dict(source_ref)
         blueprint.volumes = new_volumes
         from .volume_service import VolumeService
 
@@ -182,14 +205,23 @@ class VolumeRetrospectiveService:
         from ..models.project_memory import VolumeSummary
 
         rows = await session.execute(
-            select(VolumeSummary.summary).where(
+            select(VolumeSummary).where(
                 VolumeSummary.project_id == project_id,
                 VolumeSummary.chapter_start == int(volume["start_chapter"]),
                 VolumeSummary.chapter_end == int(volume["end_chapter"]),
             )
         )
-        summary = rows.scalars().first()
-        return (summary or "").strip() or None
+        volume_row = rows.scalars().first()
+        if volume_row is None:
+            return None
+        # Real ORM reads require a verified aggregate manifest. Compatibility test
+        # doubles/legacy callers returning text retain their existing shape.
+        if isinstance(volume_row, VolumeSummary):
+            from .volume_summary_service import VolumeSummaryService
+            if not await VolumeSummaryService(session, None)._has_valid_provenance(volume_row):
+                return None
+            return (volume_row.summary or "").strip() or None
+        return (volume_row or "").strip() or None
 
     async def _ask_llm(
         self,
@@ -260,6 +292,11 @@ class VolumeRetrospectiveService:
                 replan = volumes[idx].get("replan")
                 if not isinstance(replan, dict) or replan.get("status") != "pending":
                     return None
+                provenance = replan.get("source_ref")
+                if provenance:
+                    from .chapter_derivation_service import source_is_current
+                    if provenance.get("chapter_number", chapter_number) >= chapter_number or not await source_is_current(sess, provenance):
+                        return None
                 return self._format_brief(replan)
 
             if session is not None:

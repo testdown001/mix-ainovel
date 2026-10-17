@@ -7,7 +7,7 @@ import logging
 from typing import Any, Literal
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SkipValidation
 
 from ..utils.json_utils import is_probable_chapter_plain_text
 from ..utils.tracing import span
@@ -26,7 +26,9 @@ class NarrativeIssue(BaseModel):
 class NarrativeCheck(BaseModel):
     issues: list[NarrativeIssue] = Field(max_length=12)
     state_delta: list[str] = Field(max_length=10)
-    narrative_delta: NarrativeDelta | None = None
+    # Deliberately validate this optional extraction after the quality verdict.
+    # A malformed delta must not retry or reject an otherwise usable manuscript.
+    narrative_delta: SkipValidation[NarrativeDelta | None] = None
 
 
 class GenerationQualityError(RuntimeError):
@@ -77,8 +79,9 @@ class GenerationQualityGate:
                     "结尾的发现/决定/兑现与未决问题；允许调整措辞、句长、动作细节和非事实性描写。"
                     "chapter 模式：对照章任务及已知事实检查硬错；情绪节奏和追读感建议仅为 warning。"
                     "每条问题 evidence 引用具体文本，explanation 说明矛盾两端；无问题则 issues=[]。"
-                    "当 context.require_narrative_delta=true 时必须输出 narrative_delta：只从当前 candidate 正文抽取"
+                    "当 context.require_narrative_delta=true 时尽量同时输出 narrative_delta（可选，不确定则 null）：只从当前 candidate 正文抽取"
                     "实体-属性事实、当前读者牵挂/愿望/压力/兑现/余波/下一牵挂/情绪、打开的问题和已兑现的问题。"
+                    "只抽关键变化，facts优先最多4条，opened/closed各优先最多2条；读者状态每维用40字以内。"
                     "facts/opened/closed 的 evidence 必须逐字引用正文。空白维度用空串，未发生变化的列表用空数组。"
                     "人物猜测和谎言不能当客观事实；关系可以用 entity+attribute+related_entities 表达。"
                     "只有明确发生状态变更时填写 supersedes_value=旧值，不能擅自解决资料矛盾。"
@@ -90,14 +93,25 @@ class GenerationQualityGate:
                 user_id=user_id, max_tokens=2400, timeout=60,
                 request_max_retries=0, max_validation_retries=1,
             )
-        report = verdict.model_dump()
-        if isinstance(context, dict) and context.get("require_narrative_delta"):
+        report = verdict.model_dump(exclude={"narrative_delta"})
+        report["narrative_delta"] = None
+        requested = mode != "rewrite" and isinstance(context, dict) and context.get("require_narrative_delta")
+        report["narrative_delta_status"] = "not_requested"
+        if requested:
             if verdict.narrative_delta is None:
-                raise GenerationQualityError("正文检查缺少叙事状态增量", partial_text=text)
-            try:
-                NarrativeStateService.validate_evidence(verdict.narrative_delta, text, context.get("narrative_state") or {})
-            except ValueError as exc:
-                raise GenerationQualityError(str(exc), partial_text=text) from exc
+                report["narrative_delta_status"] = "missing"
+            else:
+                try:
+                    delta = NarrativeDelta.model_validate(verdict.narrative_delta)
+                    NarrativeStateService.validate_evidence(delta, text, context.get("narrative_state") or {})
+                    report["narrative_delta"] = delta.model_dump()
+                    report["narrative_delta_status"] = "ready"
+                except (ValueError, TypeError) as exc:
+                    report["narrative_delta"] = None
+                    report["narrative_delta_status"] = "invalid"
+                    report["narrative_delta_reason"] = str(exc)[:300]
+        else:
+            report["narrative_delta"] = None
         blocking = [issue for issue in report["issues"] if issue["severity"] == "blocking"]
         report.update(status="rejected" if blocking else "verified", content_hash=content_digest(text))
         if blocking:

@@ -16,6 +16,13 @@ export DB_PROVIDER=sqlite
 export SQLITE_PATH="${E2E_SQLITE_PATH:-/tmp/arboris-e2e.db}"
 export FRONTEND_DIST_DIR="$(cd ../frontend/dist && pwd)"
 export DEBUG=true
+# Browser smoke deliberately bursts several same-user page/API requests. Keep
+# production limiter behavior in its backend tests, not in timing-sensitive UI
+# smoke; these values seed only this disposable SQLite database.
+export API_RATE_LIMIT_REQUESTS_PER_MINUTE=10000
+export API_RATE_LIMIT_USER_RPS=1000
+export API_RATE_LIMIT_IP_RPS=1000
+export API_RATE_LIMIT_AUTH_RPM=1000
 
 # 每次全新建库，测试间零残留
 rm -f "$SQLITE_PATH"

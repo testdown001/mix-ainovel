@@ -66,6 +66,7 @@ class StandardGenerationFlowService:
         deadline: Optional[float] = None,
         emit_text_delta: Optional[Callable[[str], Any]] = None,
         emit_stage: Optional[Callable[[str, str], Awaitable[None]]] = None,
+        context_sources: Optional[list[dict]] = None,
     ) -> StandardGenerationFlowResult:
         version_count = config.version_count
 
@@ -73,6 +74,7 @@ class StandardGenerationFlowService:
         generation_result = await self.version_generation_service.run(
             stream_callback=emit_text_delta,
             prompt_input=prompt_input,
+            context_sources=context_sources,
             prompt_sections=prompt_sections,
             writer_prompt=writer_prompt,
             enhanced_context=enhanced_context,

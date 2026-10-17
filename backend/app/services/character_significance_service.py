@@ -98,6 +98,10 @@ class CharacterSignificanceService:
             extra = extra if isinstance(extra, dict) else {}
             ledger = extra.get("significance_v2")
             if isinstance(ledger, dict):
+                if ledger.get("provenance"):
+                    from .chapter_derivation_service import source_is_current
+                    if not await source_is_current(session, ledger["provenance"]):
+                        continue
                 if not self._source_matches(ledger.get("source") or {}, sources.get(number) or {}):
                     continue
                 for event in ledger.get("events") or []:
@@ -139,11 +143,14 @@ class CharacterSignificanceService:
     async def extract_and_store(
         self, *, project_id: str, chapter_number: int, chapter_content: str,
         character_names: Optional[List[str]], session: Any, llm_service: Any,
-        prompt_service: Any, user_id: int = 0,
+        prompt_service: Any, user_id: int = 0, source_ref=None,
     ) -> Dict[str, Any]:
         if not chapter_content or not chapter_content.strip():
             return {"skipped": "empty_content"}
         try:
+            if source_ref is not None:
+                from .chapter_derivation_service import require_current_source
+                await require_current_source(session, source_ref)
             source = (await self._sources(session, project_id, chapter_number + 1, chapter_number)).get(chapter_number)
             if not source or source["content"] != chapter_content:
                 return {"skipped": "not_current_selected_version"}
@@ -162,14 +169,23 @@ class CharacterSignificanceService:
             known = {m["id"]: m for m in relevant if m["id"]}
             excerpt = chapter_content if len(chapter_content) <= 10000 else (
                 chapter_content[:5000] + "\n[中段省略]\n" + chapter_content[-5000:])
-            result = await llm_service.generate_structured(
-                prompt=f"[本章正文]\n{excerpt}\n[主要角色]\n{'、'.join(names)}\n"
-                       f"[既有意义记录，仅可引用有 ID 的记录]\n{json.dumps(relevant, ensure_ascii=False)}",
-                schema=SignificanceResult, system_prompt=system_prompt,
-                temperature=0.3, user_id=user_id, default=None,
-            )
+            from .chapter_derivation_service import load_derivation_checkpoint, save_derivation_checkpoint
+            cached = await load_derivation_checkpoint(session, source_ref, "extraction_significance") if source_ref else None
+            if cached:
+                result = SignificanceResult.model_validate(cached)
+            else:
+                result = await llm_service.generate_structured(
+                    prompt=f"[本章正文]\n{excerpt}\n[主要角色]\n{'、'.join(names)}\n"
+                           f"[既有意义记录，仅可引用有 ID 的记录]\n{json.dumps(relevant, ensure_ascii=False)}",
+                    schema=SignificanceResult, system_prompt=system_prompt,
+                    temperature=0.3, user_id=user_id, default=None,
+                )
+                if result is not None and source_ref is not None:
+                    await save_derivation_checkpoint(session, source_ref, "extraction_significance", result.model_dump())
             if result is None:
                 return {"skipped": "no_result"}
+            if source_ref is not None:
+                await require_current_source(session, source_ref, lock=True)
             current = (await self._sources(session, project_id, chapter_number + 1, chapter_number)).get(chapter_number)
             if not self._source_matches(source, current or {}):
                 return {"skipped": "source_changed"}
@@ -207,14 +223,14 @@ class CharacterSignificanceService:
                 if row is None:
                     row = CharacterState(project_id=project_id, chapter_number=chapter_number, character_name=name)
                     session.add(row)
-                row.extra = {**(row.extra or {}), "significance_v2": {"source": stored_source, "events": events}}
+                row.extra = {**(row.extra or {}), "significance_v2": {"source": stored_source, "events": events, "provenance": source_ref}}
                 stored += 1
             if not stored and names:
                 row = next((r for r in rows if r.character_name == names[0]), None)
                 if row is None:
                     row = CharacterState(project_id=project_id, chapter_number=chapter_number, character_name=names[0])
                     session.add(row)
-                row.extra = {**(row.extra or {}), "significance_v2": {"source": stored_source, "events": []}}
+                row.extra = {**(row.extra or {}), "significance_v2": {"source": stored_source, "events": [], "provenance": source_ref}}
             await session.commit()
             return {"stored": stored}
         except Exception as exc:

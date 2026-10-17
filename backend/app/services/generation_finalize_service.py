@@ -81,75 +81,9 @@ class GenerationFinalizeService:
             )
             self._track_task(task_registry, task)
 
-        if enable_memory:
-            task = asyncio.create_task(
-                self.generation_background_task_service.run_memory_update(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    character_names=introduced_characters,
-                    user_id=user_id,
-                )
-            )
-            self._track_task(task_registry, task)
-        elif enable_state_tracking:
-            # standard 档轻量路径：仅状态类抽取落库（CharacterState/TimelineEvent），不碰 mem0
-            task = asyncio.create_task(
-                self.generation_background_task_service.run_state_update(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    character_names=introduced_characters,
-                    user_id=user_id,
-                )
-            )
-            self._track_task(task_registry, task)
-
-        task = asyncio.create_task(
-            self.generation_background_task_service.run_foreshadowing_extraction(
-                project_id=project_id,
-                chapter_id=chapter.id,
-                chapter_number=chapter_number,
-                chapter_content=best_content,
-                user_id=user_id,
-            )
-        )
-        self._track_task(task_registry, task)
-
-        if enable_outline_revision:
-            task = asyncio.create_task(
-                self.generation_background_task_service.run_outline_revision(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_content=best_content,
-                    user_id=user_id,
-                )
-            )
-            self._track_task(task_registry, task)
-
-        # 人物意义等待实际采用/定稿后再提取，不能从推荐但尚未选中的版本学习。
-        # 每个版本已经保存 character_significance_enabled，后处理沿用该选择。
-
-        if enable_volume_retrospective:
-            task = asyncio.create_task(
-                self.generation_background_task_service.run_volume_retrospective(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    user_id=user_id,
-                )
-            )
-            self._track_task(task_registry, task)
-
-        if run_post_processor:
-            task = asyncio.create_task(
-                self.generation_background_task_service.run_chapter_post_processor(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    content=best_content,
-                    user_id=user_id,
-                )
-            )
-            self._track_task(task_registry, task)
+        # Draft evaluations above remain version-scoped. Canonical memory, state,
+        # foreshadowing and future planning are dispatched only by the transaction
+        # that adopts this version (ChapterDerivationService). Generation is not adoption.
 
     async def complete_progress(
         self,
@@ -181,7 +115,7 @@ class GenerationFinalizeService:
                     "index": idx,
                     "version_id": version_model.id,
                     "content": versions[idx].get("content", ""),
-                    "metadata": versions[idx].get("metadata"),
+                    "metadata": {**(versions[idx].get("metadata") or {}), "version_id": version_model.id},
                 }
             )
         return variants
@@ -197,7 +131,7 @@ class GenerationFinalizeService:
                 "index": 0,
                 "version_id": version_model.id,
                 "content": version.get("content", ""),
-                "metadata": version.get("metadata"),
+                "metadata": {**(version.get("metadata") or {}), "version_id": version_model.id},
             }
         ]
 

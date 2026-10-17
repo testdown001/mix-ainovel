@@ -55,8 +55,8 @@ class TemporalStateService:
         fetches = [
             self._fetch_characters(project_id, chapter_number, involved_characters, snapshot),
             self._fetch_events(project_id, chapter_number, snapshot),
-            self._fetch_causal_chains(project_id, snapshot),
-            self._fetch_story_time(project_id, snapshot),
+            self._fetch_causal_chains(project_id, chapter_number, snapshot),
+            self._fetch_story_time(project_id, chapter_number, snapshot),
         ]
         if include_foreshadowing:
             fetches.append(self._fetch_foreshadowing(project_id, chapter_number, snapshot))
@@ -102,7 +102,7 @@ class TemporalStateService:
 
             mem = MemoryLayerService(db=self.db)
 
-            states = await mem.get_all_character_states(project_id, chapter_number)
+            states = await mem.get_all_character_states(project_id, chapter_number - 1)
 
             for s in states:
                 char_dict: Dict[str, Any] = {
@@ -112,6 +112,7 @@ class TemporalStateService:
                     "health_status": s.health_status,
                     "power_level": s.power_level,
                     "current_goals": s.current_goals,
+                    "source_ref": (getattr(s, "extra", None) or {}).get("provenance"),
                 }
                 snapshot.characters.append(char_dict)
                 if s.power_level:
@@ -149,6 +150,7 @@ class TemporalStateService:
                     "chapter": ev.chapter_number,
                     "event": ev.event_description if hasattr(ev, "event_description") else str(ev),
                     "importance": getattr(ev, "importance", None),
+                    "source_ref": (getattr(ev, "extra", None) or {}).get("provenance"),
                 })
         except Exception:
             logger.warning("时序状态: 事件查询异常", exc_info=True)
@@ -157,6 +159,7 @@ class TemporalStateService:
     async def _fetch_causal_chains(
         self,
         project_id: str,
+        chapter_number: int,
         snapshot: WorldStateSnapshot,
     ) -> None:
         try:
@@ -164,12 +167,15 @@ class TemporalStateService:
 
             mem = MemoryLayerService(db=self.db)
 
-            chains = await mem.get_pending_causal_chains(project_id)
+            chains = await mem.get_pending_causal_chains(project_id, before_chapter=chapter_number)
             for c in chains:
+                if not isinstance(getattr(c, "cause_chapter", None), int) or not 0 < c.cause_chapter < chapter_number:
+                    continue
                 snapshot.pending_chains.append({
                     "cause": getattr(c, "cause_description", str(c)),
                     "cause_chapter": getattr(c, "cause_chapter", None),
                     "expected_effect": getattr(c, "expected_effect", None),
+                    "source_ref": (getattr(c, "extra", None) or {}).get("provenance"),
                 })
         except Exception:
             logger.warning("时序状态: 因果链查询异常", exc_info=True)
@@ -178,17 +184,31 @@ class TemporalStateService:
     async def _fetch_story_time(
         self,
         project_id: str,
+        chapter_number: int,
         snapshot: WorldStateSnapshot,
     ) -> None:
         try:
-            from .memory_layer_service import MemoryLayerService
-
-            mem = MemoryLayerService(db=self.db)
-
-            tracker = await mem.get_or_create_time_tracker(project_id)
-            snapshot.story_time = {
-                "chapter_time_map": getattr(tracker, "chapter_time_map", {}),
-            }
+            from sqlalchemy import select
+            from ..models.memory_layer import StoryTimeTracker
+            from .memory_provenance import valid_provenance
+            # Context reads must not create a row or commit an unrelated transaction.
+            tracker = (await self.db.execute(select(StoryTimeTracker).where(
+                StoryTimeTracker.project_id == project_id))).scalars().first()
+            if tracker is None:
+                return
+            sources = (tracker.extra or {}).get("chapter_sources") or {}
+            valid, provenance = {}, {}
+            for key, value in (tracker.chapter_time_map or {}).items():
+                try:
+                    number = int(key)
+                except (ValueError, TypeError):
+                    continue
+                raw = sources.get(str(number))
+                if (number < chapter_number and isinstance(raw, dict) and raw.get("chapter_number") == number
+                        and await valid_provenance(self.db, raw, project_id, chapter_number)):
+                    valid[key] = value
+                    provenance[key] = raw
+            snapshot.story_time = {"chapter_time_map": valid, "source_refs": provenance}
         except Exception:
             logger.warning("时序状态: 故事时间查询异常", exc_info=True)
             # get_or_create_time_tracker 会写库；commit 失败必须复位 session
@@ -257,7 +277,7 @@ class TemporalStateService:
         items: list = []
         token_estimate = 0
 
-        def _add(title: str, content: str, score: float) -> bool:
+        def _add(title: str, content: str, score: float, source_ref=None) -> bool:
             nonlocal token_estimate
             # 粗估 1 token ≈ 2 中文字符
             est = len(content)
@@ -268,7 +288,7 @@ class TemporalStateService:
                 title=title,
                 content=content,
                 score=score,
-                metadata={"origin": "temporal_snapshot"},
+                metadata={"origin": "temporal_snapshot", **({"source_ref": source_ref} if source_ref else {})},
             ))
             token_estimate += est
             return True
@@ -287,7 +307,7 @@ class TemporalStateService:
         # 3. 因果链 (0.70)
         for c in snapshot.pending_chains[:5]:
             text = f"[待解因果] 第{c.get('cause_chapter', '?')}章: {c.get('cause', '')} → {c.get('expected_effect', '?')}"
-            if not _add("因果链", text, 0.70):
+            if not _add("因果链", text, 0.70, c.get("source_ref")):
                 break
 
         # 4. 角色状态 (0.65)
@@ -303,13 +323,13 @@ class TemporalStateService:
                 parts.append(f"实力{ch['power_level']}")
             if parts:
                 text = f"{ch['name']}：{'，'.join(parts)}"
-                if not _add(f"角色-{ch['name']}", text, 0.65):
+                if not _add(f"角色-{ch['name']}", text, 0.65, ch.get("source_ref")):
                     break
 
         # 5. 重大事件 (0.60)
         for ev in snapshot.recent_events[:5]:
             text = f"第{ev.get('chapter', '?')}章: {ev.get('event', '')}"
-            if not _add("重大事件", text, 0.60):
+            if not _add("重大事件", text, 0.60, ev.get("source_ref")):
                 break
 
         return items

@@ -30,6 +30,7 @@ from .api_usage import router as api_usage_router
 from .payment import router as payment_router
 from .public_share import router as public_share_router
 from .creative_memory import router as creative_memory_router
+from .derived_state import router as derived_state_router
 
 
 api_router = APIRouter()
@@ -59,6 +60,7 @@ api_router.include_router(power_system_router, prefix="/power-system", tags=["Po
 
 # 管理员 - admin.py 已经定义了 prefix
 api_router.include_router(admin_router, tags=["Admin"])
+api_router.include_router(derived_state_router, tags=["Admin"])
 
 # 更新日志 - updates.py 已经定义了 prefix
 api_router.include_router(updates_router, tags=["Updates"])

@@ -1,3 +1,4 @@
+import { chapterSelectionBaseline } from '@/utils/chapterSelection'
 // AIMETA P=小说状态_当前小说数据管理|R=currentNovel_chapters_fetch|NR=不含API调用|E=store:novel|X=internal|A=useNovelStore|D=pinia|S=none|RD=./README.ai
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
@@ -320,7 +321,11 @@ export const useNovelStore = defineStore('novel', () => {
       const updatedProject = await NovelAPI.selectChapterVersion(
         currentProject.value.id,
         chapterNumber,
-        versionIndex
+        versionIndex,
+        chapterSelectionBaseline(
+          currentProject.value.chapters?.find((chapter) => chapter.chapter_number === chapterNumber),
+          versionIndex,
+        ),
       )
       currentProject.value = updatedProject // 更新 store
     } catch (err) {

@@ -37,6 +37,8 @@ def build_emotional_continuity_brief(mission: Any) -> str:
     lines = []
     for label, keys in (
         ("章节功能", ("chapter_function", "chapter_type")),
+        ("作者情感意图", ("emotional_intent",)),
+        ("期待读者感受（意图而非测量）", ("reader_effect",)),
         ("情绪走向与松弛点", ("emotion_curve",)),
         ("主动留白及原因", ("deliberate_omission",)),
         ("质感与笔墨分配", ("tone_guide",)),
@@ -45,6 +47,8 @@ def build_emotional_continuity_brief(mission: Any) -> str:
         value = inline_value(mission_value(mission, *keys)).strip()
         if value:
             lines.append(f"- {label}：{value}")
+    if mission_value(mission, "emotional_intent") == "quiet":
+        lines.append("- 本章为安静/余波章节，保留克制与沉淀；不得为了通用节奏曲线强加高潮、牺牲或反转。")
     if not lines:
         return ""
     return "\n".join([

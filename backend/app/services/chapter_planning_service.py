@@ -61,6 +61,7 @@ _FS_OP_STORE_MAP = {"plant": "plant", "develop": "reinforce", "payoff": "payoff"
 PLANNING_METADATA_FIELDS = frozenset({
     "chapter_function", "hook_type", "coolpoint", "foreshadowing_ops", "must_not_include",
     "narrative_phase", "emotion_hook", "foreshadowing", "character_focus",
+    "emotional_intent", "reader_effect",
 })
 
 
@@ -74,6 +75,14 @@ def get_outline_planning(metadata: Any) -> Dict[str, Any]:
         planning.update(nested)
     if "character_focus" in planning:
         planning["character_focus"] = clean_character_focus(planning["character_focus"])
+    if "emotional_intent" in planning:
+        intent = clean_emotional_intent(planning["emotional_intent"])
+        if intent:
+            planning["emotional_intent"] = intent
+        else:
+            planning.pop("emotional_intent", None)
+    if "reader_effect" in planning:
+        planning["reader_effect"] = _clean_str(planning["reader_effect"], 300)
     return planning
 
 
@@ -107,6 +116,31 @@ def _clean_str_list(value: Any, limit: int = 8) -> List[str]:
         if len(cleaned) >= limit:
             break
     return cleaned
+
+
+def clean_emotional_intent(value: Any) -> Optional[str]:
+    """An author intent is a planning directive, never a measured reader emotion."""
+    return value if isinstance(value, str) and value in {"quiet", "balanced", "intense"} else None
+
+
+def resolve_emotional_intent(planning: Any = None, mission: Any = None, volume: Any = None) -> Dict[str, str]:
+    """Author chapter plan > chapter mission/function > volume plan > generic curve."""
+    for source, source_name in ((planning, "chapter_planning"), (mission, "chapter_mission"), (volume, "volume_planning")):
+        if not isinstance(source, dict):
+            continue
+        candidates = [source]
+        candidates += [source[key] for key in ("hard_constraints", "soft_suggestions") if isinstance(source.get(key), dict)]
+        for candidate in candidates:
+            intent = clean_emotional_intent(candidate.get("emotional_intent"))
+            if intent:
+                return {"emotional_intent": intent, "reader_effect": _clean_str(candidate.get("reader_effect"), 300),
+                        "source": source_name}
+        # A known chapter function outranks a generic volume intensity curve.
+        function = normalize_chapter_function(source.get("chapter_function") or source.get("chapter_type") or "")
+        if function in {"interlude", "resolution"}:
+            return {"emotional_intent": "quiet", "reader_effect": _clean_str(source.get("reader_effect"), 300),
+                    "source": source_name + ".chapter_function"}
+    return {}
 
 
 def extract_planning_from_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -157,6 +191,12 @@ def extract_planning_from_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]
     if isinstance(item.get("character_focus"), dict):
         planning["character_focus"] = clean_character_focus(item["character_focus"])
 
+    intent = clean_emotional_intent(item.get("emotional_intent"))
+    if intent:
+        planning["emotional_intent"] = intent
+    effect = _clean_str(item.get("reader_effect"), 300)
+    if effect:
+        planning["reader_effect"] = effect
     return planning or None
 
 

@@ -26,6 +26,12 @@
 
     <!-- 诊断结果 -->
     <div v-if="report" class="diagnostic-result">
+      <p v-if="isChapterMode" class="diagnostic-hint">本次诊断：{{ report.source_status === 'candidate' || report.version_scope === 'candidate' ? '候选正文（尚未采用）' : report.source_status === 'canonical' || report.version_scope === 'selected' ? '当前采用正文' : '指定版本（以版本 ID 为准）' }} · 版本 {{ report.version_id ?? '未知' }}</p>
+      <GenerationReceiptPanel v-if="isChapterMode"
+        :version-id="report.version_id"
+        :context-receipt="report.context_receipt"
+        :execution-receipt="report.execution_receipt"
+      />
       <!-- 概览 -->
       <div class="result-overview">
         <div class="overview-card" :class="overallStatus">
@@ -214,10 +220,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
+import GenerationReceiptPanel from './GenerationReceiptPanel.vue'
 import { diagnosticApi } from '@/api/novel'
 
 interface DiagnosticReport {
+  version_id?: number | null
+  version_scope?: string
+  source_status?: string
+  context_receipt?: Record<string, unknown> | null
+  execution_receipt?: Record<string, unknown> | null
   mode?: 'chapter' | 'project'
   overall_score: number
   product_summary?: {
@@ -269,6 +281,7 @@ interface DiagnosticReport {
 interface Props {
   projectId?: string
   chapterNumber?: number
+  versionId?: number | null
   professionalMode?: boolean
 }
 
@@ -290,6 +303,7 @@ const emit = defineEmits<{
   (event: 'action', action: DiagnosticAction): void
 }>()
 
+let requestSequence = 0
 const isRunning = ref(false)
 const report = ref<DiagnosticReport | null>(null)
 const showRawData = ref(false)
@@ -452,6 +466,7 @@ async function runDiagnostic() {
     errorMsg.value = '请先打开一个项目'
     return
   }
+  const sequence = ++requestSequence
   isRunning.value = true
   report.value = null
   errorMsg.value = ''
@@ -459,17 +474,24 @@ async function runDiagnostic() {
   try {
     let data: any
     if (isChapterMode.value) {
-      data = await diagnosticApi.diagnoseChapter(props.projectId, props.chapterNumber!)
+      data = await diagnosticApi.diagnoseChapter(props.projectId, props.chapterNumber!, props.versionId ?? undefined)
     } else {
       data = await diagnosticApi.diagnoseProject(props.projectId)
     }
-    report.value = data as DiagnosticReport
+    if (sequence === requestSequence) report.value = data as DiagnosticReport
   } catch (err: any) {
-    errorMsg.value = err?.message || '诊断请求失败，请稍后重试'
+    if (sequence === requestSequence) errorMsg.value = err?.message || '诊断请求失败，请稍后重试'
   } finally {
-    isRunning.value = false
+    if (sequence === requestSequence) isRunning.value = false
   }
 }
+
+watch(() => [props.projectId, props.chapterNumber, props.versionId], () => {
+  requestSequence++
+  report.value = null
+  errorMsg.value = ''
+  isRunning.value = false
+})
 </script>
 
 <style scoped>

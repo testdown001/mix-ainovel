@@ -143,6 +143,13 @@
         </div>
       </details>
 
+      <NarrativeStatePanel
+        :project-id="project.id"
+        :chapter-number="selectedChapterNumber"
+        :revision-key="narrativeRevisionKey"
+        @locate-source="emit('selectChapter', $event)"
+      />
+
       <section class="ai-card">
         <div class="ai-card-head">
           <span class="ai-orb"><i></i><b></b></span>
@@ -169,6 +176,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import NarrativeStatePanel from './NarrativeStatePanel.vue'
 import {
   creativeMemoryApi,
   type BlueprintForeshadowing,
@@ -185,7 +193,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   openCodex: []
   previewContext: []
+  selectChapter: [chapterNumber: number]
 }>()
+
+const narrativeRevisionKey = computed(() => (props.project.chapters || [])
+  .map((chapter) => `${chapter.chapter_number}:${chapter.selected_version_id}:${chapter.revision_id}:${chapter.content_hash}`)
+  .join('|'))
 
 const selectedOutline = computed(() =>
   props.project.blueprint?.chapter_outline?.find(

@@ -99,94 +99,56 @@ def test_compute_source_hash_stable():
     assert hash_a1 != hash_b
 
 
+def _source_aware_service(monkeypatch, *, summary="生成的全书摘要"):
+    import hashlib
+    from app.services.retrieval_scope import RetrievalScope
+    source = dict(project_id="proj-1", chapter_number=1, source_version_id=1,
+                  source_content_hash="hash", adoption_revision_id=1, narrative_base="base")
+    volume = _make_volume_summary(1, "第1卷", "卷1摘要", 1, 1)
+    monkeypatch.setattr("app.services.volume_summary_service.VolumeSummaryService.get_all_volume_summaries",
+                        AsyncMock(return_value=[volume]))
+    monkeypatch.setattr("app.services.retrieval_scope.build_retrieval_scope", AsyncMock(
+                        return_value=RetrievalScope("proj-1", 2, {1: source})))
+    memory = SimpleNamespace(book_summary=None, extra={"volume_summary_sources": {
+        "1": {"summary_hash": hashlib.sha256(volume.summary.encode()).hexdigest(),
+              "contributing_sources": [source]}}})
+    session = _DummySession()
+    service = _get_service_class()(session, _mock_llm(summary))
+    service._get_memory = AsyncMock(return_value=memory)
+    service._get_or_create_memory = AsyncMock(return_value=memory)
+    service._ingest_book_summary = AsyncMock()
+    return service, memory, volume
+
+
 def test_update_book_summary_generates_summary(monkeypatch):
-    """有卷摘要时生成书级摘要。"""
-    volumes = [
-        _make_volume_summary(1, "第1卷", "卷1摘要内容", 1, 10),
-        _make_volume_summary(2, "第2卷", "卷2摘要内容", 11, 20),
-    ]
-
-    # Mock VolumeSummaryService.get_all_volume_summaries
-    async def mock_get_all(self, project_id):
-        return volumes
-
-    monkeypatch.setattr(
-        "app.services.volume_summary_service.VolumeSummaryService.get_all_volume_summaries",
-        mock_get_all,
-    )
-
-    # session.execute 调用顺序：
-    # 1. _get_memory → ProjectMemory 查询 → None
-    # 2. _get_or_create_memory 内部再次 commit 后无更多 execute
-    session = _DummySession(execute_results=[
-        _DummyResult(scalar=None),  # _get_memory → 无现有 ProjectMemory
-    ])
-    llm = _mock_llm("生成的全书摘要")
-    service = _get_service_class()(session, llm)
-
+    service, memory, _ = _source_aware_service(monkeypatch)
     result = asyncio.run(service.update_book_summary("proj-1", user_id=1))
-
     assert result == "生成的全书摘要"
-    assert session._committed is True
-    llm.get_summary.assert_called_once()
+    assert service.session._committed
+    service.llm_service.get_summary.assert_called_once()
+    assert memory.extra["book_summary_sources"]["contributing_sources"]
 
 
 def test_update_book_summary_skips_when_no_volumes(monkeypatch):
-    """无卷摘要时跳过。"""
-    async def mock_get_all(self, project_id):
-        return []
-
-    monkeypatch.setattr(
-        "app.services.volume_summary_service.VolumeSummaryService.get_all_volume_summaries",
-        mock_get_all,
-    )
-
-    session = _DummySession()
-    llm = _mock_llm()
-    service = _get_service_class()(session, llm)
-
-    result = asyncio.run(service.update_book_summary("proj-1", user_id=1))
-
-    assert result is None
-    llm.get_summary.assert_not_called()
+    monkeypatch.setattr("app.services.volume_summary_service.VolumeSummaryService.get_all_volume_summaries",
+                        AsyncMock(return_value=[]))
+    service = _get_service_class()(_DummySession(), _mock_llm())
+    assert asyncio.run(service.update_book_summary("proj-1", user_id=1)) is None
+    service.llm_service.get_summary.assert_not_called()
 
 
 def test_update_book_summary_skips_unchanged(monkeypatch):
-    """hash 未变化时跳过 LLM 调用。"""
-    volumes = [
-        _make_volume_summary(1, "第1卷", "卷1摘要", 1, 10),
-    ]
-
-    async def mock_get_all(self, project_id):
-        return volumes
-
-    monkeypatch.setattr(
-        "app.services.volume_summary_service.VolumeSummaryService.get_all_volume_summaries",
-        mock_get_all,
-    )
-
-    # 计算已有 hash
-    cls = _get_service_class()
-    existing_hash = cls._compute_source_hash([
-        {"volume_number": 1, "summary": "卷1摘要"},
-    ])
-
-    # 模拟已存在的 ProjectMemory，extra 中 book_summary_hash 与新 hash 一致
-    existing_memory = SimpleNamespace(
-        book_summary="旧的全书摘要",
-        extra={"book_summary_hash": existing_hash},
-    )
-
-    session = _DummySession(execute_results=[
-        _DummyResult(scalar=existing_memory),  # _get_memory → 已有记录
-    ])
-    llm = _mock_llm()
-    service = cls(session, llm)
-
-    result = asyncio.run(service.update_book_summary("proj-1", user_id=1))
-
-    assert result == "旧的全书摘要"
-    llm.get_summary.assert_not_called()
+    service, memory, volume = _source_aware_service(monkeypatch)
+    memory.book_summary = "旧的全书摘要"
+    memory.extra["book_summary_hash"] = service._compute_source_hash([{
+        "volume_number": 1, "title": volume.title, "summary": volume.summary,
+        "chapter_range": "1-1", "source_hash": volume.source_hash}])
+    import hashlib
+    memory.extra["book_summary_sources"] = {
+        "summary_hash": hashlib.sha256(memory.book_summary.encode()).hexdigest(),
+        "contributing_sources": memory.extra["volume_summary_sources"]["1"]["contributing_sources"]}
+    assert asyncio.run(service.update_book_summary("proj-1", user_id=1)) == "旧的全书摘要"
+    service.llm_service.get_summary.assert_not_called()
 
 
 def test_get_book_summary_returns_existing():

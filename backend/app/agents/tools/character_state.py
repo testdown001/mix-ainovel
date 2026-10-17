@@ -25,6 +25,10 @@ class CharacterStateTool(AgentTool):
                     "enum": ["get_state", "get_all_states", "build_context", "get_memory_context"],
                     "description": "Action to perform.",
                 },
+                "chapter_number": {
+                    "type": "integer", "minimum": 0,
+                    "description": "Optional historical chapter bound; cannot exceed the server chapter minus one.",
+                },
                 "character_name": {
                     "type": "string",
                     "description": "Character name (required for get_state).",
@@ -47,13 +51,18 @@ class CharacterStateTool(AgentTool):
         try:
             svc = MemoryLayerService(context.session)
             action = args["action"]
-            chapter = context.chapter_number or 1
+            if context.chapter_number is None or context.chapter_number < 1:
+                return ToolResult(success=False, error="missing_server_chapter_scope")
+            requested = args.get("chapter_number", context.chapter_number - 1)
+            if not isinstance(requested, int) or requested < 0:
+                return ToolResult(success=False, error="invalid_historical_chapter_bound")
+            historical_end = min(requested, context.chapter_number - 1)
 
             if action == "get_state":
                 name = args.get("character_name")
                 if not name:
                     return ToolResult(success=False, error="character_name required for get_state")
-                state = await svc.get_character_state(context.project_id, name, chapter)
+                state = await svc.get_character_state(context.project_id, name, historical_end)
                 if state is None:
                     return ToolResult(success=True, data={"found": False, "character": name})
                 return ToolResult(
@@ -69,7 +78,7 @@ class CharacterStateTool(AgentTool):
                 )
 
             if action == "get_all_states":
-                states = await svc.get_all_character_states(context.project_id, chapter)
+                states = await svc.get_all_character_states(context.project_id, historical_end)
                 return ToolResult(
                     success=True,
                     data={
@@ -83,14 +92,14 @@ class CharacterStateTool(AgentTool):
             if action == "build_context":
                 involved = args.get("involved_characters")
                 ctx_text = await svc.build_chapter_state_context(
-                    context.project_id, chapter, involved_characters=involved,
+                    context.project_id, historical_end + 1, involved_characters=involved,
                 )
                 return ToolResult(success=True, data={"context": ctx_text or ""})
 
             if action == "get_memory_context":
                 involved = args.get("involved_characters")
                 ctx_text = await svc.get_memory_context(
-                    context.project_id, chapter, involved_characters=involved,
+                    context.project_id, historical_end + 1, involved_characters=involved,
                 )
                 return ToolResult(success=True, data={"context": ctx_text or ""})
 

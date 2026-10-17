@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import logging
 from typing import Any, Dict, List
 
@@ -42,95 +42,46 @@ class HistoryContextService:
         previous_summary_text = ""
         previous_tail_excerpt = ""
 
-        missing_summary_chapters = []
-        for existing in chapters:
-            if existing.chapter_number >= chapter_number:
-                continue
-            if existing.selected_version is None or not existing.selected_version.content:
-                continue
-            if not existing.real_summary:
-                missing_summary_chapters.append(existing)
-
-        if allow_summary_backfill and missing_summary_chapters:
-            # 只回填最近 SUMMARY_BACKFILL_MAX_CHAPTERS 章，更早章节跳过（缺失可容忍）
-            missing_summary_chapters.sort(key=lambda c: c.chapter_number)
-            if len(missing_summary_chapters) > SUMMARY_BACKFILL_MAX_CHAPTERS:
-                skipped_chapters = missing_summary_chapters[:-SUMMARY_BACKFILL_MAX_CHAPTERS]
-                missing_summary_chapters = missing_summary_chapters[-SUMMARY_BACKFILL_MAX_CHAPTERS:]
-                logger.info(
-                    "缺失摘要章节过多，仅回填最近 %d 章，跳过更早 %d 章: %s",
-                    SUMMARY_BACKFILL_MAX_CHAPTERS,
-                    len(skipped_chapters),
-                    [c.chapter_number for c in skipped_chapters],
-                )
-            logger.info(
-                "并行生成 %d 个缺失章节摘要(并发上限 %d): chapters=%s",
-                len(missing_summary_chapters),
-                SUMMARY_BACKFILL_CONCURRENCY,
-                [c.chapter_number for c in missing_summary_chapters],
-            )
-            extraction_prompt = await self.prompt_service.get_prompt("extraction")
-            llm_config = await self.llm_service._resolve_llm_config(user_id)
-            semaphore = asyncio.Semaphore(SUMMARY_BACKFILL_CONCURRENCY)
-
-            async def _backfill_one(ch):
-                # 成功即就地赋值：总超时取消 gather 时已完成的摘要不丢失
-                async with semaphore:
-                    summary = await self.llm_service.get_summary(
-                        ch.selected_version.content,
-                        temperature=0.15,
-                        user_id=user_id,
-                        timeout=180.0,
-                        system_prompt=extraction_prompt,
-                        config_override=llm_config,
-                    )
-                cleaned = remove_think_tags(summary) if summary else ""
-                if cleaned:
-                    ch.real_summary = cleaned
-
-            try:
-                # 回填在编排器关键路径上（无外层超时），必须有总墙钟上限；
-                # 超时/失败的章节走下方大纲兜底，不阻塞生成
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        *[_backfill_one(ch) for ch in missing_summary_chapters],
-                        return_exceptions=True,
-                    ),
-                    timeout=SUMMARY_BACKFILL_TOTAL_TIMEOUT_SEC,
-                )
-            except asyncio.TimeoutError:
-                pending = [
-                    c.chapter_number for c in missing_summary_chapters if not c.real_summary
-                ]
-                logger.warning(
-                    "摘要回填超总时限(%ds)，未完成章节走大纲兜底: %s",
-                    SUMMARY_BACKFILL_TOTAL_TIMEOUT_SEC,
-                    pending,
-                )
-            await self.session.commit()
+        # Generation reads never launch an unbudgeted repair or trust a chapter-number-only
+        # cache. Adopted-source summary jobs populate these receipts independently.
+        receipts, scope = {}, None
+        try:
+            from sqlalchemy import select
+            from ..models.project_memory import ProjectMemory
+            from .retrieval_scope import build_retrieval_scope
+            scope = await build_retrieval_scope(project_id=project_id, before_chapter=chapter_number, session=self.session)
+            memory = (await self.session.execute(select(ProjectMemory).where(
+                ProjectMemory.project_id == project_id))).scalars().first()
+            receipts = ((memory.extra or {}).get("chapter_summary_sources") or {}) if memory else {}
+        except Exception as exc:
+            logger.debug("摘要来源不可用，使用已采用正文节选: %s", exc)
 
         for existing in chapters:
             if existing.chapter_number >= chapter_number:
                 continue
             if existing.selected_version is None or not existing.selected_version.content:
                 continue
-            if not existing.real_summary:
-                # 无论是否开启回填，仍缺摘要的章（被回填上限跳过/回填失败/回填关闭）
-                # 一律走大纲标题/摘要/正文节选兜底，绝不整章从历史上下文中消失
-                outline_ref = outlines_map.get(existing.chapter_number)
-                fallback_summary = ""
-                if outline_ref:
-                    fallback_summary = (
-                        (outline_ref.summary or "").strip()
-                        or (outline_ref.title or "").strip()
-                    )
-                if not fallback_summary:
-                    fallback_summary = (existing.selected_version.content or "").strip()[:200]
-                if not fallback_summary:
-                    continue
-                raw_summary = fallback_summary
+            version = existing.selected_version
+            content = version.content or ""
+            actual_hash = hashlib.sha256(content.encode()).hexdigest()
+            manifest = scope.canon_manifest.get(existing.chapter_number) if scope is not None else None
+            if scope is not None and (not manifest or manifest.get("source_version_id") != version.id
+                                      or manifest.get("source_content_hash") != actual_hash):
+                continue
+            marker = receipts.get(str(existing.chapter_number)) or {}
+            summary = existing.real_summary or ""
+            trusted_summary = bool(summary and scope is not None
+                and marker.get("summary_hash") == hashlib.sha256(summary.encode()).hexdigest()
+                and scope.accepts(existing.chapter_number, marker.get("source_ref"), require_index=False))
+            # A future outline is a plan, not evidence for an event. Use only the adopted text
+            # when a verified summary has not been produced, with no extra model call.
+            if trusted_summary:
+                raw_summary, summary_kind = summary, "verified_summary"
             else:
-                raw_summary = existing.real_summary or ""
+                raw_summary = content[:200] + ("\n…\n" + content[-200:] if len(content) > 400 else content[200:])
+                summary_kind = "adopted_excerpt"
+            if not raw_summary:
+                continue
 
             distance = chapter_number - existing.chapter_number
             if distance <= 2:
@@ -156,6 +107,9 @@ class HistoryContextService:
                 if outlines_map.get(existing.chapter_number)
                 else f"第{existing.chapter_number}章",
                 "summary": tier_summary,
+                "summary_kind": summary_kind,
+                "source_ref": manifest or {"project_id": project_id, "chapter_number": existing.chapter_number,
+                    "source_version_id": getattr(version, "id", None), "source_content_hash": actual_hash},
                 "chapter_mission_patterns": self.extract_mission_patterns(existing.selected_version),
             }
             if distance <= 2:
@@ -170,7 +124,7 @@ class HistoryContextService:
                 previous_summary_text = raw_summary
                 previous_tail_excerpt = extract_tail_excerpt(existing.selected_version.content)
 
-        priority_chapters = await self._load_unresolved_foreshadow_chapters(project_id)
+        priority_chapters = await self._load_unresolved_foreshadow_chapters(project_id, before_chapter=chapter_number)
         story_skeleton = self.build_story_skeleton(
             completed_chapters, chapter_number, priority_chapters=priority_chapters
         )
@@ -183,7 +137,7 @@ class HistoryContextService:
             "story_skeleton": story_skeleton,
         }
 
-    async def _load_unresolved_foreshadow_chapters(self, project_id: str) -> set:
+    async def _load_unresolved_foreshadow_chapters(self, project_id: str, before_chapter: int | None = None) -> set:
         """查询埋有未回收伏笔的章节号集合，供 skeleton 远章采样优先保留。
 
         查询失败时静默降级为空集（回退原等步长采样），绝不阻断生成主流程。
@@ -196,6 +150,7 @@ class HistoryContextService:
             result = await self.session.execute(
                 select(Foreshadowing.chapter_number).where(
                     Foreshadowing.project_id == project_id,
+                    Foreshadowing.chapter_number < (before_chapter or 2 ** 31),
                     # 未回收口径与 foreshadowing_tracker_service 对齐
                     Foreshadowing.status.in_(["planted", "developing", "partial"]),
                 )

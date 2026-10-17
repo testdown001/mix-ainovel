@@ -20,7 +20,7 @@ def test_generation_prefetch_service_skips_rag_when_precollected_context_exists(
             prefetch_enhanced_context=lambda **kwargs: _return({})
         ),
         context_access_service=SimpleNamespace(
-            prefetch_project_memory_text=lambda project_id: _return("memory")
+            prefetch_project_memory_text=lambda project_id, **kwargs: _return("memory")
         ),
         evidence_router=SimpleNamespace(
             prefetch_local_plot=lambda **kwargs: _return({"chunks": []}),

@@ -271,6 +271,8 @@ class Chapter(Base):
     revision_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     rag_ingest_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, default=None)
+    # The DB pointer, not an external vector flag, publishes a verified index revision.
+    active_index_revision_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     selected_version_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("chapter_versions.id", ondelete="SET NULL"), nullable=True
     )

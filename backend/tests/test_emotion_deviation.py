@@ -150,11 +150,28 @@ def test_build_expected_curve_basic_and_degrades():
 
 # ----------------------------------------------------------------- DB 读取
 async def _seed_states(session, rows):
+    # Current-state readers require an adopted revision, not a chapter-number-only cache.
+    import hashlib
+    from app.models.novel import Chapter, ChapterVersion
+    from app.services.chapter_derivation_service import build_source_ref
+    for number in sorted({row[0] for row in rows}):
+        content = f"第{number}章已采用正文"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        session.add(Chapter(id=number, project_id="p1", chapter_number=number,
+                            revision_id=1, content_hash=content_hash))
+        session.add(ChapterVersion(id=number, chapter_id=number, content=content))
+        await session.flush()
+        chapter = await session.get(Chapter, number)
+        chapter.selected_version_id = number
+    await session.commit()
+    sources = {number: await build_source_ref(session, project_id="p1", chapter_number=number)
+               for number in sorted({row[0] for row in rows})}
     # CharacterState.id 为纯 BigInteger 主键(非 sqlite Integer 变体)，sqlite 下不自增，显式赋值
     for idx, (ch, name, intensity) in enumerate(rows, start=1):
         session.add(CharacterState(
             id=idx, project_id="p1", character_id=idx, character_name=name,
             chapter_number=ch, emotion="平静", emotion_intensity=intensity,
+            extra={"provenance": sources[ch].model_dump()},
         ))
     await session.commit()
 

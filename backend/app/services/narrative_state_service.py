@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 import json
 import re
 from typing import Literal
@@ -74,7 +75,7 @@ class NarrativeStateService:
         """No invented citations and no closure of an unknown promise."""
         compact = "".join(text.split())
         for item in [*delta.facts, *delta.opened, *delta.closed]:
-            if "".join(item.evidence.split()) not in compact:
+            if not "".join(item.evidence.split()) or "".join(item.evidence.split()) not in compact:
                 raise ValueError("叙事状态证据不在正文中")
         for item in delta.closed:
             if item.promise_id not in state.get("promises", {}):
@@ -136,24 +137,114 @@ class NarrativeStateService:
                                           for values in state.get("conflicts", {}).values()][:12]}
 
     @classmethod
-    async def load(cls, session, project_id: str, chapter_number: int) -> tuple[dict, str]:
+    async def _replay(cls, session, project_id: str, chapter_number: int) -> tuple[dict, str, dict]:
+        """Replay only selected, evidenced versions; missing or malformed history is explicit."""
         from ..models.novel import Chapter, ChapterVersion
         rows = (await session.execute(
             select(Chapter.chapter_number, ChapterVersion)
-            .join(ChapterVersion, Chapter.selected_version_id == ChapterVersion.id)
+            .outerjoin(ChapterVersion, Chapter.selected_version_id == ChapterVersion.id)
             .where(Chapter.project_id == project_id, Chapter.chapter_number < chapter_number)
             .order_by(Chapter.chapter_number, Chapter.id)
         )).all()
-        state, lineage = cls.empty(), []
+        state, lineage, coverage = cls.empty(), [], []
+        counts = Counter(number for number, _ in rows)
         for number, version in rows:
+            if version is None:
+                coverage.append({"chapter_number": number, "version_id": None,
+                                 "status": "not_requested", "reason": "尚未采用正文"})
+                continue
             content_hash = hashlib.sha256((version.content or "").encode()).hexdigest()
             meta = version.metadata if isinstance(version.metadata, dict) else {}
-            gate = meta.get("quality_gate") or {}
-            # Regenerating/editing an earlier selected chapter invalidates downstream derived state.
-            if (gate.get("status") == "verified" and gate.get("content_hash") == content_hash
-                    and meta.get("narrative_base") == digest(lineage) and gate.get("narrative_delta")):
-                delta = NarrativeDelta.model_validate(gate["narrative_delta"])
-                cls.validate_evidence(delta, version.content, state)
-                state = cls.apply(state, delta.model_dump(), chapter=number, version_id=version.id)
+            gate = meta.get("quality_gate")
+            gate = gate if isinstance(gate, dict) else {}
+            status = gate.get("narrative_delta_status", meta.get("narrative_delta_status", "missing"))
+            if not isinstance(status, str):
+                status = "invalid"
+            reason = gate.get("narrative_delta_reason")
+            extraction_source = None
+            repair = meta.get("narrative_delta_repair")
+            repair = repair if isinstance(repair, dict) else {}
+            candidates = []
+            if repair.get("narrative_delta") is not None:
+                candidates.append((repair, repair.get("narrative_base"), "repair"))
+            if gate.get("narrative_delta") is not None:
+                candidates.append((gate, meta.get("narrative_base"), "quality_gate"))
+            if counts[number] > 1:
+                status, reason = "invalid", "同章存在多条采用记录，来源待裁决"
+            else:
+                for extraction, base, kind in candidates:
+                    if extraction.get("status") != "verified":
+                        status, reason = "invalid", "叙事抽取尚未验证"
+                        continue
+                    if extraction.get("content_hash") != content_hash or base != digest(lineage):
+                        status, reason = "stale", "正文或前文版本谱系已变化"
+                        continue
+                    try:
+                        if kind == "repair":
+                            from .chapter_derivation_service import source_is_current
+                            source = extraction.get("source_ref")
+                            if not isinstance(source, dict) or not await source_is_current(session, source):
+                                status, reason = "stale", "补抽取的采用来源已变化"
+                                continue
+                        delta = NarrativeDelta.model_validate(extraction["narrative_delta"])
+                        cls.validate_evidence(delta, version.content or "", state)
+                        state = cls.apply(state, delta.model_dump(), chapter=number, version_id=version.id)
+                        status, reason, extraction_source = "ready", None, kind
+                        break
+                    except (ValueError, TypeError) as exc:
+                        status, reason = "invalid", str(exc)[:300]
+                if not candidates and status not in {"missing", "invalid", "not_requested", "stale"}:
+                    status = "missing"
+            coverage.append({"chapter_number": number, "version_id": version.id,
+                             "content_hash": content_hash, "status": status,
+                             **({"extraction_source": extraction_source} if extraction_source else {}),
+                             **({"reason": reason} if reason else {})})
             lineage.append([number, version.id, content_hash])
-        return state, digest(lineage)
+        ready = sum(item["status"] == "ready" for item in coverage)
+        summary = {"status": "ready" if ready == len(coverage) else "partial" if ready else "missing",
+                   "total_chapters": len(coverage), "ready_chapters": ready, "chapters": coverage}
+        return state, digest(lineage), summary
+
+    @classmethod
+    async def load(cls, session, project_id: str, chapter_number: int) -> tuple[dict, str]:
+        state, lineage, coverage = await cls._replay(session, project_id, chapter_number)
+        state["coverage"] = coverage
+        return state, lineage
+
+    @classmethod
+    async def view(cls, session, project_id: str, chapter_number: int) -> dict:
+        """Read-only author view of canon immediately before this chapter. No repair or LLM calls."""
+        state, lineage, coverage = await cls._replay(session, project_id, chapter_number)
+        facts = [fact for fact in state["facts"].values()
+                 if fact.get("valid_until_chapter") is None or chapter_number <= fact["valid_until_chapter"]]
+        promises = list(state["promises"].values())
+        return {"project_id": project_id, "chapter_number": chapter_number, "lineage": lineage,
+                "facts": facts,
+                "relationships": [fact for fact in facts if fact.get("related_entities")],
+                "open_promises": [item for item in promises if item["status"] == "open"],
+                "closed_promises": [item for item in promises if item["status"] == "closed"],
+                "conflicts": list(state["conflicts"].values()),
+                "reader": state["reader"], "coverage": coverage,
+                "reference_contract": await cls.reference_view(session, project_id)}
+
+    @staticmethod
+    async def reference_view(session, project_id: str) -> dict:
+        """Expose existing fusion work and its evidence boundary; never synthesize on read."""
+        from ..models.novel import NovelProject
+        from .reference_novel_library_service import ReferenceNovelLibraryService
+        from .reference_reading_contract import is_current
+        project = await session.get(NovelProject, project_id)
+        ids = list(project.reference_novel_ids or []) if project else []
+        if not ids:
+            return {"status": "not_configured", "source_kind": "search_analysis", "sources": [],
+                    "structure_references": [], "original_full_text_read": False,
+                    "evidence_limits": "尚未绑定参考资料。"}
+        novels = await ReferenceNovelLibraryService(session).get_by_ids(ids)
+        dna = project.fusion_dna
+        current = is_current(dna, novels, ids)
+        status = (dna.get("generation_status") or "ready") if current else "stale"
+        return {"status": status, "source_kind": "search_analysis", "original_full_text_read": False,
+                "sources": [{"id": novel.id, "title": novel.title, "status": novel.status} for novel in novels],
+                "structure_references": dna.get("structure_references", []) if current else [],
+                "evidence_limits": dna.get("evidence_limits", "依据搜索资料与AI分析，不是原著全文阅读。") if current
+                    else "绑定或资料已变化，旧融合分工不再作为当前参考依据；尚未重新融合。"}

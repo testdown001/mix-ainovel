@@ -93,6 +93,13 @@ async def rebuild_project_rag(
         project_id, list(existing_state.keys()), force_full, dry_run
     )
 
+    from ..models.project_memory import ProjectMemory
+    from .retrieval_scope import build_retrieval_scope
+    import hashlib
+    summary_memory = (await session.execute(select(ProjectMemory).where(ProjectMemory.project_id == project_id))).scalars().first()
+    summary_receipts = ((summary_memory.extra or {}).get("chapter_summary_sources") or {}) if summary_memory else {}
+    scope = await build_retrieval_scope(project_id=project_id,
+            before_chapter=max((chapter.chapter_number for chapter in chapters), default=0) + 1, session=session)
     indexable_chapters: list[tuple[Chapter, str, str, Optional[str], str]] = []
     for chapter in chapters:
         content = (chapter.selected_version.content if chapter.selected_version else "") or ""
@@ -101,6 +108,10 @@ async def rebuild_project_rag(
             continue
         title = outline_title_map.get(chapter.chapter_number) or f"第{chapter.chapter_number}章"
         summary = chapter.real_summary
+        receipt = summary_receipts.get(str(chapter.chapter_number)) or {}
+        if (not summary or receipt.get("summary_hash") != hashlib.sha256(summary.encode()).hexdigest()
+                or not scope.accepts(chapter.chapter_number, receipt.get("source_ref"), require_index=False)):
+            summary = None
         content_hash = compute_ingest_hash(title, summary, content)
         indexable_chapters.append((chapter, content, title, summary, content_hash))
         logger.debug(
@@ -117,12 +128,18 @@ async def rebuild_project_rag(
     current_chapter_numbers = {chapter.chapter_number for chapter, _, _, _, _ in indexable_chapters}
     stale_numbers = sorted(set(existing_state.keys()) - current_chapter_numbers)
 
+    from .embedding_index_config import resolve_embedding_identity, revision_embedding_matches
+    embedding_identity = await resolve_embedding_identity(llm_service, user_id=user_id)
+    dimension = embedding_identity.get("configured_dimension")
+    if dimension is None:
+        dimension = getattr(llm_service, "_embedding_dimensions", {}).get(embedding_identity["model"])
     pending: list[tuple[Chapter, str, str, Optional[str], str]] = []
     skipped = 0
     for item in sorted(indexable_chapters, key=lambda item: item[0].chapter_number):
         chapter = item[0]
         existing_hash = existing_state.get(chapter.chapter_number)
-        if not force_full and existing_hash == item[4]:
+        if (not force_full and existing_hash == item[4]
+                and revision_embedding_matches(getattr(chapter, "active_index_revision_id", None), embedding_identity, dimension)):
             logger.debug("章节 %d 哈希未变化，跳过索引", chapter.chapter_number)
             skipped += 1
             continue
@@ -138,7 +155,8 @@ async def rebuild_project_rag(
         "failed": 0,
         "failures": [],
         "mode": "full" if force_full else "incremental",
-        "bm25_indexed": not skip_bm25,
+        "bm25_indexed": False,
+        "bm25_degraded": 0,
         "dry_run": dry_run,
     }
 
@@ -200,6 +218,12 @@ async def rebuild_project_rag(
                 })
             continue
         stats["indexed"] += 1
+        receipt = getattr(processor, "last_ingestion_receipt", None)
+        if receipt is not None:
+            if receipt.bm25_status == "degraded":
+                stats["bm25_degraded"] += 1
+            stats["bm25_indexed"] = (not skip_bm25 and receipt.bm25_status == "completed"
+                                     and stats["bm25_degraded"] == 0)
         if progress_cb:
             progress_cb({
                 "event": "ingest_done",

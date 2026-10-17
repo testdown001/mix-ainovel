@@ -109,7 +109,9 @@ class EmotionDeviationService:
                     .order_by(CharacterState.chapter_number)
                 )
                 result = await sess.execute(stmt)
-                return self._aggregate_intensity_by_chapter(result.scalars().all())
+                from .memory_provenance import filter_current_rows
+                rows = await filter_current_rows(sess, result.scalars().all(), project_id, before_chapter)
+                return self._aggregate_intensity_by_chapter(rows)
 
             if session is not None:
                 return await _run(session)
@@ -131,11 +133,14 @@ class EmotionDeviationService:
         *,
         recent_window: int = DEFAULT_RECENT_WINDOW,
         threshold: float = DEFAULT_THRESHOLD,
+        emotional_intent: str | None = None,
     ) -> Optional[str]:
         """比对近 recent_window 章的实际 vs 规划强度，偏差显著时生成校正提示。
 
         贴合规划(偏差小)→ None，避免给 prompt 制造噪音。
         """
+        if emotional_intent == "quiet":
+            return None
         if not expected_curve or not actual_curve:
             return None
 
@@ -188,7 +193,8 @@ class EmotionDeviationService:
         expected_avg = statistics.mean(e for _, _, e in recent)
         n = len(recent)
 
-        lines = ["### 情感曲线偏差校正 (Emotion Trajectory Correction)"]
+        lines = ["### 情感曲线偏差校正：人物情绪状态代理（不是读者情绪测量）",
+                 "- 作者章意图、章任务及章功能优先于本参考；安静/余波章无需提高强度。"]
         lines.append(
             f"- 近 {n} 章实际情绪强度均值 {actual_avg:.1f}/10，规划均值 "
             f"{expected_avg:.1f}/10（偏差 {avg_delta:+.1f}）。"
@@ -240,8 +246,11 @@ class EmotionDeviationService:
         next_chapter: int,
         story_structure: str = "three_act",
         session: Any = None,
+        emotional_intent: str | None = None,
     ) -> Optional[str]:
         """一站式：读实际曲线 + 推规划曲线 + 比对，输出校正提示或 None。"""
+        if emotional_intent == "quiet":
+            return None
         try:
             actual_curve = await self.build_actual_intensity_curve(
                 project_id, next_chapter, session=session
@@ -251,7 +260,7 @@ class EmotionDeviationService:
             expected_curve = self.build_expected_curve(total_chapters, story_structure)
             if not expected_curve:
                 return None
-            return self.compute_deviation_brief(expected_curve, actual_curve, next_chapter)
+            return self.compute_deviation_brief(expected_curve, actual_curve, next_chapter, emotional_intent=emotional_intent)
         except Exception as exc:  # 双保险：任何异常都不外泄
             logger.warning("情感曲线偏差比对失败（不影响生成）: %s", exc)
             return None

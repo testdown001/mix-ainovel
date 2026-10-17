@@ -18,8 +18,8 @@ import pytest
 import app.models  # noqa: F401  触发全部 mapper 注册
 import app.models.user_quota  # noqa: F401  防 mapper KeyError
 
-from app.models.novel import NovelBlueprint, NovelProject
-from app.models.project_memory import VolumeSummary
+from app.models.novel import Chapter, ChapterVersion, NovelBlueprint, NovelProject
+from app.models.project_memory import ProjectMemory, VolumeSummary
 from app.services.volume_retrospective_service import (
     VolumeReplan,
     VolumeRetrospectiveResult,
@@ -54,6 +54,26 @@ async def _seed(session, project_id="p-vol", volumes=None, with_summary=True):
             chapter_count=10,
         ))
     await session.flush()
+    if with_summary:
+        import hashlib
+        from app.services.chapter_derivation_service import build_source_ref
+        for number in range(1, 11):
+            chapter = Chapter(project_id=project_id, chapter_number=number, revision_id=1)
+            session.add(chapter)
+            await session.flush()
+            version = ChapterVersion(chapter_id=chapter.id, content=f"第{number}章实际正文")
+            session.add(version)
+            await session.flush()
+            chapter.selected_version_id = version.id
+            chapter.content_hash = hashlib.sha256(version.content.encode()).hexdigest()
+        await session.flush()
+        sources = [(await build_source_ref(session, project_id=project_id, chapter_number=number)).model_dump()
+                   for number in range(1, 11)]
+        summary = "主角确实离开了宗门，但没跟师兄决裂，反而联手对付长老。"
+        session.add(ProjectMemory(project_id=project_id, extra={"volume_summary_sources": {"1": {
+            "summary_hash": hashlib.sha256(summary.encode()).hexdigest(), "contributing_sources": sources,
+        }}}))
+        await session.flush()
 
 
 def _result():

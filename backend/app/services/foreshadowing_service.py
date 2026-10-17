@@ -13,6 +13,7 @@ from ..models.foreshadowing import (
     ForeshadowingAnalysis,
 )
 from ..models.novel import Chapter, NovelProject
+from .memory_provenance import require_current_source, source_payload, valid_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,9 @@ class ForeshadowingService:
     _RESOLVED_STATUSES = {"revealed", "resolved", "paid_off", "done", "complete", "completed"}
     _UNRESOLVED_STATUSES = {"planted", "developing", "partial", "open", "pending", "active"}
     
-    def __init__(self, session: AsyncSession):
+    def __init__(self, session: AsyncSession, source_ref=None):
         self.session = session
+        self.source_ref = source_ref
 
     def _normalize_status(self, status: Optional[str]) -> str:
         text = (status or "").strip().lower()
@@ -57,6 +59,10 @@ class ForeshadowingService:
         ai_confidence: Optional[float] = None,
     ) -> Foreshadowing:
         """创建伏笔"""
+        await require_current_source(self.session, self.source_ref)
+        source = source_payload(self.source_ref)
+        if source and (source.get("project_id") != project_id or source.get("chapter_id") != chapter_id):
+            raise ValueError("伏笔来源不属于当前章节")
         foreshadowing = Foreshadowing(
             project_id=project_id,
             chapter_id=chapter_id,
@@ -67,6 +73,8 @@ class ForeshadowingService:
             author_note=author_note,
             is_manual=is_manual,
             ai_confidence=ai_confidence,
+            source_derivation_id=source.get("source_derivation_id"),
+            origin="derived" if source else ("manual" if is_manual else "legacy"),
         )
         self.session.add(foreshadowing)
         await self.session.flush()
@@ -208,10 +216,15 @@ class ForeshadowingService:
         quality_score: Optional[int] = None,
     ) -> ForeshadowingResolution:
         """标记伏笔回收"""
+        await require_current_source(self.session, self.source_ref)
+        source = source_payload(self.source_ref)
         # 更新伏笔状态
         foreshadowing = await self.session.get(Foreshadowing, foreshadowing_id)
         if not foreshadowing:
             raise ValueError(f"伏笔不存在: {foreshadowing_id}")
+        if source and (foreshadowing.project_id != source.get("project_id")
+                       or resolved_chapter_id != source.get("chapter_id")):
+            raise ValueError("伏笔回收来源越界")
         
         foreshadowing.status = "revealed"
         foreshadowing.resolved_chapter_id = resolved_chapter_id
@@ -225,6 +238,7 @@ class ForeshadowingService:
             resolution_text=resolution_text,
             resolution_type=resolution_type,
             quality_score=quality_score,
+            source_derivation_id=source.get("source_derivation_id"),
         )
         self.session.add(resolution)
         await self.session.flush()
@@ -259,12 +273,45 @@ class ForeshadowingService:
         query = select(Foreshadowing).where(
             and_(
                 Foreshadowing.project_id == project_id,
-                Foreshadowing.status.in_(sorted(self._UNRESOLVED_STATUSES)),
+                Foreshadowing.chapter_number <= current_chapter_number,
+                Foreshadowing.status != "abandoned",
             )
         ).order_by(Foreshadowing.chapter_number)
         
         result = await self.session.execute(query)
-        return result.scalars().all()
+        rows = list(result.scalars().all())
+        from ..models.chapter_derivation import ChapterDerivationJob
+        accepted = []
+        for row in rows:
+            job_id = row.source_derivation_id
+            if job_id:
+                job = await self.session.get(ChapterDerivationJob, job_id)
+                if job is None or not await valid_provenance(
+                    self.session, {**job.source_ref, "source_derivation_id": job_id},
+                    project_id, current_chapter_number,
+                ):
+                    continue
+            elif not row.is_manual and row.origin != "blueprint":
+                continue  # Legacy automatic extraction has no verifiable source.
+            resolutions = (await self.session.execute(select(ForeshadowingResolution).where(
+                ForeshadowingResolution.foreshadowing_id == row.id,
+                ForeshadowingResolution.resolved_at_chapter_number < current_chapter_number,
+            ))).scalars().all()
+            resolved = False
+            for resolution in resolutions:
+                if not resolution.source_derivation_id:
+                    resolved = True  # An explicit author resolution.
+                    break
+                source_job = await self.session.get(ChapterDerivationJob, resolution.source_derivation_id)
+                if source_job is not None and await valid_provenance(
+                    self.session, {**source_job.source_ref, "source_derivation_id": source_job.id},
+                    project_id, current_chapter_number,
+                ):
+                    resolved = True
+                    break
+            if not resolved:
+                accepted.append(row)
+        return accepted
     
     async def create_reminder(
         self,
@@ -537,6 +584,7 @@ class ForeshadowingService:
         from ..utils.json_utils import remove_think_tags, unwrap_markdown_json, repair_json
 
         extraction_prompt = await prompt_service.get_prompt("foreshadowing_extraction")
+        await require_current_source(self.session, self.source_ref, lock=False)
         if not extraction_prompt:
             logger.warning("未配置 foreshadowing_extraction 提示词，跳过伏笔提取")
             return {"planted": 0, "developed": 0, "resolved": 0}
@@ -560,13 +608,22 @@ class ForeshadowingService:
 {unresolved_text or "暂无已记录的伏笔"}
 """
         try:
-            response = await llm_service.get_llm_response(
-                system_prompt=extraction_prompt,
-                conversation_history=[{"role": "user", "content": user_input}],
-                temperature=0.2,
-                user_id=user_id,
-                timeout=60.0,
-            )
+            from ..models.chapter_derivation import ChapterDerivationJob
+            source = source_payload(self.source_ref)
+            job = await self.session.get(ChapterDerivationJob, source["source_derivation_id"]) if source.get("source_derivation_id") else None
+            response = (job.result or {}).get("extraction_foreshadowing") if job is not None else None
+            if response is None:
+                response = await llm_service.get_llm_response(
+                    system_prompt=extraction_prompt,
+                    conversation_history=[{"role": "user", "content": user_input}],
+                    temperature=0.2,
+                    user_id=user_id,
+                    timeout=60.0,
+                )
+                if job is not None:
+                    await require_current_source(self.session, self.source_ref)
+                    job.result = {**(job.result or {}), "extraction_foreshadowing": response}
+                    await self.session.commit()
             cleaned = remove_think_tags(response)
             if not cleaned:
                 cleaned = response
@@ -581,6 +638,7 @@ class ForeshadowingService:
                 result = json.loads(repaired)
 
             actions = result.get("foreshadowing_actions", [])
+            await require_current_source(self.session, self.source_ref)
             stats = {"planted": 0, "developed": 0, "resolved": 0}
 
             for action_item in actions:
@@ -601,6 +659,8 @@ class ForeshadowingService:
                         stats["planted"] += 1
                     except Exception as e:
                         logger.warning("自动创建伏笔失败: %s", e)
+                        if self.source_ref is not None:
+                            raise
 
                 elif action_type == "resolve":
                     matched_id = action_item.get("matched_existing_id")
@@ -610,10 +670,13 @@ class ForeshadowingService:
                                 foreshadowing_id=int(matched_id),
                                 resolved_chapter_id=chapter_id,
                                 resolved_chapter_number=chapter_number,
+                                resolution_text=action_item.get("content") or action_item.get("resolution_text") or chapter_content[:600],
                             )
                             stats["resolved"] += 1
                         except Exception as e:
                             logger.warning("自动回收伏笔失败: %s", e)
+                            if self.source_ref is not None:
+                                raise
 
                 elif action_type == "develop":
                     stats["developed"] += 1
@@ -626,4 +689,6 @@ class ForeshadowingService:
 
         except Exception as e:
             logger.warning("伏笔提取失败: %s", e)
+            if self.source_ref is not None:
+                raise
             return {"planted": 0, "developed": 0, "resolved": 0}

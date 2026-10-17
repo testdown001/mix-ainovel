@@ -151,6 +151,7 @@
             :selected-chapter-number="selectedChapterNumber"
             @open-codex="codexPanelOpen = true"
             @preview-context="handlePreviewContextPlan"
+            @select-chapter="selectChapter"
           />
         </div>
       </div>
@@ -506,6 +507,7 @@
         <DiagnosticPanel
           :project-id="project?.id"
           :chapter-number="selectedChapterNumber || undefined"
+          :version-id="project?.chapters?.find((item) => item.chapter_number === selectedChapterNumber)?.selected_version_id"
           :professional-mode="professionalMode"
           @action="handleDiagnosticAction"
         />
@@ -2491,6 +2493,8 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
       }
 
       try {
+        // Capture the author-owned baseline before generation, never after it has changed.
+        const selectionBaseline = await NovelAPI.getChapterRevision(projectId, chapterNumber)
         // 调用生成 API，获取含 best_version_index 的原始响应
         const result: AdvancedGenerateResponse = await NovelAPI.generateChapterRaw(
           projectId,
@@ -2500,11 +2504,18 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
           agentFlowConfigOverrides.value,
         )
 
+        const candidateVersionId = result.variants[result.best_version_index]?.metadata?.version_id
+        if (!candidateVersionId) throw new Error('生成完成，但缺少稳定版本信息；请在版本列表确认正文。')
+        const selectGeneratedVersion = () => NovelAPI.selectChapterVersion(
+          projectId, chapterNumber, result.best_version_index,
+          { version_id: candidateVersionId, expected_revision_id: selectionBaseline.revision_id,
+            expected_content_hash: selectionBaseline.content_hash },
+        )
         // 再次检查是否取消或组件已卸载（生成过程中可能点了取消或离开页面）
         if (batchCancelled.value || !componentMounted.value) {
           // 已生成但取消了，仍然选版以免浪费
           try {
-            await NovelAPI.selectChapterVersion(projectId, chapterNumber, result.best_version_index)
+            await selectGeneratedVersion()
             completedCount++
           } catch (selectErr) {
             console.warn(`取消时选版失败（第 ${chapterNumber} 章）:`, selectErr)
@@ -2520,7 +2531,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
         }
 
         // 自动选版
-        await NovelAPI.selectChapterVersion(projectId, chapterNumber, result.best_version_index)
+        await selectGeneratedVersion()
 
         // 刷新项目状态
         await novelStore.loadProject(projectId, true)

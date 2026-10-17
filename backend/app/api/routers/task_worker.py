@@ -340,6 +340,8 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
                     req,
                     req.chapter_number,
                     int(result.get("best_version_index", 0) or 0),
+                    version_id=result.get("best_version_id"),
+                    adoption_baseline=result.get("adoption_baseline"),
                 )
                 result["selected_version_id"] = selected_version_id
         elif req.task_type == "chapter:batch_generate":
@@ -526,6 +528,16 @@ async def _execute_chapter_generate(
         novel_service = NovelService(session)
         await novel_service.ensure_project_owner(req.project_id, req.user_id)
         chapter = await novel_service.get_or_create_chapter(req.project_id, req.chapter_number)
+        # Capture before the potentially long model call. Reading a new baseline
+        # after generation would silently overwrite an intervening author save.
+        from ...services.chapter_revision_service import hash_chapter_content
+        baseline_revision = int(getattr(chapter, "revision_id", 0) or 0)
+        baseline_hash = getattr(chapter, "content_hash", None)
+        if not baseline_hash and getattr(chapter, "selected_version_id", None):
+            from ...models.novel import ChapterVersion
+            selected_before = await session.get(ChapterVersion, chapter.selected_version_id)
+            baseline_hash = hash_chapter_content(selected_before.content if selected_before else "")
+        baseline_hash = baseline_hash or hash_chapter_content("")
         chapter.status = "generating"
         await session.commit()
         # 项目详情缓存里存着章节状态，直接改 ORM 不会让它失效（30 分钟 TTL 内前端
@@ -583,7 +595,13 @@ async def _execute_chapter_generate(
             "versions_count": len(result.get("variants", [])),
             "best_version_index": result.get("best_version_index", 0),
             "preset": result.get("preset", config.preset),
+            "adoption_baseline": {"revision_id": baseline_revision, "content_hash": baseline_hash},
+            "version_ids": [variant["version_id"] for variant in result.get("variants", [])],
         }
+        variants = result.get("variants") or []
+        best_index = int(result.get("best_version_index", 0) or 0)
+        if 0 <= best_index < len(variants):
+            payload["best_version_id"] = variants[best_index]["version_id"]
         debug_metadata = result.get("debug_metadata") or {}
         performance = {
             "stage_timings_ms": debug_metadata.get("stage_timings_ms") or {},
@@ -677,6 +695,8 @@ async def _execute_batch_generate(
                 schedule_next_mission=False,
                 schedule_post_process=False,
                 deferred_post_process=deferred_post_process,
+                version_id=result.get("best_version_id"),
+                adoption_baseline=result.get("adoption_baseline"),
             )
             result["selected_version_id"] = selected_version_id
             return {
@@ -849,6 +869,8 @@ async def _select_batch_generated_chapter(
     schedule_next_mission: bool = True,
     schedule_post_process: bool = True,
     deferred_post_process: Optional[list[dict[str, Any]]] = None,
+    version_id: Optional[int] = None,
+    adoption_baseline: Optional[Dict[str, Any]] = None,
 ) -> int:
     """批量正文采用无人值守语义：生成后自动确认管线推荐的最佳版本。
 
@@ -859,7 +881,13 @@ async def _select_batch_generated_chapter(
         novel_service = NovelService(session)
         await novel_service.ensure_project_owner(req.project_id, req.user_id)
         chapter = await novel_service.get_or_create_chapter(req.project_id, chapter_number)
-        selected = await novel_service.select_chapter_version(chapter, version_index)
+        if version_id is None or not adoption_baseline:
+            raise HTTPException(428, "自动采用缺少本批版本 ID 或生成前修订基线，候选已保留待手动选择。")
+        selected = await novel_service.select_chapter_version(
+            chapter, version_index, version_id=version_id,
+            expected_revision_id=adoption_baseline["revision_id"],
+            expected_content_hash=adoption_baseline["content_hash"], actor_user_id=req.user_id,
+        )
         content_snapshot = selected.content or ""
         selected_version_id = selected.id
 

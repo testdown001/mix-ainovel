@@ -44,11 +44,11 @@ class TestEffortForwarding:
     def test_responses_format_forwarded(self):
         assert _kwargs("gpt-5.4", fmt="openai-responses")["reasoning_effort"] == "high"
 
-    @pytest.mark.parametrize("effort", ["", "  ", "off", "none", "ultra"])
+    @pytest.mark.parametrize("effort", ["", "  ", "off", "ultra"])
     def test_invalid_values_ignored(self, effort):
         assert "reasoning_effort" not in _kwargs("deepseek-v4-flash", effort)
 
-    @pytest.mark.parametrize("effort", ["minimal", "low", "medium", "high"])
+    @pytest.mark.parametrize("effort", ["none", "minimal", "low", "medium", "high"])
     def test_valid_values(self, effort):
         assert _kwargs("deepseek-v4-flash", effort)["reasoning_effort"] == effort
 

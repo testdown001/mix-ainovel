@@ -36,7 +36,8 @@ test('普通用户登录 → 跳转 /home 工作台入口', async ({ page }) => 
   await page.getByPlaceholder('请输入密码').fill(E2E_PASSWORD)
   await page.getByRole('button', { name: '登录' }).click()
   await page.waitForURL('**/home')
-  await expect(page.getByText('我的小说库')).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(E2E_USERNAME)
+  await expect(page.getByRole('button', { name: '开始新作品', exact: true })).toBeVisible()
 })
 
 test('新建项目（API）→ 写作台壳渲染', async ({ page, baseURL }) => {

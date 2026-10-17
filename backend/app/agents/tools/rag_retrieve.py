@@ -59,6 +59,11 @@ class RagRetrieveTool(AgentTool):
 
             svc = ChapterContextService(llm_service=llm_service, vector_store=vector_store)
 
+            from ...services.retrieval_scope import build_retrieval_scope
+            if not context.chapter_number:
+                return ToolResult(success=False, error="missing_server_chapter_scope")
+            scope = await build_retrieval_scope(project_id=context.project_id,
+                    before_chapter=context.chapter_number, session=context.session)
             queries = args.get("queries")
             top_k = args.get("top_k", 5)
             mode = args.get("retrieval_mode", "vector")
@@ -70,6 +75,7 @@ class RagRetrieveTool(AgentTool):
                     user_id=context.user_id,
                     top_k_chunks=top_k,
                     retrieval_mode=mode,
+                    scope=scope,
                 )
             else:
                 query_text = queries[0] if queries else args["query_text"]
@@ -79,6 +85,7 @@ class RagRetrieveTool(AgentTool):
                     user_id=context.user_id,
                     top_k_chunks=top_k,
                     retrieval_mode=mode,
+                    scope=scope,
                 )
 
             chunks = []
@@ -87,12 +94,16 @@ class RagRetrieveTool(AgentTool):
                     "content": getattr(c, "content", str(c)),
                     "score": getattr(c, "score", 0.0),
                     "source": getattr(c, "source", ""),
+                    "chapter_number": c.chapter_number,
+                    "score_kind": c.score_kind,
+                    "metadata": c.metadata,
                 })
 
             summaries = []
             for s in getattr(result, "summaries", []):
                 summaries.append({
-                    "content": getattr(s, "content", str(s)),
+                    "content": s.summary,
+                    "metadata": s.metadata,
                     "chapter": getattr(s, "chapter_number", None),
                 })
 

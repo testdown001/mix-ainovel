@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import json
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -58,6 +60,13 @@ class SampleResult:
     followups_timeout: bool = False    # 收尾后台任务 drain 超时（已 cancel）
     budget_skipped_steps: List[str] = field(default_factory=list)  # 被时间预算砍掉的后处理步
 
+    resolved_config: Dict[str, Any] = field(default_factory=dict)
+    execution_receipt: Dict[str, Any] = field(default_factory=dict)
+    llm_usage: Dict[str, Any] = field(default_factory=dict)
+    generation_cost: Dict[str, Any] = field(default_factory=dict)
+    output_basis: str = "recommended_candidate"
+    adoption_receipt: Dict[str, Any] = field(default_factory=dict)
+
     @property
     def ok(self) -> bool:
         return self.error is None
@@ -77,10 +86,28 @@ class SampleResult:
             "vectors_seeded": self.vectors_seeded,
             "followups_timeout": self.followups_timeout,
             "budget_skipped_steps": list(self.budget_skipped_steps),
+            "resolved_config": self.resolved_config,
+            "execution_receipt": self.execution_receipt,
+            "llm_usage": self.llm_usage,
+            "generation_cost": self.generation_cost,
+            "output_basis": self.output_basis,
+            "adoption_receipt": self.adoption_receipt,
+            "per_1000_adopted_chars": self.adopted_metrics(),
         }
         if include_text:
             data["chapter_text"] = self.chapter_text
         return data
+
+    def adopted_metrics(self) -> Dict[str, Any]:
+        if self.output_basis != "adopted_manuscript" or not self.chapter_text:
+            return {"status": "not_adopted", "tokens": None, "cost": None, "latency_ms": None}
+        scale = 1000 / len(self.chapter_text)
+        tokens = self.llm_usage.get("total_tokens")
+        cost = self.generation_cost.get("amount")
+        return {"status": "measured", "tokens": tokens * scale if tokens is not None else None,
+                "cost": cost * scale if cost is not None else None,
+                "currency": self.generation_cost.get("currency"),
+                "latency_ms": self.duration_ms * scale}
 
 
 @dataclass
@@ -221,6 +248,13 @@ async def snapshot_environment(session_factory) -> Dict[str, Any]:
                 row = await session.get(SystemConfig, key)
                 return (row.value or "").strip() if row is not None else ""
 
+            price_json = await _value("bench.model_prices")
+            try:
+                prices = json.loads(price_json) if price_json else {}
+                snapshot["bench_model_prices"] = validate_model_prices(prices)
+            except (ValueError, TypeError, KeyError):
+                snapshot["bench_model_prices"] = {}
+                snapshot["bench_model_prices_status"] = "invalid"
             snapshot["llm_model"] = await _value("llm.model") or "（未配置）"
             base_url = await _value("llm.base_url")
             # 脱敏：只留 host（base_url 可能带路径/凭据痕迹）
@@ -242,6 +276,95 @@ async def snapshot_environment(session_factory) -> Dict[str, Any]:
         snapshot.setdefault("llm_base_url_host", "（读取失败）")
         snapshot.setdefault("llm_grader_configured", False)
     return snapshot
+
+
+def validate_model_prices(prices: Any) -> Dict[str, Dict[str, Any]]:
+    if not isinstance(prices, dict):
+        raise ValueError("bench.model_prices must be a model-keyed JSON object")
+    validated = {}
+    for model, price in prices.items():
+        if not isinstance(model, str) or not isinstance(price, dict):
+            raise ValueError("invalid benchmark model price")
+        currency = str(price.get("currency") or "").strip().upper()
+        if len(currency) != 3 or not currency.isascii() or not currency.isalpha():
+            raise ValueError("benchmark model price requires a three-letter currency")
+        record = {"currency": currency}
+        for key in ("input_per_million", "output_per_million"):
+            value = float(price[key])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("benchmark model rates must be finite and nonnegative")
+            record[key] = value
+        validated[model] = record
+    return validated
+
+
+def capture_sample_telemetry(sample: SampleResult, result: Dict[str, Any]) -> None:
+    debug = result.get("debug_metadata") or {}
+    variants = result.get("variants") or []
+    best_index = result.get("best_version_index", 0)
+    best_metadata = (variants[best_index].get("metadata") or {}) if 0 <= best_index < len(variants) else {}
+    sample.resolved_config = dict(debug.get("resolved_config") or {
+        "preset": result.get("preset"), "configured_stages": debug.get("stages") or {},
+        "completeness": "partial"})
+    sample.execution_receipt = dict(debug.get("execution_receipt") or best_metadata.get("execution_receipt") or {
+        "status": "unknown", "stage_timings_ms": debug.get("stage_timings_ms") or {},
+        "budget_skipped_steps": list(sample.budget_skipped_steps)})
+    metrics = debug.get("llm_metrics") or {}
+    summary = metrics.get("summary") or {}
+    if "prompt_tokens" not in summary or "completion_tokens" not in summary:
+        sample.llm_usage = {"status": "unavailable", "total_tokens": None, "calls": []}
+        return
+    sample.llm_usage = {"status": "recorded", "precision": "provider_usage_or_existing_estimate",
+        "prompt_tokens": int(summary["prompt_tokens"]), "completion_tokens": int(summary["completion_tokens"]),
+        "total_tokens": int(summary["prompt_tokens"]) + int(summary["completion_tokens"]),
+        "call_count": summary.get("call_count"), "calls": list(metrics.get("calls") or []),
+        "scope": "generation_only_excludes_fixture_and_independent_judges"}
+
+
+def price_sample_usage(sample: SampleResult, prices: Dict[str, Any]) -> None:
+    calls = sample.llm_usage.get("calls") or []
+    unknown = sorted({str(call.get("model") or "unknown") for call in calls if call.get("model") not in prices})
+    currencies = {prices[call["model"]]["currency"] for call in calls if call.get("model") in prices}
+    if not calls or unknown or len(currencies) != 1:
+        sample.generation_cost = {"status": "unavailable", "amount": None, "currency": None,
+            "unpriced_models": unknown, "reason": "missing_usage_or_prices" if len(currencies) < 2 else "mixed_currencies"}
+        return
+    amount = sum((max(0, int(call.get("prompt_tokens") or 0)) * prices[call["model"]]["input_per_million"]
+                 + max(0, int(call.get("completion_tokens") or 0)) * prices[call["model"]]["output_per_million"])
+                 / 1_000_000 for call in calls)
+    sample.generation_cost = {"status": "estimated_from_usage", "amount": round(amount, 8),
+        "currency": next(iter(currencies)), "pricing_snapshot": {model: prices[model] for model in {call["model"] for call in calls}}}
+
+
+async def adopt_bench_winner(session, result: Dict[str, Any], *, project_id: str,
+                            chapter_number: int, user_id: int) -> Dict[str, Any]:
+    """Only benchmark-owned persisted candidates may become the comparison manuscript."""
+    from sqlalchemy import select
+    from ...models.novel import Chapter, ChapterVersion, NovelProject
+    from ..chapter_revision_service import ChapterRevisionService
+    variants = result.get("variants") or []
+    best_index = result.get("best_version_index", 0)
+    if not variants or not 0 <= best_index < len(variants):
+        return {"status": "not_adopted", "reason": "missing_candidate"}
+    best = variants[best_index]
+    project = await session.get(NovelProject, project_id)
+    if project is None or project.creation_source != "ai_test" or project.user_id != user_id:
+        return {"status": "not_adopted", "reason": "not_isolated_benchmark"}
+    chapter = (await session.execute(select(Chapter).where(
+        Chapter.project_id == project_id, Chapter.chapter_number == chapter_number))).scalars().first()
+    version_id = best.get("version_id") or (best.get("metadata") or {}).get("version_id")
+    version = await session.get(ChapterVersion, version_id) if version_id else None
+    if chapter is None or version is None or version.chapter_id != chapter.id or version.content != best.get("content"):
+        return {"status": "not_adopted", "reason": "candidate_not_persisted"}
+    revision_service = ChapterRevisionService(session)
+    baseline = await revision_service.get_revision(project_id, chapter_number)
+    await revision_service.adopt(project_id=project_id, chapter_number=chapter_number,
+        version_id=version.id, expected_revision_id=baseline.revision_id,
+        expected_content_hash=baseline.content_hash, actor_user_id=user_id)
+    await session.commit()
+    adopted = await revision_service.get_revision(project_id, chapter_number)
+    return {"status": "adopted", "source_version_id": adopted.selected_version_id,
+            "adoption_revision_id": adopted.revision_id, "source_content_hash": adopted.content_hash}
 
 
 async def _generate_sample(
@@ -276,6 +399,10 @@ async def _generate_sample(
                     flow_config=config.to_flow_config(),
                 )
                 sample.duration_ms = int((time.monotonic() - gen_started) * 1000)
+                sample.adoption_receipt = await adopt_bench_winner(session, result,
+                    project_id=sample.project_id, chapter_number=scenario.target_chapter, user_id=user.id)
+                if sample.adoption_receipt.get("status") == "adopted":
+                    sample.output_basis = "adopted_manuscript"
                 await session.commit()
         except BenchSeedSchemaError:
             raise
@@ -306,6 +433,7 @@ async def _generate_sample(
     time_budget = sample.review_summaries.get("time_budget")
     if isinstance(time_budget, dict) and isinstance(time_budget.get("skipped"), list):
         sample.budget_skipped_steps = [str(step) for step in time_budget["skipped"]]
+    capture_sample_telemetry(sample, result)
     if not sample.chapter_text.strip():
         sample.error = "生成结果无正文（最佳版 content 为空）"
         return sample
@@ -456,6 +584,7 @@ async def run_bench(
                     session_factory, scenario, config, run_tag, sample_index,
                     drain_timeout=drain_timeout,
                 )
+                price_sample_usage(sample, result.environment.get("bench_model_prices") or {})
                 if judge and sample.ok:
                     await _judge_sample(
                         session_factory, sample, scenario,

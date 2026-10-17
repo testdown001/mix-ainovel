@@ -20,6 +20,13 @@ from app.services.chapter_post_processor import ChapterPostProcessor, compute_in
 from app.services.rag_rebuild_service import rebuild_project_rag
 
 
+@pytest.fixture(autouse=True)
+def _stable_embedding_space(monkeypatch):
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr("app.services.embedding_index_config.resolve_embedding_identity", AsyncMock(return_value={
+        "provider": "openai", "model": "fixture-model", "base_url": "https://fixture.local/v1", "configured_dimension": 8}))
+
+
 # ---------------------------------------------------------------------------
 # 播种与 mock 辅助
 # ---------------------------------------------------------------------------
@@ -47,6 +54,10 @@ async def _seed_chapter(session, project_id, number, *, content, summary=None, i
     if ingest_hash == "match":
         # 无大纲时 title 回退为 第N章，与服务内的计算保持一致
         chapter.rag_ingest_hash = compute_ingest_hash(f"第{number}章", summary, content)
+        from app.services.embedding_index_config import resolve_embedding_identity, embedding_fingerprint
+        identity = await resolve_embedding_identity(object())
+        fingerprint = embedding_fingerprint(identity, 8)
+        chapter.active_index_revision_id = f"{fingerprint}:8:{'a' * 32}"
     elif ingest_hash is not None:
         chapter.rag_ingest_hash = ingest_hash
     await session.flush()
@@ -422,3 +433,16 @@ async def test_cli_force_full_passthrough(cli_session_factory, monkeypatch):
     assert exit_code == 0
     # force_full 下项目 B 已最新的 1 章也被重建：A 2 章 + B 1 章
     assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_legacy_matching_hash_without_active_revision_is_rebuilt(db_session, monkeypatch):
+    project = await _seed_project(db_session)
+    chapter = await _seed_chapter(db_session, project.id, 1, content="原文", ingest_hash="match")
+    chapter.active_index_revision_id = None
+    await db_session.commit()
+    calls = _install_ingest_recorder(monkeypatch)
+    stats = await rebuild_project_rag(db_session, object(), project.id)
+    assert stats["pending"] == [1]
+    assert stats["skipped"] == 0
+    assert len(calls) == 1

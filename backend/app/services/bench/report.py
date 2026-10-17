@@ -99,6 +99,12 @@ def _cell_stats(cell: CellResult) -> Dict[str, Any]:
         "chars": _mean([float(len(s.chapter_text)) for s in ok]),
         "duration_s": _mean([s.duration_ms / 1000.0 for s in cell.samples]),
         "pairwise": _pairwise_record(ok),
+        "adopted_samples": sum(sample.output_basis == "adopted_manuscript" for sample in ok),
+        "tokens_per_1000_adopted_chars": _mean([sample.adopted_metrics().get("tokens") for sample in ok]),
+        "latency_ms_per_1000_adopted_chars": _mean([sample.adopted_metrics().get("latency_ms") for sample in ok]),
+        "cost_by_currency": {currency: _mean([sample.adopted_metrics().get("cost") for sample in ok
+            if sample.generation_cost.get("currency") == currency]) for currency in {
+                sample.generation_cost.get("currency") for sample in ok if sample.generation_cost.get("currency")}},
         "skipped_no_op": cell.skipped_no_op,
         "note": cell.note,
         # 被时间预算砍掉的后处理步（任一样本命中即列出——该 cell 数字不可信）
@@ -392,6 +398,21 @@ def _render_markdown(
         "不能用它佐证 humanization 相关开关的贡献。")
     add("‡ 4-gram distinct ratio，按正文前 3000 字定长口径计算（不足 3000 字取全量），"
         "消除长度伪影。")
+    add("")
+
+    add("## 采用稿成本与实际执行")
+    add("")
+    add("| 配置 | 场景 | 采用稿样本 | 每千字 token | 每千字时延(ms) | 每千字模型费用 |")
+    add("|---|---|---|---|---|---|")
+    for cell in result.cells:
+        stats = stats_by_key[(cell.scenario_id, cell.config_name)]
+        costs = "; ".join(f"{currency} {_fmt(value, 6)}" for currency, value in stats["cost_by_currency"].items()) or "unknown"
+        add(f"| {cell.config_name} | {cell.scenario_id} | {stats['adopted_samples']} "
+            f"| {_fmt(stats['tokens_per_1000_adopted_chars'], 0)} "
+            f"| {_fmt(stats['latency_ms_per_1000_adopted_chars'], 0)} | {costs} |")
+    add("")
+    add("费用按 bench.model_prices 中冻结的每百万 token 单价与已有用量估算；缺用量或任一模型未定价显示 unknown，不当作免费。"
+        "统计限章节生成，不含夹具索引、独立盲评和后台派生。JSON 保留逐样本配置、执行收据与采用来源；未采用候选不计入采用稿均值。")
     add("")
 
     # ② 消融差异表

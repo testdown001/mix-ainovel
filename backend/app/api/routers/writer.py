@@ -422,6 +422,8 @@ async def _finalize_chapter_async(
     selected_version_id: int,
     user_id: int,
     skip_vector_update: bool = True,
+    expected_revision_id: Optional[int] = None,
+    expected_content_hash: Optional[str] = None,
 ) -> None:
     """异步定稿：记忆/快照由 FinalizeService 处理，向量入库由 ChapterPostProcessor 统一处理。"""
     async with AsyncSessionLocal() as session:
@@ -447,14 +449,13 @@ async def _finalize_chapter_async(
         if not selected_version or not selected_version.content:
             return
 
-        from ...services.generation_quality_gate import assert_selectable
-        assert_selectable(selected_version.content, selected_version.metadata)
-        chapter.selected_version_id = selected_version.id
-        chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
-        chapter.word_count = len(selected_version.content or "")
-        chapter.revision_id = int(chapter.revision_id or 0) + 1
-        chapter.content_hash = hash_chapter_content(selected_version.content)
-        await session.commit()
+        novel_service = NovelService(session)
+        await novel_service.ensure_project_owner(project_id, user_id)
+        await novel_service.select_chapter_version(
+            chapter, version_id=selected_version.id,
+            expected_revision_id=expected_revision_id,
+            expected_content_hash=expected_content_hash, actor_user_id=user_id,
+        )
 
         # 本章落定 → 后台预生成下一章使命（内部预付成本，失败仅记日志）
         safe_create_task(
@@ -462,32 +463,8 @@ async def _finalize_chapter_async(
             name=f"pregen-mission-{project_id}-ch{chapter_number + 1}",
         )
 
-        _chapter_text = selected_version.content
-        from ...services.generation_write_task_service import GenerationWriteTaskService
-        safe_create_task(
-            GenerationWriteTaskService().run_character_significance(
-                project_id=project_id, chapter_number=chapter_number,
-                chapter_content=_chapter_text, character_names=[], user_id=user_id,
-            ),
-            name=f"significance-{project_id}-ch{chapter_number}",
-        )
-
-        # 并行执行：FinalizeService（记忆/快照/剧情线）与 ChapterPostProcessor（摘要/向量入库）
-        # 两者写入不同 DB 表且无数据依赖，使用独立 session 避免并发冲突
-        async def _do_finalize():
-            async with AsyncSessionLocal() as fin_session:
-                fin_llm = LLMService(fin_session)
-                sync_session = getattr(fin_session, "sync_session", fin_session)
-                finalize_service = FinalizeService(sync_session, fin_llm, None)
-                await finalize_service.finalize_chapter(
-                    project_id=project_id,
-                    chapter_number=chapter_number,
-                    chapter_text=_chapter_text,
-                    user_id=user_id,
-                    skip_vector_update=True,
-                )
-
-        await asyncio.gather(_do_finalize())
+        # Canonical writes are delivered by the transactional outbox. Do not run
+        # a second unversioned finalize pipeline or duplicate model calls here.
 
 
 def _schedule_finalize_task(
@@ -496,6 +473,8 @@ def _schedule_finalize_task(
     selected_version_id: int,
     user_id: int,
     skip_vector_update: bool = False,
+    expected_revision_id: Optional[int] = None,
+    expected_content_hash: Optional[str] = None,
 ) -> None:
     safe_create_task(
         _finalize_chapter_async(
@@ -504,6 +483,8 @@ def _schedule_finalize_task(
             selected_version_id=selected_version_id,
             user_id=user_id,
             skip_vector_update=skip_vector_update,
+            expected_revision_id=expected_revision_id,
+            expected_content_hash=expected_content_hash,
         ),
         name=f"finalize-{project_id}-ch{chapter_number}",
     )
@@ -650,15 +631,15 @@ async def advanced_generate_chapter(
     if not charged:
         billing_ref = None  # 未产生扣费（未选模型且未勾润色）→ 无需退款
 
-    executor = HybridExecutor(session, user_id=current_user.id)
-
-    # 检查是否启用 Agent 系统（保留，但不推荐使用）
     use_agent = request.flow_config.use_agent or False
-
-    if use_agent:
-        executor.enable_agent_system()
-
     try:
+        await NovelService(session).ensure_project_owner(request.project_id, current_user.id)
+        adoption_baseline = await ChapterRevisionService(session).get_revision(
+            request.project_id, request.chapter_number,
+        )
+        executor = HybridExecutor(session, user_id=current_user.id)
+        if use_agent:
+            executor.enable_agent_system()
         result = await executor.generate_chapter(
             use_agent=use_agent,
             project_id=request.project_id,
@@ -687,6 +668,8 @@ async def advanced_generate_chapter(
                     selected_version_id,
                     current_user.id,
                     False,
+                    adoption_baseline.revision_id,
+                    adoption_baseline.content_hash,
                 )
 
         return AdvancedGenerateResponse(**result)
@@ -804,14 +787,16 @@ async def advanced_generate_chapter_stream(
         await _push_event(event_name, event_data)
 
     async def _producer() -> None:
-        from ...agents.hybrid_executor import HybridExecutor
-
-        async with AsyncSessionLocal() as session:
-            executor = HybridExecutor(session, user_id=current_user.id)
-            if use_agent:
-                executor.enable_agent_system()
-
-            try:
+        try:
+            from ...agents.hybrid_executor import HybridExecutor
+            async with AsyncSessionLocal() as session:
+                await NovelService(session).ensure_project_owner(request.project_id, current_user.id)
+                adoption_baseline = await ChapterRevisionService(session).get_revision(
+                    request.project_id, request.chapter_number,
+                )
+                executor = HybridExecutor(session, user_id=current_user.id)
+                if use_agent:
+                    executor.enable_agent_system()
                 await _push_event(
                     "started",
                     {
@@ -850,83 +835,30 @@ async def advanced_generate_chapter_stream(
                             selected_version_id,
                             current_user.id,
                             False,
+                            adoption_baseline.revision_id,
+                            adoption_baseline.content_hash,
                         )
 
                 await _push_event("completed", result)
-            except asyncio.CancelledError:
-                # 客户端断开/生成被取消：已扣费但未交付 → 退款、把章节从 generating
-                # 落到 failed（否则留下永久「生成中」幽灵），再继续传播取消
-                await _refund_sync_generation_safely(current_user.id, billing_ref)
-                await _mark_chapter_interrupted_safely(
-                    request.project_id, request.chapter_number
-                )
-                raise
-            except HTTPException as exc:
-                await _refund_sync_generation_safely(current_user.id, billing_ref)
-                logger.warning(
-                    "高级流式生成失败(HTTPException): project=%s chapter=%s user=%s preset=%s status=%s detail=%s",
-                    request.project_id,
-                    request.chapter_number,
-                    current_user.id,
-                    request.flow_config.preset,
-                    exc.status_code,
-                    exc.detail,
-                )
-                if exc.status_code >= 500:
-                    try:
-                        await session.rollback()
-                        await _set_chapter_failed_status(
-                            session,
-                            request.project_id,
-                            request.chapter_number,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "高级流式生成失败后写回章节状态失败: project=%s chapter=%s user=%s",
-                            request.project_id,
-                            request.chapter_number,
-                            current_user.id,
-                        )
-                detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False)
-                await _push_event(
-                    "error",
-                    {
-                        "status_code": exc.status_code,
-                        "detail": detail[:500],
-                    },
-                )
-            except Exception as exc:
-                await _refund_sync_generation_safely(current_user.id, billing_ref)
-                logger.exception(
-                    "高级流式生成异常: project=%s chapter=%s user=%s preset=%s",
-                    request.project_id,
-                    request.chapter_number,
-                    current_user.id,
-                    request.flow_config.preset,
-                )
-                try:
-                    await session.rollback()
-                    await _set_chapter_failed_status(
-                        session,
-                        request.project_id,
-                        request.chapter_number,
-                    )
-                except Exception:
-                    logger.exception(
-                        "高级流式生成异常后写回章节状态失败: project=%s chapter=%s user=%s",
-                        request.project_id,
-                        request.chapter_number,
-                        current_user.id,
-                    )
-                await _push_event(
-                    "error",
-                    {
-                        "status_code": 500,
-                        "detail": f"高级生成失败: {str(exc)[:200]}",
-                    },
-                )
-            finally:
-                await event_queue.put(None)
+        except asyncio.CancelledError:
+            await _refund_sync_generation_safely(current_user.id, billing_ref)
+            await _mark_chapter_interrupted_safely(request.project_id, request.chapter_number)
+            raise
+        except HTTPException as exc:
+            await _refund_sync_generation_safely(current_user.id, billing_ref)
+            if exc.status_code >= 500:
+                await _mark_chapter_interrupted_safely(request.project_id, request.chapter_number)
+            detail = exc.detail if isinstance(exc.detail, str) else json.dumps(exc.detail, ensure_ascii=False)
+            await _push_event("error", {"status_code": exc.status_code, "detail": detail[:500]})
+        except Exception as exc:
+            await _refund_sync_generation_safely(current_user.id, billing_ref)
+            await _mark_chapter_interrupted_safely(request.project_id, request.chapter_number)
+            logger.exception("高级流式生成失败: project=%s chapter=%s", request.project_id, request.chapter_number)
+            await _push_event("error", {"status_code": 500, "detail": f"高级生成失败: {str(exc)[:200]}"})
+        finally:
+            # Session setup, ownership and baseline reads can fail as well. Always
+            # terminate the SSE consumer, even if failure precedes generation.
+            event_queue.put_nowait(None)
 
     async def _event_generator():
         producer_task = asyncio.create_task(_producer())
@@ -1073,87 +1005,19 @@ async def finalize_chapter(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ) -> FinalizeChapterResponse:
-    """
-    定稿入口：选中版本后触发 FinalizeService 进行记忆更新与快照写入。
-    """
+    """Adopt atomically; deliver canonical follow-ups through the durable outbox."""
     novel_service = NovelService(session)
     await novel_service.ensure_project_owner(request.project_id, current_user.id)
-
-    stmt = (
-        select(Chapter)
-        .options(selectinload(Chapter.versions))
-        .where(
-            Chapter.project_id == request.project_id,
-            Chapter.chapter_number == chapter_number,
-        )
+    chapter = await novel_service.get_or_create_chapter(request.project_id, chapter_number)
+    selected_version = await novel_service.select_chapter_version(
+        chapter, version_id=request.selected_version_id,
+        expected_revision_id=request.expected_revision_id,
+        expected_content_hash=request.expected_content_hash, actor_user_id=current_user.id,
     )
-    result = await session.execute(stmt)
-    chapter = result.scalars().first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
-
-    selected_version = next(
-        (v for v in chapter.versions if v.id == request.selected_version_id),
-        None,
-    )
-    if not selected_version or not selected_version.content:
-        raise HTTPException(status_code=400, detail="选中的版本不存在或内容为空")
-
-    from ...services.generation_quality_gate import assert_selectable
-    assert_selectable(selected_version.content, selected_version.metadata)
-    chapter.selected_version_id = selected_version.id
-    chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
-    chapter.word_count = len(selected_version.content or "")
-    chapter.revision_id = int(chapter.revision_id or 0) + 1
-    chapter.content_hash = hash_chapter_content(selected_version.content)
-    await session.commit()
-
-    # 选版是明确的作者偏好信号；候选学习在独立会话后台执行，不阻塞定稿响应。
-    safe_create_task(
-        review_creative_memory_selection(
-            user_id=current_user.id,
-            project_id=request.project_id,
-            chapter_number=chapter_number,
-            selected_version_id=selected_version.id,
-        ),
-        name=f"learn-creative-memory-selection-{request.project_id}-ch{chapter_number}",
-    )
-
-    # 本章落定 → 后台预生成下一章使命，下次点生成免掉 ~2 分钟的规划等待。
-    # 内部预付成本（同 async followups），不向用户计费；失败仅记日志
-    safe_create_task(
-        pregen_next_chapter_mission(request.project_id, chapter_number, current_user.id),
-        name=f"pregen-mission-{request.project_id}-ch{chapter_number + 1}",
-    )
-
-    llm_service = LLMService(session)
-
-    # FinalizeService 负责记忆/快照/剧情线，向量入库始终走 ChapterPostProcessor
-    sync_session = getattr(session, "sync_session", session)
-    finalize_service = FinalizeService(sync_session, llm_service, None)
-    finalize_result = await finalize_service.finalize_chapter(
-        project_id=request.project_id,
-        chapter_number=chapter_number,
-        chapter_text=selected_version.content,
-        user_id=current_user.id,
-        skip_vector_update=True,
-    )
-
-    # 向量入库 + 摘要 + hash 统一由 ChapterPostProcessor 异步处理
-    from ...services.generation_write_task_service import GenerationWriteTaskService
-    safe_create_task(
-        GenerationWriteTaskService().run_character_significance(
-            project_id=request.project_id, chapter_number=chapter_number,
-            chapter_content=selected_version.content, character_names=[], user_id=current_user.id,
-        ),
-        name=f"significance-{request.project_id}-ch{chapter_number}",
-    )
-
     return FinalizeChapterResponse(
-        project_id=request.project_id,
-        chapter_number=chapter_number,
+        project_id=request.project_id, chapter_number=chapter_number,
         selected_version_id=selected_version.id,
-        result=finalize_result,
+        result={"success": True, "status": "scheduled", "updates": {"derivations": "queued"}},
     )
 
 
@@ -1172,24 +1036,18 @@ async def select_chapter_version(
     project = await novel_service.ensure_project_owner(project_id, current_user.id)
     chapter = await novel_service.get_or_create_chapter(project_id, request.chapter_number)
 
-    selected_version = await novel_service.select_chapter_version(chapter, request.version_index)
+    selected_version = await novel_service.select_chapter_version(
+        chapter, request.version_index, version_id=request.version_id,
+        expected_revision_id=request.expected_revision_id,
+        expected_content_hash=request.expected_content_hash,
+        actor_user_id=current_user.id,
+    )
 
     if not selected_version.content or len(selected_version.content.strip()) == 0:
         await session.rollback()
         raise HTTPException(status_code=400, detail="选中的版本内容为空，无法确认为最终版")
 
-    content_snapshot = selected_version.content
-
-    safe_create_task(
-        _background_chapter_post_process(
-            project_id=project_id,
-            chapter_number=request.chapter_number,
-            content=content_snapshot,
-            user_id=current_user.id,
-            mode="select",
-        ),
-        name=f"post-process-{project_id}-ch{request.chapter_number}",
-    )
+    # Adoption already enqueued durable, version-bound post-processing.
 
     # 选版即「本章落定」→ 后台预生成下一章使命（重选版本时指纹变化会自动重算）。
     # 内部预付成本（同 async followups），不向用户计费；失败仅记日志
@@ -2400,14 +2258,8 @@ async def _save_chapter_with_revision(
     )
 
     if result.status == "saved":
-        background_tasks.add_task(
-            _background_chapter_post_process,
-            project_id,
-            request.chapter_number,
-            request.content,
-            current_user.id,
-            mode="edit",
-        )
+        # The save transaction owns the derivation outbox. Only preference
+        # candidates (never canonical facts) may be learned separately.
         if result.saved_version_id:
             background_tasks.add_task(
                 review_creative_memory_revision,
@@ -3334,13 +3186,13 @@ async def get_project_archives(
             "project_id": a.project_id,
             "chapter_number": a.chapter_number,
             "user_command": a.user_command,
-            "writing_notes": a.writing_notes,
+            "writing_notes": a.additional_requirements,
             "started_at": a.started_at.isoformat() if a.started_at else None,
             "completed_at": a.completed_at.isoformat() if a.completed_at else None,
-            "duration_seconds": a.duration_seconds,
-            "version_count": a.version_count,
-            "gatekeeper_score": a.gatekeeper_score,
-            "user_rating": a.user_rating,
+            "duration_seconds": (a.duration_ms or 0) / 1000,
+            "version_count": a.versions_generated,
+            "gatekeeper_score": (a.quality_metrics or {}).get("gatekeeper_score"),
+            "user_rating": (a.quality_metrics or {}).get("user_rating"),
             "created_at": a.created_at.isoformat() if a.created_at else None,
         }
         for a in archives
@@ -3374,9 +3226,13 @@ async def get_archive_detail(
 
     # 获取最终版本内容
     final_version_content = None
-    if archive.final_version_id:
+    version = None
+    if (archive.final_output or {}).get("selected_version"):
         version_result = await session.execute(
-            select(ChapterVersion).where(ChapterVersion.id == archive.final_version_id)
+            select(ChapterVersion).join(Chapter, ChapterVersion.chapter_id == Chapter.id).where(
+                ChapterVersion.id == archive.final_output["selected_version"],
+                Chapter.project_id == project_id, Chapter.chapter_number == archive.chapter_number,
+            )
         )
         version = version_result.scalars().first()
         if version:
@@ -3387,17 +3243,18 @@ async def get_archive_detail(
         "project_id": archive.project_id,
         "chapter_number": archive.chapter_number,
         "user_command": archive.user_command,
-        "writing_notes": archive.writing_notes,
+        "writing_notes": archive.additional_requirements,
         "started_at": archive.started_at.isoformat() if archive.started_at else None,
         "completed_at": archive.completed_at.isoformat() if archive.completed_at else None,
-        "duration_seconds": archive.duration_seconds,
-        "stages": archive.stages,
-        "logs": archive.logs,
-        "final_version_id": archive.final_version_id,
+        "duration_seconds": (archive.duration_ms or 0) / 1000,
+        "stages": archive.workflow or [],
+        "logs": (archive.final_output or {}).get("logs", []),
+        "final_version_id": (archive.final_output or {}).get("selected_version"),
         "final_version_content": final_version_content,
-        "version_count": archive.version_count,
-        "gatekeeper_score": archive.gatekeeper_score,
-        "user_rating": archive.user_rating,
+        **_version_receipts(version),
+        "version_count": archive.versions_generated,
+        "gatekeeper_score": (archive.quality_metrics or {}).get("gatekeeper_score"),
+        "user_rating": (archive.quality_metrics or {}).get("user_rating"),
         "created_at": archive.created_at.isoformat() if archive.created_at else None,
     }
 
@@ -3433,9 +3290,9 @@ async def get_latest_archive_by_chapter(
         "chapter_number": archive.chapter_number,
         "started_at": archive.started_at.isoformat() if archive.started_at else None,
         "completed_at": archive.completed_at.isoformat() if archive.completed_at else None,
-        "duration_seconds": archive.duration_seconds,
-        "version_count": archive.version_count,
-        "gatekeeper_score": archive.gatekeeper_score,
+        "duration_seconds": (archive.duration_ms or 0) / 1000,
+        "version_count": archive.versions_generated,
+        "gatekeeper_score": (archive.quality_metrics or {}).get("gatekeeper_score"),
     }
 
 
@@ -3491,7 +3348,39 @@ async def rate_archive(
 
     await session.commit()
 
-    return {"id": archive.id, "user_rating": archive.user_rating}
+    return {"id": archive.id, "user_rating": (archive.quality_metrics or {}).get("user_rating")}
+
+
+def _version_receipts(version) -> Dict[str, Any]:
+    """Bind optional receipts to the immutable text, never a different archive."""
+    if version is None:
+        return {"context_receipt": None, "execution_receipt": None}
+    meta = version.metadata_ if isinstance(version.metadata_, dict) else {}
+    debug = meta.get("debug_metadata") if isinstance(meta.get("debug_metadata"), dict) else {}
+    identity = {
+        "version_id": version.id,
+        "generation_batch_id": meta.get("m3_generation_batch"),
+        "content_hash": hash_chapter_content(version.content or ""),
+    }
+    result = {}
+    for key in ("context_receipt", "execution_receipt"):
+        receipt = meta.get(key) or debug.get(key)
+        result[key] = {**receipt, **identity} if isinstance(receipt, dict) else None
+    return result
+
+
+@router.get("/novels/{project_id}/chapters/{chapter_number}/narrative-state")
+async def get_narrative_state(
+    project_id: str,
+    chapter_number: int,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+):
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    if chapter_number < 1:
+        raise HTTPException(status_code=422, detail="章节号必须为正整数")
+    from ...services.narrative_state_service import NarrativeStateService
+    return await NarrativeStateService.view(session, project_id, chapter_number)
 
 
 @router.get("/novels/{project_id}/chapters/{chapter_number}/diagnose")
@@ -3500,6 +3389,7 @@ async def diagnose_chapter(
     chapter_number: int,
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
+    version_id: Optional[int] = None,
 ):
     """诊断指定章节的生成质量和性能，返回真实数据。"""
     from ...models.writing_archive import WritingArchive
@@ -3540,13 +3430,25 @@ async def diagnose_chapter(
     chapter = (await session.execute(chapter_stmt)).scalars().first()
     selected_version = None
     if chapter and chapter.versions:
-        if chapter.selected_version_id is not None:
+        if version_id is not None:
+            selected_version = next((v for v in chapter.versions if v.id == version_id), None)
+            if selected_version is None:
+                raise HTTPException(status_code=404, detail="该章节版本不存在")
+        if selected_version is None and chapter.selected_version_id is not None:
             selected_version = next(
                 (ver for ver in chapter.versions if ver.id == chapter.selected_version_id),
                 None,
             )
         if selected_version is None:
             selected_version = chapter.versions[-1]
+    elif version_id is not None:
+        raise HTTPException(status_code=404, detail="该章节版本不存在")
+    if selected_version is not None:
+        # A newer generation/archive must not overwrite diagnostics for the
+        # author's current manuscript. Unknown historical receipts stay unknown.
+        archive = (await session.execute(archive_stmt.where(
+            WritingArchive.final_output["selected_version"].as_integer() == selected_version.id,
+        ))).scalars().first()
 
     # ---- 查询蓝图 ----
     bp_stmt = select(ChapterBlueprint).where(
@@ -3578,7 +3480,7 @@ async def diagnose_chapter(
     version_count = 0
     if chapter and chapter.versions:
         version_count = len(chapter.versions)
-        for ver in chapter.versions:
+        for ver in ([selected_version] if selected_version is not None else []):
             meta = ver.metadata_ or {}
             debug = meta.get("debug_metadata", {})
             if debug:
@@ -3595,7 +3497,6 @@ async def diagnose_chapter(
                     llm_calls = max(llm_calls, int(debug.get("llm_calls", 0)))
                 if debug.get("total_tokens") is not None:
                     total_tokens = max(total_tokens, int(debug.get("total_tokens", 0)))
-                llm_calls = max(llm_calls, debug.get("version_count", 0) + 2)  # 版本数 + mission + review
 
     # ---- 组装质量指标 ----
     issues: List[Dict[str, str]] = []
@@ -3612,7 +3513,7 @@ async def diagnose_chapter(
         issues.append(issue)
 
     if chapter and chapter.versions:
-        for ver in chapter.versions:
+        for ver in ([selected_version] if selected_version is not None else []):
             for ev in (ver.evaluations or []):
                 if ev.score is not None:
                     evaluation_scores.append(ev.score)
@@ -3759,6 +3660,10 @@ async def diagnose_chapter(
 
     return {
         "mode": "chapter",
+        "version_id": selected_version.id if selected_version is not None else None,
+        "source_status": "canonical" if selected_version is not None and chapter is not None
+            and selected_version.id == chapter.selected_version_id else "candidate",
+        **_version_receipts(selected_version),
         "overall_score": summary_score,
         "product_summary": {
             "verdict": verdict,

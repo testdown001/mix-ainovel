@@ -82,6 +82,7 @@ class SingleVersionGenerationService:
         genre_profile: Optional[Dict[str, Any]] = None,
         disable_guardrail_rewrite: bool = False,
         stream_callback: Optional[Callable[[str], Awaitable[None] | None]] = None,
+        context_sources: Optional[list[dict]] = None,
     ) -> Dict[str, Any]:
         # style_hint 两个真实来源（resolve_style_hints / persona hint）均为 str；
         # 历史 dict 形态（含 temp_offset）已无生产者，死分支删除。
@@ -127,6 +128,10 @@ class SingleVersionGenerationService:
         if not content:
             if style_text:
                 final_prompt_input = f"[版本风格策略]\n{style_text}\n\n{final_prompt_input}"
+            from .context_receipt_service import build_context_receipt
+            metadata["context_receipt"] = build_context_receipt(
+                system_prompt=writer_prompt, user_prompt=final_prompt_input,
+                project_id=project_id, chapter_number=chapter_number, sources=context_sources)
             direct_call_kwargs: Dict[str, Any] = dict(
                 system_prompt=writer_prompt,
                 conversation_history=[{"role": "user", "content": final_prompt_input}],
@@ -267,6 +272,10 @@ class SingleVersionGenerationService:
                 parsed_json = None
             final_text = sanitize_chapter_plain_text(extracted_text or content)
             metadata["invalid_output_retry"] = True
+            metadata["context_receipt"] = build_context_receipt(
+                system_prompt=writer_prompt + "\n\n硬性输出要求：只输出小说章节正文。第一个字必须是正文，不允许输出分析任务、原文本分析、角色目标限制、编辑说明、标题、JSON 或 Markdown。",
+                user_prompt=retry_prompt_input, project_id=project_id,
+                chapter_number=chapter_number, sources=context_sources)
 
         if not is_probable_chapter_plain_text(final_text):
             raise HTTPException(status_code=502, detail="章节生成失败：模型没有返回小说正文，请重试")

@@ -7,7 +7,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from ..core.config import settings
 from ..db.session import AsyncSessionLocal
 from .budget_enforcer_service import BudgetEnforcerService
-from .chapter_context_service import ChapterContextService
+from .chapter_context_service import ChapterContextService, validate_rag_payload
+from .retrieval_scope import build_retrieval_scope
 from .context_planner_service import ContextPlan, EvidenceItem, GenerationEvidencePack
 from .foreshadowing_tracker_service import ForeshadowingTrackerService
 from .llm_service import LLMService
@@ -50,6 +51,8 @@ class EvidenceRouterService:
         vector_store: Optional[VectorStoreService],
         top_k_chunks: Optional[int] = None,
         top_k_summaries: Optional[int] = None,
+        chapter_number: Optional[int] = None,
+        session: Optional[Any] = None,
     ) -> Dict[str, Any]:
         local_tasks = [task for task in plan.retrieval_tasks if task.source == "local_plot_rag"]
         if not local_tasks:
@@ -77,6 +80,10 @@ class EvidenceRouterService:
                 "queries": list(normalized_queries),
             }
 
+        if chapter_number is None:
+            return {"chunks": [], "summaries": [], "chunk_records": [], "summary_records": [],
+                    "stats": {"status": "skipped", "reason": "missing_retrieval_scope"}, "queries": []}
+        scope = await build_retrieval_scope(project_id=project_id, before_chapter=chapter_number, session=session)
         max_items = max((task.max_items for task in local_tasks), default=5)
         context_service = ChapterContextService(llm_service=llm_service, vector_store=vector_store)
         rag_result = await context_service.retrieve_multi_query(
@@ -86,13 +93,14 @@ class EvidenceRouterService:
             top_k_chunks=top_k_chunks or max_items,
             top_k_summaries=top_k_summaries,
             retrieval_mode=retrieval_mode,
+            scope=scope,
         )
         chunk_texts = rag_result.chunk_texts() if rag_result.chunks else []
         summary_lines = rag_result.summary_lines() if rag_result.summaries else []
         return {
-            "chunks": chunk_texts,
-            "summaries": summary_lines,
+            **rag_result.to_payload(),
             "stats": {
+                **rag_result.receipt,
                 "status": "completed",
                 "queries": len(normalized_queries),
                 "chunks": len(chunk_texts),
@@ -110,6 +118,7 @@ class EvidenceRouterService:
         user_id: int,
         queries: Sequence[str],
         retrieval_mode: str,
+        chapter_number: Optional[int] = None,
     ) -> Dict[str, Any]:
         if not settings.vector_store_enabled:
             return {
@@ -138,6 +147,8 @@ class EvidenceRouterService:
                 retrieval_mode=retrieval_mode,
                 llm_service=bg_llm,
                 vector_store=vector_store,
+                chapter_number=chapter_number,
+                session=bg_session,
             )
 
     async def prefetch_symbolic_foreshadowing(
@@ -208,8 +219,11 @@ class EvidenceRouterService:
                 retrieval_mode=retrieval_mode,
                 llm_service=llm_service,
                 vector_store=vector_store,
+                chapter_number=chapter_number,
+                session=session,
             )
             routed_rag_context = {
+                **routed_local,
                 "chunks": list(routed_local.get("chunks") or []),
                 "summaries": list(routed_local.get("summaries") or []),
             }
@@ -224,6 +238,10 @@ class EvidenceRouterService:
                 "chunks": len(routed_rag_context.get("chunks") or []),
                 "summaries": len(routed_rag_context.get("summaries") or []),
             }
+
+        if routed_rag_context and session is not None:
+            scope = await build_retrieval_scope(project_id=project_id, before_chapter=chapter_number, session=session)
+            routed_rag_context = validate_rag_payload(routed_rag_context, scope)
 
         evidence_pack = GenerationEvidencePack()
 
@@ -394,7 +412,7 @@ class EvidenceRouterService:
             try:
                 from .book_summary_service import BookSummaryService
                 book_service = BookSummaryService(session, llm_service)
-                book_summary = await book_service.get_book_summary(project_id)
+                book_summary = await book_service.get_book_summary(project_id, before_chapter=chapter_number)
                 if book_summary:
                     items.append(
                         EvidenceItem(
@@ -647,7 +665,7 @@ class EvidenceRouterService:
         evidence_pack: GenerationEvidencePack,
         rag_context: Dict[str, Any],
     ) -> None:
-        for index, chunk in enumerate(rag_context.get("chunks") or [], start=1):
+        for index, chunk in enumerate(rag_context.get("chunk_records", rag_context.get("chunks")) or [], start=1):
             content = chunk if isinstance(chunk, str) else str(chunk.get("content") or "")
             if not content:
                 continue
@@ -663,11 +681,12 @@ class EvidenceRouterService:
                     title=f"剧情片段 {index}",
                     content=content,
                     score=score,
+                    metadata={**(chunk.get("metadata") or {}), "score_kind": chunk.get("score_kind", "unknown")} if isinstance(chunk, dict) else {},
                 )
             )
 
-        for index, summary in enumerate(rag_context.get("summaries") or [], start=1):
-            content = str(summary or "").strip()
+        for index, summary in enumerate(rag_context.get("summary_records", rag_context.get("summaries")) or [], start=1):
+            content = str(summary.get("summary") if isinstance(summary, dict) else summary or "").strip()
             if not content:
                 continue
             evidence_pack.local_plot.append(
@@ -676,6 +695,7 @@ class EvidenceRouterService:
                     title=f"章节摘要 {index}",
                     content=content,
                     score=0.6,
+                    metadata=dict(summary.get("metadata") or {}) if isinstance(summary, dict) else {},
                 )
             )
 

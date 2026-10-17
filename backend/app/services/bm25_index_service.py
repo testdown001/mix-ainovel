@@ -62,6 +62,19 @@ class BM25IndexService:
             """,
         ]
 
+        if self._engine.dialect.name == "sqlite":
+            statements = [
+                """CREATE TABLE IF NOT EXISTS rag_bm25_index (
+                    id VARCHAR(36) PRIMARY KEY, project_id VARCHAR(64) NOT NULL,
+                    chunk_id VARCHAR(64) NOT NULL, chapter_number INTEGER NOT NULL,
+                    term VARCHAR(128) NOT NULL, tf FLOAT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+                "CREATE INDEX IF NOT EXISTS idx_bm25_project_term ON rag_bm25_index (project_id, term)",
+                "CREATE INDEX IF NOT EXISTS idx_bm25_chunk_id ON rag_bm25_index (chunk_id)",
+                """CREATE TABLE IF NOT EXISTS rag_bm25_doc_stats (
+                    project_id VARCHAR(64) PRIMARY KEY, total_docs INTEGER DEFAULT 0,
+                    avg_doc_len FLOAT DEFAULT 0, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""",
+            ]
         try:
             async with self._engine.begin() as conn:
                 for sql in statements:
@@ -70,6 +83,7 @@ class BM25IndexService:
             logger.info("BM25 索引表结构已就绪 (MySQL)。")
         except Exception as exc:
             logger.error("创建 BM25 表结构失败: %s", exc)
+            raise
 
     async def index_chunk(
         self,
@@ -121,6 +135,7 @@ class BM25IndexService:
                     )
                 except Exception as exc:
                     logger.debug("写入 BM25 索引失败: term=%s error=%s", term_val, exc)
+                    raise
 
         # 更新文档统计
         await self._update_doc_stats(project_id)
@@ -162,10 +177,13 @@ class BM25IndexService:
         project_id: str,
         query: str,
         top_k: int = 10,
+        before_chapter: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """BM25 关键词检索，返回按相关度排序的 chunk_id 和分数。"""
         await self.ensure_schema()
 
+        if before_chapter is None or before_chapter < 1:
+            return []
         query_terms = self.tokenize(query)
         if not query_terms:
             return []
@@ -186,8 +204,9 @@ class BM25IndexService:
                         text("""
                         SELECT chunk_id, `tf` FROM rag_bm25_index
                         WHERE project_id = :project_id AND term = :term
+                          AND chapter_number > 0 AND chapter_number < :before_chapter
                         """),
-                        {"project_id": project_id, "term": term_val}
+                        {"project_id": project_id, "term": term_val, "before_chapter": before_chapter}
                     )
                     rows = result.mappings().fetchall()
                     df = len(rows)
@@ -206,6 +225,7 @@ class BM25IndexService:
 
                 except Exception as exc:
                     logger.debug("BM25 查询失败: term=%s error=%s", term, exc)
+                    raise
 
         sorted_results = sorted(chunk_scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
         return [{"chunk_id": cid, "bm25_score": score} for cid, score in sorted_results]
@@ -254,18 +274,16 @@ class BM25IndexService:
                 rows2 = result2.mappings().fetchall()
                 avg_len = sum(r["term_count"] for r in rows2) / max(len(rows2), 1)
 
-                await conn.execute(
-                    text("""
-                    INSERT INTO rag_bm25_doc_stats (project_id, total_docs, avg_doc_len)
-                    VALUES (:pid, :total, :avg)
-                    ON DUPLICATE KEY UPDATE
-                        total_docs=VALUES(total_docs),
-                        avg_doc_len=VALUES(avg_doc_len)
-                    """),
-                    {"pid": project_id, "total": total_docs, "avg": avg_len}
-                )
+                upsert = """INSERT INTO rag_bm25_doc_stats (project_id, total_docs, avg_doc_len)
+                    VALUES (:pid, :total, :avg) """
+                if self._engine.dialect.name == "sqlite":
+                    upsert += "ON CONFLICT(project_id) DO UPDATE SET total_docs=excluded.total_docs, avg_doc_len=excluded.avg_doc_len"
+                else:
+                    upsert += "ON DUPLICATE KEY UPDATE total_docs=VALUES(total_docs), avg_doc_len=VALUES(avg_doc_len)"
+                await conn.execute(text(upsert), {"pid": project_id, "total": total_docs, "avg": avg_len})
         except Exception as exc:
             logger.debug("更新 BM25 文档统计失败: %s", exc)
+            raise
 
     async def _get_doc_stats(self, project_id: str) -> Dict[str, Any]:
         """获取项目的文档统计。"""

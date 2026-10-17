@@ -31,6 +31,7 @@ class ContextAccessService:
         writing_notes: str,
         user_id: int,
         retrieval_mode: str = "vector",
+        chapter_number: Optional[int] = None,
     ) -> Dict[str, Any]:
         if not settings.vector_store_enabled:
             return {"chunks": [], "summaries": []}
@@ -52,11 +53,9 @@ class ContextAccessService:
             query_text=rag_query or outline_title or outline_summary,
             user_id=user_id,
             retrieval_mode=retrieval_mode,
+            before_chapter=chapter_number,
         )
-        return {
-            "chunks": rag_context.chunk_texts() if rag_context.chunks else [],
-            "summaries": rag_context.summary_lines() if rag_context.summaries else [],
-        }
+        return rag_context.to_payload()
 
     async def get_project_memory_text(self, project_id: str) -> Optional[str]:
         result = await self.session.execute(
@@ -65,12 +64,21 @@ class ContextAccessService:
         memory = result.scalars().first()
         return self._format_project_memory_text(memory)
 
-    async def prefetch_project_memory_text(self, project_id: str) -> Optional[str]:
+    async def prefetch_project_memory_text(self, project_id: str, *, chapter_number: Optional[int] = None) -> Optional[str]:
         async with AsyncSessionLocal() as bg_session:
             result = await bg_session.execute(
                 select(ProjectMemory).where(ProjectMemory.project_id == project_id)
             )
             memory = result.scalars().first()
+            if chapter_number is not None:
+                # Legacy global_summary/plot_arcs have no per-version provenance.
+                # Use only a separately verified aggregate rather than leaking the
+                # latest full-book state into an earlier chapter.
+                from .book_summary_service import BookSummaryService
+                summary = await BookSummaryService(bg_session, None).get_book_summary(
+                    project_id, before_chapter=chapter_number,
+                )
+                return f"### 全书脉络\n{summary}" if summary else None
             return self._format_project_memory_text(memory)
 
     async def get_memory_context(

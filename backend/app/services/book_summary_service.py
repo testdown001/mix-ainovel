@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import json
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
@@ -69,7 +70,7 @@ class BookSummaryService:
         from .volume_summary_service import VolumeSummaryService
 
         vol_service = VolumeSummaryService(self.session, self.llm_service)
-        volumes = await vol_service.get_all_volume_summaries(project_id)
+        volumes = await vol_service.get_all_volume_summaries(project_id, verified_only=True)
         if not volumes:
             return None
 
@@ -79,6 +80,7 @@ class BookSummaryService:
                 "title": v.title or f"第{v.volume_number}卷",
                 "summary": v.summary or "",
                 "chapter_range": f"{v.chapter_start}-{v.chapter_end}",
+                "source_hash": v.source_hash,
             }
             for v in volumes
             if v.summary and v.summary.strip()
@@ -86,11 +88,17 @@ class BookSummaryService:
         if not vol_dicts:
             return None
 
+        provenance_memory = await self._get_memory(project_id)
+        volume_sources = ((provenance_memory.extra or {}).get("volume_summary_sources") or {}) if provenance_memory else {}
+        contributing_sources = [source for volume in vol_dicts
+            for source in (volume_sources.get(str(volume["volume_number"])) or {}).get("contributing_sources", [])]
+        if not contributing_sources:
+            return None
         new_hash = self._compute_source_hash(vol_dicts)
 
         memory = await self._get_or_create_memory(project_id)
         old_hash = (memory.extra or {}).get("book_summary_hash")
-        if not force and old_hash == new_hash:
+        if not force and old_hash == new_hash and await self.get_book_summary(project_id, before_chapter=max(source["chapter_number"] for source in contributing_sources) + 1):
             logger.debug("书级摘要未变化，跳过更新 (project=%s)", project_id)
             return memory.book_summary
 
@@ -98,11 +106,26 @@ class BookSummaryService:
         if not summary_text:
             return memory.book_summary
 
+        from .retrieval_scope import build_retrieval_scope
+        scope = await build_retrieval_scope(project_id=project_id,
+            before_chapter=max(source["chapter_number"] for source in contributing_sources) + 1, session=self.session)
+        if not scope.accepts_aggregate({"contributing_sources": contributing_sources}):
+            logger.info("Discarding stale book summary: project=%s", project_id)
+            return None
+        await self.session.execute(update(ProjectMemory).where(ProjectMemory.project_id == project_id)
+            .values(version=ProjectMemory.version + 1))
+        memory = await self._get_memory(project_id)
+        if memory is None:
+            return None
         # 写入独立的 book_summary 字段，避免覆盖 FinalizeService 写的 global_summary（前文摘要）
         memory.book_summary = summary_text
         extra = dict(memory.extra or {})
         extra["book_summary_hash"] = new_hash
         extra["book_summary_volume_count"] = len(vol_dicts)
+        extra["book_summary_sources"] = {
+            "summary_hash": hashlib.sha256(summary_text.encode()).hexdigest(),
+            "contributing_sources": contributing_sources,
+        }
         memory.extra = extra
         await self.session.commit()
 
@@ -114,12 +137,20 @@ class BookSummaryService:
         )
         return summary_text
 
-    async def get_book_summary(self, project_id: str) -> Optional[str]:
-        """获取当前书级摘要。"""
+    async def get_book_summary(self, project_id: str, *, before_chapter: Optional[int] = None) -> Optional[str]:
+        """Generation callers must supply a temporal bound; reject legacy aggregates."""
         memory = await self._get_memory(project_id)
-        if memory and memory.book_summary:
+        if not memory or not memory.book_summary:
+            return None
+        if before_chapter is None:
+            # Explicit unscoped read is used by author/admin inspection, not prompts.
             return memory.book_summary
-        return None
+        from .retrieval_scope import build_retrieval_scope
+        provenance = (memory.extra or {}).get("book_summary_sources") or {}
+        if provenance.get("summary_hash") != hashlib.sha256(memory.book_summary.encode()).hexdigest():
+            return None
+        scope = await build_retrieval_scope(project_id=project_id, before_chapter=before_chapter, session=self.session)
+        return memory.book_summary if scope.accepts_aggregate(provenance) else None
 
     # ------------------------------------------------------------------
     # 内部方法
@@ -128,6 +159,7 @@ class BookSummaryService:
     async def _get_memory(self, project_id: str) -> Optional[ProjectMemory]:
         result = await self.session.execute(
             select(ProjectMemory).where(ProjectMemory.project_id == project_id)
+            .execution_options(populate_existing=True)
         )
         return result.scalars().first()
 
@@ -192,16 +224,27 @@ class BookSummaryService:
             if not vector_store:
                 return
 
+            from .embedding_index_config import resolve_embedding_identity
+            identity = await resolve_embedding_identity(self.llm_service, user_id=user_id)
             embedding = await self.llm_service.get_embedding(summary, user_id=user_id)
             if not embedding:
                 return
+            if identity != await resolve_embedding_identity(self.llm_service, user_id=user_id):
+                return
+            await vector_store.configure_embedding(dimension=len(embedding), identity=identity)
 
-            summary_id = f"{project_id}:book:summary"
+            memory = await self._get_memory(project_id)
+            provenance = (memory.extra or {}).get("book_summary_sources") or {} if memory else {}
+            sources = provenance.get("contributing_sources") or []
+            if not sources:
+                return
+            summary_id = f"{project_id}:book:{provenance['summary_hash']}:summary"
             await vector_store.upsert_summaries(
                 records=[{
                     "id": summary_id,
                     "project_id": project_id,
-                    "chapter_number": 0,
+                    "chapter_number": max(source["chapter_number"] for source in sources),
+                    "metadata": {**provenance, "aggregate_kind": "book"},
                     "title": "全书摘要",
                     "summary": summary,
                     "embedding": embedding,
@@ -213,7 +256,5 @@ class BookSummaryService:
 
     @staticmethod
     def _compute_source_hash(vol_dicts: list[dict]) -> str:
-        content = "|".join(
-            f"{v['volume_number']}:{v['summary']}" for v in vol_dicts
-        )
+        content = json.dumps(vol_dicts, ensure_ascii=False, sort_keys=True)
         return hashlib.sha256(content.encode()).hexdigest()[:16]

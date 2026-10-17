@@ -50,7 +50,7 @@ def test_normalize_version_content_does_not_fallback_to_metadata_text():
     assert _normalize_version_content("", metadata) == ""
 
 
-def test_chapter_post_processor_writes_summary_to_canonical_duplicate():
+def test_chapter_post_processor_reads_canonical_duplicate():
     chapter_empty = SimpleNamespace(
         id=249,
         selected_version_id=None,
@@ -72,17 +72,8 @@ def test_chapter_post_processor_writes_summary_to_canonical_duplicate():
     llm_service = SimpleNamespace(get_summary=AsyncMock(return_value="<think>draft</think>新摘要"))
     processor = ChapterPostProcessor(session, llm_service)
 
-    summary = asyncio.run(
-        processor._ensure_summary(
-            "project-1",
-            34,
-            "章节正文",
-            7,
-            force=False,
-        )
-    )
-
-    assert summary == "新摘要"
-    assert chapter_rich.real_summary == "新摘要"
-    assert chapter_empty.real_summary is None
-    session.commit.assert_awaited_once()
+    canonical = asyncio.run(processor._get_canonical_chapter("project-1", 34))
+    assert canonical is chapter_rich
+    # Publishing summaries now additionally requires a real adopted-source CAS;
+    # that is covered with an actual database in test_chapter_derivation_service.
+    llm_service.get_summary.assert_not_awaited()

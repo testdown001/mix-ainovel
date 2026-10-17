@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import secrets
 import uuid
@@ -39,7 +40,7 @@ from ...models.novel import (
 )
 from ...models.user import User
 from ...schemas.novel import Blueprint, ChapterGenerationStatus
-from ..chapter_ingest_service import ChapterIngestionService
+from ..chapter_post_processor import ChapterPostProcessor
 from ..llm_service import LLMService
 from ..novel_service import NovelService
 from ..vector_store_service import VectorStoreService
@@ -269,10 +270,32 @@ async def _seed_scenario_inner(
         session.add(version)
         await session.flush()
         chapter.selected_version_id = version.id
+        chapter.revision_id = 1
+        chapter.content_hash = hashlib.sha256((prior.content or "").encode()).hexdigest()
+        version.content_hash = chapter.content_hash
         chapter.status = ChapterGenerationStatus.SUCCESSFUL.value
         chapter.real_summary = prior.summary
         chapter.word_count = len(prior.content or "")
 
+    await session.flush()
+    # A frozen fixture is an explicit trusted bench input, not a generated candidate.
+    # Its supplied summaries retain the exact manuscript identity in the new copy.
+    from ..retrieval_scope import RetrievalScope
+    from ...models.project_memory import ProjectMemory
+    scope = await RetrievalScope.build(session, project_id=project_id,
+                                      before_chapter=max((p.chapter_number for p in scenario.prior_chapters), default=0) + 1)
+    memory = (await session.execute(select(ProjectMemory).where(ProjectMemory.project_id == project_id))).scalars().first()
+    if memory is None:
+        memory = ProjectMemory(project_id=project_id, extra={})
+        session.add(memory)
+    extra = dict(memory.extra or {})
+    extra["chapter_summary_sources"] = {
+        str(prior.chapter_number): {"source_ref": {key: value for key, value in scope.canon_manifest[prior.chapter_number].items()
+                                   if key != "active_index_revision_id"},
+                                   "summary_hash": hashlib.sha256(prior.summary.encode()).hexdigest(),
+                                   "origin": "frozen_bench_fixture"}
+        for prior in scenario.prior_chapters if prior.summary and prior.chapter_number in scope.canon_manifest}
+    memory.extra = extra
     await session.commit()
     logger.info(
         "已播种 bench 项目 %s（scenario=%s, run_tag=%s, 先行章=%d）",
@@ -286,7 +309,7 @@ async def seed_scenario_vectors(
 ) -> bool:
     """把先行章正文/摘要向量入库（best-effort），供目标章生成时 RAG 检索。
 
-    走生产同款 ChapterIngestionService.ingest_chapter（切分→embedding→Qdrant）。
+    走生产同款 ChapterPostProcessor.ingest_chapter（完整staging→来源CAS激活）。
     Qdrant 未配置 / embedding 通道不可用 / 任一环节异常时返回 False——播种照常
     成立，但报告会标注「本 run 向量层不可用，RAG 相关配置差异无效」。
     """
@@ -296,21 +319,18 @@ async def seed_scenario_vectors(
         logger.warning("向量库未配置（QDRANT_HOST 为空），跳过先行章向量播种: %s", project_id)
         return False
     try:
+        project = await session.get(NovelProject, project_id)
+        if project is None or project.creation_source != "ai_test":
+            raise ValueError("Vector fixture seeding requires an isolated ai_test project")
         llm_service = LLMService(session)
-        # 探针：embedding 出口失败静默返回 []（不抛异常），先探测一次判定可用性
-        probe = await llm_service.get_embedding(scenario.prior_chapters[0].content[:200])
-        if not probe:
-            logger.warning("embedding 通道不可用，跳过先行章向量播种: %s", project_id)
-            return False
-        ingestion = ChapterIngestionService(llm_service=llm_service)
+        processor = ChapterPostProcessor(session, llm_service)
         for prior in scenario.prior_chapters:
-            await ingestion.ingest_chapter(
-                project_id=project_id,
-                chapter_number=prior.chapter_number,
-                title=prior.title,
-                content=prior.content,
-                summary=prior.summary or None,
+            await processor.ingest_chapter(
+                project_id=project_id, chapter_number=prior.chapter_number,
+                title=prior.title, content=prior.content,
+                summary=prior.summary or None, user_id=project.user_id,
             )
+        await session.commit()
     except Exception as exc:  # noqa: BLE001 - 向量播种绝不阻断跑批
         logger.warning("先行章向量播种失败（降级继续）: project=%s error=%s", project_id, exc)
         return False

@@ -30,11 +30,11 @@ async def _seed(session):
     # 纯启发式应 B 在前；语义加成应把 A 提到 B 前。
     session.add(Foreshadowing(
         project_id="p1", chapter_id=1, chapter_number=1, content="ALPHA 主角的玉佩浮现线索",
-        type="clue", status="planted", urgency=3, name="玉佩线索",
+        type="clue", status="planted", urgency=3, name="玉佩线索", origin="blueprint",
     ))
     session.add(Foreshadowing(
         project_id="p1", chapter_id=1, chapter_number=1, content="BETA 反派的财务支线",
-        type="hint", status="planted", urgency=5, name="财务支线",
+        type="hint", status="planted", urgency=5, name="财务支线", origin="blueprint",
     ))
     await session.commit()
 

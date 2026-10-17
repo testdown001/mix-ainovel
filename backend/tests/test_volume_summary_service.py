@@ -113,68 +113,53 @@ def test_compute_source_hash():
     assert hash_a1 != hash_b   # 内容变化 hash 变化
 
 
+def _mock_verified_sources(service, count=3):
+    sources = [{"chapter_number": number, "title": f"第{number}章", "summary": f"摘要{number}",
+                "source_ref": {"source_version_id": number}} for number in range(1, count + 1)]
+    service._load_chapter_summaries = AsyncMock(return_value=sources)
+    service._sources_changed = AsyncMock(return_value=False)
+    service._store_provenance = AsyncMock()
+    service._get_existing = AsyncMock(return_value=None)
+    service._ingest_volume_summary = AsyncMock()
+    return sources
+
+
 def test_update_volume_for_chapter_generates_summary():
-    """有足够章节摘要时生成卷级摘要。"""
-    # update_volume_for_chapter 的 execute 调用顺序：
-    # 1. get_volume_size → SystemConfigRepository.get_by_key → scalars().first() → None
-    # 2. _load_chapter_summaries → 章节查询 → .all() → [(1,"摘要1"), ...]
-    # 3. _load_chapter_summaries → 大纲查询 → .all() → [(1,"起始"), ...]
-    # 4. _get_existing → scalars().first() → None
-    session = _DummySession(execute_results=[
-        _DummyResult(scalar=None),  # volume_size config → 默认 10
-        _DummyResult(rows=[(1, "第1章摘要"), (2, "第2章摘要"), (3, "第3章摘要")]),
-        _DummyResult(rows=[(1, "起始"), (2, "发展"), (3, "高潮")]),
-        _DummyResult(scalar=None),  # 无现有卷摘要
-    ])
+    """Generate once from already verified summaries (SQL provenance tested separately)."""
+    session = _DummySession()
     llm = _mock_llm("生成的卷摘要")
     service = _get_service_class()(session, llm)
-
+    _mock_verified_sources(service)
     result = asyncio.run(service.update_volume_for_chapter("proj-1", 3, user_id=1))
-
     assert result is not None
     assert session._committed is True
     llm.get_summary.assert_called_once()
+    service._store_provenance.assert_awaited_once()
 
 
 def test_update_volume_skips_when_no_summaries():
-    """无章节摘要时跳过。"""
-    session = _DummySession(execute_results=[
-        _DummyResult(scalar=None),  # volume_size config
-        _DummyResult(rows=[]),      # 无章节摘要
-        _DummyResult(rows=[]),      # 无大纲
-    ])
-    llm = _mock_llm()
-    service = _get_service_class()(session, llm)
-
-    result = asyncio.run(service.update_volume_for_chapter("proj-1", 1, user_id=1))
-
-    assert result is None
-    llm.get_summary.assert_not_called()
+    service = _get_service_class()(_DummySession(), _mock_llm())
+    service._load_chapter_summaries = AsyncMock(return_value=[])
+    assert asyncio.run(service.update_volume_for_chapter("proj-1", 1, user_id=1)) is None
+    service.llm_service.get_summary.assert_not_called()
 
 
 def test_rebuild_all_returns_stats():
-    """rebuild_all 返回统计信息。"""
-    # rebuild_all 的 execute 调用顺序：
-    # 1. get_volume_size → scalars().first() → None
-    # 2. max_chapter 查询 → scalars().first() → 5
-    # 3. _load_chapter_summaries → 章节查询 → .all()
-    # 4. _load_chapter_summaries → 大纲查询 → .all()
-    # 5. _get_existing → scalars().first() → None
-    session = _DummySession(execute_results=[
-        _DummyResult(scalar=None),  # volume_size config
-        _DummyResult(scalar=5),     # max_chapter = 5
-        _DummyResult(rows=[(i, f"摘要{i}") for i in range(1, 6)]),  # 章节摘要
-        _DummyResult(rows=[(i, f"第{i}章") for i in range(1, 6)]),  # 大纲标题
-        _DummyResult(scalar=None),  # 无现有卷摘要
-    ])
-    llm = _mock_llm("卷摘要")
-    service = _get_service_class()(session, llm)
-
+    session = _DummySession(execute_results=[_DummyResult(scalar=None), _DummyResult(scalar=5)])
+    service = _get_service_class()(session, _mock_llm("卷摘要"))
+    _mock_verified_sources(service, count=5)
     result = asyncio.run(service.rebuild_all("proj-1", user_id=1, force=True))
+    assert result == {"updated": 1, "skipped": 0, "total_volumes": 1}
 
-    assert result["total_volumes"] == 1
-    assert result["updated"] == 1
-    assert result["skipped"] == 0
+
+def test_late_volume_summary_does_not_overwrite_newer_sources():
+    session = _DummySession()
+    service = _get_service_class()(session, _mock_llm())
+    _mock_verified_sources(service)
+    service._sources_changed = AsyncMock(return_value=True)
+    assert asyncio.run(service.update_volume_for_chapter("proj-1", 3, user_id=1)) is None
+    assert not session._committed
+    service._store_provenance.assert_not_awaited()
 
 
 def test_get_relevant_volume_summaries_returns_recent():

@@ -191,9 +191,25 @@ async def lifespan(app: FastAPI):
     )
     reminder_task = asyncio.create_task(_subscription_reminder_loop())
     diagnostic_task = asyncio.create_task(_diagnostic_cleanup_loop())
+    from .services.chapter_derivation_service import run_derivation_worker
+    from .services.derived_state_repair_service import run_derived_state_repair_worker
+    derivation_stop = asyncio.Event()
+    derivation_task = asyncio.create_task(run_derivation_worker(derivation_stop))
+    repair_task = asyncio.create_task(run_derived_state_repair_worker(derivation_stop))
     try:
         yield
     finally:
+        derivation_stop.set()
+        repair_task.cancel()
+        try:
+            await repair_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        derivation_task.cancel()
+        try:
+            await derivation_task
+        except (asyncio.CancelledError, Exception):
+            pass
         diagnostic_task.cancel()
         try:
             await diagnostic_task

@@ -112,6 +112,66 @@ class ChapterRevisionService:
             },
         )
 
+    async def _enqueue_adoption(self, chapter: Chapter, version: ChapterVersion, *, actor_user_id=None):
+        from .chapter_derivation_service import ChapterDerivationService, build_source_ref
+        from ..models.novel import NovelProject
+        source = await build_source_ref(
+            self.session, project_id=chapter.project_id, chapter_number=chapter.chapter_number,
+            chapter_id=chapter.id,
+        )
+        project = await self.session.get(NovelProject, chapter.project_id)
+        user_id = actor_user_id if actor_user_id is not None else project.user_id
+        service = ChapterDerivationService(self.session)
+        await service.supersede_downstream(source)
+        await service.enqueue_for_adoption(
+            source, user_id=user_id,
+            profile=(version.metadata_ or {}).get("derivation_profile", {})
+            if version.source == "generation" else {},
+        )
+
+    async def adopt(
+        self, *, project_id: str, chapter_number: int, version_id: int,
+        expected_revision_id: int | None = None, expected_content_hash: str | None = None,
+        actor_user_id: int | None = None,
+    ) -> ChapterSaveResult:
+        """The single CAS boundary for selecting/auto-selecting immutable candidates."""
+        from fastapi import HTTPException
+        from .generation_quality_gate import assert_selectable
+        chapter = await self._load_chapter(project_id, chapter_number)
+        current = self._snapshot(chapter)
+        version = await self.session.get(ChapterVersion, version_id)
+        if version is None or version.chapter_id != chapter.id:
+            raise HTTPException(404, "指定版本不属于当前章节")
+        if not version.content or not version.content.strip():
+            raise HTTPException(400, "选中的版本内容为空，无法确认为最终版")
+        assert_selectable(version.content, version.metadata_)
+        if current.selected_version_id == version.id:
+            return ChapterSaveResult("saved", current, version.id)
+        if current.selected_version_id is not None and (
+            expected_revision_id is None or expected_content_hash is None
+        ):
+            raise HTTPException(428, detail={"code": "REVISION_BASELINE_REQUIRED",
+                                            "message": "采用正文前请先读取当前修订基线。"})
+        expected_revision_id = current.revision_id if expected_revision_id is None else expected_revision_id
+        expected_content_hash = current.content_hash if expected_content_hash is None else expected_content_hash
+        if expected_revision_id != current.revision_id or expected_content_hash != current.content_hash:
+            raise self._conflict_error(current)
+        new_hash = hash_chapter_content(version.content)
+        updated = await self.session.execute(update(Chapter).where(
+            Chapter.id == chapter.id, Chapter.revision_id == expected_revision_id,
+            Chapter.selected_version_id == current.selected_version_id,
+        ).values(selected_version_id=version.id, revision_id=expected_revision_id + 1,
+                 content_hash=new_hash, status="successful", word_count=len(version.content),
+                 real_summary=None, rag_ingest_hash=None, active_index_revision_id=None,
+                 updated_at=func.now()).execution_options(synchronize_session=False))
+        if updated.rowcount != 1:
+            await self.session.rollback()
+            raise self._conflict_error(await self.get_revision(project_id, chapter_number))
+        await self._enqueue_adoption(chapter, version, actor_user_id=actor_user_id)
+        await self.session.commit()
+        revision = ChapterRevision(chapter_number, expected_revision_id + 1, new_hash, version.id, version.content)
+        return ChapterSaveResult("saved", revision, version.id)
+
     async def save(
         self,
         *,
@@ -186,6 +246,9 @@ class ChapterRevisionService:
             )
             raise self._conflict_error(current)
 
+        if current.selected_version_id is not None and current.content_hash == new_hash:
+            return ChapterSaveResult("saved", current, current.selected_version_id)
+
         version = ChapterVersion(
             chapter_id=chapter.id,
             content=content,
@@ -224,6 +287,9 @@ class ChapterRevisionService:
                 content_hash=new_hash,
                 status="successful",
                 word_count=len(content),
+                real_summary=None,
+                rag_ingest_hash=None,
+                active_index_revision_id=None,
                 updated_at=func.now(),
             )
         )
@@ -238,6 +304,7 @@ class ChapterRevisionService:
             )
             raise self._conflict_error(latest)
 
+        await self._enqueue_adoption(chapter, version, actor_user_id=actor_user_id)
         await self.session.commit()
         revision = ChapterRevision(
             chapter_number=chapter_number,

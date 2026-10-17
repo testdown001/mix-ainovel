@@ -28,6 +28,7 @@ async def _seed(session, count, content_fn=None):
             content=content,
             type="hint",
             status="planted",
+            origin="blueprint",
             keywords=[],
         ))
     await session.commit()

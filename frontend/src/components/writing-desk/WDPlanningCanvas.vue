@@ -56,6 +56,9 @@
             <div><label>预期爽点</label><p>{{ planning.coolpoint || '尚未设定，可在生成正文前补充' }}</p></div>
           </div>
           <div class="goal-item wide">
+            <div><label>情感意图</label><p>{{ emotionalIntentLabel }}{{ planning.reader_effect ? ` · ${planning.reader_effect}` : '' }}</p></div>
+          </div>
+          <div class="goal-item wide">
             <span class="goal-icon ban">／</span>
             <div><label>禁写与边界</label><p>{{ mustNotLabel }}</p></div>
           </div>
@@ -64,6 +67,11 @@
         <div v-else class="planning-form">
           <label>本章功能<input v-model="planningDraft.chapter_function" placeholder="例如：完成阵营转折，推动主角作出选择" /></label>
           <label>预期爽点<input v-model="planningDraft.coolpoint" placeholder="例如：信息差反制、身份揭晓" /></label>
+          <label>情感意图<select v-model="planningDraft.emotional_intent">
+            <option :value="undefined">跟随本章功能</option><option value="quiet">安静 / 余波</option>
+            <option value="balanced">均衡推进</option><option value="intense">高张力</option>
+          </select></label>
+          <label>期待读者感受<input v-model="planningDraft.reader_effect" maxlength="300" placeholder="例如：放松中仍牵挂两人能否和解" /></label>
           <label class="full">禁写与边界<textarea v-model="mustNotDraft" rows="2" placeholder="每行一条，避免跑偏或提前揭底" /></label>
         </div>
       </section>
@@ -273,6 +281,10 @@ const generationButtonLabel = computed(() => {
   if (predictionGenerating.value) return '正在梳理情节…'
   if (chapterGenerating.value) return '正在生成正文…'
   return chapterCompleted.value ? '重新生成正文' : '生成本章正文'
+})
+const emotionalIntentLabel = computed(() => {
+  const intent = planning.value.emotional_intent
+  return intent ? { quiet: '安静 / 余波', balanced: '均衡推进', intense: '高张力' }[intent] : '跟随本章功能'
 })
 const mustNotLabel = computed(() =>
   planning.value.must_not_include?.length

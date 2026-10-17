@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from ..core.config import settings
 from .bm25_index_service import BM25IndexService
+from .retrieval_scope import RetrievalScope
 from .vector_store_service import RetrievedChunk, RetrievedSummary, VectorStoreService
 
 logger = logging.getLogger(__name__)
@@ -46,11 +47,14 @@ class HybridRetrievalService:
         user_id: Optional[int] = None,
         # 保留签名兼容，但忽略；rerank 由上层统一控制
         enable_rerank: Optional[bool] = None,
+        scope: Optional[RetrievalScope] = None,
     ) -> Dict[str, List[Any]]:
         """执行混合检索：向量 + BM25 → RRF 融合。
 
         不自行 rerank；上层应在拿到结果后按需调用 rerank_utils。
         """
+        if scope is None or scope.project_id != project_id:
+            return {"chunks": [], "summaries": []}
         _ = user_id
         bm25_w = bm25_weight if bm25_weight is not None else getattr(settings, "rag_bm25_weight", 0.4)
         vector_w = 1.0 - bm25_w
@@ -60,14 +64,19 @@ class HybridRetrievalService:
             project_id=project_id,
             embedding=query_embedding,
             top_k=top_k * 2,
+            scope=scope,
         )
 
         # 2. BM25 检索
-        bm25_results = await self._bm25_service.search(
-            project_id=project_id,
-            query=query_text,
-            top_k=top_k * 2,
-        )
+        try:
+            bm25_results = await self._bm25_service.search(
+                project_id=project_id, query=query_text, top_k=top_k * 2,
+                before_chapter=scope.before_chapter,
+            )
+        except Exception as exc:
+            logger.warning("BM25 unavailable, retaining vector results in RRF score domain: %s", exc)
+            bm25_results = []
+            vector_w, bm25_w = 1.0, 0.0
 
         # 3. RRF 融合（保留 BM25-only 条目，标记待补充）
         fused = self._rrf_fuse(
@@ -78,7 +87,7 @@ class HybridRetrievalService:
         )
 
         # 4. 为 BM25-only 结果补充内容
-        fused = await self._fill_bm25_only_content(fused)
+        fused = await self._fill_bm25_only_content(fused, scope=scope)
 
         # 5. 过滤无内容条目，按分数排序截断
         fused = [r for r in fused if r.get("content")]
@@ -86,7 +95,7 @@ class HybridRetrievalService:
         fused = fused[:top_k]
 
         # 6. 回溯搜索：加载 parent summary
-        fused = await self._backtrack_summaries(project_id, query_embedding, fused)
+        fused = await self._backtrack_summaries(project_id, query_embedding, fused, scope=scope)
 
         chunks = [self._to_retrieved_chunk(item) for item in fused]
         try:
@@ -94,6 +103,7 @@ class HybridRetrievalService:
                 project_id=project_id,
                 embedding=query_embedding,
                 top_k=min(top_k, getattr(settings, "vector_top_k_summaries", 3)),
+                scope=scope,
             )
         except Exception as exc:
             logger.warning("混合检索摘要回溯失败，返回空摘要列表: %s", exc)
@@ -132,6 +142,7 @@ class HybridRetrievalService:
                 "metadata": chunk.metadata,
                 "sources": ["vector"],
                 "vector_rank": rank,
+                "vector_score": chunk.score,
             }
             if chunk_id:
                 vector_by_chunk_id[chunk_id] = key
@@ -166,7 +177,7 @@ class HybridRetrievalService:
     # ------------------------------------------------------------------
 
     async def _fill_bm25_only_content(
-        self, fused: List[Dict[str, Any]]
+        self, fused: List[Dict[str, Any]], *, scope: Optional[RetrievalScope] = None
     ) -> List[Dict[str, Any]]:
         """从 Qdrant 补充 BM25-only 结果的 content。"""
         missing_ids = [
@@ -176,7 +187,7 @@ class HybridRetrievalService:
         if not missing_ids:
             return fused
 
-        chunk_map = await self._vector_store.retrieve_chunks_by_ids(chunk_ids=missing_ids)
+        chunk_map = await self._vector_store.retrieve_chunks_by_ids(chunk_ids=missing_ids, scope=scope)
         filled = 0
         for r in fused:
             if r.get("_needs_content") and r.get("chunk_id"):
@@ -200,6 +211,9 @@ class HybridRetrievalService:
     def _to_retrieved_chunk(self, item: Dict[str, Any]) -> RetrievedChunk:
         base_metadata = item.get("metadata")
         metadata = dict(base_metadata) if isinstance(base_metadata, dict) else {}
+        for key in ("vector_rank", "vector_score", "bm25_rank", "bm25_score"):
+            if key in item:
+                metadata[key] = item[key]
         if item.get("sources"):
             metadata.setdefault("retrieval_sources", item.get("sources"))
         if item.get("parent_summary"):
@@ -213,6 +227,7 @@ class HybridRetrievalService:
             chapter_title=item.get("chapter_title"),
             score=float(item.get("score", 0.0)),
             metadata=metadata,
+            score_kind="rrf",
         )
 
     async def _backtrack_summaries(
@@ -220,6 +235,7 @@ class HybridRetrievalService:
         project_id: str,
         query_embedding: Sequence[float],
         results: List[Dict[str, Any]],
+        *, scope: Optional[RetrievalScope] = None,
     ) -> List[Dict[str, Any]]:
         """回溯搜索：为检索到的 chunk 加载所属章节的 summary。"""
         if not results:
@@ -233,6 +249,7 @@ class HybridRetrievalService:
             project_id=project_id,
             embedding=query_embedding,
             top_k=len(chapter_numbers),
+            scope=scope,
         )
 
         summary_map = {s.chapter_number: s.summary for s in summaries}

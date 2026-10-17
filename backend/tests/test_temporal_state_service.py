@@ -93,10 +93,10 @@ def test_snapshot_full_data():
     async def fake_events(pid, cn, snap):
         snap.recent_events.append({"chapter": 3, "event": "决战", "importance": 9})
 
-    async def fake_chains(pid, snap):
+    async def fake_chains(pid, cn, snap):
         snap.pending_chains.append({"cause": "暗算", "cause_chapter": 2, "expected_effect": "复仇"})
 
-    async def fake_time(pid, snap):
+    async def fake_time(pid, cn, snap):
         snap.story_time = {"chapter_time_map": {"1": "第一天"}}
 
     async def fake_fs(pid, cn, snap):
