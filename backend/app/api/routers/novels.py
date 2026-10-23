@@ -75,7 +75,7 @@ from ...services.reference_project_service import refresh_project_fusion
 from ...services.reference_reading_contract import is_current, project_contract
 from ...services.inspiration_spark import pick_spark, build_spark_injection
 from ...services.muse_material_service import MuseMaterialService
-from ...services.muse_persona import build_persona_injection, is_valid_persona
+from ...services.muse_persona import build_persona_injection, is_valid_persona, normalize_persona
 from ...core.feature_gating import (
     get_user_tier,
     tier_allows,
@@ -1001,7 +1001,7 @@ async def converse_with_concept(
     min_tiers = await load_min_tiers(session)
 
     # 缪斯人格选择（创作者档及以上）：以 SOUL 首段覆盖语气与发散偏好
-    persona_key = (request.muse_persona or "default").strip() or "default"
+    persona_key = normalize_persona(request.muse_persona)  # 旧版题材化 key 平滑映射到新人格
     if persona_key != "default" and is_valid_persona(persona_key) and tier_allows(user_tier, "muse_persona", min_tiers):
         persona_block = build_persona_injection(persona_key)
         if persona_block:

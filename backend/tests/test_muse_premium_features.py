@@ -90,14 +90,36 @@ def test_user_quota_effective_tier_falls_back_when_not_premium():
 
 def test_personas_list_and_injection():
     keys = {p["key"] for p in list_personas()}
-    assert "default" in keys and "cyberpunk" in keys
-    assert is_valid_persona("myth_epic")
+    assert keys == {"default", "market_editor", "architect", "character_driven", "hook_master", "wild_brain"}
+    assert is_valid_persona("architect")
     assert not is_valid_persona("不存在")
     # 默认人格不注入额外文案
     assert build_persona_injection("default") == ""
-    # 具体人格注入含 SOUL 优先标记
-    block = build_persona_injection("cyberpunk")
-    assert "SOUL" in block and "赛博朋克" in block
+    block = build_persona_injection("market_editor")
+    assert "市场编辑" in block
+    # 人格与题材正交：约束句必须在，旧版「最高优先」措辞必须不在
+    assert "题材、基调、世界观、人物设定一律以用户的表述为准" in block
+    assert "最高优先" not in block and "SOUL" not in block
+
+
+def test_persona_prompts_carry_no_genre_pull():
+    """2026-10-23 之前的人格是题材皮肤（义体/诸神/反乌托邦），写年代文选了赛博朋克缪斯故事就被拽走。"""
+    from app.services.muse_persona import MUSE_PERSONAS
+
+    genre_words = ("赛博", "义体", "反乌托邦", "神祇", "诸神", "纪元", "荒诞设定", "不可靠叙事")
+    for key, persona in MUSE_PERSONAS.items():
+        for word in genre_words:
+            assert word not in persona["prompt"], f"{key} 仍带题材偏好：{word}"
+
+
+def test_legacy_persona_keys_map_to_new_ones():
+    from app.services.muse_persona import normalize_persona
+
+    assert normalize_persona("cyberpunk") == "hook_master"
+    assert normalize_persona("myth_epic") == "architect"
+    assert normalize_persona("dark_mystery") == "hook_master"
+    assert normalize_persona("") == "default" and normalize_persona(None) == "default"
+    assert is_valid_persona("cyberpunk") and "钩子师" in build_persona_injection("cyberpunk")
 
 
 # ---------- N路发散 ----------
