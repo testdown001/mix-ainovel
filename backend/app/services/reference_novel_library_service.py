@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import ReferenceNovel, User
-from ..schemas.reference_novel import BeatLibrary, MemoryCard, StyleGuide
+from ..schemas.reference_novel import BeatLibrary, MemoryCard, PlotStructure, StyleGuide
 from ..utils.json_utils import (
     remove_think_tags,
     repair_json,
@@ -30,6 +30,56 @@ logger = logging.getLogger(__name__)
 
 # analyze() 里「这一路抽取抛了异常，保留旧产物」的哨兵（None 是合法的产物值，不能复用）
 _KEEP_OLD = object()
+
+
+def reference_warnings(novels: List[Any], expected_ids: Optional[List[int]]) -> List[str]:
+    """绑定的参考书里哪些这次用不上（失败/未完成/已删除），给确认页提示；全就绪返回 []。"""
+    ids = [int(i) for i in (expected_ids or []) if str(i).strip().lstrip("-").isdigit()]
+    if not ids:
+        return []
+    by_id = {getattr(n, "id", None): n for n in novels or []}
+    warnings: List[str] = []
+    for novel_id in dict.fromkeys(ids):
+        novel = by_id.get(novel_id)
+        if novel is None:
+            warnings.append(f"参考小说 #{novel_id} 已不存在，本次蓝图不会参考它")
+            continue
+        status_value = getattr(novel, "status", "")
+        if status_value == "ready":
+            if getattr(novel, "error_message", None):
+                warnings.append(f"《{novel.title}》部分档案缺失（{novel.error_message}），可重新分析后再生成")
+            continue
+        label = {"failed": "分析失败", "analyzing": "仍在分析中", "pending": "尚未分析"}.get(status_value, status_value)
+        detail = f"：{novel.error_message}" if status_value == "failed" and getattr(novel, "error_message", None) else ""
+        warnings.append(f"《{novel.title}》{label}{detail}，本次蓝图不会参考它")
+    return warnings
+
+
+def normalize_plot_structure(structure: PlotStructure) -> PlotStructure:
+    """阶段比例归一化：全缺/全零按顺序均分；单调修正；越界裁回 [0, 1]；空名阶段丢弃。"""
+    stages = [st for st in structure.stages if (st.name or st.goal or st.climax_type).strip()]
+    count = len(stages)
+    if count:
+        usable = all(0 < st.end_ratio <= 1 for st in stages) and all(
+            stages[i].end_ratio <= stages[i + 1].end_ratio for i in range(count - 1)
+        )
+        fixed = []
+        for index, st in enumerate(stages):
+            if usable:
+                start = 0.0 if index == 0 else fixed[-1].end_ratio
+                end = min(1.0, max(start, st.end_ratio))
+            else:
+                start = index / count
+                end = (index + 1) / count
+            fixed.append(st.model_copy(update={"start_ratio": round(start, 3), "end_ratio": round(end, 3)}))
+        if fixed:
+            fixed[-1] = fixed[-1].model_copy(update={"end_ratio": 1.0})
+        stages = fixed
+    points = sorted(
+        (tp for tp in structure.turning_points if tp.event.strip()),
+        key=lambda tp: tp.position_ratio,
+    )
+    return structure.model_copy(update={"stages": stages, "turning_points": points})
 
 
 class ReferenceNovelLibraryService:
@@ -146,12 +196,14 @@ class ReferenceNovelLibraryService:
             style_context = combine(dimension_results, "craft", "plot")
             memory_card_context = combine(dimension_results, "pacing", "characters", "beats", "craft", "plot")
             beats_context = combine(dimension_results, "beats", "pacing", "plot")
+            structure_context = combine(dimension_results, "structure", "plot", "beats")
 
             outline_prompt = await self.prompt_service.get_prompt("reference_outline_extraction")
             style_prompt = await self.prompt_service.get_prompt("reference_style_extraction")
             memory_card_prompt = await self.prompt_service.get_prompt("reference_memory_card_extraction")
             beats_prompt = await self.prompt_service.get_prompt("reference_beat_extraction")
             style_guide_prompt = await self.prompt_service.get_prompt("reference_style_guide_extraction")
+            plot_structure_prompt = await self.prompt_service.get_prompt("reference_plot_structure_extraction")
             search_llm_config = await self.llm_service._resolve_search_llm_config()
 
             # 五路抽取各自兜底：一路抛异常只记名字、保留该路旧产物，其余照常落库。
@@ -200,8 +252,18 @@ class ReferenceNovelLibraryService:
                     prompt_template=style_guide_prompt,
                     llm_config=search_llm_config,
                 )),
+                _guarded("剧情结构", self._extract_plot_structure(
+                    novel.title,
+                    structure_context,
+                    user_id,
+                    prompt_template=plot_structure_prompt,
+                    llm_config=search_llm_config,
+                )),
             )
-            (_, outline, e1), (_, style, e2), (_, memory_card, e3), (_, beat_library, e4), (_, style_guide, e5) = results
+            (
+                (_, outline, _e1), (_, style, _e2), (_, memory_card, _e3),
+                (_, beat_library, _e4), (_, style_guide, _e5), (_, plot_structure, _e6),
+            ) = results
             failed_names = [name for name, _value, err in results if err is not None]
             if len(failed_names) == len(results):
                 raise RuntimeError("五路抽取全部失败：" + "；".join(f"{name}: {err}" for name, _v, err in results)[:1500])
@@ -219,6 +281,8 @@ class ReferenceNovelLibraryService:
                 novel.beat_library = beat_library
             if style_guide is not _KEEP_OLD:
                 novel.style_guide = style_guide
+            if plot_structure is not _KEEP_OLD:
+                novel.plot_structure = plot_structure
             novel.status = self._STATUS_READY
             # ready + error_message = 部分产物缺失（界面显示黄色提示，可重新分析），不是失败
             novel.error_message = (
@@ -486,6 +550,53 @@ class ReferenceNovelLibraryService:
             structure = library.structure.model_dump(exclude_defaults=True)
             return {"beats": [], "structure": structure} if structure else None
         return BeatLibrary(beats=beats, structure=library.structure).model_dump()
+
+    async def _extract_plot_structure(
+        self,
+        novel_title: str,
+        search_results: str,
+        user_id: int,
+        *,
+        prompt_template: Optional[str] = None,
+        llm_config: Optional[Dict[str, Optional[str]]] = None,
+    ) -> Optional[dict]:
+        """抽取剧情结构（阶段/卷、转折点、升级轴）：蓝图倒推与章纲段的排章参考。
+
+        软失败返回 None；阶段比例在这里归一化（缺的按顺序均分、越界裁回 0-1），
+        不信任模型把比例填对。
+        """
+        prompt = prompt_template or await self.prompt_service.get_prompt("reference_plot_structure_extraction")
+        if not prompt:
+            logger.warning("缺失 reference_plot_structure_extraction 提示词，跳过剧情结构抽取")
+            return None
+        filled = self.prompt_service.render_prompt(
+            prompt,
+            novel_title=novel_title,
+            search_results=search_results,
+        )
+
+        async def _search_channel_responder(p: str, system_prompt: str) -> str:
+            return await self.llm_service.get_search_llm_response(
+                system_prompt=system_prompt,
+                conversation_history=[{"role": "user", "content": p}],
+                temperature=0.2,
+                max_tokens=3000,
+                config_override=llm_config,
+            )
+
+        structure = await self.llm_service.generate_structured(
+            prompt=filled,
+            schema=PlotStructure,
+            system_prompt="你是资深网文策划编辑，只输出符合 Schema 的 JSON。",
+            temperature=0.2,
+            user_id=user_id,
+            default=None,
+            responder=_search_channel_responder,
+        )
+        if structure is None or not structure.is_meaningful():
+            logger.warning("参考小说《%s》剧情结构抽取为空（资料不足或输出不合格）", novel_title)
+            return None
+        return normalize_plot_structure(structure).model_dump()
 
     async def _extract_style_guide(
         self,

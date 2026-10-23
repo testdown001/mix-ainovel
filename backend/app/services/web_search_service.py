@@ -98,9 +98,10 @@ class WebSearchService:
     # 压进 2400 token，三路抽取全吃同一段——「剧情思考不深」的根源在输入就没有料。
     # 现在按维度分别检索：每个维度有自己的检索意图与追问重点，抽取端各吃对应维度。
     # 单维度失败降级（少一路素材而已），全部失败才算检索失败。
-    _SEARCH_DIMENSIONS: Dict[str, Dict[str, str]] = {
+    _SEARCH_DIMENSIONS: Dict[str, Dict[str, Any]] = {
         "plot": {
             "query": "剧情 主线 分卷 结局 走向 剧情梳理",
+            "max_tokens": 3500,
             "focus": (
                 "主线剧情的完整走向：开篇钩子、各卷/各阶段的核心目标与结局、"
                 "关键转折点发生在故事的什么位置、结局怎么收。"
@@ -128,6 +129,16 @@ class WebSearchService:
                 "什么选择触发兑现，兑现后如何留情绪余波与新的牵挂；人物关系如何驱动追读。"
                 "寻找有依据的例子与读者正负评价，区分书评推断和原文事实，不编造固定高潮章数。"
             ),
+        },
+        "structure": {
+            # 起点/番茄的目录与卷名是公开且精确的分卷信号，比书评印象可靠得多，也最便宜。
+            "query": "目录 分卷 卷名 第一卷 第二卷 每卷 章节数 完结",
+            "focus": (
+                "这本书的分卷/阶段结构：目录里的卷名与各卷大致章数、每卷主角的目标与卷末高潮、"
+                "对手或危机量级怎么一卷卷抬升、全书转折点在哪、结局怎么收。"
+                "优先引用目录与卷名这类可验证信息，书评推断要标明；没有分卷的书按阶段划分。"
+            ),
+            "max_tokens": 3500,
         },
         "craft": {
             "query": "文笔 写作手法 叙事视角 对白 书评",
@@ -179,7 +190,7 @@ class WebSearchService:
                 conversation_history=[{"role": "user", "content": user_prompt}],
                 temperature=0.3,
                 timeout=180.0,
-                max_tokens=2000,
+                max_tokens=int(spec.get("max_tokens") or 2000),
             )
             text = result.strip()
             if text:
@@ -218,7 +229,7 @@ class WebSearchService:
         """
         labels = {
             "plot": "主线剧情", "characters": "人物与关系", "beats": "名场面与桥段",
-            "pacing": "节奏与爽点", "craft": "写法与文风",
+            "pacing": "节奏与爽点", "craft": "写法与文风", "structure": "目录与分卷结构",
         }
         picked = [(k, dimension_results[k]) for k in keys if dimension_results.get(k)]
         if not picked:

@@ -115,6 +115,38 @@
         </div>
       </section>
 
+      <!-- 剧情结构：蓝图倒推与章纲排章的参考 -->
+      <section class="detail-section">
+        <div class="section-head">
+          <label>剧情结构 <span class="label-note">阶段按全书比例 · 蓝图倒推与章纲排章时参考</span></label>
+        </div>
+        <template v-if="plotStructure && (plotStructure.stages || []).length">
+          <ol class="plot-stages">
+            <li v-for="(st, i) in plotStructure.stages" :key="i" class="plot-stage">
+              <div class="plot-stage-head">
+                <span class="plot-stage-name">{{ st.name || `阶段 ${i + 1}` }}</span>
+                <span class="label-note">{{ pct(st.start_ratio) }}–{{ pct(st.end_ratio) }}</span>
+              </div>
+              <p v-if="st.goal" class="plot-line"><b>目标</b>{{ st.goal }}</p>
+              <p v-if="st.opponent_scale" class="plot-line"><b>对手量级</b>{{ st.opponent_scale }}</p>
+              <p v-if="st.climax_type" class="plot-line"><b>阶段末高潮</b>{{ st.climax_type }}</p>
+              <p v-if="st.protagonist_change" class="plot-line"><b>主角变化</b>{{ st.protagonist_change }}</p>
+            </li>
+          </ol>
+          <p v-if="plotStructure.opening" class="plot-line"><b>开局</b>{{ plotStructure.opening }}</p>
+          <p v-if="(plotStructure.turning_points || []).length" class="plot-line">
+            <b>转折点</b>
+            <span v-for="(tp, i) in plotStructure.turning_points" :key="i">{{ pct(tp.position_ratio) }} {{ tp.event }}{{ i < (plotStructure.turning_points || []).length - 1 ? '；' : '' }}</span>
+          </p>
+          <p v-if="plotStructure.escalation_axis" class="plot-line"><b>升级轴</b>{{ plotStructure.escalation_axis }}</p>
+          <p v-if="plotStructure.ending_shape" class="plot-line"><b>结局形态</b>{{ plotStructure.ending_shape }}</p>
+          <p v-if="plotStructure.evidence" class="label-note">依据：{{ plotStructure.evidence }}</p>
+        </template>
+        <p v-else-if="novel.status === 'ready'" class="section-empty">
+          该书是在剧情结构功能上线前分析的，或资料不足以提炼结构；点「重新分析」补齐。
+        </p>
+      </section>
+
       <!-- 记忆卡：高级编辑入口，默认收起 -->
       <details class="detail-section json-section">
         <summary class="section-head json-summary">
@@ -228,6 +260,9 @@ const beatStructureText = computed(() => {
   if (structure.hook_pattern) parts.push(`章末钩子：${structure.hook_pattern}`)
   return parts.join('　')
 })
+
+const plotStructure = computed(() => novel.value?.plot_structure || null)
+const pct = (ratio?: number) => `${Math.round(Number(ratio || 0) * 100)}%`
 
 const statusLabel = computed(() => {
   if (!novel.value) return ''
@@ -648,6 +683,14 @@ const save = async () => {
   line-height: 1.7;
   color: #ccc;
 }
+
+/* 剧情结构 */
+.plot-stages { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.plot-stage { border: 1px solid #2a2a2a; border-radius: 8px; padding: 8px 10px; background: #181818; }
+.plot-stage-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.plot-stage-name { font-size: 13px; font-weight: 600; color: #eee; }
+.plot-line { font-size: 12px; color: #ccc; line-height: 1.6; margin: 2px 0; }
+.plot-line b { color: #888; font-weight: 500; margin-right: 6px; }
 
 /* 桥段库 */
 .beat-list {

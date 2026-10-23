@@ -189,10 +189,55 @@ class ReferenceBeatService:
         return "\n".join(lines)
 
     @staticmethod
+    def format_plot_structure(novel: Any) -> str:
+        """一本书的剧情结构 → 蓝图/骨架可读文本（阶段按比例，不给原书章号当配额）。空则空串。"""
+        structure = getattr(novel, "plot_structure", None)
+        if not isinstance(structure, dict):
+            return ""
+        lines: List[str] = []
+        stages = [st for st in structure.get("stages") or [] if isinstance(st, dict)]
+        if stages:
+            lines.append("  阶段结构（按全书比例）：")
+            for index, st in enumerate(stages[:8], start=1):
+                span_text = f"{round(float(st.get('start_ratio') or 0) * 100)}%-{round(float(st.get('end_ratio') or 0) * 100)}%"
+                parts = [f"  {index}. {st.get('name') or '阶段' + str(index)}（{span_text}）"]
+                if st.get("goal"):
+                    parts.append(f"目标：{st['goal']}")
+                if st.get("opponent_scale"):
+                    parts.append(f"对手量级：{st['opponent_scale']}")
+                if st.get("climax_type"):
+                    parts.append(f"阶段末高潮：{st['climax_type']}")
+                if st.get("protagonist_change"):
+                    parts.append(f"主角变化：{st['protagonist_change']}")
+                lines.append("；".join(parts))
+        if structure.get("opening"):
+            lines.append(f"  开局做法：{structure['opening']}")
+        if structure.get("first_payoff_chapter"):
+            lines.append(f"  首个兑现约在第 {structure['first_payoff_chapter']} 章")
+        points = [tp for tp in structure.get("turning_points") or [] if isinstance(tp, dict) and tp.get("event")]
+        if points:
+            lines.append("  转折点：" + "；".join(
+                f"{round(float(tp.get('position_ratio') or 0) * 100)}% {tp['event']}"
+                + (f"（{tp['effect']}）" if tp.get("effect") else "") for tp in points[:5]
+            ))
+        if structure.get("escalation_axis"):
+            lines.append(f"  升级轴：{structure['escalation_axis']}")
+        if structure.get("ending_shape"):
+            lines.append(f"  结局形态：{structure['ending_shape']}")
+        if structure.get("hook_pattern"):
+            lines.append(f"  章末钩子：{structure['hook_pattern']}")
+        return "\n".join(lines)
+
+    @staticmethod
     def format_structure_for_blueprint(novels: Sequence[Any]) -> str:
-        """蓝图章纲用：全书级结构手法（分卷节奏/冲突升级/钩子形态）。"""
+        """蓝图章纲/骨架用：剧情结构（plot_structure，优先）+ 旧桥段库的三句结构手法。"""
         sections: List[str] = []
         for novel in novels or []:
+            plot_text = ReferenceBeatService.format_plot_structure(novel)
+            if plot_text:
+                sections.append(
+                    f"《{novel.title}》的剧情结构（只借节奏与升级思路，情节、人物、专有设定一律不得照搬）：\n{plot_text}"
+                )
             library = getattr(novel, "beat_library", None)
             if not isinstance(library, dict):
                 continue

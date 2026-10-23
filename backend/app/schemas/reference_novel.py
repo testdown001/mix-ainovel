@@ -97,6 +97,51 @@ class BeatLibrary(BaseModel):
     structure: BeatStructure = Field(default_factory=BeatStructure)
 
 
+class PlotStage(BaseModel):
+    """参考书的一个阶段/卷：与故事骨架的 ClimaxNode 同构，给倒推规划和章纲段当「排章参考」。"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = Field(default="", description="卷名或阶段名（目录里的卷名优先）")
+    start_ratio: float = Field(default=0.0, ge=0.0, le=1.0, description="起点在全书的位置比例")
+    end_ratio: float = Field(default=0.0, ge=0.0, le=1.0, description="终点在全书的位置比例")
+    goal: str = Field(default="", description="本阶段主角要完成什么")
+    opponent_scale: str = Field(default="", description="主要对手/危机的量级")
+    climax_type: str = Field(default="", description="阶段末高潮的类型（翻案/大战/身份揭晓/版图变化…）与具体形态")
+    protagonist_change: str = Field(default="", description="阶段结束时主角处境/境界/资源的变化")
+
+
+class TurningPoint(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    position_ratio: float = Field(default=0.0, ge=0.0, le=1.0)
+    event: str = Field(default="", description="转折事件，用角色定位描述不用原书专名")
+    effect: str = Field(default="", description="改变了什么（读者认知/主线方向/人物关系）")
+
+
+class PlotStructure(BaseModel):
+    """参考书的剧情结构：蓝图阶段真正需要的「怎么排」而不是「讲了什么」。
+
+    与 outline_content（三段百科式大纲）的区别：这里按阶段切、按比例定位、写升级轴和
+    高潮类型；与 BeatStructure 三句话的区别：这里是结构化、可对照、可检查的。
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    total_chapters_hint: int = Field(default=0, ge=0, description="公开目录可见的总章数，不确定填 0")
+    stages: List[PlotStage] = Field(default_factory=list, description="3-8 个阶段/卷，按顺序")
+    opening: str = Field(default="", description="前三章做法：异常点怎么抛、首个钩子、首个兑现在第几章")
+    first_payoff_chapter: int = Field(default=0, ge=0, description="首个明确兑现大约在第几章，不确定填 0")
+    turning_points: List[TurningPoint] = Field(default_factory=list, description="2-5 个全书转折点")
+    escalation_axis: str = Field(default="", description="升级沿哪条轴：境界/地图/势力/身份/案件量级…")
+    ending_shape: str = Field(default="", description="结局形态")
+    hook_pattern: str = Field(default="", description="章末钩子常用形态")
+    evidence: str = Field(default="", description="依据：目录/书评/百科哪一类；资料不足须说明")
+
+    def is_meaningful(self) -> bool:
+        return bool(self.stages) or bool(self.opening.strip()) or bool(self.escalation_axis.strip())
+
+
 class StyleGuide(BaseModel):
     """可执行的写法基准：约束「怎么写」，不约束写什么。
 
@@ -139,6 +184,7 @@ class ReferenceNovelUpdate(BaseModel):
     memory_card: Optional[MemoryCard] = None
     beat_library: Optional[BeatLibrary] = None
     style_guide: Optional[StyleGuide] = None
+    plot_structure: Optional[PlotStructure] = None
     genre: Optional[str] = None
     author: Optional[str] = None
     source_url: Optional[str] = None
@@ -164,6 +210,7 @@ class ReferenceNovelDetail(ReferenceNovelSummary):
     memory_card: Optional[MemoryCard] = None
     beat_library: Optional[BeatLibrary] = None
     style_guide: Optional[StyleGuide] = None
+    plot_structure: Optional[PlotStructure] = None
     source_url: Optional[str] = None
     error_message: Optional[str] = None
 

@@ -290,6 +290,7 @@ async def _ensure_schema_updates() -> None:
                 {
                     "beat_library": "beat_library JSON",
                     "style_guide": "style_guide JSON",
+                    "plot_structure": "plot_structure JSON",
                 },
             )
             _ensure_columns(

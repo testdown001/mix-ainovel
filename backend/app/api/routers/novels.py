@@ -1210,6 +1210,17 @@ async def get_concept_dossier(
             project_id, current_user.id, run_stress=run_stress
         )
 
+    # 绑定的参考书里有失败/未完成的，确认页要说出来——以前静默跳过，作者以为参考了其实没有
+    warnings: List[str] = []
+    try:
+        if project.reference_novel_ids:
+            from ...services.reference_novel_library_service import reference_warnings
+
+            bound = await ReferenceNovelLibraryService(session).get_by_ids(list(project.reference_novel_ids))
+            warnings = reference_warnings(bound, list(project.reference_novel_ids))
+    except Exception as exc:  # noqa: BLE001 - 提示是增益
+        logger.debug("项目 %s 参考小说状态读取失败(已忽略): %s", project_id, exc)
+
     return DossierResponse(
         status="ready" if isinstance(state.get("dossier"), dict) else "absent",
         dossier=state.get("dossier"),
@@ -1218,6 +1229,7 @@ async def get_concept_dossier(
         deep_available=deep_available,
         deep_credit_price=deep_credit_price,
         generated_at=state.get("generated_at"),
+        reference_warnings=warnings,
     ).model_dump()
 
 

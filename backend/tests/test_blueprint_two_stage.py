@@ -463,3 +463,42 @@ async def test_backbone_absent_keeps_old_path(db_session, monkeypatch):
     assert "【故事骨架】" not in json.dumps(calls[0]["conversation_history"], ensure_ascii=False)
     assert "前置条件" not in calls[1]["conversation_history"][0]["content"]
     assert resp.json()["blueprint"]["volumes"][0].get("climax") is None
+
+
+# ------------------------------------------------------------------
+# 8. 参考小说材料进蓝图：设定段带剧情结构，章纲批次带本批桥段
+# ------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_reference_bundle_reaches_settings_and_outline_batches(db_session, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    novel = NS(
+        id=1, title="参考书", status="ready", plot_structure=None, memory_card=None, style_guide=None, outline_content="",
+        beat_library={"beats": [
+            {"name": "大赛翻案", "situation": "公开大赛上翻案打脸", "tags": ["翻案", "打脸"], "setup": "s", "turn": "t", "payoff": "p"},
+            {"name": "无关桥段", "situation": "恋爱误会", "tags": ["误会"], "setup": "", "turn": "", "payoff": ""},
+            {"name": "无关2", "situation": "日常吃饭", "tags": ["日常"], "setup": "", "turn": "", "payoff": ""},
+            {"name": "无关3", "situation": "赶路遇雨", "tags": ["赶路"], "setup": "", "turn": "", "payoff": ""},
+            {"name": "无关4", "situation": "买菜砍价", "tags": ["砍价"], "setup": "", "turn": "", "payoff": ""},
+        ]},
+    )
+
+    async def fake_bundle(session, project):
+        return "《参考书》的剧情结构：\n  升级轴：灵网层级", [novel]
+
+    monkeypatch.setattr(bgs, "_load_reference_bundle", fake_bundle)
+    calls = _patch_two_stage(
+        monkeypatch, [_settings_payload(), _outline_payload(range(1, 26)), _outline_payload(range(26, 51))],
+    )
+    await _seed_project_with_history(db_session)
+    async with _build_client(db_session) as client:
+        resp = await client.post(f"/api/novels/{PROJECT_ID}/blueprint/generate")
+    assert resp.status_code == 200, resp.text
+
+    assert "[参考小说的剧情结构与阅读动力]" in calls[0]["system_prompt"] and "升级轴：灵网层级" in calls[0]["system_prompt"]
+    # 批 1 在卷一（climax_hint「灵网大赛翻案」）→ 关键词回退选中「大赛翻案」桥段，不带无关桥段
+    batch1 = calls[1]["conversation_history"][0]["content"]
+    assert "参考桥段" in batch1 and "大赛翻案" in batch1 and "情节必须原创" in batch1
+    assert batch1.index("大赛翻案") < batch1.index("无关")  # 相关桥段排最前；无关桥段只是补位
+    assert "买菜砍价" not in batch1  # top-3 之外的不带

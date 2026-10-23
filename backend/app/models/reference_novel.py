@@ -32,6 +32,8 @@ class ReferenceNovel(Base):
     # 写法基准：可执行的写法约束（视角/句式/对白占比/描写密度/禁用手法），
     # schema 见 schemas.reference_novel.StyleGuide。绑定项目后正文生成默认注入
     style_guide: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
+    # 剧情结构（阶段/卷、转折点、升级轴）：蓝图倒推与章纲段的排章参考，Alembic o9j0k1l2m3n4
+    plot_structure: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     genre: Mapped[Optional[str]] = mapped_column(String(128))
     author: Mapped[Optional[str]] = mapped_column(String(128))

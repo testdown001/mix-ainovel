@@ -61,6 +61,11 @@
       </div>
 
       <div v-else class="dossier-body">
+        <div v-if="(dossierResp?.reference_warnings || []).length" class="d-ref-warn">
+          <p class="d-ref-warn-title">参考小说提醒</p>
+          <p v-for="(w, i) in dossierResp!.reference_warnings" :key="i" class="d-ref-warn-line">{{ w }}</p>
+          <p class="d-ref-warn-hint">可在「参考小说库」里重新分析后再生成蓝图，或直接继续（不参考这些书）。</p>
+        </div>
         <!-- 核心卖点 -->
         <section class="d-block d-block-hero">
           <div class="d-block-head">
@@ -771,6 +776,12 @@ onUnmounted(() => {
 .absent-title { font-size: 15px; font-weight: 600; color: #fff; }
 .absent-sub { margin-top: 10px; font-size: 13px; color: #aaa; line-height: 1.7; white-space: pre-wrap; }
 .absent-hint { margin-top: 10px; font-size: 12px; color: #666; }
+
+/* ── 参考小说提醒 ── */
+.d-ref-warn { background: rgba(255, 184, 0, 0.08); border: 1px solid rgba(255, 184, 0, 0.3); border-radius: 10px; padding: 10px 14px; }
+.d-ref-warn-title { font-size: 12px; font-weight: 600; color: #ffb800; margin-bottom: 4px; }
+.d-ref-warn-line { font-size: 12px; color: #ddd; line-height: 1.6; }
+.d-ref-warn-hint { font-size: 11px; color: #888; margin-top: 4px; }
 
 /* ── 分块 ── */
 .dossier-body { display: flex; flex-direction: column; gap: 14px; }

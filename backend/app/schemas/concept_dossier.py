@@ -321,6 +321,10 @@ class DossierResponse(BaseModel):
         ),
     )
     generated_at: Optional[str] = None
+    reference_warnings: List[str] = Field(
+        default_factory=list,
+        description="绑定的参考小说中分析失败/未完成的（本次蓝图不会参考它们），确认页显示黄色提示",
+    )
 
 
 class BlueprintGenerateRequest(BaseModel):

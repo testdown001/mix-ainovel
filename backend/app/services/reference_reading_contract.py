@@ -53,7 +53,7 @@ def _text(value: Any, limit: int = 180) -> str:
 def source_signature(novels: list) -> str:
     materials = [
         {key: getattr(novel, key, None) for key in
-         ("id", "title", "outline_content", "memory_card", "beat_library", "style_guide")}
+         ("id", "title", "outline_content", "memory_card", "beat_library", "style_guide", "plot_structure")}
         for novel in novels
     ]
     return hashlib.sha256(json.dumps(materials, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
@@ -89,6 +89,11 @@ def fusion_materials(novels: list) -> str:
                 "relationship_pull", "cool_point_patterns", "emotion_control_pattern", "pacing_traits", "risks")},
             "voice": {k: _text(v, 120) for k, v in guide.items()},
             "structure": {k: _text(v, 180) for k, v in (library.get("structure") or {}).items()},
+            "plot_structure": {
+                "stages": [f"{_text(st.get('name'), 30)}:{_text(st.get('goal'), 60)}→{_text(st.get('climax_type'), 60)}"
+                           for st in ((getattr(novel, "plot_structure", None) or {}).get("stages") or [])[:6]],
+                "escalation_axis": _text((getattr(novel, "plot_structure", None) or {}).get("escalation_axis"), 100),
+            },
             "beats": [{k: _text(beat.get(k), 120) for k in ("situation", "setup", "turn", "payoff", "pitfalls")}
                       for beat in (library.get("beats") or [])[:3]],
         }

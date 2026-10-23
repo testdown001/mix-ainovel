@@ -112,3 +112,24 @@ def test_unknown_dimension_names_ignored():
     svc = _service({"主线剧情的完整走向": "剧情内容"})
     result = asyncio.run(svc.search_novel_dimensions(novel_name="某书", dimensions=["plot", "nope"]))
     assert set(result) == {"plot"}
+
+
+def test_structure_dimension_exists_and_uses_its_own_token_budget():
+    svc = _service({"目录 分卷": "目录文本", "剧情 主线": "剧情", "角色": "人", "名场面": "场", "爽点": "节", "文笔": "文"})
+    seen = {}
+
+    async def _search(system_prompt, conversation_history, **kw):
+        content = conversation_history[0]["content"]
+        if "目录 分卷" in content:
+            seen["structure"] = kw.get("max_tokens")
+            return "目录文本"
+        if "文笔" in content:
+            seen["craft"] = kw.get("max_tokens")
+        return "x"
+
+    svc.llm_service.get_search_llm_response = _search
+    result = asyncio.run(svc.search_novel_dimensions(novel_name="某书"))
+    assert result["structure"] == "目录文本"
+    assert seen["structure"] == 3500 and seen["craft"] == 2000
+    combined = WebSearchService.combine_dimension_texts(result, "structure", "plot")
+    assert combined.startswith("【目录与分卷结构】")

@@ -364,6 +364,8 @@ export interface DossierResponse {
   /** 深度打磨积分单价；审稿门关闭时为 0 */
   deep_credit_price: number
   generated_at?: string | null
+  /** 绑定的参考小说中分析失败/未完成的（本次蓝图不会参考它们） */
+  reference_warnings?: string[]
 }
 
 export interface Character {
@@ -678,12 +680,34 @@ export interface StyleGuide {
   forbidden?: string[]
 }
 
+/** 剧情结构：阶段/卷按比例、转折点、升级轴——蓝图倒推与章纲段的排章参考。 */
+export interface PlotStructure {
+  total_chapters_hint?: number
+  stages?: {
+    name?: string
+    start_ratio?: number
+    end_ratio?: number
+    goal?: string
+    opponent_scale?: string
+    climax_type?: string
+    protagonist_change?: string
+  }[]
+  opening?: string
+  first_payoff_chapter?: number
+  turning_points?: { position_ratio?: number; event?: string; effect?: string }[]
+  escalation_axis?: string
+  ending_shape?: string
+  hook_pattern?: string
+  evidence?: string
+}
+
 export interface ReferenceNovelDetail extends ReferenceNovelSummary {
   outline_content?: string
   style_samples_content?: string
   memory_card?: MemoryCard
   beat_library?: BeatLibrary
   style_guide?: StyleGuide
+  plot_structure?: PlotStructure
   source_url?: string
   error_message?: string
 }

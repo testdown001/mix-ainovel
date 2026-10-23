@@ -74,23 +74,112 @@ def _ensure_prompt(prompt: Optional[str], name: str) -> str:
     return prompt
 
 
-async def _build_structure_reference(session: AsyncSession, project) -> str:
-    """参考小说桥段库里的全书级结构手法；任何失败返回空串（参考是增益不是依赖）。"""
+async def _load_reference_bundle(session: AsyncSession, project) -> tuple[str, List[Any]]:
+    """参考小说给蓝图阶段的材料：(结构参考文本, 就绪的参考书列表)。任何失败返回 ("", [])。
+
+    文本 = 剧情结构（plot_structure，阶段/转折点/升级轴）+ 旧桥段库的结构手法 + 融合契约。
+    融合契约只在 FusionDNA 真正生成过时注入：fallback 版本是通用占位句，对排章没有信息量，
+    以前照样塞进去只是让 prompt 看起来「有参考」。
+    """
     try:
         from ..services.generation_support_service import GenerationSupportService
         from ..services.reference_beat_service import ReferenceBeatService
+        from ..services.reference_reading_contract import is_current, project_contract
 
         reference_service = ReferenceNovelLibraryService(session)
         novels = await GenerationSupportService(session).load_project_reference_novels(
             project, reference_service
         )
-        from ..services.reference_reading_contract import project_contract
-        contract = project_contract(novels, getattr(project, "fusion_dna", None), getattr(project, "reference_novel_ids", None))
+        if not novels:
+            return "", []
+        parts: List[str] = []
         structure = ReferenceBeatService.format_structure_for_blueprint(novels)
-        return "\n\n".join(part for part in (contract, structure) if part)
+        if structure:
+            parts.append(structure)
+        pacing = _format_reference_pacing(novels)
+        if pacing:
+            parts.append(pacing)
+        dna = getattr(project, "fusion_dna", None)
+        expected_ids = getattr(project, "reference_novel_ids", None)
+        if is_current(dna, novels, expected_ids):
+            parts.append(project_contract(novels, dna, expected_ids))
+        else:
+            logger.info("项目 %s 参考融合未就绪，蓝图只注入剧情结构与节奏（不用占位契约）", project.id)
+        with_structure = sum(1 for n in novels if isinstance(getattr(n, "plot_structure", None), dict))
+        logger.info(
+            "项目 %s 蓝图参考注入：books=%s plot_structure=%d/%d beats=%d",
+            project.id, [n.title for n in novels], with_structure, len(novels),
+            sum(len((getattr(n, "beat_library", None) or {}).get("beats") or []) for n in novels),
+        )
+        return "\n\n".join(parts), list(novels)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("蓝图章纲结构参考注入失败(已忽略): %s", exc)
+        logger.warning("蓝图参考材料加载失败(已忽略): %s", exc)
+        return "", []
+
+
+async def _build_structure_reference(session: AsyncSession, project) -> str:
+    """参考小说的结构参考文本（骨架生成与旧调用方用）；任何失败返回空串。"""
+    text, _novels = await _load_reference_bundle(session, project)
+    return text
+
+
+_PACING_FIELDS = (
+    ("main_conflict_pattern", "主线冲突模版"),
+    ("pacing_traits", "节奏特点"),
+    ("payoff_rhythm", "铺垫兑现与余波"),
+)
+
+
+def _format_reference_pacing(novels: List[Any]) -> str:
+    """记忆卡里对排章真正有用的三个字段（「小案 5-10 章结，大案分卷」这种），此前蓝图从不读。"""
+    blocks: List[str] = []
+    for novel in novels:
+        card = getattr(novel, "memory_card", None)
+        if not isinstance(card, dict):
+            continue
+        lines = []
+        for key, label in _PACING_FIELDS:
+            value = card.get(key)
+            if isinstance(value, list):
+                value = "；".join(str(v).strip() for v in value if str(v).strip())
+            if isinstance(value, str) and value.strip():
+                lines.append(f"  {label}：{value.strip()[:200]}")
+        if lines:
+            blocks.append(f"《{novel.title}》的节奏参考：\n" + "\n".join(lines))
+    return "\n\n".join(blocks)
+
+
+async def _build_batch_beats(llm_service: LLMService, novels: List[Any], query_text: str, *, top_k: int = 3) -> str:
+    """按本批情境从参考书桥段库选 top-k 桥段（正文生成早已这么做，章纲段此前零桥段）。"""
+    if not novels or not (query_text or "").strip():
         return ""
+    try:
+        from ..services.reference_beat_service import ReferenceBeatService
+
+        service = ReferenceBeatService(llm_service)
+        beats = await service.select_beats_for_chapter(novels, query_text=query_text[:600], top_k=top_k)
+        if not beats:
+            return ""
+        return (
+            "【参考桥段（本批情境最相近的处理思路：借铺垫/转折/兑现的手法，情节必须原创）】\n"
+            + ReferenceBeatService.format_beats_for_prompt(beats)
+        )
+    except Exception as exc:  # noqa: BLE001 - 桥段是增益不是依赖
+        logger.debug("章纲批次桥段检索失败(已忽略): %s", exc)
+        return ""
+
+
+def _batch_beat_query(volumes: List[Dict[str, Any]], backbone, batch_start: int, batch_end: int) -> str:
+    """本批的情境 query：所在卷目标/高潮 + 本批前置条件与高潮事件。"""
+    parts: List[str] = []
+    for volume in volumes or []:
+        if volume.get("start_chapter", 0) <= batch_start <= volume.get("end_chapter", 0):
+            parts.extend(str(volume.get(k) or "") for k in ("arc_goal", "climax_hint"))
+            break
+    if backbone is not None:
+        parts.extend(setup.what_must_be_established for setup, _c in pending_setups_for_range(backbone, batch_start, batch_end))
+        parts.extend(node.event for node in climaxes_in_range(backbone, batch_start, batch_end))
+    return " ".join(p for p in parts if p)
 
 
 def _parse_stage_json(raw: str, project_id: str, stage_label: str) -> Any:
@@ -615,9 +704,9 @@ async def generate_blueprint_for_project(
     settings_prompt = _ensure_prompt(await prompt_service.get_prompt("screenwriting"), "screenwriting")
 
     # 设定与排章共用当前绑定的阅读动力；旧融合或慢分析也有明确的临时方案。
-    structure_reference = await _build_structure_reference(session, project)
+    structure_reference, reference_novels = await _load_reference_bundle(session, project)
     if structure_reference:
-        settings_prompt += "\n\n[参考阅读动力与结构手法]\n" + structure_reference
+        settings_prompt += "\n\n[参考小说的剧情结构与阅读动力]\n" + structure_reference
     settings_prompt = _inject_blueprint_exclusions(settings_prompt, exclusions)
     logger.info(
         "项目 %s 蓝图设定段：开始 LLM 调用，system_prompt_len=%d, history_len=%d",
@@ -711,7 +800,10 @@ async def generate_blueprint_for_project(
             batch_task = _build_batch_task(
                 batch_start, batch_end, prev_tail, planning_allowed, backbone=backbone
             )
-            batch_input = f"{settings_digest}\n\n{batch_task}"
+            batch_beats = await _build_batch_beats(
+                llm_service, reference_novels, _batch_beat_query(volumes, backbone, batch_start, batch_end)
+            )
+            batch_input = "\n\n".join(part for part in (settings_digest, batch_beats, batch_task) if part)
             logger.info(
                 "项目 %s 蓝图章纲段批次 %d/%d：第 %d-%d 章，input_len=%d",
                 project_id, batch_index + 1, batch_total, batch_start, batch_end, len(batch_input),
