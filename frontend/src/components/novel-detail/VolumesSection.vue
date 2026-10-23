@@ -49,6 +49,18 @@
             <div v-if="vol.replan?.avoid" class="kv"><span>避免</span><p>{{ vol.replan.avoid }}</p></div>
           </div>
 
+          <!-- 骨架倒推的高潮节点：开书前作者确认过，章纲按它回填伏笔 -->
+          <div v-if="vol.climax?.event" class="block">
+            <div class="block-title">
+              卷末高潮
+              <span class="block-note">（第 {{ vol.climax.chapter ?? '?' }} 章 · 来自故事骨架）</span>
+            </div>
+            <div class="kv"><span>发生什么</span><p>{{ vol.climax.event }}</p></div>
+            <div v-if="vol.climax.reversal" class="kv"><span>翻转</span><p>{{ vol.climax.reversal }}</p></div>
+            <div v-if="vol.climax.cost" class="kv"><span>代价</span><p>{{ vol.climax.cost }}</p></div>
+            <div v-if="vol.climax.protagonist_state_after" class="kv"><span>之后的主角</span><p>{{ vol.climax.protagonist_state_after }}</p></div>
+          </div>
+
           <!-- 原规划：被重规划覆盖后仍保留为历史 -->
           <n-collapse v-if="vol.replan" style="margin-top:12px">
             <n-collapse-item title="查看开书时的原规划" name="orig">

@@ -344,6 +344,21 @@ const formattedBlueprint = computed(() => {
     const strengths = (report.strengths || []).length
       ? `<div class="bp-block"><h4 class="bp-label">亮点</h4>${(report.strengths || []).map((s: string) => `<p class="bp-strength">· ${localizeReviewText(s)}</p>`).join('')}</div>`
       : ''
+    // 骨架前置条件回填覆盖（代码核对，非模型评语）
+    const cov = report.setup_coverage
+    const coverage = cov && typeof cov === 'object' && Number(cov.total) > 0
+      ? `<div class="bp-block"><h4 class="bp-label">骨架伏笔回填 ${cov.planted}/${cov.total}（核心 ${cov.core_planted}/${cov.core_total}）${cov.retried ? ' · 已补埋一轮' : ''}</h4>${
+          (cov.entries || []).filter((e: any) => !e.planted).map((e: any) =>
+            `<p class="bp-hint">未埋：「${e.name}」[${e.tier}] 应在第 ${e.plant_from}-${e.plant_to} 章之间埋下，服务第 ${e.climax_chapter} 章${e.serves || ''}</p>`
+          ).join('') || '<p class="bp-strength">全部前置条件已按窗口埋下。</p>'
+        }</div>`
+      : ''
+    // 快速成书不跑审稿门：报告里只有骨架回填覆盖，不渲染不存在的评分
+    if (report.coverage_only || (typeof report.total_score !== 'number' && !dims)) {
+      return coverage
+        ? `<p class="bp-muted">本蓝图未经商业量表审稿（快速成书）；以下为代码核对的骨架伏笔回填结果。</p>${coverage}`
+        : ''
+    }
     return `
       <div class="bp-review-head">
         <div class="bp-review-score">
@@ -357,6 +372,7 @@ const formattedBlueprint = computed(() => {
       </div>
       ${dims ? `<div class="bp-metrics">${dims}</div>` : ''}
       ${issues ? `<h4 class="bp-label">待改进问题（${(report.issues || []).length}）</h4>${issues}` : '<p class="bp-strength">未发现待改进问题。</p>'}
+      ${coverage}
       ${strengths}
     `
   }
@@ -498,7 +514,7 @@ const formattedBlueprint = computed(() => {
 
   return `
     ${headerHTML}
-    ${reviewHTML ? createSection('审稿报告（商业量表）', reviewHTML, icons.summary) : ''}
+    ${reviewHTML ? createSection((blueprint as any).review_report?.coverage_only ? '骨架伏笔回填' : '审稿报告（商业量表）', reviewHTML, icons.summary) : ''}
     ${summaryHTML}
     ${createSection('世界设定', formatWorldSetting(blueprint.world_setting), icons.world)}
     ${goldenFingerHTML ? createSection('金手指', goldenFingerHTML, icons.story) : ''}

@@ -353,3 +353,113 @@ async def test_settings_stage_failure_returns_500_without_outline_call(db_sessio
     assert len(calls) == 1  # 未进入章纲段
     assert await db_session.get(NovelBlueprint, PROJECT_ID) is None
     assert await _outline_count(db_session) == 0
+
+
+# ------------------------------------------------------------------
+# 7. 故事骨架存在：锚点注入 → 设定段对账 → 章纲批次带前置条件 → 核心未埋补问一次
+# ------------------------------------------------------------------
+
+def _seed_backbone_state():
+    from app.services.story_backbone_service import precut_volumes
+
+    ranges = precut_volumes(100)
+    climaxes = []
+    for index, (start, end) in enumerate(ranges, start=1):
+        climaxes.append({
+            "volume_index": index, "chapter": end, "event": f"第{index}卷高潮事件",
+            "reversal": "", "cost": "", "protagonist_state_after": "",
+            "setups": [{"name": "旧伤", "what_must_be_established": "见过师父避开左肩", "why_needed": "",
+                        "plant_from": 2, "plant_to": 10, "tier": "支线"}] if index == 1 else [],
+        })
+    return {
+        "dossier": {"core_selling_line": "当铺文", "notes": "写 100 章"},
+        "backbone": {
+            "total_chapters": 100,
+            "endgame": {"final_confrontation": "剑冢决战", "core_answer": "规则改了", "setups": []},
+            "first_promise": {"volume_index": 0, "chapter": 8, "event": "拍卖会打脸",
+                              "setups": [{"name": "账本", "what_must_be_established": "读者见过死当账本第三页",
+                                          "why_needed": "打脸变天降", "plant_from": 1, "plant_to": 4, "tier": "核心"}]},
+            "midpoint": None,
+            "climaxes": climaxes,
+        },
+        "backbone_meta": {"generated_at": "2026-10-23T00:00:00+00:00", "source_hash": "x",
+                          "ranges": [[s, e] for s, e in ranges], "revised_by_author": False, "edited_blocks": []},
+    }, ranges
+
+
+@pytest.mark.asyncio
+async def test_backbone_drives_settings_outline_and_setup_retry(db_session, monkeypatch):
+    state, ranges = _seed_backbone_state()
+    retry_payload = json.dumps({"chapter_outline": [
+        {"chapter_number": 3, "title": "第3章·账本", "summary": "主角翻到死当账本第三页，读者见过账本",
+         "foreshadowing_ops": [{"op": "plant", "name": "账本"}]},
+        {"chapter_number": 30, "title": "窗口外", "summary": "不该被接受"},
+    ]}, ensure_ascii=False)
+    calls = _patch_two_stage(
+        monkeypatch,
+        [_settings_payload(), _outline_payload(range(1, 26)), _outline_payload(range(26, 51)), retry_payload],
+    )
+    await _seed_project_with_history(db_session)
+    project = await db_session.get(NovelProject, PROJECT_ID)
+    project.concept_dossier = state
+    await db_session.commit()
+
+    async with _build_client(db_session) as client:
+        resp = await client.post(f"/api/novels/{PROJECT_ID}/blueprint/generate")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()["blueprint"]
+
+    # 设定段：立项书锚点之后紧跟骨架锚点
+    history = calls[0]["conversation_history"]
+    assert "【故事立项书】" in history[0]["content"]
+    assert "【故事骨架】" in history[1]["content"] and "前置条件「账本」" in history[1]["content"]
+
+    # 章纲批 1：带本批前置条件与高潮；批 2 不带账本（窗口 1-4）
+    batch1 = calls[1]["conversation_history"][0]["content"]
+    assert "本批必须埋下的前置条件" in batch1 and "「账本」[核心]（第 1-4 章之间）" in batch1
+    assert "本批内要兑现的高潮" in batch1 and "第 8 章 第一次兑现：拍卖会打脸" in batch1
+    assert "第 20 章 第 1 卷高潮" in batch1
+    batch2 = calls[2]["conversation_history"][0]["content"]
+    assert "「账本」" not in batch2
+
+    # 对账：卷区间照骨架（4 卷），高潮节点进 volumes.climax；模型 3 卷的卷名不再沿用
+    assert [(v["start_chapter"], v["end_chapter"]) for v in body["volumes"]] == [list(r) for r in ranges] or \
+        [(v["start_chapter"], v["end_chapter"]) for v in body["volumes"]] == ranges
+    assert body["volumes"][0]["climax"]["event"] == "第1卷高潮事件"
+    assert body["volumes"][0]["climax_hint"] == "第1卷高潮事件"
+    fs_names = [f["name"] for f in body["foreshadowings"]]
+    assert "账本" in fs_names and "旧伤" in fs_names and "伏笔1" in fs_names
+
+    # 核心前置条件「账本」未埋 → 第 4 次调用是补埋重问；窗口外的第 30 章被丢弃
+    assert len(calls) == 4
+    retry_input = calls[3]["conversation_history"][0]["content"]
+    assert "补埋任务" in retry_input and "「账本」必须在第 1-4 章之间埋下" in retry_input
+    outline = {c["chapter_number"]: c for c in body["chapter_outline"]}
+    assert "账本第三页" in outline[3]["summary"]
+    assert outline[30]["title"] != "窗口外"
+
+    # 落库：Volume 表 extra 带 climax；快速成书无审稿评分，但覆盖报告仍有落点（coverage_only）
+    from app.models.novel import Volume
+    vol = (await db_session.execute(select(Volume).where(Volume.project_id == PROJECT_ID, Volume.position == 1))).scalar_one()
+    assert vol.extra["climax"]["chapter"] == ranges[0][1]
+    report = body["review_report"]
+    assert report["coverage_only"] is True and "total_score" not in report
+    cov = report["setup_coverage"]
+    assert cov["retried"] is True and cov["core_planted"] == 1 and cov["core_total"] == 1
+    assert [e["name"] for e in cov["entries"] if not e["planted"]] == ["旧伤"]  # 支线未埋不补问
+
+
+@pytest.mark.asyncio
+async def test_backbone_absent_keeps_old_path(db_session, monkeypatch):
+    """无骨架：锚点、批次任务、调用次数与旧路径完全一致。"""
+    calls = _patch_two_stage(
+        monkeypatch, [_settings_payload(), _outline_payload(range(1, 26)), _outline_payload(range(26, 51))],
+    )
+    await _seed_project_with_history(db_session)
+    async with _build_client(db_session) as client:
+        resp = await client.post(f"/api/novels/{PROJECT_ID}/blueprint/generate")
+    assert resp.status_code == 200
+    assert len(calls) == 3
+    assert "【故事骨架】" not in json.dumps(calls[0]["conversation_history"], ensure_ascii=False)
+    assert "前置条件" not in calls[1]["conversation_history"][0]["content"]
+    assert resp.json()["blueprint"]["volumes"][0].get("climax") is None

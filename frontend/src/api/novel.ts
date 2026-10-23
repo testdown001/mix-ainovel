@@ -295,6 +295,64 @@ export interface StressReport {
   summary?: string
 }
 
+// ── 故事骨架（倒推规划：终局 → 卷高潮 → 前置条件）──
+
+export interface BackboneSetup {
+  name?: string
+  what_must_be_established?: string
+  why_needed?: string
+  plant_from?: number
+  plant_to?: number
+  develop_hint?: string
+  tier?: string
+}
+
+export interface BackboneClimax {
+  volume_index?: number
+  volume_theme?: string
+  chapter?: number
+  event?: string
+  reversal?: string
+  cost?: string
+  protagonist_state_after?: string
+  setups?: BackboneSetup[]
+}
+
+export interface BackboneEndgame {
+  final_confrontation?: string
+  core_answer?: string
+  protagonist_becomes?: string
+  cost?: string
+  setups?: BackboneSetup[]
+}
+
+export interface StoryBackbone {
+  total_chapters?: number
+  endgame?: BackboneEndgame
+  first_promise?: BackboneClimax
+  midpoint?: BackboneClimax | null
+  climaxes?: BackboneClimax[]
+}
+
+export interface BackboneAlternative {
+  id: string
+  label?: string
+  endgame?: BackboneEndgame
+  midpoint_event?: string
+  climax_events?: string[]
+  why_different?: string
+}
+
+export interface BackboneResponse {
+  status: 'ready' | 'absent'
+  backbone: StoryBackbone | null
+  generated_at?: string | null
+  revised_by_author: boolean
+  /** 立项书在骨架生成后又改过；作者改过的骨架不自动重算 */
+  stale: boolean
+  enabled: boolean
+}
+
 export type BlueprintDepth = 'fast' | 'deep'
 
 export interface DossierResponse {
@@ -1087,6 +1145,49 @@ export class NovelAPI {
     return request(`${NOVELS_BASE}/${projectId}/concept/dossier/apply-fixes`, {
       method: 'POST',
     })
+  }
+
+  /** 读取故事骨架（立项书就绪后后台已倒推，未就绪时本请求同步补齐，首次约 30-60 秒）。 */
+  static async getStoryBackbone(projectId: string): Promise<BackboneResponse> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/backbone`)
+  }
+
+  /** 分块编辑骨架：endgame / first_promise / midpoint 浅合并，climaxes 传 { "<卷序>": {...} }。 */
+  static async patchStoryBackbone(
+    projectId: string,
+    partial: Record<string, any>,
+  ): Promise<BackboneResponse> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/backbone`, {
+      method: 'PATCH',
+      body: JSON.stringify({ backbone: partial }),
+    })
+  }
+
+  /** 上次生成、尚未采用的备选终局方向。 */
+  static async listBackboneAlternatives(
+    projectId: string,
+  ): Promise<{ alternatives: BackboneAlternative[]; generated_at?: string | null }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/backbone/alternatives`)
+  }
+
+  /** 高温生成 2 个与现方案本质不同的终局方向（约 20-40 秒）。 */
+  static async generateBackboneAlternatives(
+    projectId: string,
+  ): Promise<{ alternatives: BackboneAlternative[]; generated_at?: string | null }> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/backbone/alternatives`, { method: 'POST' })
+  }
+
+  /** 采用某个备选方向：以它为锚点重新倒推骨架（约 30-60 秒）。 */
+  static async applyBackboneAlternative(projectId: string, alternativeId: string): Promise<BackboneResponse> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/backbone/alternatives/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ alternative_id: alternativeId }),
+    })
+  }
+
+  /** 按当前立项书重算骨架；作者改过的块保留。 */
+  static async regenerateStoryBackbone(projectId: string): Promise<BackboneResponse> {
+    return request(`${NOVELS_BASE}/${projectId}/concept/backbone/regenerate`, { method: 'POST' })
   }
 
   /** N 路发散（旗舰档）：一次生成 N 个迥异种子并评分收敛到 Top。 */

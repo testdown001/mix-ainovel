@@ -269,6 +269,9 @@
         </section>
       </div>
 
+      <!-- ═══ 故事去向（倒推规划）═══ -->
+      <StoryBackboneCard v-if="dossier" :project-id="projectId" />
+
       <!-- ═══ 生成档位 ═══ -->
       <div class="depth-picker">
         <p class="depth-picker-label">生成方式</p>
@@ -348,6 +351,7 @@ import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import StoryVoiceTrial from '@/components/StoryVoiceTrial.vue'
+import StoryBackboneCard from '@/components/StoryBackboneCard.vue'
 import { ModelCatalogAPI } from '@/api/model_catalog'
 import {
   NovelAPI,

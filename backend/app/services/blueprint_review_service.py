@@ -158,8 +158,11 @@ class BlueprintReviewService:
         stress_report: Optional[Dict[str, Any]],
         dossier: Optional[Dict[str, Any]],
         user_id: int,
+        coverage_text: Optional[str] = None,
     ) -> Optional[BlueprintReviewReport]:
-        """全量审稿（蓝图+章纲）。失败或总开关关闭返回 None（跳过审稿门）。"""
+        """全量审稿（蓝图+章纲）。失败或总开关关闭返回 None（跳过审稿门）。
+
+        coverage_text：骨架前置条件的回填覆盖报告（代码核对），有则 foreshadowing_payoff 以它为准。"""
         try:
             if not await self.is_review_enabled():
                 logger.info("蓝图审稿跳过：blueprint.review_enabled=false")
@@ -194,6 +197,8 @@ class BlueprintReviewService:
                     "【立项书期待感承诺（核对兑现路径）】\n"
                     + json.dumps(dossier["anticipation"], ensure_ascii=False)
                 )
+            if coverage_text:
+                parts.append(coverage_text)
             if isinstance(stress_report, dict) and stress_report.get("toxic_points"):
                 parts.append(
                     "【立项阶段压力推演毒点清单（复查是否已修掉）】\n"
@@ -399,8 +404,11 @@ class BlueprintReviewService:
         foreshadowing_ledger: str,
         volume_replan: str,
         user_id: int,
+        backbone_constraints: str = "",
     ) -> Optional[BlueprintReviewReport]:
-        """只审新排章节的轻量审稿：一次 LLM 调用，失败返回 None。"""
+        """只审新排章节的轻量审稿：一次 LLM 调用，失败返回 None。
+
+        backbone_constraints：故事骨架落在本区间的前置条件与高潮（续排章纲必须服从）。"""
         if not new_items:
             return None
         try:
@@ -416,6 +424,11 @@ class BlueprintReviewService:
                 parts.append(f"【伏笔账本快照（未回收的伏笔，续排章纲应逐步推进/兑现）】\n{foreshadowing_ledger}")
             if volume_replan.strip():
                 parts.append(f"【卷级重规划（当前生效的方向修订，新章纲必须服从）】\n{volume_replan}")
+            if (backbone_constraints or "").strip():
+                parts.append(
+                    "【故事骨架对本区间的要求（作者确认过的高潮与前置条件；未埋的前置条件按 foreshadowing_payoff 点名）】\n"
+                    + backbone_constraints
+                )
             parts.append("【新排章纲】\n" + _outline_lines(new_items))
             report = await self.llm_service.generate_structured(
                 prompt="\n\n".join(parts),

@@ -73,8 +73,9 @@ def build_forbidden_content(
     exclusions: str,
     stress_report: Optional[Dict[str, Any]],
     genre: str,
+    backbone: Any = None,
 ) -> List[str]:
-    """forbidden_content = 用户创作禁区 + 推演高危毒点 + 题材禁忌 + 通用禁忌（去重限长）。"""
+    """forbidden_content = 用户创作禁区 + 推演高危毒点 + 骨架防剧透 + 题材禁忌 + 通用禁忌（去重限长）。"""
     items: List[str] = []
 
     for text in _split_exclusions(exclusions):
@@ -91,6 +92,11 @@ def build_forbidden_content(
             if issue:
                 entry = f"高危毒点：{issue}" + (f"（{fix[:80]}）" if fix else "")
                 items.append(entry[:160])
+
+    if backbone is not None:
+        from .story_backbone_service import spoiler_guards
+
+        items.extend(spoiler_guards(backbone))
 
     items.extend(_genre_taboos(genre))
     items.extend(_UNIVERSAL_TABOOS)
@@ -110,8 +116,11 @@ async def seed_constitution_from_blueprint(
     dossier: Optional[Dict[str, Any]] = None,
     stress_report: Optional[Dict[str, Any]] = None,
     exclusions: str = "",
+    backbone: Any = None,
 ) -> bool:
-    """蓝图落库后播种宪法。已有宪法不覆盖；成功播种返回 True（不提交，随调用方事务）。"""
+    """蓝图落库后播种宪法。已有宪法不覆盖；成功播种返回 True（不提交，随调用方事务）。
+
+    backbone：故事骨架（StoryBackbone），有则各卷翻转与终局进 forbidden_content 防提前剧透。"""
     existing = (
         await session.execute(
             select(NovelConstitution).where(NovelConstitution.project_id == project_id)
@@ -169,7 +178,7 @@ async def seed_constitution_from_blueprint(
         power_system=power_system_text or None,
         world_rules=world_rules,
         forbidden_content=build_forbidden_content(
-            exclusions=exclusions, stress_report=stress_report, genre=genre
+            exclusions=exclusions, stress_report=stress_report, genre=genre, backbone=backbone
         ),
         twist_frequency="每2-3章一个小爽点或小钩子，8-12章一个中爆点，20-30章一个大爆点",
         foreshadowing_rules=(

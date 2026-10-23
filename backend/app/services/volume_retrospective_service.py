@@ -48,6 +48,40 @@ class VolumeRetrospectiveResult(BaseModel):
     next_volume: Optional[VolumeReplan] = None
 
 
+def _climax_lines(volume: Dict[str, Any]) -> str:
+    """故事骨架写进 volumes.climax 的高潮节点（有则比一句 climax_hint 具体得多）。"""
+    climax = volume.get("climax")
+    if not isinstance(climax, dict) or not str(climax.get("event") or "").strip():
+        return ""
+    lines = [f"骨架高潮（第{climax.get('chapter', '?')}章）：{climax['event']}"]
+    for key, label in (("reversal", "翻转"), ("cost", "代价"), ("protagonist_state_after", "高潮后主角状态")):
+        value = climax.get(key)
+        if isinstance(value, str) and value.strip():
+            lines.append(f"{label}：{value.strip()}")
+    return "\n".join(lines) + "\n"
+
+
+def _build_retrospective_input(
+    current: Dict[str, Any], next_volume: Dict[str, Any], volume_summary: str
+) -> str:
+    return (
+        "[本卷原规划]\n"
+        f"卷名：{current.get('name') or ''}\n"
+        f"章节范围：第{current['start_chapter']}-{current['end_chapter']}章\n"
+        f"本卷目标：{current.get('arc_goal') or '（未规划）'}\n"
+        f"高潮设想：{current.get('climax_hint') or '（未规划）'}\n"
+        + _climax_lines(current)
+        + "\n[本卷实际写成]\n"
+        f"{volume_summary[:_SUMMARY_LIMIT]}\n\n"
+        "[下一卷原规划]\n"
+        f"卷名：{next_volume.get('name') or ''}\n"
+        f"章节范围：第{next_volume['start_chapter']}-{next_volume['end_chapter']}章\n"
+        f"本卷目标：{next_volume.get('arc_goal') or '（未规划）'}\n"
+        f"高潮设想：{next_volume.get('climax_hint') or '（未规划）'}\n"
+        + _climax_lines(next_volume)
+    )
+
+
 class VolumeRetrospectiveService:
     """卷级复盘：写侧评审本卷 + 重规划下一卷，读侧注入重规划提示。"""
 
@@ -238,20 +272,7 @@ class VolumeRetrospectiveService:
             if not system_prompt:
                 logger.warning("缺少 volume_retrospective 提示词，跳过卷级复盘")
                 return None
-            user_input = (
-                "[本卷原规划]\n"
-                f"卷名：{current.get('name') or ''}\n"
-                f"章节范围：第{current['start_chapter']}-{current['end_chapter']}章\n"
-                f"本卷目标：{current.get('arc_goal') or '（未规划）'}\n"
-                f"高潮设想：{current.get('climax_hint') or '（未规划）'}\n\n"
-                "[本卷实际写成]\n"
-                f"{volume_summary[:_SUMMARY_LIMIT]}\n\n"
-                "[下一卷原规划]\n"
-                f"卷名：{next_volume.get('name') or ''}\n"
-                f"章节范围：第{next_volume['start_chapter']}-{next_volume['end_chapter']}章\n"
-                f"本卷目标：{next_volume.get('arc_goal') or '（未规划）'}\n"
-                f"高潮设想：{next_volume.get('climax_hint') or '（未规划）'}\n"
-            )
+            user_input = _build_retrospective_input(current, next_volume, volume_summary)
             result = await llm_service.generate_structured(
                 prompt=user_input,
                 schema=VolumeRetrospectiveResult,

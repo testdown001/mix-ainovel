@@ -231,6 +231,7 @@ def _build_volume_context(
                 "end": end,
                 "arc_goal": str(vol.get("arc_goal") or ""),
                 "climax_hint": str(vol.get("climax_hint") or ""),
+                "climax": vol.get("climax") if isinstance(vol.get("climax"), dict) else None,
             }
         )
     if not parsed:
@@ -265,6 +266,13 @@ def _build_volume_context(
         lines.append(f"  - 卷目标：{cur['arc_goal']}")
     if cur["climax_hint"]:
         lines.append(f"  - 卷高潮：{cur['climax_hint']}")
+    climax = cur.get("climax")
+    if isinstance(climax, dict) and str(climax.get("event") or "").strip():
+        lines.append(f"  - 骨架高潮节点（第 {climax.get('chapter', '?')} 章）：{climax['event']}")
+        for key, label in (("reversal", "翻转"), ("cost", "代价"), ("protagonist_state_after", "高潮后主角状态")):
+            value = climax.get(key)
+            if isinstance(value, str) and value.strip():
+                lines.append(f"    · {label}：{value.strip()}")
     lines.append(f"  - 本批卷内位置：{stage}")
     if current_idx > 0:
         prev = parsed[current_idx - 1]
@@ -275,6 +283,22 @@ def _build_volume_context(
         next_brief = nxt["arc_goal"] or nxt["climax_hint"] or "（无补充说明）"
         lines.append(f"- 下一卷：「{nxt['name']}」（第 {nxt['start']} ~ {nxt['end']} 章）：{next_brief}")
     return "\n".join(lines), stage_hint
+
+
+def _build_backbone_section(project: Any, batch_start: int, batch_end: int) -> str:
+    """故事骨架落在本区间的前置条件与高潮（续排章纲的硬约束）；无骨架或异常返回空串。"""
+    try:
+        from ...services.story_backbone_service import (
+            StoryBackboneService,
+            format_backbone_batch_constraints,
+        )
+
+        state = getattr(project, "concept_dossier", None)
+        backbone = StoryBackboneService.read_backbone(state) if isinstance(state, dict) else None
+        return format_backbone_batch_constraints(backbone, batch_start, batch_end)
+    except Exception as exc:  # noqa: BLE001 - 骨架是增益不是依赖
+        logger.debug("续排章纲骨架约束注入失败(已忽略): %s", exc)
+        return ""
 
 
 def _build_evaluation_history(
@@ -1334,6 +1358,9 @@ async def generate_chapters_outline(
     volume_section, volume_phase = _build_volume_context(
         blueprint_volumes, request.start_chapter, end_chapter
     )
+    backbone_section = _build_backbone_section(project, request.start_chapter, end_chapter)
+    if backbone_section:
+        volume_section = f"{volume_section}\n\n{backbone_section}" if volume_section else backbone_section
 
     progress_context = ""
     if estimated_total > 0:
@@ -1682,6 +1709,7 @@ async def _run_rolling_outline_review(
     settings_digest: str,
     blueprint_volumes: List[Any],
     outline_system_prompt: str,
+    backbone_constraints: str = "",
 ) -> Optional[Dict[str, Any]]:
     """续排章纲的滚动审稿门（旗舰档）：轻量审新排章 → 低分对点名区间定向修订一轮。
 
@@ -1735,6 +1763,7 @@ async def _run_rolling_outline_review(
         foreshadowing_ledger="\n".join(ledger_lines),
         volume_replan="\n".join(replan_lines),
         user_id=user_id,
+        backbone_constraints=backbone_constraints,
     )
     if report is None:
         return None
@@ -2010,6 +2039,9 @@ async def regenerate_chapter_outlines(
             )
             if batch_volume_section:
                 batch_prompt_parts.append(batch_volume_section)
+            batch_backbone_section = _build_backbone_section(project, batch_start, batch_end)
+            if batch_backbone_section:
+                batch_prompt_parts.append(batch_backbone_section)
 
             if rolling_map:
                 rolling_lines = _build_rolling_outline_context(
@@ -2154,6 +2186,9 @@ async def regenerate_chapter_outlines(
                         ),
                         blueprint_volumes=blueprint_volumes,
                         outline_system_prompt=outline_prompt,
+                        backbone_constraints=_build_backbone_section(
+                            project, min(new_outline_records), max(new_outline_records)
+                        ),
                     )
             except Exception as exc:  # noqa: BLE001 - 审稿门软失败
                 logger.warning("滚动章纲审稿门执行失败（跳过）: project=%s error=%s", project_id, exc)

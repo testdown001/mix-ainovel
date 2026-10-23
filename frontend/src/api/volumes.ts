@@ -35,6 +35,14 @@ export interface VolumePlan {
   climax_hint?: string
   retrospective?: VolumeRetrospective
   replan?: VolumeReplan
+  /** 故事骨架倒推出的卷末高潮节点（落在 volumes.extra，无骨架的旧蓝图没有） */
+  climax?: {
+    chapter?: number
+    event?: string
+    reversal?: string
+    cost?: string
+    protagonist_state_after?: string
+  }
 }
 
 export interface VolumeDivergenceCard {

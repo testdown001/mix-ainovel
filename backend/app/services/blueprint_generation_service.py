@@ -39,6 +39,16 @@ from ..services.llm_service import LLMService
 from ..services.novel_service import NovelService
 from ..services.prompt_service import PromptService
 from ..services.reference_novel_library_service import ReferenceNovelLibraryService
+from ..services.story_backbone_service import (
+    SetupCoverageReport,
+    StoryBackboneService,
+    climaxes_in_range,
+    format_backbone_batch_constraints,
+    format_backbone_for_prompt,
+    pending_setups_for_range,
+    reconcile_settings_with_backbone,
+    setup_coverage,
+)
 from ..utils.json_utils import (
     remove_think_tags,
     repair_json,
@@ -125,6 +135,8 @@ def _sanitize_volumes(raw_volumes: Any) -> List[Dict[str, Any]]:
                 "end_chapter": max(1, end),
                 "arc_goal": str(item.get("arc_goal") or ""),
                 "climax_hint": str(item.get("climax_hint") or ""),
+                # 骨架对账写入的高潮节点（落库进 volumes.extra），模型产出里没有
+                **({"climax": item["climax"]} if isinstance(item.get("climax"), dict) else {}),
             }
         )
     return volumes
@@ -204,6 +216,81 @@ def _merge_outline_items(
     return merged
 
 
+def _replace_outline_items(
+    existing: List[Dict[str, Any]], incoming: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """按 chapter_number 覆盖合并（补埋重写用）：incoming 赢，其余原样。"""
+    override = {item["chapter_number"]: item for item in incoming}
+    replaced = [override.pop(item["chapter_number"], item) for item in existing]
+    replaced.extend(override.values())
+    return replaced
+
+
+async def _retry_missing_setups(
+    *,
+    llm_service: LLMService,
+    outline_prompt: str,
+    settings_digest: str,
+    outline_items: List[Dict[str, Any]],
+    missing: List[Any],
+    planning_allowed: bool,
+    user_id: int,
+    project_id: str,
+) -> List[Dict[str, Any]]:
+    """补埋重问：对每条未埋的核心前置条件，只重写其窗口内最合适的一章。
+
+    只接受落在窗口并集内的章号，防模型顺手重写别的章；任何失败返回空列表（不阻断）。
+    """
+    by_number = {item["chapter_number"]: item for item in outline_items}
+    allowed: set = set()
+    lines: List[str] = []
+    for entry in missing:
+        window = range(entry.plant_from, entry.plant_to + 1)
+        allowed.update(number for number in window if number in by_number)
+        current = "\n".join(
+            f"  第{number}章《{by_number[number]['title']}》：{by_number[number]['summary']}"
+            for number in window if number in by_number
+        )
+        lines.append(
+            f"- 「{entry.name}」必须在第 {entry.plant_from}-{entry.plant_to} 章之间埋下，服务于第 {entry.climax_chapter} 章的{entry.serves}。"
+            f"该窗口现有章纲：\n{current or '  （无）'}"
+        )
+    if not allowed:
+        return []
+    task = (
+        "【补埋任务】以下故事骨架的核心前置条件在章纲里没有埋设：\n"
+        + "\n".join(lines)
+        + "\n\n请为每条前置条件只挑选其窗口内**最合适的一章**，重写该章章纲把它自然埋进去"
+        "（summary 体现埋设动作，foreshadowing_ops 含 {\"op\":\"plant\",\"name\":伏笔名}），"
+        "保留该章原有的主要事件与钩子。其余章节不要输出。"
+        '输出一个 JSON 对象 {"chapter_outline": [...]}，字段与既有章纲格式一致，不要输出任何解释。'
+    )
+    retry_input = f"{settings_digest}\n\n{task}"
+    if not planning_allowed:
+        retry_input += _PLAN_FIELDS_SKIP_NOTE
+    try:
+        raw = await llm_service.get_llm_response(
+            system_prompt=outline_prompt,
+            conversation_history=[{"role": "user", "content": retry_input}],
+            temperature=0.6,
+            user_id=user_id,
+            timeout=600.0,
+            max_retries=1,
+            max_tokens=OUTLINE_MAX_TOKENS,
+            reasoning_effort="low",
+        )
+        items = _extract_outline_items(_parse_stage_json(raw, project_id, "骨架补埋"))
+    except HTTPException:
+        return []
+    except Exception as exc:  # noqa: BLE001 - 补埋失败不阻断
+        logger.warning("项目 %s 骨架补埋调用失败: %s", project_id, exc)
+        return []
+    accepted = [item for item in items if item["chapter_number"] in allowed]
+    if len(accepted) != len(items):
+        logger.info("项目 %s 骨架补埋：丢弃窗口外章号 %s", project_id, [i["chapter_number"] for i in items if i["chapter_number"] not in allowed])
+    return accepted
+
+
 def _format_missing_ranges(missing: List[int]) -> str:
     """[31,32,...,50] → "31-50"；不连续 → "3、7-9"。"""
     if not missing:
@@ -226,6 +313,7 @@ def _build_settings_summary(
     promised: Optional[int] = None,
     *,
     dossier: Optional[Dict[str, Any]] = None,
+    backbone=None,
 ) -> str:
     """把设定段产出压缩为章纲段的输入摘要。
 
@@ -256,6 +344,10 @@ def _build_settings_summary(
                 f"- {volume['name'] or '未命名卷'}（第{volume['start_chapter']}-{volume['end_chapter']}章）："
                 f"{volume['arc_goal']}；卷末高潮：{volume['climax_hint']}"
             )
+
+    backbone_brief = format_backbone_for_prompt(backbone, with_setups=False)
+    if backbone_brief:
+        lines.append(backbone_brief)
 
     character_context = build_character_planning_context(settings_data, dossier=dossier)
     if character_context:
@@ -305,6 +397,7 @@ def _build_batch_task(
     batch_end: int,
     prev_tail: str,
     include_planning: bool,
+    backbone=None,
 ) -> str:
     """单批章纲的任务段（分批生成时替代 _build_settings_summary 的整段任务行）。"""
     parts: List[str] = []
@@ -312,6 +405,9 @@ def _build_batch_task(
         parts.append(
             "【前批已生成章纲的尾部（本批必须与其自然衔接，禁止重复其中事件）】\n" + prev_tail
         )
+    constraints = format_backbone_batch_constraints(backbone, batch_start, batch_end)
+    if constraints:
+        parts.append(constraints)
     count = batch_end - batch_start + 1
     parts.append(
         f"【任务】请为第 {batch_start}-{batch_end} 章生成章纲，共 {count} 章，"
@@ -482,12 +578,24 @@ async def generate_blueprint_for_project(
         logger.info("项目 %s 蓝图深度打磨档位不足，静默降级为快速成书", project_id)
     logger.info("项目 %s 开始生成蓝图（两段式, depth=%s）", project_id, effective_depth)
 
+    # 故事骨架（倒推规划产物）：存在即用，kill-switch 只管生成不管消费
+    backbone = StoryBackboneService.read_backbone(dossier_state)
+    backbone_ranges = StoryBackboneService.ranges_for(dossier_state, backbone) if backbone else []
+    if backbone and StoryBackboneService.is_stale(dossier_state):
+        logger.info("项目 %s 故事骨架早于当前立项书（作者改过骨架，未自动重算），照常使用", project_id)
+
     if dossier:
         dossier_text = format_dossier_for_prompt(dossier)
+        anchors: List[Dict[str, str]] = []
         if dossier_text:
             # 立项书作为首条 user 消息置顶：结构化锚点在前，对话散文只作细节补充
-            formatted_history = [{"role": "user", "content": dossier_text}] + formatted_history
+            anchors.append({"role": "user", "content": dossier_text})
             logger.info("项目 %s 蓝图设定段：已注入立项书锚点", project_id)
+        backbone_text = format_backbone_for_prompt(backbone)
+        if backbone_text:
+            anchors.append({"role": "user", "content": backbone_text})
+            logger.info("项目 %s 蓝图设定段：已注入故事骨架（%d 条前置条件）", project_id, len(backbone.all_setups()))
+        formatted_history = anchors + formatted_history
 
     # 采用的口吻属于本书确认偏好；候选试写和已停用的记忆不参与蓝图。
     from ..models.creative_memory import CreativeMemoryItem
@@ -544,6 +652,13 @@ async def generate_blueprint_for_project(
             detail="蓝图设定段生成失败：AI 未返回完整的设定结构（缺少标题）。请重试或联系管理员。",
         )
 
+    if backbone and backbone_ranges:
+        # 作者确认过的骨架赢：卷区间/高潮照骨架，缺的前置条件由代码补进伏笔清单
+        stats = reconcile_settings_with_backbone(settings_data, backbone, backbone_ranges)
+        logger.info(
+            "项目 %s 蓝图设定段与骨架对账：volumes_rewritten=%d setups_added=%d",
+            project_id, stats["volumes_rewritten"], stats["setups_added"],
+        )
     volumes = _sanitize_volumes(settings_data.get("volumes"))
     settings_data["volumes"] = volumes
     # 设定段不产章纲；防模型越界输出污染最终蓝图
@@ -574,7 +689,9 @@ async def generate_blueprint_for_project(
             f"{structure_reference}"
         )
     outline_prompt = _inject_blueprint_exclusions(outline_prompt, exclusions)
-    settings_digest = _build_settings_summary(settings_data, volumes, promised=None, dossier=dossier)
+    settings_digest = _build_settings_summary(
+        settings_data, volumes, promised=None, dossier=dossier, backbone=backbone
+    )
 
     outline_items: List[Dict[str, Any]] = []
     batch_total = math.ceil(promised / OUTLINE_BATCH_SIZE)
@@ -591,7 +708,9 @@ async def generate_blueprint_for_project(
             batch_start = batch_index * OUTLINE_BATCH_SIZE + 1
             batch_end = min(promised, batch_start + OUTLINE_BATCH_SIZE - 1)
             prev_tail = _format_outline_tail(outline_items) if outline_items else ""
-            batch_task = _build_batch_task(batch_start, batch_end, prev_tail, planning_allowed)
+            batch_task = _build_batch_task(
+                batch_start, batch_end, prev_tail, planning_allowed, backbone=backbone
+            )
             batch_input = f"{settings_digest}\n\n{batch_task}"
             logger.info(
                 "项目 %s 蓝图章纲段批次 %d/%d：第 %d-%d 章，input_len=%d",
@@ -688,6 +807,41 @@ async def generate_blueprint_for_project(
         )
 
     # ------------------------------------------------------------------
+    # 骨架回填覆盖断言（确定性）：核心前置条件在窗口内没埋 → 补问一次只重写窗口内一章
+    # 仍缺不阻断：覆盖报告进审稿门输入与 review_report.setup_coverage
+    # ------------------------------------------------------------------
+    coverage: Optional[SetupCoverageReport] = None
+    if backbone:
+        coverage = setup_coverage(backbone, outline_items, limit_chapter=promised)
+        missing_core = coverage.missing(core_only=True) if coverage else []
+        if missing_core:
+            logger.warning(
+                "项目 %s 骨架核心前置条件未埋 %d 条：%s，补问一次",
+                project_id, len(missing_core), [e.name for e in missing_core],
+            )
+            with span("blueprint_setup_coverage_retry", attributes={"project_id": project_id, "missing": len(missing_core)}):
+                fixed_items = await _retry_missing_setups(
+                    llm_service=llm_service,
+                    outline_prompt=outline_prompt,
+                    settings_digest=settings_digest,
+                    outline_items=outline_items,
+                    missing=missing_core,
+                    planning_allowed=planning_allowed,
+                    user_id=user_id,
+                    project_id=project_id,
+                )
+            if fixed_items:
+                outline_items = _replace_outline_items(outline_items, fixed_items)
+            coverage = setup_coverage(backbone, outline_items, limit_chapter=promised)
+            if coverage:
+                coverage.retried = True
+        if coverage:
+            logger.info(
+                "项目 %s 骨架回填覆盖：%d/%d（核心 %d/%d）",
+                project_id, coverage.planted, coverage.total, coverage.core_planted, coverage.core_total,
+            )
+
+    # ------------------------------------------------------------------
     # 蓝图审稿门：商业量表评审 → 低于阈值定向修订一轮 → 复审
     # fast / review_enabled=false 整段跳过；review_auto_revise=false 只审不修
     # 全程软失败：审稿/修订任何一步失败都跳过该步，绝不阻断落库
@@ -720,6 +874,7 @@ async def generate_blueprint_for_project(
                         stress_report=stress_report,
                         dossier=dossier,
                         user_id=user_id,
+                        coverage_text=coverage.to_prompt() if coverage else None,
                     )
                     if report is not None:
                         min_score = await reviewer.get_min_score()
@@ -741,11 +896,13 @@ async def generate_blueprint_for_project(
                                 user_id=user_id,
                                 exclusions=exclusions,
                             )
-                            # 设定块可能被重写：volumes 重新清洗，摘要重建供章纲修订用
+                            # 设定块可能被重写：骨架对账再做一次（volumes/foreshadowings 都在白名单里）
+                            if backbone and backbone_ranges:
+                                reconcile_settings_with_backbone(settings_data, backbone, backbone_ranges)
                             volumes = _sanitize_volumes(settings_data.get("volumes"))
                             settings_data["volumes"] = volumes
                             settings_digest = _build_settings_summary(
-                                settings_data, volumes, promised=None, dossier=dossier
+                                settings_data, volumes, promised=None, dossier=dossier, backbone=backbone
                             )
                             outline_items = await reviewer.revise_chapter_ranges(
                                 outline_items=outline_items,
@@ -755,12 +912,15 @@ async def generate_blueprint_for_project(
                                 user_id=user_id,
                                 extract_items=_extract_outline_items,
                             )
+                            if backbone:
+                                coverage = setup_coverage(backbone, outline_items, limit_chapter=promised)
                             second = await reviewer.review(
                                 settings_data=settings_data,
                                 outline_items=outline_items,
                                 stress_report=stress_report,
                                 dossier=dossier,
                                 user_id=user_id,
+                                coverage_text=coverage.to_prompt() if coverage else None,
                             )
                             if second is not None:
                                 report = second
@@ -770,6 +930,11 @@ async def generate_blueprint_for_project(
                         review_report_dict = report.model_dump()
         except Exception as exc:  # noqa: BLE001 - 审稿门整体软失败
             logger.warning("项目 %s 蓝图审稿门执行失败（跳过，不阻断落库）: %s", project_id, exc)
+    if coverage:
+        # 审稿门跳过（快速成书）时也要有落点：只含覆盖报告的最小字典，前端按「无评分」渲染
+        if review_report_dict is None:
+            review_report_dict = {"coverage_only": True}
+        review_report_dict["setup_coverage"] = coverage.model_dump()
 
     # ------------------------------------------------------------------
     # 组装 + 校验 + 落库（保持原有错误契约）
@@ -855,6 +1020,7 @@ async def generate_blueprint_for_project(
             dossier=dossier,
             stress_report=stress_report,
             exclusions=exclusions,
+            backbone=backbone,
         )
         if seeded:
             await session.commit()

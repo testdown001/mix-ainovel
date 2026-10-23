@@ -177,6 +177,9 @@ class BlueprintVolume(BaseModel):
     end_chapter: int = 1
     arc_goal: str = ""
     climax_hint: str = ""
+    # 故事骨架对账写入的卷末高潮节点（chapter/event/reversal/cost/protagonist_state_after）；
+    # 落库进 volumes.extra，无骨架的蓝图为 None
+    climax: Optional[Dict[str, Any]] = None
 
 
 class Blueprint(BaseModel):

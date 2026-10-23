@@ -1269,6 +1269,165 @@ async def apply_dossier_fixes(
     return {"status": "ok", "dossier": state.get("dossier"), "stress_report": state.get("stress_report")}
 
 
+# ---------------------------------------------------------------------------
+# 故事骨架（倒推规划：终局 → 卷高潮 → 前置条件）：确认页的读取/编辑/重算入口
+# ---------------------------------------------------------------------------
+
+
+def _backbone_response(service, state: Dict[str, Any], *, enabled: bool) -> Dict[str, Any]:
+    from ...schemas.concept_dossier import BackboneResponse
+
+    backbone = service.read_backbone(state)
+    meta = state.get("backbone_meta") if isinstance(state.get("backbone_meta"), dict) else {}
+    return BackboneResponse(
+        status="ready" if backbone is not None else "absent",
+        backbone=backbone.model_dump() if backbone is not None else None,
+        generated_at=meta.get("generated_at"),
+        revised_by_author=bool(meta.get("revised_by_author")),
+        stale=service.is_stale(state) if backbone is not None else False,
+        enabled=enabled,
+    ).model_dump()
+
+
+@router.get("/{project_id}/concept/backbone")
+async def get_story_backbone(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """读取故事骨架；立项书就绪而骨架未生成时同步补齐（后台链大概率已跑完，
+    per-project 锁防双跑）。无立项书 / 开关关闭 / 生成失败 → status=absent，确认页不显示该卡。"""
+    from ...services.story_backbone_service import StoryBackboneService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    service = StoryBackboneService(session)
+    enabled = await service.is_enabled()
+    state = service.get_state(project)
+    if enabled and isinstance(state.get("dossier"), dict):
+        needs_run = service.read_backbone(state) is None or (
+            service.is_stale(state)
+            and not (state.get("backbone_meta") or {}).get("revised_by_author")
+        )
+        if needs_run:
+            state = await service.ensure_backbone(project_id, current_user.id)
+    return _backbone_response(service, state, enabled=enabled)
+
+
+@router.patch("/{project_id}/concept/backbone")
+async def patch_story_backbone(
+    project_id: str,
+    payload: Dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """分块编辑骨架：endgame / first_promise / midpoint 浅合并，climaxes 按 {"<卷序>": {...}} 合并。
+    作者改过的块在立项书变动后不会被自动重算覆盖。"""
+    from ...services.story_backbone_service import StoryBackboneService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    partial = payload.get("backbone")
+    if not isinstance(partial, dict) or not partial:
+        raise HTTPException(status_code=400, detail="缺少 backbone 更新内容")
+
+    service = StoryBackboneService(session)
+    if service.read_backbone(service.get_state(project)) is None:
+        raise HTTPException(status_code=404, detail="故事骨架尚未生成，无法编辑")
+    try:
+        state = await service.patch_backbone(project, partial)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"骨架内容不合法: {str(exc)[:200]}") from exc
+    logger.info("项目 %s 故事骨架分块编辑：keys=%s", project_id, list(partial.keys()))
+    return _backbone_response(service, state, enabled=True)
+
+
+@router.post("/{project_id}/concept/backbone/regenerate")
+async def regenerate_story_backbone(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """按当前立项书重算骨架；作者改过的块原样保留。"""
+    from ...services.story_backbone_service import StoryBackboneService
+
+    novel_service = NovelService(session)
+    project = await novel_service.ensure_project_owner(project_id, current_user.id)
+
+    service = StoryBackboneService(session)
+    if not await service.is_enabled():
+        raise HTTPException(status_code=409, detail="故事骨架功能已由平台关闭")
+    if not isinstance(service.get_state(project).get("dossier"), dict):
+        raise HTTPException(status_code=409, detail="立项书尚未生成，无法倒推骨架")
+    before = service.get_state(project).get("backbone_meta") or {}
+    state = await service.ensure_backbone(project_id, current_user.id, force=True)
+    after = state.get("backbone_meta") or {}
+    if after.get("generated_at") == before.get("generated_at"):
+        raise HTTPException(status_code=502, detail="骨架重算失败，已保留原骨架，请稍后重试")
+    logger.info("项目 %s 故事骨架已重算", project_id)
+    return _backbone_response(service, state, enabled=True)
+
+
+@router.get("/{project_id}/concept/backbone/alternatives")
+async def list_backbone_alternatives(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """读取上次生成、尚未采用的备选终局方向。"""
+    from ...schemas.concept_dossier import BackboneAlternativesResponse
+    from ...services.story_backbone_service import StoryBackboneService
+
+    project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    items, generated_at = StoryBackboneService.list_alternatives(StoryBackboneService.get_state(project))
+    return BackboneAlternativesResponse(alternatives=items, generated_at=generated_at).model_dump()
+
+
+@router.post("/{project_id}/concept/backbone/alternatives")
+async def generate_backbone_alternatives(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """高温生成 2 个与现方案本质不同的终局方向（只有终局与各卷高潮事件，不含前置条件）。"""
+    from ...schemas.concept_dossier import BackboneAlternativesResponse
+    from ...services.story_backbone_service import StoryBackboneService
+
+    project = await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    service = StoryBackboneService(session)
+    if service.read_backbone(service.get_state(project)) is None:
+        raise HTTPException(status_code=409, detail="故事骨架尚未生成，无法给出备选方向")
+    items = await service.generate_alternatives(project, current_user.id)
+    if not items:
+        raise HTTPException(status_code=502, detail="备选终局生成失败，请稍后重试")
+    _, generated_at = service.list_alternatives(service.get_state(project))
+    return BackboneAlternativesResponse(alternatives=items, generated_at=generated_at).model_dump()
+
+
+@router.post("/{project_id}/concept/backbone/alternatives/apply")
+async def apply_backbone_alternative(
+    project_id: str,
+    payload: Dict[str, Any] = Body(...),
+    session: AsyncSession = Depends(get_session),
+    current_user: UserInDB = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """采用某个备选方向：以它为锚点重新倒推骨架（补前置条件）；原骨架失败时保留。"""
+    from ...services.story_backbone_service import StoryBackboneService
+
+    await NovelService(session).ensure_project_owner(project_id, current_user.id)
+    alternative_id = str(payload.get("alternative_id") or "").strip()
+    if not alternative_id:
+        raise HTTPException(status_code=400, detail="缺少 alternative_id")
+    service = StoryBackboneService(session)
+    state = await service.apply_alternative(project_id, current_user.id, alternative_id)
+    if state is None:
+        raise HTTPException(status_code=502, detail="采用备选方向失败（方向不存在或重新倒推失败），已保留原骨架")
+    logger.info("项目 %s 已采用备选终局 %s", project_id, alternative_id)
+    return _backbone_response(service, state, enabled=True)
+
+
 @router.get("/{project_id}/concept/voice-trial")
 async def get_concept_voice_trial(
     project_id: str, session: AsyncSession = Depends(get_session),

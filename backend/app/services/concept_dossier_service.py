@@ -544,8 +544,14 @@ async def background_ensure_dossier(project_id: str, user_id: int, *, run_stress
 
     try:
         async with AsyncSessionLocal() as session:
-            await ConceptDossierService(session).ensure_dossier(
+            state = await ConceptDossierService(session).ensure_dossier(
                 project_id, user_id, run_stress=run_stress
             )
     except Exception as exc:  # noqa: BLE001 - 后台任务绝不外抛
         logger.warning("项目 %s 后台立项书蒸馏失败: %s", project_id, exc)
+        return
+    # 立项书就绪 → 同一后台链上接着倒推故事骨架（确认页 GET /concept/backbone 同步兜底）
+    if isinstance(state.get("dossier"), dict):
+        from .story_backbone_service import background_ensure_backbone
+
+        await background_ensure_backbone(project_id, user_id)

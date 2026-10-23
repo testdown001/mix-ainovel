@@ -88,6 +88,14 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         ),
     ),
     SystemConfigDefault(
+        key="blueprint.backbone_enabled",
+        value_getter=lambda _: "true",
+        description=(
+            "故事骨架（倒推规划：先定终局与各卷高潮，再回填前置条件作伏笔）平台级熔断。"
+            "所有档位都跑、不计费；false 时蓝图退回无骨架的旧路径。"
+        ),
+    ),
+    SystemConfigDefault(
         key="pregen.mission_enabled",
         value_getter=lambda _: "true",
         description=(

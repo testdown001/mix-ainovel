@@ -451,7 +451,7 @@ class NovelService:
         record.full_synopsis = blueprint.full_synopsis
         record.world_setting = blueprint.world_setting
         record.golden_finger = blueprint.golden_finger
-        record.volumes = [volume.model_dump() for volume in (blueprint.volumes or [])]
+        record.volumes = [volume.model_dump(exclude_none=True) for volume in (blueprint.volumes or [])]
         # M1：先建立独立卷实体，再继续写章纲。旧 JSON 仍保留为生成/复盘链路的兼容投影。
         from .volume_service import VolumeService
 
