@@ -261,14 +261,15 @@
     <!-- Checkout dialog（真实下单：渠道选择 → 创建订单 → 跳转支付） -->
     <div v-if="showCheckout" class="fixed inset-0 z-50 flex items-center justify-center"
       style="background:rgba(0,0,0,0.7);" @click.self="closeCheckout">
-      <div class="rounded-2xl border p-8 max-w-sm w-full mx-4 text-center"
+      <div ref="checkoutDialogEl" role="dialog" aria-modal="true" aria-labelledby="checkout-title"
+        class="rounded-2xl border p-8 max-w-sm w-full mx-4 text-center"
         style="background:var(--md-surface); border-color:var(--md-outline);">
         <div class="w-12 h-12 rounded-xl mx-auto mb-4 flex items-center justify-center" style="background:rgba(255,229,0,0.1);">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="color:var(--md-primary);">
             <path stroke-linecap="round" stroke-linejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
           </svg>
         </div>
-        <h3 class="text-lg font-bold text-white mb-3">
+        <h3 id="checkout-title" class="text-lg font-bold text-white mb-3">
           {{ pendingTier === 'flagship' ? '订阅旗舰版' : '订阅创作者版' }}
         </h3>
         <div class="flex items-center justify-center gap-2 mb-4">
@@ -316,6 +317,8 @@ import { plansApi, type PlanCapability } from '@/api/plans'
 import { paymentApi, type Plan } from '@/api/payment'
 import { resolvePlanForTier } from '@/utils/planResolve'
 import { useAuthStore } from '@/stores/auth'
+import { useModalA11y } from '@/composables/useModalA11y'
+import { openPaymentWindow } from '@/utils/paymentWindow'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -329,6 +332,8 @@ const checkoutLoading = ref(false)
 const checkoutError = ref('')
 const checkoutUrl = ref('')
 const pendingTier = ref<'creator' | 'flagship' | null>(null)
+// 渠道顺序与默认值和 SubscriptionPanel / CreditLedger 保持一致（后端没有「已启用渠道」公开接口，
+// 三处都用同一份静态清单；改默认渠道请三处一起改）
 const selectedChannel = ref<'stripe' | 'alipay' | 'wechat'>('stripe')
 const channelOptions: { value: 'stripe' | 'alipay' | 'wechat'; label: string }[] = [
   { value: 'stripe', label: 'Stripe' },
@@ -336,6 +341,12 @@ const channelOptions: { value: 'stripe' | 'alipay' | 'wechat'; label: string }[]
   { value: 'wechat', label: '微信支付' },
 ]
 const backendPlans = ref<Plan[]>([])
+const checkoutDialogEl = ref<HTMLElement | null>(null)
+useModalA11y({
+  open: () => showCheckout.value,
+  container: checkoutDialogEl,
+  onClose: () => closeCheckout(),
+})
 
 // 各档位解锁的高级能力（来自后端 /plans/public，与门控/后台配置同源）
 const capsByTier = ref<Record<string, PlanCapability[]>>({})
@@ -510,6 +521,8 @@ const createCheckoutOrder = async () => {
   checkoutLoading.value = true
   checkoutError.value = ''
   checkoutUrl.value = ''
+  // 在任何 await 之前同步开窗：await 之后的 window.open 已不算用户手势，会被拦截弹窗
+  const payWindow = openPaymentWindow()
   try {
     if (!backendPlans.value.length) {
       try {
@@ -523,11 +536,12 @@ const createCheckoutOrder = async () => {
     const result = await paymentApi.createOrder(dbId, selectedChannel.value)
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
-      window.open(result.pay_url, '_blank')
+      payWindow.navigate(result.pay_url)
     } else {
       throw new Error('未获取到支付链接，请换一个支付方式重试')
     }
   } catch (err: any) {
+    payWindow.close()
     checkoutError.value = err?.message || '创建订单失败，请稍后重试'
   } finally {
     checkoutLoading.value = false

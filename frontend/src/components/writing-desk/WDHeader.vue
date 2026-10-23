@@ -13,7 +13,7 @@
           </div>
           <div class="save-state">
             <span class="save-dot"></span>
-            <span>{{ autosaveText || '已自动保存' }}</span>
+            <span>{{ autosaveText || '编辑内容会自动存为本机草稿' }}</span>
           </div>
         </div>
       </div>
@@ -74,7 +74,7 @@
     <div v-if="precheckOpen" class="modal-backdrop" @click.self="precheckOpen = false">
       <div class="precheck-modal">
         <div class="modal-heading"><div><small>CONSISTENCY CHECK</small><h3>投稿预检</h3></div><button type="button" @click="precheckOpen = false">×</button></div>
-        <p>对照平台词表扫描已完稿正文。命中只提示，不会阻止导出或继续写作。</p>
+        <p>对照平台词表扫描已定稿正文。命中只提示，不会阻止导出或继续写作。</p>
         <select v-model="precheckPlatform">
           <option value="qidian">起点</option><option value="fanqie">番茄</option><option value="jjwxc">晋江</option>
         </select>
@@ -162,7 +162,7 @@ async function exportBook(format: 'txt' | 'markdown' | 'docx') {
   exportOpen.value = false
   try {
     await NovelAPI.exportManuscript(props.project.id, format)
-    globalAlert.showSuccess('已开始下载已完稿章节；服务器不会保留导出文件。', '导出全书')
+    globalAlert.showSuccess('已开始下载已定稿章节；服务器不会保留导出文件。', '导出全书')
   } catch (error) {
     globalAlert.showError(error instanceof Error ? error.message : '导出失败', '导出全书')
   } finally {

@@ -243,7 +243,7 @@
               >
                 <span class="tool-action-icon">■</span>
                 <span>
-                  <strong>{{ props.batchStopping ? '停止中…' : '停止连续生成' }}</strong>
+                  <strong>{{ props.batchStopping ? (props.batchStoppingLabel || '停止中…') : '停止连续生成' }}</strong>
                   <small>{{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }} 章</small>
                 </span>
               </button>
@@ -428,7 +428,7 @@
           </div>
           <div v-else class="p-6 pb-4">
             <div class="flex items-center justify-between mb-4">
-              <h3 class="md-title-medium font-semibold">章节大纲</h3>
+              <h3 class="md-title-medium font-semibold">章纲</h3>
               <div class="flex items-center gap-2">
                 <!-- 预设选择按钮 -->
                 <button
@@ -590,7 +590,7 @@
                         class="md-chip"
                         style="background-color: var(--md-success-container); color: var(--md-on-success-container);"
                       >
-                        已完成
+                        已定稿
                       </span>
                       <span
                         v-else-if="isChapterGenerating(chapter.chapter_number)"
@@ -684,7 +684,7 @@
               <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4zM18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9z"></path>
               </svg>
-              <p>暂无章节大纲</p>
+              <p>暂无章纲</p>
             </div>
             <div v-if="selectedForDeletion.length > 0" class="mt-4">
               <button
@@ -744,7 +744,7 @@
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
                 </svg>
-                <span>{{ props.batchStopping ? '停止中…' : '取消连续生成' }} ({{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }})</span>
+                <span>{{ props.batchStopping ? (props.batchStoppingLabel || '停止中…') : '取消连续生成' }} ({{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }})</span>
               </button>
             </div>
             <div class="mt-3">
@@ -888,6 +888,8 @@ interface Props {
   batchProgress: { current: number; total: number } | null
   /** 已请求停止，等待网关确认；期间停止键不可再点 */
   batchStopping?: boolean
+  /** 停止中的说明文案：SSE 模式「当前章完成后结束」、异步模式「等待网关确认」 */
+  batchStoppingLabel?: string
   selectedPreset?: string
   selectedSkillCount?: number
   agentEnabled?: boolean
@@ -1082,7 +1084,7 @@ const workflowSubtitle = computed(() => {
   if (!totalChapters.value) return '先把蓝图转成可执行章节'
   if (waitingChapter.value) return `第 ${waitingChapter.value.chapter_number} 章等待选版`
   if (firstIncompleteChapter.value) return `下一步推进第 ${firstIncompleteChapter.value.chapter_number} 章`
-  return '已完成当前大纲，可做体检或继续扩展'
+  return '当前章纲已全部定稿，可做体检或继续扩展'
 })
 
 const workflowSteps = computed(() => [
@@ -1094,7 +1096,7 @@ const workflowSteps = computed(() => [
   },
   {
     key: 'outline',
-    label: totalChapters.value ? `${totalChapters.value} 章大纲` : '生成章节大纲',
+    label: totalChapters.value ? `${totalChapters.value} 章章纲` : '生成章纲',
     done: totalChapters.value > 0,
     active: !!props.project.blueprint && totalChapters.value === 0,
   },
@@ -1111,7 +1113,7 @@ const nextWorkflowAction = computed(() => {
     return {
       type: 'generate-outline',
       enabled: !props.isGeneratingOutline,
-      label: props.isGeneratingOutline ? '正在生成大纲' : '生成章节大纲',
+      label: props.isGeneratingOutline ? '正在生成章纲' : '生成章纲',
       hint: '把蓝图拆成可写章节',
       chapterNumber: null,
     }
@@ -1475,7 +1477,7 @@ const compactChapterStatus = (chapterNumber: number) => {
     evaluating: '评审中',
     failed: '失败',
     confirm: '待选版',
-    done: '已完成',
+    done: '已定稿',
     planned: '已规划',
   }
   return labels[compactChapterState(chapterNumber)]

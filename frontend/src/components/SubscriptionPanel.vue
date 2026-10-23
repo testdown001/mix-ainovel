@@ -17,7 +17,7 @@
         <div>
           <div v-if="isTrialing" class="flex items-center gap-2 mb-0.5">
             <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background:#FFE500;color:#000;">试用中</span>
-            <span class="text-xs" style="color:#888888;">创作者版完整功能</span>
+            <span class="text-xs" style="color:#888888;">{{ tierName }}完整功能</span>
           </div>
           <div class="font-semibold text-white text-sm">{{ currentPlanName }}</div>
           <div class="text-xs mt-0.5" :style="isTrialing ? 'color:#FFE500;' : 'color:#888888;'">
@@ -274,9 +274,15 @@ const currentPlan = computed(() => {
   if (subscription.value?.status === 'active') return 'premium'
   return 'free'
 })
+// 试用 = 有会员但从未付过款（与后台「试用未转化」的 has_paid_order 口径一致）。
+// 原判定 `is_premium && !subscription` 永远不成立：getSubscription 对任何会员都返回非空。
+// 订单列表拿不到时按「非试用」处理，宁可不显示试用横幅也不乱标。
+const hasPaidOrder = ref<boolean | null>(null)
 const isTrialing = computed(() => {
-  return authStore.user?.is_premium && !subscription.value
+  return !!subscription.value && hasPaidOrder.value === false
 })
+const TIER_NAME: Record<string, string> = { creator: '创作者版', flagship: '旗舰版' }
+const tierName = computed(() => TIER_NAME[subscription.value?.plan_tier || ''] || '会员版')
 // 试用剩余天数按真实到期时间算；拿不到到期时间就不显示天数（原来写死 2 天，人人都是「还剩 2 天」）
 const trialExpiresAt = ref<string | null>(null)
 const trialDaysLeft = computed<number | null>(() => {
@@ -286,7 +292,9 @@ const trialDaysLeft = computed<number | null>(() => {
   if (!Number.isFinite(end)) return null
   return Math.max(0, Math.ceil((end - Date.now()) / 86_400_000))
 })
-const currentPlanName = computed(() => isTrialing.value ? '创作者版（试用中）' : (currentPlan.value === 'premium' ? '订阅中' : '免费版'))
+const currentPlanName = computed(() =>
+  isTrialing.value ? `${tierName.value}（试用中）` : (currentPlan.value === 'premium' ? `${tierName.value} · 订阅中` : '免费版'),
+)
 
 const scrollToPlans = () => {
   plansRef.value?.scrollIntoView({ behavior: 'smooth' })
@@ -455,6 +463,9 @@ const handleUpgrade = async (plan: DisplayPlan) => {
   checkoutLoading.value = true
   checkoutError.value = ''
   checkoutUrl.value = ''
+  // 支付页必须在点击的同步阶段先开好窗口：await 之后再 window.open 会被弹窗拦截器挡掉。
+  // 开不出来（被拦）就退回弹窗里的「手动打开支付页」链接。
+  const popup = window.open('', '_blank')
 
   try {
     // 后端支持渠道: stripe / alipay / wechat。此处默认走 Stripe（用户指定）。
@@ -466,12 +477,14 @@ const handleUpgrade = async (plan: DisplayPlan) => {
     const result = await paymentApi.createOrder(planId, selectedChannel.value)
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
-      window.open(result.pay_url, '_blank')
+      if (popup) popup.location.href = result.pay_url
     } else {
       // 原来这里没有 else：弹窗停在「即将跳转到支付页面」，既无按钮也无报错
+      popup?.close()
       checkoutError.value = '支付渠道未返回支付链接，请换一个支付方式或稍后重试'
     }
   } catch (err: any) {
+    popup?.close()
     checkoutError.value = err?.message || '创建订单失败，请稍后重试'
   } finally {
     checkoutLoading.value = false
@@ -491,6 +504,14 @@ onMounted(async () => {
     trialExpiresAt.value = subscription.value?.current_period_end ?? null
   } catch {
     // not critical — user may not be authenticated
+  }
+  if (subscription.value) {
+    try {
+      const orders = await paymentApi.listOrders(1, 50)
+      hasPaidOrder.value = (orders.items || []).some((o) => o.status === 'paid')
+    } catch {
+      hasPaidOrder.value = null
+    }
   }
 })
 </script>

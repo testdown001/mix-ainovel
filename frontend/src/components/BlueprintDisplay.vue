@@ -104,7 +104,7 @@ const confirmBlueprint = () => {
 
 const formattedBlueprint = computed(() => {
   if (!props.blueprint) {
-    return '<p class="bp-error">抱歉，生成大纲失败，未能获取到最终数据。</p>'
+    return '<p class="bp-error">抱歉，生成蓝图失败，未能获取到最终数据。</p>'
   }
 
   const blueprint = props.blueprint
@@ -528,7 +528,7 @@ const formattedBlueprint = computed(() => {
     ${createSection('角色关系', formatRelationships(blueprint.relationships || []), icons.relationships)}
     ${volumesHTML ? createSection('分卷规划', volumesHTML, icons.chapters) : ''}
     ${foreshadowingsHTML ? createSection('伏笔清单', foreshadowingsHTML, icons.story) : ''}
-    ${createSection('章节大纲', chaptersHTML, icons.chapters)}
+    ${createSection('章纲', chaptersHTML, icons.chapters)}
   `
 })
 </script>
@@ -581,6 +581,16 @@ const formattedBlueprint = computed(() => {
 .bp-btn-icon {
   width: 18px;
   height: 18px;
+}
+
+@media (max-width: 640px) {
+  .bp-actions { flex-direction: column; align-items: stretch; }
+  .bp-actions .md-btn { width: 100%; justify-content: center; }
+  :deep(.bp-hero-title) { font-size: 20px; }
+  :deep(.bp-section-head), :deep(.bp-card-head), :deep(.bp-hero-tags) { flex-wrap: wrap; gap: 6px; }
+  :deep(.bp-kv) { flex-direction: column; gap: 2px; }
+  :deep(.bp-metrics) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :deep(.bp-review-score) { min-width: 0; }
 }
 
 .bp-saving { text-align: center; padding: 28px 0 8px; }

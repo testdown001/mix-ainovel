@@ -3,6 +3,7 @@
   <div class="home-page">
     <div v-if="showModal" class="modal-backdrop" role="presentation" @click.self="closeModal">
       <section
+        ref="updatesModalEl"
         class="updates-modal"
         role="dialog"
         aria-modal="true"
@@ -371,6 +372,7 @@ import { getLatestUpdates } from '@/api/updates'
 import { NovelAPI } from '@/api/novel'
 import { formatRelativeTime } from '@/utils/date'
 import AppTopNav from '@/components/shared/AppTopNav.vue'
+import { useModalA11y } from '@/composables/useModalA11y'
 import type { UpdateLog } from '@/api/updates'
 import type { NovelProjectSummary } from '@/api/novel'
 
@@ -381,6 +383,12 @@ const route = useRoute()
 const authStore = useAuthStore()
 
 const showModal = ref(false)
+const updatesModalEl = ref<HTMLElement | null>(null)
+useModalA11y({
+  open: () => showModal.value,
+  container: updatesModalEl,
+  onClose: () => closeModal(),
+})
 const updateLogs = ref<UpdateLog[]>([])
 const novels = ref<NovelProjectSummary[]>([])
 const loadingNovels = ref(true)

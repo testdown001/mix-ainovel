@@ -3,25 +3,25 @@
   <teleport to="body">
     <transition name="modal-fade">
       <div v-if="visible" class="modal-overlay" @click.self="visible = false">
-        <div class="modal-card">
+        <div ref="modalCardEl" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reference-library-title">
 
           <!-- Header -->
           <div class="modal-header">
-            <div class="modal-title">
+            <div id="reference-library-title" class="modal-title">
               <svg class="modal-icon" fill="none" stroke="#FFE500" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
               本书参考资料
             </div>
-            <button class="modal-close" @click="visible = false">
-              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <button class="modal-close" type="button" aria-label="关闭参考资料" @click="visible = false">
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
 
-          <!-- Body -->
-          <div class="modal-body">
+          <!-- Body：宽屏左右两栏；≤640px 时同一时刻只显示列表或详情（原来直接把详情藏掉，手机上永远看不到档案） -->
+          <div class="modal-body" :class="{ 'is-detail-open': selectedNovelId !== null }">
 
             <!-- LEFT: list panel -->
             <div class="list-panel">
@@ -177,6 +177,17 @@
 
             <!-- RIGHT: detail panel -->
             <div class="detail-panel">
+              <button
+                v-if="selectedNovelId"
+                type="button"
+                class="detail-back"
+                @click="selectedNovelId = null"
+              >
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                返回列表
+              </button>
               <div v-if="!selectedNovelId" class="detail-empty">
                 <svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: #2A2A2A; margin-bottom: 12px;">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -205,6 +216,7 @@ import {
   type ReferenceNovelCreatePayload
 } from '@/api/novel'
 import ReferenceNovelDetail from '@/components/ReferenceNovelDetail.vue'
+import { useModalA11y } from '@/composables/useModalA11y'
 
 const props = withDefaults(defineProps<{
   show?: boolean
@@ -223,6 +235,14 @@ const emit = defineEmits<{
 }>()
 
 const visible = ref(false)
+const modalCardEl = ref<HTMLElement | null>(null)
+useModalA11y({
+  open: () => visible.value,
+  container: modalCardEl,
+  onClose: () => {
+    visible.value = false
+  },
+})
 const novels = ref<ReferenceNovelSummary[]>([])
 const searchTerm = ref('')
 const newTitle = ref('')
@@ -769,6 +789,22 @@ const statusLabel = (novel: SummaryWithError) => {
   padding: 18px 22px;
 }
 
+/* 「返回列表」只在窄屏单栏模式下出现 */
+.detail-back {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #2A2A2A;
+  background: transparent;
+  color: #aaa;
+  font-size: 12px;
+  cursor: pointer;
+}
+.detail-back:hover { color: #fff; border-color: #444; }
+
 .detail-panel::-webkit-scrollbar { width: 4px; }
 .detail-panel::-webkit-scrollbar-track { background: transparent; }
 .detail-panel::-webkit-scrollbar-thumb { background: #2A2A2A; border-radius: 4px; }
@@ -805,6 +841,10 @@ const statusLabel = (novel: SummaryWithError) => {
 
 @media (max-width: 640px) {
   .modal-body { grid-template-columns: 1fr; }
-  .detail-panel { display: none; }
+  /* 单栏：没选书时显示列表，选了书显示详情 + 返回列表 */
+  .modal-body.is-detail-open .list-panel { display: none; }
+  .modal-body:not(.is-detail-open) .detail-panel { display: none; }
+  .list-panel { border-right: none; }
+  .detail-back { display: inline-flex; }
 }
 </style>

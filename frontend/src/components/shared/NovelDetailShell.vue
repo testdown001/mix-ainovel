@@ -267,9 +267,10 @@
     >
       <div v-if="isSharePanelOpen && !isAdmin" class="fixed inset-0 z-50 flex items-center justify-center" style="background: rgba(0,0,0,0.6);">
         <div class="absolute inset-0" @click="isSharePanelOpen = false"></div>
-        <div class="relative w-full max-w-lg mx-4 rounded-2xl border" style="background: #141414; border-color: #2A2A2A;" @click.stop>
+        <div ref="sharePanelEl" role="dialog" aria-modal="true" aria-labelledby="share-panel-title"
+          class="relative w-full max-w-lg mx-4 rounded-2xl border" style="background: #141414; border-color: #2A2A2A;" @click.stop>
           <div class="px-6 py-5 border-b" style="border-color: #2A2A2A;">
-            <h3 class="text-lg font-semibold text-white">公开分享</h3>
+            <h3 id="share-panel-title" class="text-lg font-semibold text-white">公开分享</h3>
             <p class="text-xs mt-1.5 leading-5" style="color: #888;">任何人凭此链接可免登录阅读已完稿章节；关闭分享后链接立刻失效。</p>
           </div>
           <div class="px-6 py-5 space-y-4">
@@ -351,6 +352,7 @@ import type { CoverGenerationOptions, GenerateCoverPayload, NovelCoverInfo, Nove
 import { formatDateTime } from '@/utils/date'
 import { userFacingMessage } from '@/utils/apiError'
 import { globalAlert } from '@/composables/useAlert'
+import { useModalA11y } from '@/composables/useModalA11y'
 import BlueprintEditModal from '@/components/BlueprintEditModal.vue'
 import OverviewSection from '@/components/novel-detail/OverviewSection.vue'
 import WorldSettingSection from '@/components/novel-detail/WorldSettingSection.vue'
@@ -550,6 +552,15 @@ const shareEnabled = ref(false)
 const shareToken = ref<string | null>(null)
 const shareBusy = ref(false)
 const isSharePanelOpen = ref(false)
+const sharePanelEl = ref<HTMLElement | null>(null)
+useModalA11y({
+  open: () => isSharePanelOpen.value,
+  container: sharePanelEl,
+  onClose: () => {
+    isSharePanelOpen.value = false
+  },
+  closeOnEscape: () => !shareBusy.value,
+})
 const shareCopied = ref(false)
 
 const shareUrl = computed(() =>
@@ -601,6 +612,12 @@ const handleShareClick = async () => {
 
 const disableShare = async () => {
   if (shareBusy.value) return
+  // 关闭即作废：已经发出去的链接会立刻 404，再次开启会生成新链接，旧链接救不回来
+  const confirmed = await globalAlert.showConfirm(
+    '关闭后，已发出去的分享链接会立即失效；再次开启分享会生成一个新链接，旧链接无法恢复。确定关闭吗？',
+    '关闭公开分享',
+  )
+  if (!confirmed) return
   shareBusy.value = true
   try {
     await shareApi.disable(projectId)
@@ -609,7 +626,7 @@ const disableShare = async () => {
     isSharePanelOpen.value = false
   } catch (error) {
     console.error('关闭分享失败:', error)
-    alert(error instanceof Error ? error.message : '关闭分享失败')
+    globalAlert.showError(userFacingMessage(error, '关闭分享失败'), '公开分享')
   } finally {
     shareBusy.value = false
   }

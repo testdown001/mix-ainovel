@@ -224,6 +224,7 @@ import type { Chapter } from '@/api/novel'
 import { NovelAPI, OptimizerAPI } from '@/api/novel'
 import { ModelCatalogAPI } from '@/api/model_catalog'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
+import { userFacingMessage } from '@/utils/apiError'
 
 interface Props {
   selectedChapter: Chapter
@@ -326,8 +327,10 @@ async function runTransform(action: 'expand' | 'rewrite' | 'de_ai') {
     }
     previewText.value = res.result_text
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    globalAlert.showError(detectUpgradeHint(msg) === 'credits' ? '积分不足，可改选更短选区或购买加油包。' : msg, '选区改写')
+    globalAlert.showError(
+      detectUpgradeHint(err) === 'credits' ? '积分不足，可改选更短选区或购买加油包。' : userFacingMessage(err, '改写失败'),
+      '选区改写',
+    )
   } finally {
     transforming.value = false
   }

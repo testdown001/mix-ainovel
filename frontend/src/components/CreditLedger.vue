@@ -117,6 +117,7 @@ import CoinIcon from '@/components/shared/CoinIcon.vue'
 import { creditsApi, type CreditLogItem } from '@/api/credits'
 import { ModelCatalogAPI } from '@/api/model_catalog'
 import { paymentApi, type CreditPack } from '@/api/payment'
+import { openPaymentWindow } from '@/utils/paymentWindow'
 
 const limit = 20
 const offset = ref(0)
@@ -133,11 +134,13 @@ const totalCredits = computed(() => (balance.value ?? 0) + (purchased.value ?? 0
 
 // 加油包购买
 const packs = ref<CreditPack[]>([])
-const packChannel = ref<'alipay' | 'wechat' | 'stripe'>('alipay')
+// 渠道顺序与默认值和 PricingView / SubscriptionPanel 一致（原来这里默认支付宝、那两处默认 Stripe，
+// 同一个用户在两个页面看到不同的默认支付方式）
+const packChannel = ref<'alipay' | 'wechat' | 'stripe'>('stripe')
 const channelOptions: { value: 'alipay' | 'wechat' | 'stripe'; label: string }[] = [
-  { value: 'alipay', label: '支付宝' },
-  { value: 'wechat', label: '微信' },
   { value: 'stripe', label: 'Stripe' },
+  { value: 'alipay', label: '支付宝' },
+  { value: 'wechat', label: '微信支付' },
 ]
 const buyingCode = ref<string | null>(null)
 const packError = ref('')
@@ -152,18 +155,23 @@ const fetchPacks = async () => {
 }
 
 const buyPack = async (pack: CreditPack) => {
+  if (buyingCode.value) return
   buyingCode.value = pack.code
   packError.value = ''
   packPayUrl.value = ''
+  // 在 await 之前同步开窗，否则被当成非用户手势拦截
+  const payWindow = openPaymentWindow()
   try {
     const result = await paymentApi.createCreditOrder(pack.code, packChannel.value)
     if (result.pay_url) {
       packPayUrl.value = result.pay_url
-      window.open(result.pay_url, '_blank')
+      payWindow.navigate(result.pay_url)
     } else {
+      payWindow.close()
       packError.value = '未获取到支付链接，请换一个支付方式重试'
     }
   } catch (err: any) {
+    payWindow.close()
     packError.value = err?.message || '创建订单失败，请稍后重试'
   } finally {
     buyingCode.value = null
@@ -180,7 +188,7 @@ const reasonLabelMap: Record<string, string> = {
   // 退款不只发生在整单失败：润色等付费项没兑现时也会按项退回，标签保持中性，
   // 具体原因由每行的 note 说明（「生成失败/取消退款」「润色未交付退款」）
   refund: '退款',
-  grant: '额度发放',
+  grant: '积分发放',
   topup: '积分充值',
   trial: '注册礼',
   admin: '管理员调整',

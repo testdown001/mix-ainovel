@@ -45,7 +45,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.default" @click="testChannel('default')">测试连接</n-button>
+                  <n-button :loading="testing.default" :disabled="isDirty('default')" :title="isDirty('default') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('default')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="defaultSaving" @click="saveConfig('default')">保存</n-button>
                 </n-space>
               </n-form>
@@ -85,7 +85,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.fallback" @click="testChannel('fallback')">测试连接</n-button>
+                  <n-button :loading="testing.fallback" :disabled="isDirty('fallback')" :title="isDirty('fallback') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('fallback')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="fallbackSaving" @click="saveConfig('fallback')">保存</n-button>
                 </n-space>
               </n-form>
@@ -125,7 +125,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.polish" @click="testChannel('polish')">测试连接</n-button>
+                  <n-button :loading="testing.polish" :disabled="isDirty('polish')" :title="isDirty('polish') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('polish')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="polishSaving" @click="saveConfig('polish')">保存</n-button>
                 </n-space>
               </n-form>
@@ -165,7 +165,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.search" @click="testChannel('search')">测试连接</n-button>
+                  <n-button :loading="testing.search" :disabled="isDirty('search')" :title="isDirty('search') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('search')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="searchSaving" @click="saveConfig('search')">保存</n-button>
                 </n-space>
               </n-form>
@@ -236,7 +236,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.grader" @click="testChannel('grader')">测试连接</n-button>
+                  <n-button :loading="testing.grader" :disabled="isDirty('grader')" :title="isDirty('grader') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('grader')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="graderSaving" @click="saveConfig('grader')">保存</n-button>
                 </n-space>
               </n-form>
@@ -277,7 +277,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.embedding" @click="testChannel('embedding')">测试连接</n-button>
+                  <n-button :loading="testing.embedding" :disabled="isDirty('embedding')" :title="isDirty('embedding') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('embedding')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="embeddingSaving" @click="saveEmbedding">保存</n-button>
                 </n-space>
               </n-form>
@@ -318,7 +318,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button :loading="testing.rerank" @click="testChannel('rerank')">测试连接</n-button>
+                  <n-button :loading="testing.rerank" :disabled="isDirty('rerank')" :title="isDirty('rerank') ? '先保存再测试（测试的是已保存配置）' : '测试的是已保存配置'" @click="testChannel('rerank')">测试已保存配置</n-button>
                   <n-button type="primary" :disabled="!loaded" :loading="rerankSaving" @click="saveRerank">保存</n-button>
                 </n-space>
               </n-form>
@@ -505,6 +505,25 @@ const testing = reactive<Partial<Record<ChannelType, boolean>>>({
   default: false, fallback: false, polish: false, search: false, grader: false, embedding: false, rerank: false,
 })
 
+// 「测试连接」打的是后端已保存的配置，不是表单里刚改的值：表单与上次加载/保存的快照不一致时禁用测试，
+// 否则管理员改完 Key 直接点测试，看到的是旧配置的结果（审计 2026-10-23）。
+type SnapshotKey = ConfigKey | 'embedding' | 'rerank'
+const savedSnapshot = reactive<Partial<Record<SnapshotKey, string>>>({})
+const snapshotOf = (type: SnapshotKey): string => {
+  if (type === 'embedding') return JSON.stringify(embeddingForm)
+  if (type === 'rerank') return JSON.stringify(rerankForm)
+  return JSON.stringify(getForm(type))
+}
+const markSaved = (type: SnapshotKey) => { savedSnapshot[type] = snapshotOf(type) }
+const markAllSaved = () => {
+  for (const type of [...(Object.keys(CONFIG_MAP) as ConfigKey[]), 'embedding', 'rerank'] as SnapshotKey[]) markSaved(type)
+}
+const isDirty = (type: ChannelType): boolean => {
+  const key = type as SnapshotKey
+  if (!loaded.value || savedSnapshot[key] === undefined) return false
+  return snapshotOf(key) !== savedSnapshot[key]
+}
+
 // 未填专用地址/密钥时会回退 embedding 配置，状态标签要如实反映这三种情形
 const rerankStatusTag = computed(() => {
   if (!rerankForm.enabled) return { type: 'default' as const, text: '已关闭' }
@@ -557,6 +576,7 @@ const fetchAllConfigs = async () => {
     searchBackendForm.read_pages = Number(map.get('search.read_pages') ?? 2)
     loaded.value = true
     loadError.value = null
+    markAllSaved()
   } catch (err) {
     loaded.value = false
     loadError.value = err instanceof Error ? err.message : '加载配置失败'
@@ -580,6 +600,7 @@ const saveEmbedding = async () => {
     for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
+    markSaved('embedding')
     showAlert('向量嵌入配置已保存', 'success')
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
@@ -622,6 +643,7 @@ const saveRerank = async () => {
     for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
+    markSaved('rerank')
     showAlert('重排序配置已保存', 'success')
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')
@@ -647,6 +669,7 @@ const saveConfig = async (type: ConfigKey) => {
     for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
+    markSaved(type)
     showAlert(`${label}已保存`, 'success')
   } catch (err) {
     showAlert(err instanceof Error ? err.message : '保存失败', 'error')

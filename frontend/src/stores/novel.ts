@@ -239,7 +239,7 @@ export const useNovelStore = defineStore('novel', () => {
 
   async function generateBlueprint(
     depth: 'fast' | 'deep' = 'deep',
-    options: { resumeTaskId?: string | null } = {},
+    options: { resumeTaskId?: string | null; onProgress?: (status: TaskStatus) => void } = {},
   ): Promise<BlueprintGenerationResponse> {
     // Generate blueprint from conversation history
     isLoading.value = true
@@ -288,7 +288,8 @@ export const useNovelStore = defineStore('novel', () => {
         // 轮询超时给 20 分钟：网关任务超时 15 分钟 + 排队余量。
         let status: TaskStatus
         try {
-          status = await TaskAPI.pollUntilDone(taskId, undefined, 3000, 1_200_000)
+          // 网关每次轮询都带 progress/stage：透传给确认页，进度条按真实阶段走而不是剧本演到 92%
+          status = await TaskAPI.pollUntilDone(taskId, options.onProgress, 3000, 1_200_000)
         } catch (pollErr) {
           if (pollErr instanceof Error && pollErr.message === '任务超时') {
             // 这是客户端放弃等待，不是服务端超时：任务可能仍在跑并会落库。

@@ -42,10 +42,14 @@
                     </button>
                   </div>
                   <p v-if="maxCount > 0" class="mt-2 md-body-small md-on-surface-variant" style="text-align: center;">
-                    可生成范围：第 {{ startChapter }} ~ {{ startChapter + count - 1 }} 章（最多 {{ maxCount }} 章有大纲）
+                    可生成范围：第 {{ startChapter }} ~ {{ startChapter + count - 1 }} 章（最多 {{ maxCount }} 章有章纲）
                   </p>
                   <p v-else class="mt-2 md-body-small" style="color: var(--md-error); text-align: center;">
-                    没有可生成的章节，请先生成大纲。
+                    没有可生成的章节，请先生成章纲。
+                  </p>
+                  <!-- 扣费前亮价：目录里没有所选模型的价格时不显示（不编数） -->
+                  <p v-if="costLine" class="mt-2 md-body-small" style="text-align: center; color: var(--md-primary);">
+                    {{ costLine }}
                   </p>
                 </div>
 
@@ -74,9 +78,23 @@ interface Props {
   show: boolean
   startChapter: number
   maxCount: number
+  /** 每章积分（所选模型）；目录没有价格时为 null，不显示预计消耗 */
+  unitCost?: number | null
+  /** 勾选润色时的每章附加积分；未勾选为 0/null */
+  polishCost?: number | null
 }
 
 const props = defineProps<Props>()
+
+const costLine = computed(() => {
+  if (typeof props.unitCost !== 'number' || !Number.isFinite(props.unitCost)) return ''
+  const n = Math.max(0, count.value || 0)
+  if (n < 1) return ''
+  const polish = typeof props.polishCost === 'number' && props.polishCost > 0 ? props.polishCost : 0
+  const per = props.unitCost + polish
+  const polishNote = polish > 0 ? `（含润色 +${polish}/章）` : ''
+  return `预计消耗：${n} 章 × ${per} = ${n * per} 积分${polishNote}`
+})
 const emit = defineEmits<{
   close: []
   start: [count: number, writingNotes?: string]

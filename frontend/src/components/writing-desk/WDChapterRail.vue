@@ -47,7 +47,7 @@
           </span>
         </div>
         <button type="button" class="rail-batch-stop" :disabled="batchStopping" @click="emit('cancelBatch')">
-          {{ batchStopping ? '停止中…' : '停止' }}
+          {{ batchStopping ? (batchStoppingLabel || '停止中…') : '停止' }}
         </button>
         <div class="rail-batch-progress" aria-label="批量生成进度">
           <span :style="{ width: batchProgressPercent + '%' }"></span>
@@ -168,6 +168,8 @@ const props = defineProps<{
   batchProgress: { current: number; total: number } | null
   /** 已请求停止，等待网关确认；期间停止键不可再点 */
   batchStopping?: boolean
+  /** 停止中的说明文案：SSE 模式「当前章完成后结束」、异步模式「等待网关确认」 */
+  batchStoppingLabel?: string
 }>()
 
 const emit = defineEmits<{

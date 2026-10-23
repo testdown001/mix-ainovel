@@ -73,6 +73,7 @@
             :batch-generating="batchGenerating"
             :batch-progress="batchProgress"
             :batch-stopping="batchStopping"
+            :batch-stopping-label="batchStoppingLabel"
             @select-chapter="selectChapter"
             @generate-outline="generateOutline"
             @open-tools="sidebarOpen = true"
@@ -114,6 +115,7 @@
               :generating-chapter="generatingChapter"
               :prediction-generating-chapter="predictionGeneratingChapter"
               :batch-generating="batchGenerating"
+              :cost-hint="generationCostHint"
               :evaluating-chapter="evaluatingChapter"
               :show-version-selector="showVersionSelector"
               :chapter-generation-result="chapterGenerationResult"
@@ -192,6 +194,7 @@
             :batch-generating="batchGenerating"
             :batch-progress="batchProgress"
             :batch-stopping="batchStopping"
+            :batch-stopping-label="batchStoppingLabel"
             :selected-preset="selectedPreset"
             :selected-skill-count="selectedGenerationSkills.length"
             :agent-enabled="useAgent"
@@ -258,6 +261,8 @@
         :show="showBatchGenerateModal"
         :start-chapter="batchStartChapter"
         :max-count="batchMaxCount"
+        :unit-cost="selectedModelPrice"
+        :polish-cost="enablePolish ? polishPrice : 0"
         @close="showBatchGenerateModal = false"
         @start="batchGenerateChapters"
       />
@@ -564,6 +569,7 @@ import type {
   OutlineGenerationTask,
 } from '@/api/novel'
 import { TaskAPI } from '@/api/task'
+import { ModelCatalogAPI, type AvailableModel } from '@/api/model_catalog'
 import { AdminAPI } from '@/api/admin'
 import { globalAlert } from '@/composables/useAlert'
 import { useWebSocket } from '@/composables/useWebSocket'
@@ -678,7 +684,8 @@ const authStore = useAuthStore()
 const selectedChapterNumber = ref<number | null>(null)
 const modelSettingsOpen = ref(false)
 const stageOverride = ref<number | null>(null)
-const lastSavedAt = ref(new Date())
+// 只在真正写入服务器（章节正文 / 章纲）后更新；不再用项目加载或情节梳理冒充「已保存」
+const lastSavedAt = ref<Date | null>(null)
 const chapterGenerationResult = ref<ChapterGenerationResponse | null>(null)
 const selectedVersionIndex = ref<number>(0)
 const generatingChapter = ref<number | null>(null)
@@ -756,6 +763,36 @@ const fetchAgentSetting = async () => {
 // 生成入口做按档门控与积分计费）
 const selectedModelCode = ref<string | null>(null)
 const enablePolish = ref(false)
+
+// 模型目录在页面挂载时就拉一次（原来只在打开「模型与润色设置」弹层时才有价格，
+// 生成确认框和批量弹窗里都看不到要扣多少积分）。目录没有所选模型的价格 → 不显示（不编数）。
+const modelCatalog = ref<AvailableModel[]>([])
+const polishPrice = ref<number | null>(null)
+const loadModelCatalog = async () => {
+  try {
+    const r = await ModelCatalogAPI.getAvailable()
+    modelCatalog.value = r.models || []
+    polishPrice.value = typeof r.polish_price === 'number' ? r.polish_price : null
+    if (!selectedModelCode.value) {
+      const first = modelCatalog.value.find((m) => !m.locked)
+      if (first) selectedModelCode.value = first.code
+    }
+  } catch {
+    // 目录拉不到不影响生成（后端 model_code 缺省走默认通道、不计费）；弹层里有重试
+  }
+}
+const selectedModelPrice = computed<number | null>(() => {
+  const model = modelCatalog.value.find((m) => m.code === selectedModelCode.value)
+  return model && typeof model.credit_price === 'number' ? model.credit_price : null
+})
+const generationCostHint = computed<string | null>(() => {
+  const price = selectedModelPrice.value
+  if (price === null) return null
+  const polish = enablePolish.value && typeof polishPrice.value === 'number' ? polishPrice.value : 0
+  return polish > 0
+    ? `预计消耗 ${price + polish} 积分（含润色 +${polish}）`
+    : `预计消耗 ${price} 积分`
+})
 
 const agentFlowConfigOverrides = computed<Partial<AdvancedGenerateFlowConfig> | undefined>(() => {
   const overrides: Partial<AdvancedGenerateFlowConfig> = {}
@@ -996,6 +1033,9 @@ const batchGenerating = ref(false)
 const batchProgress = ref<{ current: number; total: number } | null>(null)
 const batchCancelled = ref(false)
 const batchStopping = ref(false)
+const batchStoppingLabel = computed(() =>
+  useAsyncMode.value ? '停止中，等待网关确认' : '停止中，当前章完成后结束',
+)
 const componentMounted = ref(true)
 
 // 计算属性
@@ -1011,9 +1051,10 @@ const projectWordCount = computed(() =>
 )
 
 const autosaveText = computed(() => {
+  if (!lastSavedAt.value) return ''
   const hours = String(lastSavedAt.value.getHours()).padStart(2, '0')
   const minutes = String(lastSavedAt.value.getMinutes()).padStart(2, '0')
-  return `已自动保存 · ${hours}:${minutes}`
+  return `已保存 · ${hours}:${minutes}`
 })
 
 const selectedChapter = computed(() => {
@@ -1242,7 +1283,6 @@ const closeSidebar = () => {
 const loadProject = async () => {
   try {
     await novelStore.loadProject(props.id)
-    lastSavedAt.value = new Date()
     autoSelectNextChapter()
     noticeBackgroundGeneration()
   } catch (error) {
@@ -1407,7 +1447,10 @@ const handleDiagnosticAction = async (action: DiagnosticAction) => {
       : isChapterFailed(chapterNumber)
         ? '将重新尝试生成该章节，确定继续吗？'
         : '重新生成会覆盖当前章节的生成结果，确定继续吗？'
-    const confirmed = await globalAlert.showConfirm(message, '生成确认')
+    const confirmed = await globalAlert.showConfirm(
+      generationCostHint.value ? `${message}\n${generationCostHint.value}` : message,
+      '生成确认',
+    )
     if (!confirmed) return
     showDiagnosticPanel.value = false
     await generateChapter(chapterNumber)
@@ -1454,7 +1497,6 @@ const confirmPredictionRequest = async () => {
       openPredictionTick.value += 1
     }
 
-    lastSavedAt.value = new Date()
     stageOverride.value = null
     globalAlert.showSuccess(`第 ${targetChapter} 章情节梳理已更新`, '梳理完成')
   } catch (error) {
@@ -1568,7 +1610,6 @@ const preparePredictionForGeneration = async (chapterNumber: number): Promise<bo
   try {
     const prediction = await NovelAPI.generatePrediction(project.value.id, chapterNumber)
     outline.metadata = { ...(outline.metadata || {}), prediction }
-    lastSavedAt.value = new Date()
     return true
   } catch (error) {
     console.error('自动情节梳理失败:', error)
@@ -1885,7 +1926,7 @@ const selectVersion = async (versionIndex: number) => {
     // 轮询机制会处理状态变更，成功后会自动隐藏选择器
     // showVersionSelector.value = false
     chapterGenerationResult.value = null
-    globalAlert.showSuccess('版本已确认', '操作成功')
+    globalAlert.showSuccess('已定稿为本章正文', '操作成功')
   } catch (error) {
     console.error('选择章节版本失败:', error)
     // 错误状态下恢复章节状态
@@ -1931,11 +1972,12 @@ const openEditChapterModal = (chapter: ChapterOutline) => {
 const saveChapterChanges = async (updatedChapter: ChapterOutline) => {
   try {
     await novelStore.updateChapterOutline(updatedChapter)
-    globalAlert.showSuccess('章节大纲已更新', '保存成功')
+    lastSavedAt.value = new Date()
+    globalAlert.showSuccess('章纲已更新', '保存成功')
   } catch (error) {
-    console.error('更新章节大纲失败:', error)
+    console.error('更新章纲失败:', error)
     globalAlert.showError(
-      `更新章节大纲失败: ${userFacingMessage(error)}`,
+      `更新章纲失败: ${userFacingMessage(error)}`,
       '保存失败',
     )
   } finally {
@@ -2000,7 +2042,8 @@ const deleteChapter = async (chapterNumbers: number | number[]) => {
       ? `您确定要删除选中的 ${numbersToDelete.length} 个章节吗？这个操作无法撤销。`
       : `您确定要删除第 ${numbersToDelete[0]} 章吗？这个操作无法撤销。`
 
-  if (window.confirm(confirmationMessage)) {
+  const confirmed = await globalAlert.showConfirm(confirmationMessage, '删除章节')
+  if (confirmed) {
     try {
       await novelStore.deleteChapter(numbersToDelete)
       globalAlert.showSuccess('章节已删除', '操作成功')
@@ -2041,7 +2084,7 @@ const notifyOutlineTaskFinished = (task: OutlineGenerationTask) => {
         '两阶段生成完成',
       )
     } else {
-      globalAlert.showSuccess(`已生成 ${task.completed_numbers.length} 章后续大纲`, '章纲生成完成')
+      globalAlert.showSuccess(`已生成 ${task.completed_numbers.length} 章后续章纲`, '章纲生成完成')
     }
   } else if (task.status === 'partial') {
     globalAlert.showError(
@@ -2179,7 +2222,9 @@ const editChapterContent = async (data: { chapterNumber: number; content: string
 
 const saveChapterWithRevision = async (payload: import('@/api/novel').ChapterSaveRequest) => {
   if (!project.value) throw new Error('当前项目未加载')
-  return novelStore.saveChapterContent(project.value.id, payload)
+  const saved = await novelStore.saveChapterContent(project.value.id, payload)
+  lastSavedAt.value = new Date()
+  return saved
 }
 
 const loadChapterRevision = async (chapterNumber: number) => {
@@ -2218,7 +2263,7 @@ const handleGenerateOutline = async (
     globalAlert.showSuccess(
       generateChapters
         ? `将先规划第 ${startChapter}～${startChapter + numChapters - 1} 章，再自动逐章生成正文。`
-        : `正在后台生成第 ${startChapter}～${startChapter + numChapters - 1} 章大纲，可继续使用写作台。`,
+        : `正在后台生成第 ${startChapter}～${startChapter + numChapters - 1} 章章纲，可继续使用写作台。`,
       '任务已开始',
     )
     startOutlineTaskPolling()
@@ -2241,9 +2286,9 @@ const handleGenerateOutline = async (
         return
       }
     }
-    console.error('生成大纲失败:', error)
+    console.error('生成章纲失败:', error)
     globalAlert.showError(
-      `生成大纲失败: ${userFacingMessage(error)}`,
+      `生成章纲失败: ${userFacingMessage(error)}`,
       '生成失败',
     )
   } finally {
@@ -2259,8 +2304,8 @@ const handleGenerateOutline = async (
 const regenerateOutlines = async () => {
   if (!project.value) return
   const confirmed = await globalAlert.showConfirm(
-    '只会重排尚未完稿的章节大纲，已定稿章节不会被覆盖。',
-    '重排未完成大纲',
+    '只会重排尚未定稿的章纲，已定稿章节不会被覆盖。',
+    '重排未完成章纲',
   )
   if (!confirmed) return
   isGeneratingOutline.value = true
@@ -2268,11 +2313,11 @@ const regenerateOutlines = async () => {
     const result = await NovelAPI.regenerateOutlines(project.value.id)
     await novelStore.loadProject(project.value.id, true)
     globalAlert.showSuccess(
-      `已更新 ${result.updated_chapters?.length || 0} 章未完成大纲。`,
-      '大纲已重排',
+      `已更新 ${result.updated_chapters?.length || 0} 章未定稿章纲。`,
+      '章纲已重排',
     )
   } catch (error) {
-    globalAlert.showError(userFacingMessage(error, '重排失败'), '大纲重排')
+    globalAlert.showError(userFacingMessage(error, '重排失败'), '章纲重排')
   } finally {
     isGeneratingOutline.value = false
   }
@@ -2337,7 +2382,7 @@ const batchStartChapter = computed(() => {
   return outlines.length > 0 ? outlines[outlines.length - 1].chapter_number + 1 : 1
 })
 
-/** 计算从起始章节开始最多可生成多少章（有大纲的） */
+/** 计算从起始章节开始最多可生成多少章（有章纲的） */
 const batchMaxCount = computed(() => {
   if (!project.value?.blueprint?.chapter_outline) return 0
   const outlines = [...project.value.blueprint.chapter_outline].sort(
@@ -2365,6 +2410,12 @@ const cancelBatchGenerate = async () => {
   if (batchStopping.value) return
   batchCancelled.value = true
   // 异步模式下批量任务跑在网关上：只设本地标志等于没停（任务继续生成并扣费）。
+  if (!useAsyncMode.value && batchGenerating.value) {
+    // SSE 模式：当前章是一次不可中断的流式调用，只能在它结束后停；按钮立刻给反馈
+    batchStopping.value = true
+    streamingStage.value = '停止中，当前章完成后结束'
+    return
+  }
   if (useAsyncMode.value && batchGenerating.value && asyncGen.state.value.taskId) {
     batchStopping.value = true
     streamingStage.value = '停止中，等待网关确认…'
@@ -2511,6 +2562,8 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
   }
 
   // SSE 模式：逐章生成
+  // 原来 catch 里把错误丢了，结尾只说「失败 1 章」——没章号没原因，402 也不弹升级
+  let sseFailure: { chapterNumber: number; error: unknown } | null = null
   try {
     for (const chapterNumber of targetChapters) {
       // 检查是否取消或组件已卸载
@@ -2590,6 +2643,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
       } catch (error) {
         console.error(`连续生成：第 ${chapterNumber} 章失败:`, error)
         failedCount++
+        sseFailure = { chapterNumber, error }
 
         // 更新本地失败状态
         if (componentMounted.value && project.value?.chapters) {
@@ -2620,15 +2674,32 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
 
       // 显示结果提示
       if (batchCancelled.value) {
-        globalAlert.showSuccess(`已取消连续生成，共完成 ${completedCount} 章`, '连续生成已取消')
+        globalAlert.showSuccess(`已停止连续生成，共完成 ${completedCount} 章`, '连续生成已停止')
+      } else if (failedCount > 0 && sseFailure) {
+        const upgradeKind = detectUpgradeHint(sseFailure.error)
+        if (upgradeKind) {
+          // 402 积分不足 / 403 档位：与单章生成同一条升级动线
+          upgradePrompt.value = {
+            show: true,
+            kind: upgradeKind,
+            message: `连续生成在第 ${sseFailure.chapterNumber} 章停下：${userFacingMessage(sseFailure.error)}`,
+          }
+        } else {
+          const human = humanizeGenerationError(sseFailure.error)
+          globalAlert.showError(
+            `完成 ${completedCount} 章，第 ${sseFailure.chapterNumber} 章失败：${human.message}`,
+            '连续生成中断',
+          )
+        }
       } else if (failedCount > 0) {
-        globalAlert.showError(`连续生成中断：完成 ${completedCount} 章，失败 1 章`, '连续生成异常')
+        globalAlert.showError(`连续生成中断：完成 ${completedCount} 章，失败 ${failedCount} 章`, '连续生成异常')
       } else {
         globalAlert.showSuccess(`连续生成完成，共 ${completedCount} 章`, '连续生成完成')
       }
     }
 
     batchCancelled.value = false
+    batchStopping.value = false
   }
 }
 
@@ -2637,6 +2708,7 @@ onMounted(async () => {
   await loadProject()
   await restoreOutlineGenerationTask()
   fetchAgentSetting()
+  loadModelCatalog()
 
   // 连接 WebSocket（Go Gateway 实时推送）
   const { connect: wsConnect } = useWebSocket()

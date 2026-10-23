@@ -1,8 +1,8 @@
-<!-- AIMETA P=故事去向卡_倒推规划骨架展示与编辑|R=终局与高潮节点线_前置条件列表_分块编辑_重算|NR=不含蓝图生成|E=component:StoryBackboneCard|X=internal|A=确认页子卡 -->
+<!-- AIMETA P=故事骨架卡_倒推规划骨架展示与编辑|R=终局与高潮节点线_前置条件列表_分块编辑_重算|NR=不含蓝图生成|E=component:StoryBackboneCard|X=internal|A=确认页子卡 -->
 <template>
   <section v-if="visible" class="d-block d-block-backbone">
     <div class="d-block-head">
-      <span class="d-block-tag">故事去向</span>
+      <span class="d-block-tag">故事骨架</span>
       <div class="bb-head-actions">
         <span v-if="resp?.stale" class="bb-stale">立项书已变动</span>
         <button
@@ -233,7 +233,7 @@ const applyPatch = async (partial: Record<string, any>) => {
     resp.value = await NovelAPI.patchStoryBackbone(props.projectId, partial)
     editing.value = null
   } catch (error) {
-    globalAlert.showError(`保存失败: ${humanError(error)}`, '故事去向')
+    globalAlert.showError(`保存失败: ${humanError(error)}`, '故事骨架')
   } finally {
     saving.value = false
   }
@@ -264,7 +264,7 @@ const loadAlternatives = async (generate: boolean) => {
       : await NovelAPI.listBackboneAlternatives(props.projectId)
     alternatives.value = res.alternatives || []
   } catch (error) {
-    if (generate) globalAlert.showError(`生成备选方向失败: ${humanError(error)}`, '故事去向')
+    if (generate) globalAlert.showError(`生成备选方向失败: ${humanError(error)}`, '故事骨架')
   } finally {
     altLoading.value = false
   }
@@ -277,9 +277,9 @@ const applyAlternative = async (alt: BackboneAlternative) => {
     alternatives.value = []
     editing.value = null
     expanded.value = null
-    globalAlert.showSuccess(`已按「${alt.label || alt.id}」重新倒推，各卷高潮与前置条件已更新。`, '故事去向')
+    globalAlert.showSuccess(`已按「${alt.label || alt.id}」重新倒推，各卷高潮与前置条件已更新。`, '故事骨架')
   } catch (error) {
-    globalAlert.showError(`采用失败: ${humanError(error)}`, '故事去向')
+    globalAlert.showError(`采用失败: ${humanError(error)}`, '故事骨架')
   } finally {
     applying.value = null
   }
@@ -306,9 +306,9 @@ const regenerate = async () => {
   try {
     resp.value = await NovelAPI.regenerateStoryBackbone(props.projectId)
     editing.value = null
-    globalAlert.showSuccess('已按最新立项书重新倒推，你改过的节点已保留。', '故事去向')
+    globalAlert.showSuccess('已按最新立项书重新倒推，你改过的节点已保留。', '故事骨架')
   } catch (error) {
-    globalAlert.showError(`重算失败: ${humanError(error)}`, '故事去向')
+    globalAlert.showError(`重算失败: ${humanError(error)}`, '故事骨架')
   } finally {
     regenerating.value = false
   }
@@ -348,7 +348,14 @@ const SetupList = defineComponent({
 <style scoped>
 .d-block { background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 12px; padding: 16px 18px; }
 .d-block-backbone { border-color: rgba(125, 211, 168, 0.3); }
-.d-block-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.d-block-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+@media (max-width: 640px) {
+  .bb-head-actions { width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .bb-head-actions .d-edit-btn { flex: 1 1 auto; }
+  .bb-timeline { padding-left: 10px; }
+  .bb-node-head { flex-wrap: wrap; gap: 6px; }
+  .d-kv-row { flex-direction: column; gap: 2px; }
+}
 .d-block-tag { font-size: 12px; font-weight: 600; color: #ffe500; letter-spacing: 0.05em; }
 .bb-head-actions { display: flex; align-items: center; gap: 10px; }
 .bb-stale { font-size: 11px; color: #ffb800; background: rgba(255, 184, 0, 0.1); border-radius: 999px; padding: 2px 9px; }

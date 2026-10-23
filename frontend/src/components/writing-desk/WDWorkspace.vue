@@ -15,7 +15,7 @@
                   : 'm3-chip-neutral'
               ]"
             >
-              {{ isChapterCompleted(selectedChapterNumber) ? '已完成' : '未完成' }}
+              {{ isChapterCompleted(selectedChapterNumber) ? '已定稿' : '未定稿' }}
             </span>
             <h3 class="md-title-small md-on-surface truncate max-w-[42vw]">{{ selectedChapterOutline?.title || '未知标题' }}</h3>
             <button
@@ -524,6 +524,8 @@ interface Props {
   predictionGeneratingChapter?: number | null
   /** 连续生成进行中：此时不允许插单生成单章 */
   batchGenerating?: boolean
+  /** 「预计消耗 X 积分」提示；父组件按模型目录算，目录无价时为 null */
+  costHint?: string | null
   evaluatingChapter: number | null
   showVersionSelector: boolean
   chapterGenerationResult: ChapterGenerationResponse | null
@@ -773,12 +775,12 @@ async function saveChapterPlanning() {
 
 const confirmRegenerateChapter = async () => {
   const completed = props.selectedChapterNumber != null && isChapterCompleted(props.selectedChapterNumber)
-  const confirmed = await globalAlert.showConfirm(
-    completed
-      ? '会覆盖本章现有正文，已改过的段落也会丢掉。卡住一句请先用选区改写。'
-      : '将按当前规划生成正文；系统会自动梳理情节并完成一致性检查。',
-    completed ? '重新生成确认' : '生成本章正文',
-  )
+  const base = completed
+    ? '会覆盖本章现有正文，已改过的段落也会丢掉。卡住一句请先用选区改写。'
+    : '将按当前规划生成正文；系统会自动梳理情节并完成一致性检查。'
+  // 扣费前先把价钱亮出来；目录里没有这个模型的价格就不说数（不编）
+  const message = props.costHint ? `${base}\n${props.costHint}` : base
+  const confirmed = await globalAlert.showConfirm(message, completed ? '重新生成确认' : '生成本章正文')
   if (confirmed) {
     emit('regenerateChapter')
   }

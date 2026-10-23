@@ -12,10 +12,10 @@
             </div>
           </div>
           <n-space align="center" :size="12">
-            <n-tag :type="stripeForm.enabled ? 'success' : 'default'" size="small" round>
-              {{ stripeForm.enabled ? '已启用' : '未启用' }}
+            <n-tag :type="savedEnabled.stripe ? 'success' : 'default'" size="small" round>
+              {{ savedEnabled.stripe ? '已启用' : '未启用' }}
             </n-tag>
-            <n-switch v-model:value="stripeForm.enabled" @update:value="onStripeToggle" />
+            <n-switch :value="stripeForm.enabled" :loading="toggling.stripe" :disabled="!loaded" @update:value="(v: boolean) => onToggleEnabled('stripe', v)" />
           </n-space>
         </div>
       </template>
@@ -111,10 +111,10 @@
             </div>
           </div>
           <n-space align="center" :size="12">
-            <n-tag :type="alipayForm.enabled ? 'success' : 'default'" size="small" round>
-              {{ alipayForm.enabled ? '已启用' : '未启用' }}
+            <n-tag :type="savedEnabled.alipay ? 'success' : 'default'" size="small" round>
+              {{ savedEnabled.alipay ? '已启用' : '未启用' }}
             </n-tag>
-            <n-switch v-model:value="alipayForm.enabled" />
+            <n-switch :value="alipayForm.enabled" :loading="toggling.alipay" :disabled="!loaded" @update:value="(v: boolean) => onToggleEnabled('alipay', v)" />
           </n-space>
         </div>
       </template>
@@ -138,7 +138,11 @@
             </n-gi>
             <n-gi>
               <n-form-item label="应用私钥（RSA2）" feedback="留空保持已存值不变">
+                <n-button v-if="!secretVisible.alipay_private_key" secondary size="small" @click="revealSecret('alipay_private_key')">
+                  已配置 · 点击编辑
+                </n-button>
                 <n-input
+                  v-else
                   v-model:value="alipayForm.private_key"
                   type="textarea"
                   :rows="3"
@@ -151,7 +155,11 @@
           <n-grid :cols="2" :x-gap="16">
             <n-gi>
               <n-form-item label="支付宝公钥（RSA2）" feedback="留空保持已存值不变">
+                <n-button v-if="!secretVisible.alipay_alipay_public_key" secondary size="small" @click="revealSecret('alipay_alipay_public_key')">
+                  已配置 · 点击编辑
+                </n-button>
                 <n-input
+                  v-else
                   v-model:value="alipayForm.alipay_public_key"
                   type="textarea"
                   :rows="3"
@@ -196,10 +204,10 @@
             </div>
           </div>
           <n-space align="center" :size="12">
-            <n-tag :type="wechatForm.enabled ? 'success' : 'default'" size="small" round>
-              {{ wechatForm.enabled ? '已启用' : '未启用' }}
+            <n-tag :type="savedEnabled.wechat ? 'success' : 'default'" size="small" round>
+              {{ savedEnabled.wechat ? '已启用' : '未启用' }}
             </n-tag>
-            <n-switch v-model:value="wechatForm.enabled" />
+            <n-switch :value="wechatForm.enabled" :loading="toggling.wechat" :disabled="!loaded" @update:value="(v: boolean) => onToggleEnabled('wechat', v)" />
           </n-space>
         </div>
       </template>
@@ -254,7 +262,11 @@
             </n-gi>
           </n-grid>
           <n-form-item label="商户私钥（PEM）" feedback="留空保持已存值不变">
+            <n-button v-if="!secretVisible.wechat_private_key" secondary size="small" @click="revealSecret('wechat_private_key')">
+              已配置 · 点击编辑
+            </n-button>
             <n-input
+              v-else
               v-model:value="wechatForm.private_key"
               type="textarea"
               :rows="3"
@@ -262,16 +274,11 @@
               :input-props="{ autocomplete: 'off' }"
             />
           </n-form-item>
+          <!-- 「支付方式」多选框已移除：后端只实现 NATIVE 扫码，pay.wechat.pay_methods 从不被读取，勾了也不生效 -->
           <n-grid :cols="2" :x-gap="16">
             <n-gi>
               <n-form-item label="支付方式">
-                <n-checkbox-group v-model:value="wechatForm.pay_methods">
-                  <n-space>
-                    <n-checkbox value="native">Native（扫码）</n-checkbox>
-                    <n-checkbox value="jsapi">JSAPI（H5）</n-checkbox>
-                    <n-checkbox value="app">APP 支付</n-checkbox>
-                  </n-space>
-                </n-checkbox-group>
+                <n-tag size="small" :bordered="false">Native（扫码）</n-tag>
               </n-form-item>
             </n-gi>
             <n-gi>
@@ -299,7 +306,7 @@ import { ref, reactive, onMounted } from 'vue'
 import {
   NSpace, NCard, NButton, NTag, NSwitch, NForm, NFormItem, NInput,
   NSelect, NGrid, NGi, NSpin, NAlert, NRadioGroup, NRadio,
-  NCheckboxGroup, NCheckbox, useMessage
+  useMessage
 } from 'naive-ui'
 import { AdminAPI } from '@/api/admin'
 
@@ -341,7 +348,6 @@ const wechatForm = reactive({
   api_v3_key: '',
   serial_no: '',
   private_key: '',
-  pay_methods: ['native'],
   notify_url: ''
 })
 
@@ -365,11 +371,42 @@ const SECRET_FIELDS: Record<string, Set<string>> = {
   wechat: new Set(['api_v3_key', 'private_key']),
 }
 
-const onStripeToggle = (val: boolean) => {
-  if (val && !stripeForm.publishable_key) {
-    message.warning('请先填写 Stripe 密钥后再启用')
-    stripeForm.enabled = false
+// 启用开关即点即存：原来开关只改表单、标签立刻变「已启用」，不点保存其实什么都没生效
+const savedEnabled = reactive<Record<string, boolean>>({ stripe: false, alipay: false, wechat: false })
+const toggling = reactive<Record<string, boolean>>({ stripe: false, alipay: false, wechat: false })
+const channelName = (channel: string) => channel === 'stripe' ? 'Stripe' : channel === 'alipay' ? '支付宝' : '微信支付'
+
+const onToggleEnabled = async (channel: string, val: boolean) => {
+  if (!loaded.value) return
+  const form = formOf(channel)
+  if (val && channel === 'stripe' && !stripeForm.publishable_key) {
+    message.warning('请先填写并保存 Stripe 密钥后再启用')
+    return
   }
+  form.enabled = val
+  toggling[channel] = true
+  try {
+    await AdminAPI.upsertSystemConfig(`pay.${channel}.enabled`, { value: val ? 'true' : 'false' })
+    savedEnabled[channel] = val
+    message.success(`${channelName(channel)} 已${val ? '启用' : '停用'}`)
+  } catch {
+    form.enabled = savedEnabled[channel]
+    message.error(`${channelName(channel)} 开关保存失败，已恢复为${savedEnabled[channel] ? '已启用' : '未启用'}`)
+  } finally {
+    toggling[channel] = false
+  }
+}
+
+// 私钥/证书 PEM 是多行文本，没有 type=password 可用：已有值时折叠成「已配置 · 点击编辑」，
+// 避免整段私钥明文摊在后台页面上；没有值时直接显示输入框
+const secretVisible = reactive<Record<string, boolean>>({
+  alipay_private_key: true, alipay_alipay_public_key: true, wechat_private_key: true,
+})
+const revealSecret = (key: string) => { secretVisible[key] = true }
+const collapseFilledSecrets = () => {
+  secretVisible.alipay_private_key = !alipayForm.private_key
+  secretVisible.alipay_alipay_public_key = !alipayForm.alipay_public_key
+  secretVisible.wechat_private_key = !wechatForm.private_key
 }
 
 // 各渠道表单字段 → 后端 SystemConfig 键（pay.{channel}.{field}）。
@@ -397,6 +434,8 @@ const loadChannels = async () => {
         }
       }
     }
+    for (const channel of Object.keys(channelKeyFields)) savedEnabled[channel] = !!formOf(channel).enabled
+    collapseFilledSecrets()
     loaded.value = true
     stripeError.value = alipayError.value = wechatError.value = null
   } catch (err) {
@@ -422,7 +461,9 @@ const saveChannel = async (channel: string) => {
       if (SECRET_FIELDS[channel]?.has(f) && !value) continue  // 留空的密钥不发送，保持库内值
       await AdminAPI.upsertSystemConfig(`pay.${channel}.${f}`, { value })
     }
-    message.success(`${channel === 'stripe' ? 'Stripe' : channel === 'alipay' ? '支付宝' : '微信支付'} 配置已保存`)
+    savedEnabled[channel] = !!form.enabled
+    collapseFilledSecrets()
+    message.success(`${channelName(channel)} 配置已保存`)
   } catch {
     message.error('保存失败，请重试')
   } finally {

@@ -290,8 +290,9 @@ const validateInput = () => {
   const isNumeric = /^\d+$/.test(usernameVal);
   const isAlphanumeric = /^[a-zA-Z0-9]+$/.test(usernameVal);
   if (isNumeric) return '用户名不能是纯数字';
-  if (hasChinese && usernameVal.length <= 1) return '用户名长度必须大于2个汉字';
-  if (isAlphanumeric && !hasChinese && usernameVal.length <= 6) return '用户名长度必须大于6个字母或数字';
+  // 与输入框提示「至少 7 个字符或 2 个汉字」保持同一套说法（原文案说「大于 2 个汉字」却接受 2 个）
+  if (hasChinese && usernameVal.length <= 1) return '含汉字的用户名至少 2 个字';
+  if (isAlphanumeric && !hasChinese && usernameVal.length <= 6) return '字母或数字用户名至少 7 个字符';
   return null;
 };
 

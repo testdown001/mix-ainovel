@@ -235,3 +235,22 @@ describe('蓝图生成的刷新恢复', () => {
     expect(vm.showBlueprintConfirmation).toBe(true)
   })
 })
+
+describe('自动蓝图路径', () => {
+  it('AI 判定完成但未要求确认：进确认页并标记自动开始，而不是在输入框上直接调生成', async () => {
+    const vm = await mount()
+    const store = useNovelStore()
+    const spy = vi.spyOn(store, 'generateBlueprint').mockResolvedValue({ blueprint: {} } as any)
+    vi.mocked(NovelAPI.converseConcept).mockResolvedValueOnce({
+      ...answer, ai_message: '信息够了，直接出蓝图。', is_complete: true, ready_for_blueprint: false,
+    } as any)
+    await vm.startConversation()
+    expect(vm.showBlueprintConfirmation).toBe(true)
+    expect(vm.autoStartBlueprint).toBe(true)
+    expect(vm.confirmationMessage).toBe('信息够了，直接出蓝图。')
+    // 生成由确认页（带阶段与计时的视图）发起，页面本身不再直接调 store
+    expect(spy).not.toHaveBeenCalled()
+    vm.backToConversation()
+    expect(vm.autoStartBlueprint).toBe(false)
+  })
+})

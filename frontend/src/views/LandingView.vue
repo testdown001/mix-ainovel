@@ -196,7 +196,9 @@ const stats = [
         </div>
 
         <!-- Mobile menu button -->
-        <button class="md:hidden p-2 rounded-lg" style="color:var(--md-on-surface-variant);" @click="mobileMenuOpen = !mobileMenuOpen">
+        <button class="md:hidden p-2 rounded-lg" style="color:var(--md-on-surface-variant);"
+          type="button" :aria-label="mobileMenuOpen ? '关闭菜单' : '打开菜单'" :aria-expanded="mobileMenuOpen"
+          @click="mobileMenuOpen = !mobileMenuOpen">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path v-if="!mobileMenuOpen" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             <path v-else stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -403,6 +405,7 @@ const stats = [
             style="background:#0D0D0D; border-color:var(--md-outline);">
             <span :style="!annual ? 'color:#fff; font-weight:600;' : 'color:#666;'" class="transition-colors">按月付费</span>
             <button @click="annual = !annual"
+              type="button" role="switch" :aria-checked="annual" aria-label="按年付费"
               class="relative w-10 h-5 rounded-full transition-colors flex-shrink-0"
               :style="annual ? 'background:var(--md-primary);' : 'background:var(--md-outline);'">
               <span class="absolute top-0.5 w-4 h-4 rounded-full transition-all"

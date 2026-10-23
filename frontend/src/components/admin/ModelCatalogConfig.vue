@@ -39,10 +39,10 @@
           <n-input v-model:value="form.api_key_ref" placeholder="SystemConfig 键名，如 llm.api_key" />
         </n-form-item>
         <n-form-item label="API 格式">
-          <n-input v-model:value="form.api_format" placeholder="留空=回退；可填 openai/anthropic 等" />
+          <n-select v-model:value="form.api_format" :options="apiFormatOptions" placeholder="留空=回退 llm.api_format" clearable />
         </n-form-item>
         <n-form-item label="推理档">
-          <n-input v-model:value="form.reasoning_effort" placeholder="留空=回退；minimal/low/medium/high" />
+          <n-select v-model:value="form.reasoning_effort" :options="reasoningEffortOptions" placeholder="留空=回退；仅推理模型生效" clearable />
         </n-form-item>
         <n-form-item label="积分价/章">
           <n-input-number v-model:value="form.credit_price" :min="0" />
@@ -99,6 +99,22 @@ function emptyForm(): ModelCatalogPayload {
   }
 }
 const form = reactive<ModelCatalogPayload>(emptyForm())
+
+// 与「API 管理」页同一份选项：自由文本曾让人填进 "OpenAI"/"GPT" 这类上游不认的值
+const apiFormatOptions = [
+  { label: 'auto（自动识别）', value: 'auto' },
+  { label: 'openai', value: 'openai' },
+  { label: 'anthropic', value: 'anthropic' },
+  { label: 'anyrouter', value: 'anyrouter' },
+  { label: 'gemini', value: 'gemini' },
+  { label: 'openai-responses', value: 'openai-responses' },
+]
+const reasoningEffortOptions = [
+  { label: 'minimal', value: 'minimal' },
+  { label: 'low', value: 'low' },
+  { label: 'medium', value: 'medium' },
+  { label: 'high', value: 'high' },
+]
 
 const columns: DataTableColumns<ModelCatalogItem> = [
   { title: '显示名', key: 'display_name', width: 110 },

@@ -254,6 +254,7 @@ import {
   type FormRules,
   type FormItemRule
 } from 'naive-ui'
+import { globalAlert } from '@/composables/useAlert'
 
 import {
   AdminAPI,
@@ -453,7 +454,8 @@ const columns: DataTableColumns<AdminUser> = [
                 },
                 { default: () => '删除' }
               ),
-              default: () => '确定要删除该用户吗？'
+              // 后端 users.id 外键 ondelete=CASCADE：项目/章节/配额/参考书库随用户一起删
+              default: () => `删除用户「${row.username}」？将一并删除其全部小说项目与章节、参考书库、配额与积分记录。此操作不可恢复。`
             }
           )
         ]
@@ -776,6 +778,14 @@ const refreshCurrentView = async () => {
 
 const handleAssignSubscription = async () => {
   if (!detailUserId.value || !assignForm.plan_id) return
+  const planLabel = assignPlanOptions.value.find((o) => o.value === assignForm.plan_id)?.label || `套餐 #${assignForm.plan_id}`
+  const username = subscriptionDetail.value?.user.username || `用户 #${detailUserId.value}`
+  const periodLabel = assignForm.period === 'yearly' ? '年付（365 天）' : '月付（30 天）'
+  const ok = await globalAlert.showConfirm(
+    `给「${username}」分配「${planLabel}」，周期 ${periodLabel}。会立即生效并覆盖其当前会员状态，确定？`,
+    '分配订阅',
+  )
+  if (!ok) return
   assignLoading.value = true
   try {
     subscriptionDetail.value = await AdminAPI.assignUserSubscription(detailUserId.value, {

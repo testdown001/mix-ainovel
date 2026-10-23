@@ -62,7 +62,8 @@
       <div v-if="!dossier" class="dossier-absent">
         <p class="absent-title">立项书生成未完成</p>
         <p class="absent-sub">{{ aiMessage || '已收集到足够信息。' }}</p>
-        <p class="absent-hint">可以直接生成蓝图（走原始对话链路），也可以返回对话再聊几轮后重试。</p>
+        <p class="absent-hint">可以重新蒸馏一次立项书，也可以直接生成蓝图（走原始对话链路），或返回对话再聊几轮后重试。</p>
+        <button type="button" class="d-edit-btn" :disabled="isGenerating" @click="loadDossier()">重新生成立项书</button>
       </div>
 
       <div v-else class="dossier-body">
@@ -316,14 +317,14 @@
             @click="chooseDepth('fast')"
           >
             <span class="depth-opt-title">
-              快速成纲
+              快速成书
               <span class="depth-price depth-price-free">免费</span>
             </span>
-            <span class="depth-opt-desc">跳过深度审稿，先出结构蓝图，约 2-3 分钟</span>
+            <span class="depth-opt-desc">跳过深度审稿，先出故事蓝图，约 2-3 分钟</span>
           </button>
         </div>
         <p v-if="deepCreditShort" class="depth-credit-warn">
-          当前积分不足（需 {{ deepCreditPrice }}，剩余 {{ creditTotal ?? 0 }}）。可购买加油包或改选快速成纲。
+          当前积分不足（需 {{ deepCreditPrice }}，剩余 {{ creditTotal ?? 0 }}）。可购买加油包或改选快速成书。
         </p>
       </div>
 
@@ -381,9 +382,11 @@ interface Props {
   projectId: string
   /** 刷新/回来时后台仍在跑的蓝图任务：挂载后直接进生成中视图接着等，不再提交 */
   resumeTaskId?: string | null
+  /** 对话已完成但 AI 未要求确认：立项书拉完后自动开始生成，用户看到的是带阶段/计时的生成中视图 */
+  autoStart?: boolean
 }
 
-const props = withDefaults(defineProps<Props>(), { resumeTaskId: null })
+const props = withDefaults(defineProps<Props>(), { resumeTaskId: null, autoStart: false })
 
 const emit = defineEmits<{
   blueprintGenerated: [response: any]
@@ -521,11 +524,16 @@ const genStageAt = computed(() => (selectedDepth.value === 'deep' ? GEN_STAGE_AT
 const genEtaHint = computed(() =>
   selectedDepth.value === 'deep'
     ? '深度打磨含总编审稿与定向修订，约 5-8 分钟'
-    : '快速成纲跳过审稿打磨，约 2-3 分钟'
+    : '快速成书跳过审稿打磨，约 2-3 分钟'
 )
 const isGenerating = ref(false)
 const genDone = ref(false)
 const genElapsed = ref(0)
+// 网关任务的真实进度/阶段（有就优先用；同步直连路径没有，退回按时间推算的剧本）
+const realProgress = ref<number | null>(null)
+const realStage = ref('')
+// 进度只许前进：真实进度与剧本进度取最大值，并记住已显示过的最高值
+const progressFloor = ref(0)
 const genStageIndex = computed(() => {
   if (genDone.value) return genStages.value.length
   let idx = 0
@@ -536,6 +544,7 @@ const genStageIndex = computed(() => {
 })
 const genStageText = computed(() => {
   if (genDone.value) return '生成完成！正在准备展示…'
+  if (realStage.value) return realStage.value.endsWith('…') ? realStage.value : `${realStage.value}…`
   const lastAt = genStageAt.value[genStageAt.value.length - 1]
   if (genStageIndex.value >= genStages.value.length - 1 && genElapsed.value > lastAt + 60) {
     return selectedDepth.value === 'deep'
@@ -546,8 +555,20 @@ const genStageText = computed(() => {
 })
 const genProgress = computed(() => {
   if (genDone.value) return 100
-  return Math.min(92, ((genStageIndex.value + 1) / genStages.value.length) * 92)
+  const scripted = Math.min(92, ((genStageIndex.value + 1) / genStages.value.length) * 92)
+  const real = realProgress.value === null ? 0 : Math.min(99, Math.max(0, realProgress.value))
+  const next = Math.max(scripted, real, progressFloor.value)
+  // eslint-disable-next-line vue/no-side-effects-in-computed-properties -- 单调记忆，不触发额外渲染
+  progressFloor.value = next
+  return next
 })
+const onTaskProgress = (status: { progress?: number; stage?: string }) => {
+  if (typeof status.progress === 'number' && Number.isFinite(status.progress)) {
+    realProgress.value = Math.max(realProgress.value ?? 0, status.progress)
+  }
+  const stage = (status.stage || '').trim()
+  if (stage && !/^(queued|pending|running|processing)$/i.test(stage)) realStage.value = stage
+}
 
 let dossierTimer: ReturnType<typeof setInterval> | null = null
 let genTimer: ReturnType<typeof setInterval> | null = null
@@ -711,6 +732,9 @@ const generateBlueprint = async (resumeTaskId: string | null = null) => {
   isGenerating.value = true
   genDone.value = false
   genElapsed.value = 0
+  realProgress.value = null
+  realStage.value = ''
+  progressFloor.value = 0
   const start = Date.now()
   genTimer = setInterval(() => {
     genElapsed.value = (Date.now() - start) / 1000
@@ -724,7 +748,7 @@ const generateBlueprint = async (resumeTaskId: string | null = null) => {
         /* ignore */
       }
     }
-    const response = await novelStore.generateBlueprint(depth, { resumeTaskId })
+    const response = await novelStore.generateBlueprint(depth, { resumeTaskId, onProgress: onTaskProgress })
     if (genTimer) {
       clearInterval(genTimer)
       genTimer = null
@@ -779,9 +803,17 @@ const severityClass = (severity?: string) => {
 }
 
 onMounted(() => {
-  loadDossier()
+  const loading = loadDossier()
   // 刷新后接着等：生成中视图优先于立项书主体，按钮不会再亮
-  if (props.resumeTaskId) void generateBlueprint(props.resumeTaskId)
+  if (props.resumeTaskId) {
+    void generateBlueprint(props.resumeTaskId)
+  } else if (props.autoStart) {
+    // 自动路径（AI 判定信息已足够、无需确认）：立项书拉完就开始，用户看到的是带阶段与计时的
+    // 生成中视图，而不是对话输入框上一个无说明的转圈（2026-10-23 审计）
+    void Promise.resolve(loading).then(() => {
+      if (!isGenerating.value) void generateBlueprint()
+    })
+  }
 })
 watch(
   () => props.resumeTaskId,

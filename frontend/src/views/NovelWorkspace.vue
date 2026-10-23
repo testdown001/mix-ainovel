@@ -189,15 +189,16 @@
           enter-from-class="opacity-0 scale-95"
           leave-to-class="opacity-0 scale-95"
         >
-          <div class="max-w-md w-full mx-4 rounded-2xl p-8" style="background: #141414; border: 1px solid #2A2A2A;">
+          <div ref="deleteDialogEl" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title"
+            class="max-w-md w-full mx-4 rounded-2xl p-8" style="background: #141414; border: 1px solid #2A2A2A;">
             <div class="flex items-center gap-4 mb-6">
               <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style="background: #3D0A0A;">
-                <svg class="w-6 h-6" style="color: #FF4757;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg class="w-6 h-6" style="color: #FF4757;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </div>
               <div>
-                <h3 class="font-bold text-lg" style="color: #fff; font-family: 'Space Grotesk', sans-serif;">确认删除</h3>
+                <h3 id="delete-dialog-title" class="font-bold text-lg" style="color: #fff; font-family: 'Space Grotesk', sans-serif;">确认删除</h3>
                 <p class="text-xs" style="color: #888;">此操作无法撤销</p>
               </div>
             </div>
@@ -244,6 +245,9 @@ import RenewalBanner from '@/components/RenewalBanner.vue'
 import AppTopNav from '@/components/shared/AppTopNav.vue'
 import type { NovelProject, NovelProjectSummary } from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
+import { globalAlert } from '@/composables/useAlert'
+import { useModalA11y } from '@/composables/useModalA11y'
+import { userFacingMessage } from '@/utils/apiError'
 
 const router = useRouter()
 const novelStore = useNovelStore()
@@ -278,6 +282,13 @@ const filteredProjects = computed(() => {
 })
 
 const showDeleteDialog = ref(false)
+const deleteDialogEl = ref<HTMLElement | null>(null)
+useModalA11y({
+  open: () => showDeleteDialog.value,
+  container: deleteDialogEl,
+  onClose: () => cancelDelete(),
+  closeOnEscape: () => !isDeleting.value,
+})
 const projectToDelete = ref<NovelProjectSummary | null>(null)
 const isDeleting = ref(false)
 const deleteMessage = ref<{type: 'success' | 'error', text: string} | null>(null)
@@ -313,7 +324,8 @@ const handleFileImport = async (event: Event) => {
 
   const file = target.files[0]
   if (!file.name.endsWith('.txt')) {
-    alert('请上传 .txt 格式的文件')
+    globalAlert.showError('请上传 .txt 格式的文件', '导入作品')
+    target.value = ''
     return
   }
 
@@ -324,7 +336,7 @@ const handleFileImport = async (event: Event) => {
     router.push(`/novel/${response.id}`)
   } catch (error: any) {
     console.error('导入失败:', error)
-    alert(error.message || '导入失败，请重试')
+    globalAlert.showError(userFacingMessage(error, '导入失败，请重试'), '导入作品')
   } finally {
     isImporting.value = false
     target.value = ''

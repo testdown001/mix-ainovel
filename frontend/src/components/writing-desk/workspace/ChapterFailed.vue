@@ -8,7 +8,11 @@
         <svg class="w-5 h-5 shrink-0" style="color: var(--md-error);" fill="currentColor" viewBox="0 0 20 20">
           <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
         </svg>
-        <p class="md-body-medium md-on-surface-variant">上次正文生成失败，可直接重试；系统会自动复用或更新情节梳理。</p>
+        <div>
+          <p class="md-body-medium md-on-surface-variant">上次正文生成失败，可直接重试；系统会自动复用或更新情节梳理。</p>
+          <!-- 章节对象不带失败原因字段；只说清积分去向，不编造原因 -->
+          <p class="md-body-small md-on-surface-variant mt-1">生成失败时已扣的积分会自动退回，可在「设置 → 积分明细」核对。</p>
+        </div>
       </div>
 
       <h3 class="md-title-medium font-semibold mb-3">情节梳理（高级）</h3>
@@ -49,7 +53,8 @@
           </svg>
         </div>
         <h3 class="md-headline-small font-semibold mb-3">第{{ chapterNumber }}章生成失败</h3>
-        <p class="md-body-medium md-on-surface-variant mb-6">直接重试即可；系统会先自动梳理情节，再生成正文并进行一致性检查。</p>
+        <p class="md-body-medium md-on-surface-variant mb-2">直接重试即可；系统会先自动梳理情节，再生成正文并进行一致性检查。</p>
+        <p class="md-body-small md-on-surface-variant mb-6">生成失败时已扣的积分会自动退回，可在「设置 → 积分明细」核对。</p>
         <div class="flex items-center gap-3 justify-center">
           <button
             @click="$emit('generateChapter', chapterNumber)"

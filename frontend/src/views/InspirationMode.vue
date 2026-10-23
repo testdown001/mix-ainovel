@@ -98,14 +98,18 @@
                 type="button"
                 class="muse-card"
                 :class="{ selected: selectedPersona === persona.key, locked: !canUsePersona && persona.key !== 'default' }"
-                :disabled="!canUsePersona && persona.key !== 'default'"
-                @click="selectedPersona = persona.key"
+                :aria-disabled="!canUsePersona && persona.key !== 'default'"
+                :title="!canUsePersona && persona.key !== 'default' ? `${REQUIRED_TIER_LABEL.muse_persona}可用，点击查看升级方案` : ''"
+                @click="handlePersonaClick(persona.key)"
               >
                 <span class="muse-avatar">{{ persona.label.slice(0, 1) }}</span>
                 <span class="muse-copy"><strong>{{ persona.label }}</strong><small>{{ persona.blurb || '灵感发散与故事提炼' }}</small></span>
-                <svg v-if="!canUsePersona && persona.key !== 'default'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-                  <rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" />
-                </svg>
+                <span v-if="!canUsePersona && persona.key !== 'default'" class="muse-lock">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <rect x="5" y="10" width="14" height="10" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                  </svg>
+                  <small>{{ REQUIRED_TIER_LABEL.muse_persona }}</small>
+                </span>
               </button>
             </div>
             <div class="muse-switches">
@@ -234,6 +238,7 @@
                 :ai-message="confirmationMessage"
                 :project-id="novelStore.currentProject?.id || ''"
                 :resume-task-id="resumeBlueprintTaskId"
+                :auto-start="autoStartBlueprint"
                 @blueprint-generated="handleBlueprintGenerated"
                 @back="backToConversation"
               />
@@ -268,8 +273,17 @@
           </section>
 
           <footer v-if="!showBlueprintConfirmation && !showBlueprint && !restoreFailed && !isRestoringConversation" class="conversation-footer">
-            <button v-if="canUseDivergence" type="button" class="diverge-trigger" :disabled="isDiverging || novelStore.isLoading" @click="handleDiverge">
+            <!-- 锁定也要渲染：以前对非旗舰 v-if 直接不画，用户不知道有这个能力，升级引导永远到不了 -->
+            <button
+              type="button"
+              class="diverge-trigger"
+              :class="{ locked: !canUseDivergence }"
+              :disabled="canUseDivergence && (isDiverging || novelStore.isLoading)"
+              :title="canUseDivergence ? '' : `${REQUIRED_TIER_LABEL.muse_divergence}可用，点击查看升级方案`"
+              @click="handleDiverge"
+            >
               {{ isDiverging ? '缪斯发散中…' : '✦ 给我 5 个狂点子' }}
+              <small v-if="!canUseDivergence" class="diverge-lock">🔒 {{ REQUIRED_TIER_LABEL.muse_divergence }}</small>
             </button>
             <InlineProgress v-if="isDiverging" label="缪斯正在发散 5 个迥异方向并打分…" hint="需要两次模型调用，请勿离开页面。" />
             <ConversationInput v-else :ui-control="currentUIControl" :loading="novelStore.isLoading" @submit="handleUserInput" />
@@ -341,7 +355,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useNovelStore, BlueprintStillRunningError } from '@/stores/novel'
+import { useNovelStore } from '@/stores/novel'
 import { NovelAPI, type ReferenceNovelSummary, type UIControl, type Blueprint, type MusePersona, type DivergeSeed } from '@/api/novel'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConversationInput from '@/components/ConversationInput.vue'
@@ -351,8 +365,7 @@ import BlueprintDisplay from '@/components/BlueprintDisplay.vue'
 import InspirationLoading from '@/components/InspirationLoading.vue'
 import ReferenceNovelInput from '@/components/ReferenceNovelInput.vue'
 import { globalAlert } from '@/composables/useAlert'
-import { humanizeGenerationError } from '@/utils/errorHumanize'
-import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
+import { type UpgradeHintKind } from '@/utils/upgradeHint'
 import { userFacingMessage } from '@/utils/apiError'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 
@@ -380,6 +393,28 @@ const isInitialLoading = ref(false)
 const showBlueprintConfirmation = ref(false)
 // 刷新后要接着等的蓝图任务 ID（来自 sessionStorage）；传给确认页让它直接进生成中视图
 const resumeBlueprintTaskId = ref<string | null>(null)
+// AI 判定信息已足够且无需确认：确认页拉完立项书后自动开始生成（替代原来输入框上的无说明转圈）
+const autoStartBlueprint = ref(false)
+// 锁定特性对应的最低档位（与 core/feature_gating 的默认一致；接口只返回已解锁能力，锁定项拿不到 min_tier）
+const REQUIRED_TIER_LABEL: Record<'muse_persona' | 'muse_divergence', string> = {
+  muse_persona: '创作者档',
+  muse_divergence: '旗舰档',
+}
+const promptUpgrade = (feature: 'muse_persona' | 'muse_divergence') => {
+  upgradeKind.value = 'tier'
+  upgradeMessage.value =
+    feature === 'muse_divergence'
+      ? 'N 路发散为旗舰档特性，升级旗舰版即可一次生成多个迥异世界观种子并智能评分。'
+      : '切换缪斯人格为创作者档特性，升级后可按市场编辑、结构师、人物派等方式陪你想。'
+  showUpgrade.value = true
+}
+const handlePersonaClick = (key: string) => {
+  if (!canUsePersona.value && key !== 'default') {
+    promptUpgrade('muse_persona')
+    return
+  }
+  selectedPersona.value = key
+}
 const hasUsableBlueprint = (blueprint: Blueprint | null | undefined): blueprint is Blueprint =>
   !!blueprint && ((blueprint.chapter_outline?.length ?? 0) > 0 || !!blueprint.title)
 const showBlueprint = ref(false)
@@ -411,7 +446,7 @@ const workflowSteps = [
   { id: 1, label: '捕捉灵感', description: '写下第一句故事种子' },
   { id: 2, label: '探索方向', description: '通过追问寻找核心冲突' },
   { id: 3, label: '锁定故事', description: '确认题材、人物与情绪承诺' },
-  { id: 4, label: '生成蓝图', description: '沉淀为可编辑立项蓝图' },
+  { id: 4, label: '生成蓝图', description: '沉淀为可编辑故事蓝图' },
 ]
 
 const ideaStarters = [
@@ -662,6 +697,7 @@ const handleRestart = async () => {
 
 const backToConversation = () => {
   showBlueprintConfirmation.value = false
+  autoStartBlueprint.value = false
 }
 
 const startConversation = async () => {
@@ -901,7 +937,11 @@ const handleUserInput = async (
       showBlueprintConfirmation.value = true
       await scrollToBottom()
     } else if (response.is_complete) {
-      await handleGenerateBlueprint()
+      // 自动路径：不再在输入框上转圈几分钟，交给确认页的生成中视图（阶段、计时、后台仍在生成的处理）
+      confirmationMessage.value = response.ai_message
+      autoStartBlueprint.value = true
+      showBlueprintConfirmation.value = true
+      await scrollToBottom()
     } else {
       currentUIControl.value = response.ui_control
     }
@@ -918,38 +958,12 @@ const handleUserInput = async (
   }
 }
 
-const handleGenerateBlueprint = async () => {
-  try {
-    const response = await novelStore.generateBlueprint()
-    await handleBlueprintGenerated(response)
-  } catch (error) {
-    console.error('生成蓝图失败:', error)
-    if (error instanceof BlueprintStillRunningError) {
-      // 客户端等待超时，任务仍在跑：留在确认页接着等，不走「已退款」文案
-      resumeBlueprintTaskId.value = error.taskId
-      confirmationMessage.value = error.message
-      showBlueprintConfirmation.value = true
-      return
-    }
-    const errMessage = userFacingMessage(error)
-    const hint = detectUpgradeHint(error)
-    if (hint) {
-      upgradeKind.value = hint
-      upgradeMessage.value = errMessage
-      showUpgrade.value = true
-      return
-    }
-    // 此自动路径默认 deep，但免费档会降级为免费快速成书；不臆测已扣费
-    const human = humanizeGenerationError(error, { billed: false })
-    globalAlert.showError(human.message, human.title)
-  }
-}
-
 const handleBlueprintGenerated = async (response: any) => {
   console.log('收到蓝图生成完成事件:', response)
   completedBlueprint.value = response.blueprint
   blueprintMessage.value = response.ai_message
   resumeBlueprintTaskId.value = null
+  autoStartBlueprint.value = false
   showBlueprintConfirmation.value = false
   showBlueprint.value = true
   await scrollToBottom()
@@ -1011,7 +1025,7 @@ const seedToText = (s: DivergeSeed): string => {
 
 async function handleDiverge() {
   if (!canUseDivergence.value) {
-    globalAlert.showError('N 路发散为旗舰档特性，升级旗舰版即可一次生成多个迥异世界观种子并智能评分。', '需要升级')
+    promptUpgrade('muse_divergence')
     return
   }
   if (!novelStore.currentProject) {
@@ -1257,7 +1271,10 @@ button { cursor: pointer; }
 }
 .muse-card:hover:not(:disabled) { border-color: #484722; }
 .muse-card.selected { border-color: #575224; background: #201f0e; }
-.muse-card.locked { opacity: .52; cursor: not-allowed; }
+.muse-card.locked { opacity: .62; cursor: pointer; }
+.muse-lock { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; color: #9a9c13; }
+.muse-lock svg { width: 13px; height: 13px; }
+.muse-lock small { font-size: 9px; font-weight: 700; white-space: nowrap; }
 .muse-avatar {
   display: grid;
   width: 31px;
@@ -1369,6 +1386,8 @@ button { cursor: pointer; }
 .conversation-footer :deep(.conversation-input) { margin: 0; }
 .diverge-trigger { margin-bottom: 8px; padding: 7px 10px; border: 1px solid #4b4820; border-radius: 8px; color: #cec200; background: #1c1b0c; font-size: 9px; }
 .diverge-trigger:disabled { opacity: .5; }
+.diverge-trigger.locked { opacity: .75; border-style: dashed; cursor: pointer; }
+.diverge-lock { margin-left: 8px; color: #9a9c13; font-size: 9px; font-weight: 700; }
 .diverge-results { max-height: 235px; overflow-y: auto; padding: 12px 16px; border-top: 1px solid #2a2b24; background: #11120f; }
 .diverge-results-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
 .diverge-results-head strong { display: block; color: #d7d8d1; font-size: 10px; }
@@ -1441,8 +1460,15 @@ button { cursor: pointer; }
   .flow-step { min-height: 34px; }
   .studio-workspace { height: auto; grid-template-columns: 1fr; padding: 10px; }
   .material-rail, .idea-board { max-height: none; overflow: visible; }
-  .idea-stage { min-height: 660px; }
-  .idea-board { display: flex; }
+  /* 窄屏：对话在最上面，素材栏与看板放到对话下方（原来素材栏压在对话上面，先看到的是设置而不是聊天） */
+  .idea-stage { order: 1; min-height: 560px; }
+  .material-rail { order: 2; }
+  .idea-board { display: flex; order: 3; }
+  /* 8-9px 的标签在手机上不可读：窄屏最小 12px */
+  .board-next span, .board-section > p, .live-idea-card span, .live-idea-card b { font-size: 12px; }
+  .board-next p, .live-idea-card p, .board-progress-list small, .insight-list small, .direction-list small { font-size: 12px; }
+  .board-progress-list strong, .insight-list strong, .direction-list strong { font-size: 13px; }
+  .board-progress-list > div > span, .direction-list button > span { font-size: 12px; }
   .starter-grid { grid-template-columns: 1fr; }
   .starter-card { min-height: 82px; }
   .idea-hero { padding: 24px 19px 18px; }

@@ -220,14 +220,22 @@ const menuOptions: MenuOption[] = [
   { key: 'model_catalog', label: '模型目录', icon: iconRenderers.model_catalog },
   { key: 'password', label: '安全中心', icon: iconRenderers.password },
   {
+    // 质量回路 / 写作技能 / 能力门控是创作链路的开关，原来混在「变现管理」里找不到；tab key 不变，深链照旧
+    key: 'quality-group',
+    label: '创作质量',
+    icon: () => h('span', { class: 'menu-icon' }, '🎯'),
+    children: [
+      { key: 'quality_loop', label: '质量回路', icon: iconRenderers.quality_loop },
+      { key: 'skill_management', label: '写作技能', icon: iconRenderers.skill_management },
+      { key: 'feature_gating', label: '能力门控', icon: iconRenderers.feature_gating }
+    ]
+  },
+  {
     key: 'payment-group',
     label: '变现管理',
     icon: () => h('span', { class: 'menu-icon' }, '💰'),
     children: [
       { key: 'membership_plans', label: '会员套餐', icon: iconRenderers.membership_plans },
-      { key: 'feature_gating', label: '能力门控', icon: iconRenderers.feature_gating },
-      { key: 'quality_loop', label: '质量回路', icon: iconRenderers.quality_loop },
-      { key: 'skill_management', label: '写作技能', icon: iconRenderers.skill_management },
       { key: 'payment_channels', label: '支付渠道', icon: iconRenderers.payment_channels },
       { key: 'payment_records', label: '支付记录', icon: iconRenderers.payment_records }
     ]
