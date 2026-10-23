@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class MemoryCard(BaseModel):
@@ -29,6 +29,35 @@ class MemoryCard(BaseModel):
     commercial_data: Dict[str, str] = Field(default_factory=dict)
     takeaways: List[str] = Field(default_factory=list)
     risks: List[str] = Field(default_factory=list)
+
+    # 搜索型模型常把「资料未提及」直接填成字符串，或把列表字段写成一句话。
+    # 2026-10-17 生产实测 commercial_data="未提及" 让整本书分析 failed、五路产物全丢——
+    # 这些都是边角字段，宽容收下，不让类型小错废掉核心产物。
+    @field_validator("commercial_data", mode="before")
+    @classmethod
+    def _coerce_commercial_data(cls, value: Any) -> Dict[str, str]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return {str(k): ("" if v is None else str(v)) for k, v in value.items()}
+        if isinstance(value, list):
+            return {"note": "；".join(str(v) for v in value if str(v).strip())}
+        text = str(value).strip()
+        return {"note": text} if text else {}
+
+    @field_validator(
+        "cool_point_patterns", "foreshadowing_techniques", "suspense_techniques", "takeaways", "risks",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_str_list(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value.strip()] if value.strip() else []
+        if isinstance(value, (list, tuple)):
+            return [str(v).strip() for v in value if str(v).strip()]
+        return [str(value)]
 
 
 class ReferenceBeat(BaseModel):

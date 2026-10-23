@@ -28,6 +28,10 @@ from .reference_reading_contract import FusionDNA, fallback_dna, fusion_material
 logger = logging.getLogger(__name__)
 
 
+# analyze() 里「这一路抽取抛了异常，保留旧产物」的哨兵（None 是合法的产物值，不能复用）
+_KEEP_OLD = object()
+
+
 class ReferenceNovelLibraryService:
     _STATUS_PENDING = "pending"
     _STATUS_ANALYZING = "analyzing"
@@ -150,53 +154,77 @@ class ReferenceNovelLibraryService:
             style_guide_prompt = await self.prompt_service.get_prompt("reference_style_guide_extraction")
             search_llm_config = await self.llm_service._resolve_search_llm_config()
 
-            outline, style, memory_card, beat_library, style_guide = await asyncio.gather(
-                self._extract_outline(
+            # 五路抽取各自兜底：一路抛异常只记名字、保留该路旧产物，其余照常落库。
+            # 此前 gather 不带 return_exceptions，一个边角字段的类型错误就让整本书 failed，
+            # 已经抽成功的大纲/桥段一起丢掉（2026-10-17 生产实测）。
+            async def _guarded(name: str, coro):
+                try:
+                    return name, await coro, None
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("参考小说《%s》%s 抽取失败（保留旧产物）: %s", novel.title, name, exc)
+                    return name, _KEEP_OLD, exc
+
+            results = await asyncio.gather(
+                _guarded("大纲", self._extract_outline(
                     novel.title,
                     outline_context,
                     user_id,
                     prompt_template=outline_prompt,
                     llm_config=search_llm_config,
-                ),
-                self._extract_style(
+                )),
+                _guarded("风格样本", self._extract_style(
                     novel.title,
                     style_context,
                     user_id,
                     prompt_template=style_prompt,
                     llm_config=search_llm_config,
-                ),
-                self._extract_memory_card(
+                )),
+                _guarded("记忆卡", self._extract_memory_card(
                     novel.title,
                     memory_card_context,
                     user_id,
                     prompt_template=memory_card_prompt,
                     llm_config=search_llm_config,
-                ),
-                self._extract_beat_library(
+                )),
+                _guarded("桥段库", self._extract_beat_library(
                     novel.title,
                     beats_context,
                     user_id,
                     prompt_template=beats_prompt,
                     llm_config=search_llm_config,
-                ),
-                self._extract_style_guide(
+                )),
+                _guarded("写法基准", self._extract_style_guide(
                     novel.title,
                     style_context,
                     user_id,
                     prompt_template=style_guide_prompt,
                     llm_config=search_llm_config,
-                ),
+                )),
             )
+            (_, outline, e1), (_, style, e2), (_, memory_card, e3), (_, beat_library, e4), (_, style_guide, e5) = results
+            failed_names = [name for name, _value, err in results if err is not None]
+            if len(failed_names) == len(results):
+                raise RuntimeError("五路抽取全部失败：" + "；".join(f"{name}: {err}" for name, _v, err in results)[:1500])
 
             # 大纲/风格样本都可能因「任务复述」被整份判废（返回空串）——保留旧档案，
-            # 不用空值/垃圾覆盖；首次分析没有旧值时保持为空，界面会给提示
-            novel.outline_content = outline or novel.outline_content
-            novel.style_samples_content = style or novel.style_samples_content
-            novel.memory_card = memory_card
-            novel.beat_library = beat_library
-            novel.style_guide = style_guide
+            # 不用空值/垃圾覆盖；首次分析没有旧值时保持为空，界面会给提示。
+            # 抽取抛异常的那一路（_KEEP_OLD）也保留旧值。
+            if outline is not _KEEP_OLD:
+                novel.outline_content = outline or novel.outline_content
+            if style is not _KEEP_OLD:
+                novel.style_samples_content = style or novel.style_samples_content
+            if memory_card is not _KEEP_OLD:
+                novel.memory_card = memory_card
+            if beat_library is not _KEEP_OLD:
+                novel.beat_library = beat_library
+            if style_guide is not _KEEP_OLD:
+                novel.style_guide = style_guide
             novel.status = self._STATUS_READY
-            novel.error_message = None
+            # ready + error_message = 部分产物缺失（界面显示黄色提示，可重新分析），不是失败
+            novel.error_message = (
+                "部分产物抽取失败（已保留其余产物，可重新分析）：" + "、".join(failed_names)
+                if failed_names else None
+            )
             await self.session.commit()
             await self.session.refresh(novel)
             return novel

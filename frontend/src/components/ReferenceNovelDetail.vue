@@ -26,6 +26,9 @@
       <div v-if="novel.status === 'failed' && novel.error_message" class="hint-bar hint-error">
         分析失败：{{ novel.error_message }}
       </div>
+      <div v-else-if="novel.status === 'ready' && novel.error_message" class="hint-bar hint-partial">
+        {{ novel.error_message }}
+      </div>
 
       <!-- 大纲 / 人物档案 -->
       <section class="detail-section">
@@ -496,6 +499,7 @@ const save = async () => {
   50% { opacity: 1; transform: scale(1); }
 }
 
+.hint-partial { background: rgba(255, 184, 0, 0.1); color: #ffb800; border: 1px solid rgba(255, 184, 0, 0.3); }
 .hint-error {
   color: #ff8a95;
   background: rgba(255, 71, 87, 0.08);

@@ -315,3 +315,101 @@ def test_extract_memory_card_ignores_unknown_only_fields_to_avoid_empty_defaults
     result = asyncio.run(service._extract_memory_card("测试小说", "搜索结果", 7))
 
     assert result is None
+
+
+# ---------------------------------------------------------------------------
+# 分析稳定性：边角字段类型宽容 + 单路失败不废整本
+# ---------------------------------------------------------------------------
+
+def test_memory_card_tolerates_string_commercial_data_and_list_fields():
+    from app.schemas.reference_novel import MemoryCard
+
+    card = MemoryCard.model_validate({
+        "core_selling_point": "x",
+        "commercial_data": "未提及",          # 2026-10-17 生产实测：字符串让整本 failed
+        "cool_point_patterns": "打脸、升级",  # 列表字段写成一句话
+        "takeaways": None,
+        "risks": ["a", "", "b"],
+    })
+    assert card.commercial_data == {"note": "未提及"}
+    assert card.cool_point_patterns == ["打脸、升级"]
+    assert card.takeaways == [] and card.risks == ["a", "b"]
+    assert MemoryCard.model_validate({"commercial_data": {"word_count": 300}}).commercial_data == {"word_count": "300"}
+
+
+def _analyze_harness(novel, *, memory_card_behaviour):
+    session = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+    service = ReferenceNovelLibraryService(session=session)
+    service.get_by_id = AsyncMock(return_value=novel)
+    service.search_service = SimpleNamespace(
+        search_novel_dimensions=AsyncMock(return_value={"plot": "P", "craft": "C"}),
+        combine_dimension_texts=WebSearchService.combine_dimension_texts,
+    )
+
+    class _PromptService:
+        render_prompt = staticmethod(PromptService.render_prompt)
+
+        async def get_prompt(self, name):
+            return "{novel_title}|{search_results}"
+
+    class _LLMService:
+        async def _resolve_search_llm_config(self):
+            return {}
+
+        async def get_search_llm_response(self, system_prompt, conversation_history, **_kw):
+            if "记忆卡" in system_prompt:
+                return memory_card_behaviour()
+            return "新文本"
+
+        async def generate_structured(self, *, prompt, schema, default=None, **_kw):
+            if schema is BeatLibrary:
+                return BeatLibrary(beats=[ReferenceBeat(name="n", situation="s")])
+            return default
+
+    service.prompt_service = _PromptService()
+    service.llm_service = _LLMService()
+    return service
+
+
+def test_analyze_single_extractor_exception_keeps_old_value_and_marks_partial():
+    novel = SimpleNamespace(
+        id=11, title="部分失败小说", status="pending", error_message=None,
+        outline_content="旧大纲", style_samples_content=None, memory_card={"genre": "旧卡"},
+        beat_library=None, style_guide=None,
+    )
+
+    def boom():
+        raise RuntimeError("upstream 500")
+
+    service = _analyze_harness(novel, memory_card_behaviour=boom)
+    asyncio.run(service.analyze(11, 1))
+
+    assert novel.status == service._STATUS_READY
+    assert novel.memory_card == {"genre": "旧卡"}          # 抛异常的一路保留旧值
+    assert novel.outline_content == "新文本"               # 其余照常落库
+    assert novel.beat_library["beats"][0]["name"] == "n"
+    assert "记忆卡" in novel.error_message and "部分产物" in novel.error_message
+
+
+def test_analyze_all_extractors_failing_marks_failed():
+    import pytest
+
+    novel = SimpleNamespace(
+        id=12, title="全失败小说", status="pending", error_message=None,
+        outline_content=None, style_samples_content=None, memory_card=None,
+        beat_library=None, style_guide=None,
+    )
+    service = _analyze_harness(novel, memory_card_behaviour=lambda: "{}")
+
+    async def broken(*_a, **_k):
+        raise RuntimeError("down")
+
+    service._extract_outline = broken
+    service._extract_style = broken
+    service._extract_memory_card = broken
+    service._extract_beat_library = broken
+    service._extract_style_guide = broken
+    with pytest.raises(RuntimeError):
+        asyncio.run(service.analyze(12, 1))
+    assert novel.status == service._STATUS_FAILED
+    assert "五路抽取全部失败" in novel.error_message
