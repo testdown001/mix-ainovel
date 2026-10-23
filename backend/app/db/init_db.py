@@ -97,22 +97,7 @@ async def init_db() -> None:
                 logger.exception("默认管理员创建失败，可能是并发启动导致，请检查数据库状态")
 
         # ---- 第三步：同步系统配置到数据库 ----
-        for entry in SYSTEM_CONFIG_DEFAULTS:
-            value = entry.value_getter(settings)
-            if value is None:
-                continue
-            existing = await session.get(SystemConfig, entry.key)
-            if existing:
-                if entry.description and existing.description != entry.description:
-                    existing.description = entry.description
-                continue
-            session.add(
-                SystemConfig(
-                    key=entry.key,
-                    value=value,
-                    description=entry.description,
-                )
-            )
+        await _sync_system_config_defaults(session)
 
         await _ensure_default_prompts(session)
 
@@ -417,6 +402,37 @@ async def _ensure_default_models(session: AsyncSession) -> None:
             )
         )
     logger.info("模型目录为空，已落库 %d 个占位模型（通道留空回退 llm.*）", len(DEFAULT_MODELS))
+
+
+async def _sync_system_config_defaults(session: AsyncSession) -> None:
+    """把代码里的 SystemConfig 默认值补进库（已有键只同步 description）。
+
+    多副本同时启动时，同一个新键会被几个进程同时 INSERT：只有一个能成功，其余在
+    后续查询触发 autoflush 时撞 Duplicate entry，整个 lifespan 失败、进程重启
+    （2026-10-23 上线 blueprint.backbone_enabled 时三副本之一实测如此）。
+    这里显式 flush 并吞掉 IntegrityError：输家回滚后按赢家写入的值继续，不影响启动。
+    """
+    for entry in SYSTEM_CONFIG_DEFAULTS:
+        value = entry.value_getter(settings)
+        if value is None:
+            continue
+        existing = await session.get(SystemConfig, entry.key)
+        if existing:
+            if entry.description and existing.description != entry.description:
+                existing.description = entry.description
+            continue
+        session.add(
+            SystemConfig(
+                key=entry.key,
+                value=value,
+                description=entry.description,
+            )
+        )
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        logger.warning("系统配置默认值写入撞上并发启动的另一副本，已回滚，按库内已有值继续")
 
 
 async def _ensure_default_prompts(session: AsyncSession, prompts_dir: Path | None = None) -> None:
