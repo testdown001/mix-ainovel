@@ -217,3 +217,23 @@ async def test_findings_sorted_by_severity(db_session):
     order = {"error": 0, "warn": 1, "info": 2}
     assert levels == sorted(levels, key=lambda l: order[l])
     assert levels[0] == "error"
+
+
+# ---------------------------------------------------------------- 真实检索后端
+
+
+@pytest.mark.asyncio
+async def test_search_channel_without_backend_warns(db_session):
+    await _seed(db_session, llm__api_key="k", llm__base_url="https://api.openai.com/v1",
+                llm_search__api_key="sk", llm_search__model="grok-4")
+    codes = _codes(await audit_llm_config(db_session))
+    assert "search_backend_missing" in codes and "search_unconfigured" not in codes
+
+
+@pytest.mark.asyncio
+async def test_search_channel_with_backend_is_clean(db_session):
+    await _seed(db_session, llm__api_key="k", llm__base_url="https://api.openai.com/v1",
+                llm_search__api_key="sk", llm_search__model="grok-4",
+                search__provider="jina", search__api_key="jina-key")
+    codes = _codes(await audit_llm_config(db_session))
+    assert "search_backend_missing" not in codes and "search_unconfigured" not in codes

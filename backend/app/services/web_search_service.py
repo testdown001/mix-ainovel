@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -13,6 +14,19 @@ from .cache_service import CacheService
 from .llm_service import LLMService
 
 logger = logging.getLogger(__name__)
+
+
+_FAKE_TOOL_CALL_RE = re.compile(r"^[ \t]*(invoke|call|calling|use)\s+tool\b[^\n]*\n?", re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_fake_tool_calls(text: str) -> str:
+    """没有联网工具的模型会把 `invoke tool web_search with query ...` 当正文输出（2026-10-23 实测）。
+
+    这种行整段都是噪音；去掉后若只剩空串，调用方按「本维度无结果」处理，而不是把它缓存 24h。
+    """
+    cleaned = _FAKE_TOOL_CALL_RE.sub("", text or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
 
 
 class WebSearchService:
@@ -174,17 +188,32 @@ class WebSearchService:
                 return dim, cached["result"]
             spec = self._SEARCH_DIMENSIONS[dim]
             query = f"起点中文网 番茄小说 {novel_name} {spec['query']}"
-            system_prompt = (
-                "你是小说资料检索助手。你必须优先使用联网搜索能力，聚焦起点中文网、番茄小说与中文书评社区。"
-                "如果目标站点信息不足，可补充其他中文站点。"
-                "输出要求：用中文；只写可验证的公开信息，不要编造；"
-                "信息不足的点明确说「资料未提及」，不要用泛泛之谈填充。"
-            )
-            user_prompt = (
-                f"请围绕一个明确的维度搜索并总结这本小说：{novel_name}\n"
-                f"推荐查询：{query}\n"
-                f"本次只关注：{spec['focus']}"
-            )
+            # 真实检索证据（search.provider 配置后）：模型只许依据抓到的资料总结。
+            # 没配置时退回旧行为（模型记忆），配置体检会告警。
+            evidence = await self._gather_evidence(f"{novel_name} {spec['query']}", dim)
+            if evidence:
+                system_prompt = (
+                    "你是小说资料整理助手。用户消息里附有真实联网检索到的资料（带 URL）。"
+                    "你只能依据这些资料总结，不得补充记忆中的内容，不得编造；"
+                    "资料没覆盖的点明确写「资料未提及」。用中文，直接输出总结，不要复述任务。"
+                )
+                user_prompt = (
+                    f"{evidence}\n\n"
+                    f"【任务】围绕一个维度总结《{novel_name}》：{spec['focus']}\n"
+                    "引用资料时标注来源序号（如 [2]），这样下游能分辨目录事实和书评推断。"
+                )
+            else:
+                system_prompt = (
+                    "你是小说资料检索助手。你必须优先使用联网搜索能力，聚焦起点中文网、番茄小说与中文书评社区。"
+                    "如果目标站点信息不足，可补充其他中文站点。"
+                    "输出要求：用中文；只写可验证的公开信息，不要编造；"
+                    "信息不足的点明确说「资料未提及」，不要用泛泛之谈填充。"
+                )
+                user_prompt = (
+                    f"请围绕一个明确的维度搜索并总结这本小说：{novel_name}\n"
+                    f"推荐查询：{query}\n"
+                    f"本次只关注：{spec['focus']}"
+                )
             result = await self.llm_service.get_search_llm_response(
                 system_prompt=system_prompt,
                 conversation_history=[{"role": "user", "content": user_prompt}],
@@ -192,9 +221,13 @@ class WebSearchService:
                 timeout=180.0,
                 max_tokens=int(spec.get("max_tokens") or 2000),
             )
-            text = result.strip()
+            text = _strip_fake_tool_calls(result)
             if text:
                 await self.cache_service.set(cache_key, {"result": text}, ttl=self._CACHE_TTL_SECONDS)
+            logger.info(
+                "参考小说维度检索完成: novel=%s dimension=%s grounded=%s chars=%d",
+                novel_name, dim, bool(evidence), len(text),
+            )
             return dim, text
 
         results = await asyncio.gather(*(_one(dim) for dim in wanted), return_exceptions=True)
@@ -215,10 +248,22 @@ class WebSearchService:
             raise HTTPException(status_code=502, detail="参考小说检索失败，请检查搜索模型配置或稍后重试")
         return collected
 
+    async def _gather_evidence(self, query: str, dimension: str) -> str:
+        """真实检索证据；未配置或失败返回空串（调用方退回模型记忆路径）。"""
+        try:
+            from .web_evidence_service import WebEvidenceService
+
+            # 目录/结构维度最需要页面正文（卷名在书页里），其余维度只要摘要就够
+            read_pages = 2 if dimension in ("structure", "plot", "single") else 0
+            return await WebEvidenceService(self.session).gather(query, read_pages=read_pages)
+        except Exception as exc:  # noqa: BLE001 - 证据是增益不是依赖
+            logger.warning("联网检索证据获取失败(退回模型记忆): %s", exc)
+            return ""
+
     @staticmethod
     def _build_dimension_cache_key(*, novel_name: str, dimension: str) -> str:
         digest = hashlib.sha1(novel_name.encode("utf-8")).hexdigest()  # noqa: S324 - non-security hash
-        return f"reference_dim_search:v2:{digest}:{dimension}"
+        return f"reference_dim_search:v3:{digest}:{dimension}"
 
     @staticmethod
     def combine_dimension_texts(dimension_results: Dict[str, str], *keys: str) -> str:
@@ -252,6 +297,14 @@ class WebSearchService:
             f"推荐查询：{query}\n"
             "请尽量覆盖：题材定位、开篇钩子、主线推进方式、升级/冲突机制、角色关系网络。"
         )
+        evidence = await self._gather_evidence(f"{novel_name} 小说 剧情 简介 目录", "single")
+        if evidence:
+            system_prompt = (
+                "你是小说资料整理助手。用户消息里附有真实联网检索到的资料（带 URL），你只能依据这些资料总结，"
+                "不得补充记忆、不得编造；资料没覆盖的点写「资料未提及」。用中文，先给 4-8 条事实要点，"
+                "再给“剧情结构/角色设计/世界观设定/节奏特点”四个小节。"
+            )
+            user_prompt = f"{evidence}\n\n【任务】总结这本小说：{novel_name}。覆盖：题材定位、开篇钩子、主线推进方式、升级/冲突机制、角色关系网络。"
         result = await self.llm_service.get_search_llm_response(
             system_prompt=system_prompt,
             conversation_history=[{"role": "user", "content": user_prompt}],

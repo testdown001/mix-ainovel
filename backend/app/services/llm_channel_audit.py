@@ -52,6 +52,7 @@ _AUDIT_KEYS = (
     "embedding.provider", "embedding.api_key", "embedding.base_url",
     "ollama.embedding_base_url",
     "rerank.enabled", "rerank.api_url",
+    "search.provider", "search.api_key",
 )
 
 
@@ -221,6 +222,15 @@ async def audit_llm_config(session: AsyncSession) -> List[Dict[str, Any]]:
             LEVEL_WARN, "search_unconfigured", "未配置联网搜索通道",
             "灵感模式的「跨域找料」会静默跳过（失败即返回空，用户无感知），"
             "显式调用搜索的接口返回 503。创作者档以上用户会觉得这个能力不存在。",
+            ["search"],
+        ))
+    elif (v["search.provider"] or "none").lower() not in ("jina", "serper") or not v["search.api_key"]:
+        findings.append(_finding(
+            LEVEL_WARN, "search_backend_missing", "搜索通道没有真实检索后端",
+            "llm_search.* 只是一个普通对话模型，没有联网工具：参考小说分析全靠模型记忆，"
+            "名著还行，新书/冷门书会得到「资料未提及」甚至「该书不存在」"
+            "（2026-10-23 实测一本起点连载 605 章的书被判不存在）。"
+            "请在 search.provider 配置 jina 或 serper 并填 search.api_key。",
             ["search"],
         ))
 

@@ -286,6 +286,31 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
         description="两遍制草稿-改写（旗舰档）：先以轻约束写草稿，再据全部规则改写一遍。⚠️ 每章多一次整章级 LLM 调用，单章成本近乎翻倍。",
     ),
     SystemConfigDefault(
+        key="search.provider",
+        value_getter=lambda _: "none",
+        description=(
+            "真实联网检索后端：none / jina / serper。搜索通道的 LLM 本身没有联网能力——"
+            "不配置时参考小说分析只靠模型记忆，新书/冷门书会得到「资料未提及」"
+            "（2026-10-23 实测一本起点连载 605 章的书被判「不存在」）。"
+            "jina = s.jina.ai 搜索 + r.jina.ai 抓页；serper = Google 结果（只有摘要）。"
+        ),
+    ),
+    SystemConfigDefault(
+        key="search.api_key",
+        value_getter=lambda _: "",
+        description="检索后端的 API Key（jina 或 serper）。",
+    ),
+    SystemConfigDefault(
+        key="search.max_results",
+        value_getter=lambda _: "8",
+        description="每次检索取的结果条数（1-10）。",
+    ),
+    SystemConfigDefault(
+        key="search.read_pages",
+        value_getter=lambda _: "2",
+        description="目录/剧情维度额外抓取正文的页面数（0-4，仅 jina 支持）；卷名、章数在书页里，抓页才拿得到。",
+    ),
+    SystemConfigDefault(
         key="rerank.enabled",
         value_getter=lambda config: _bool_to_text(config.rag_reranker_enabled),
         description="是否启用检索结果重排序（Reranker）。关闭后检索保持原始召回顺序。",
