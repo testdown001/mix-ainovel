@@ -125,8 +125,21 @@ class WebEvidenceService:
     # ------------------------------------------------------------------
     # 入口
     # ------------------------------------------------------------------
-    async def gather(self, query: str, *, read_pages: Optional[int] = None) -> str:
-        """检索 + 可选抓页 → 带来源的证据文本；未配置/失败返回空串。"""
+    async def gather(
+        self,
+        query: str,
+        *,
+        read_pages: Optional[int] = None,
+        anchor: str = "",
+        page_chars: int = _PAGE_CHAR_CAP,
+    ) -> str:
+        """检索 + 可选抓页 → 带来源的证据文本；未配置/失败返回空串。
+
+        anchor（通常是书名）：搜索引擎会混进同名关键词的别的书——2026-10-23 实测「桥段」维度
+        混进一条「看到案件证据」的结果，最后进了桥段库和记忆卡。标题/摘要里带书名的结果优先，
+        只要带书名的够 3 条，其余一律丢掉。
+        page_chars：目录维度要的是整份章节表，默认 6000 字装不下 600 章，由调用方放宽。
+        """
         config = await resolve_search_backend_config(self.session)
         if not search_backend_configured(config):
             return ""
@@ -135,13 +148,14 @@ class WebEvidenceService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("联网检索失败(provider=%s): %s", config.get("provider"), exc)
             return ""
+        results = filter_results_by_anchor(results, anchor)
         if not results:
             return ""
         pages_wanted = config["read_pages"] if read_pages is None else max(0, min(4, read_pages))
         page_texts: Dict[str, str] = {}
         if pages_wanted and config["provider"] in PAGE_READING_PROVIDERS:
             for item in _pick_pages(results, pages_wanted):
-                text = await self._read_page(item["url"], config)
+                text = await self._read_page(item["url"], config, page_chars=page_chars)
                 if text:
                     page_texts[item["url"]] = text
         return _format_evidence(query, results, page_texts)
@@ -218,7 +232,7 @@ class WebEvidenceService:
                 break
         return results
 
-    async def _read_page(self, url: str, config: Dict[str, Any]) -> str:
+    async def _read_page(self, url: str, config: Dict[str, Any], *, page_chars: int = _PAGE_CHAR_CAP) -> str:
         """r.jina.ai 抓正文（markdown），失败返回空串。有 key 带 key，没 key 走限速的匿名额度。"""
         headers = {"Accept": "text/plain", "X-Return-Format": "markdown"}
         if config.get("api_key"):
@@ -229,7 +243,7 @@ class WebEvidenceService:
         except Exception as exc:  # noqa: BLE001
             logger.debug("抓页失败 %s: %s", url, exc)
             return ""
-        return trim_page_markdown(text)[:_PAGE_CHAR_CAP]
+        return trim_page_markdown(text)[: max(1000, int(page_chars or _PAGE_CHAR_CAP))]
 
     async def _reader_get(self, url: str, headers: Dict[str, str]) -> httpx.Response:
         """r.jina.ai 调用：并发闸门 + 对限速/瞬时错误重试一次。"""
@@ -334,6 +348,32 @@ def trim_page_markdown(text: str) -> str:
         kept.append(line.rstrip())
     joined = "\n".join(kept)
     return re.sub(r"\n{3,}", "\n\n", joined).strip()
+
+
+_ANCHOR_NOISE_RE = re.compile(r"[\s《》〈〉「」『』【】()（）\[\]，,。.！!？?：:;；\-—_·、\"'“”‘’]+")
+_MIN_ANCHORED_RESULTS = 3
+
+
+def _anchor_key(text: str) -> str:
+    return _ANCHOR_NOISE_RE.sub("", text or "").lower()
+
+
+def filter_results_by_anchor(results: List[Dict[str, str]], anchor: str) -> List[Dict[str, str]]:
+    """标题/摘要里带书名的结果排前面；带书名的 ≥3 条时，不带的一律丢掉（防同名关键词混书）。
+
+    书名短于 2 个字或为空 → 不过滤。书名带标点的（「渔猎八一，从近海到远洋」）按去标点后比对，
+    并额外认「逗号前半段」这种常见缩写（「渔猎八一」），因为搜索摘要常只写前半。
+    """
+    key = _anchor_key(anchor)
+    if len(key) < 2:
+        return results
+    short = _anchor_key(re.split(r"[，,：:—\-]", anchor or "", maxsplit=1)[0])
+    needles = {k for k in (key, short) if len(k) >= 2}
+    anchored = [r for r in results if any(n in _anchor_key(f"{r.get('title', '')} {r.get('snippet', '')}") for n in needles)]
+    if len(anchored) >= _MIN_ANCHORED_RESULTS:
+        return anchored
+    rest = [r for r in results if r not in anchored]
+    return anchored + rest
 
 
 def _page_host(url: str) -> str:

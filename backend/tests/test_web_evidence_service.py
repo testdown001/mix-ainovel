@@ -126,7 +126,7 @@ def test_dimension_search_uses_grounded_prompt_when_evidence_present():
         captured["user"] = conversation_history[0]["content"]
         return "invoke tool web_search with query x\n依据 [1]，全书 605 章"
 
-    async def _evidence(query, dimension):
+    async def _evidence(query, dimension, anchor=""):
         return f"【联网检索结果】查询：{query}\n[1] 书页 — https://q/1"
 
     svc.llm_service = SimpleNamespace(
@@ -251,3 +251,40 @@ async def test_duckduckgo_challenge_page_yields_empty(db_session):
     await _seed(db_session, search__provider="duckduckgo", search__read_pages="0")
     client = httpx.AsyncClient(transport=_transport(lambda r: httpx.Response(200, text="<html>anomaly</html>")))
     assert await wes.WebEvidenceService(db_session, client=client).gather("渔猎八一") == ""
+
+
+# ---------------------------------------------------------------- 书名锚定过滤 / 目录页上限
+
+
+def test_filter_results_by_anchor_drops_other_books_when_enough_anchored():
+    book = "渔猎八一，从近海到远洋"
+    results = [
+        {"title": "渔猎八一，从近海到远洋 (绑疯绳)", "url": "https://a/1", "snippet": ""},
+        {"title": "某刑侦文：看到案件证据的蜘蛛案例", "url": "https://b/2", "snippet": "主角能看到证据"},
+        {"title": "云起书院", "url": "https://a/3", "snippet": "渔猎八一 更新时间 第601章"},  # 只写了逗号前半
+        {"title": "无关", "url": "https://c/4", "snippet": "重生八一渔猎西北"},
+        {"title": "全部章节", "url": "https://a/5", "snippet": "《渔猎八一，从近海到远洋》连载至607章"},
+    ]
+    kept = wes.filter_results_by_anchor(results, book)
+    assert [r["url"] for r in kept] == ["https://a/1", "https://a/3", "https://a/5"]
+    # 带书名的不足 3 条：只排序不丢弃
+    few = wes.filter_results_by_anchor(results[:2], book)
+    assert [r["url"] for r in few] == ["https://a/1", "https://b/2"]
+    assert wes.filter_results_by_anchor(results, "") == results
+
+
+@pytest.mark.asyncio
+async def test_gather_passes_page_chars_cap(db_session):
+    await _seed(db_session, search__provider="duckduckgo", search__read_pages="1")
+
+    def handler(request):
+        target = str(request.url)[len("https://r.jina.ai/"):]
+        if target.startswith("https://html.duckduckgo.com"):
+            return httpx.Response(200, text=_DDG_HTML)
+        return httpx.Response(200, text="\n".join(f"*   [第{i}章 章名足够长不被裁掉](https://x/{i})" for i in range(1, 700)))
+
+    client = httpx.AsyncClient(transport=_transport(handler))
+    svc = wes.WebEvidenceService(db_session, client=client)
+    small = await svc.gather("渔猎八一，从近海到远洋 目录", page_chars=3000)
+    big = await svc.gather("渔猎八一，从近海到远洋 目录", page_chars=12000)
+    assert len(big) > len(small) + 5000

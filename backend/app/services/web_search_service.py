@@ -193,7 +193,7 @@ class WebSearchService:
             query = f"起点中文网 番茄小说 {novel_name} {spec['query']}"
             # 真实检索证据（search.provider 配置后）：模型只许依据抓到的资料总结。
             # 没配置时退回旧行为（模型记忆），配置体检会告警。
-            evidence = await self._gather_evidence(f"{novel_name} {spec['query']}", dim)
+            evidence = await self._gather_evidence(f"{novel_name} {spec['query']}", dim, novel_name)
             if evidence:
                 system_prompt = (
                     "你是小说资料整理助手。用户消息里附有真实联网检索到的资料（带 URL）。"
@@ -251,14 +251,18 @@ class WebSearchService:
             raise HTTPException(status_code=502, detail="参考小说检索失败，请检查搜索模型配置或稍后重试")
         return collected
 
-    async def _gather_evidence(self, query: str, dimension: str) -> str:
+    async def _gather_evidence(self, query: str, dimension: str, anchor: str = "") -> str:
         """真实检索证据；未配置或失败返回空串（调用方退回模型记忆路径）。"""
         try:
             from .web_evidence_service import WebEvidenceService
 
-            # 目录/结构维度最需要页面正文（卷名在书页里），其余维度只要摘要就够
+            # 目录/结构维度最需要页面正文（卷名在书页里），其余维度只要摘要就够；
+            # 目录页一行一章、600 章约 1.5 万字，结构维度把正文上限放到 12000
             read_pages = 2 if dimension in ("structure", "plot", "single") else 0
-            return await WebEvidenceService(self.session).gather(query, read_pages=read_pages)
+            page_chars = 12000 if dimension == "structure" else 6000
+            return await WebEvidenceService(self.session).gather(
+                query, read_pages=read_pages, anchor=anchor, page_chars=page_chars,
+            )
         except Exception as exc:  # noqa: BLE001 - 证据是增益不是依赖
             logger.warning("联网检索证据获取失败(退回模型记忆): %s", exc)
             return ""
@@ -309,7 +313,7 @@ class WebSearchService:
             f"推荐查询：{query}\n"
             "请尽量覆盖：题材定位、开篇钩子、主线推进方式、升级/冲突机制、角色关系网络。"
         )
-        evidence = await self._gather_evidence(f"{novel_name} 小说 剧情 简介 目录", "single")
+        evidence = await self._gather_evidence(f"{novel_name} 小说 剧情 简介 目录", "single", novel_name)
         if evidence:
             system_prompt = (
                 "你是小说资料整理助手。用户消息里附有真实联网检索到的资料（带 URL），你只能依据这些资料总结，"
