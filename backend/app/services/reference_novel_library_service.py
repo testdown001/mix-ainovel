@@ -192,10 +192,12 @@ class ReferenceNovelLibraryService:
             # 单维度失败降级（combine_dimension_texts 会回退到可用维度），全失败才抛。
             dimension_results = await self.search_service.search_novel_dimensions(novel_name=novel.title)
             combine = self.search_service.combine_dimension_texts
-            outline_context = combine(dimension_results, "plot", "characters")
+            # structure（目录/章节标题）是新书、冷门书唯一稳定能抓到的维度：书评类维度常整段「资料未提及」，
+            # 2026-10-23 实测一本 607 章的连载 plot 维度只回了 171 字，桥段库因此抽空——目录要喂给每一路。
+            outline_context = combine(dimension_results, "plot", "characters", "structure")
             style_context = combine(dimension_results, "craft", "plot")
-            memory_card_context = combine(dimension_results, "pacing", "characters", "beats", "craft", "plot")
-            beats_context = combine(dimension_results, "beats", "pacing", "plot")
+            memory_card_context = combine(dimension_results, "pacing", "characters", "beats", "craft", "plot", "structure")
+            beats_context = combine(dimension_results, "beats", "pacing", "plot", "structure")
             structure_context = combine(dimension_results, "structure", "plot", "beats")
 
             outline_prompt = await self.prompt_service.get_prompt("reference_outline_extraction")
