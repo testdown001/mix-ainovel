@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..repositories.system_config_repository import SystemConfigRepository
 from .llm_service import channel_explicitly_configured
+from .web_evidence_service import search_backend_configured
 
 LEVEL_ERROR = "error"
 LEVEL_WARN = "warn"
@@ -224,13 +225,15 @@ async def audit_llm_config(session: AsyncSession) -> List[Dict[str, Any]]:
             "显式调用搜索的接口返回 503。创作者档以上用户会觉得这个能力不存在。",
             ["search"],
         ))
-    elif (v["search.provider"] or "none").lower() not in ("jina", "serper") or not v["search.api_key"]:
+    elif not search_backend_configured({
+        "provider": (v["search.provider"] or "none").lower(), "api_key": v["search.api_key"],
+    }):
         findings.append(_finding(
             LEVEL_WARN, "search_backend_missing", "搜索通道没有真实检索后端",
             "llm_search.* 只是一个普通对话模型，没有联网工具：参考小说分析全靠模型记忆，"
             "名著还行，新书/冷门书会得到「资料未提及」甚至「该书不存在」"
             "（2026-10-23 实测一本起点连载 605 章的书被判不存在）。"
-            "请在 search.provider 配置 jina 或 serper 并填 search.api_key。",
+            "search.provider 设为 duckduckgo（免费、无需 Key）即可，或配置 jina/serper 并填 search.api_key。",
             ["search"],
         ))
 

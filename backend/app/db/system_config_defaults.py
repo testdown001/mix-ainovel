@@ -287,18 +287,19 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
     ),
     SystemConfigDefault(
         key="search.provider",
-        value_getter=lambda _: "none",
+        value_getter=lambda _: "duckduckgo",
         description=(
-            "真实联网检索后端：none / jina / serper。搜索通道的 LLM 本身没有联网能力——"
-            "不配置时参考小说分析只靠模型记忆，新书/冷门书会得到「资料未提及」"
-            "（2026-10-23 实测一本起点连载 605 章的书被判「不存在」）。"
-            "jina = s.jina.ai 搜索 + r.jina.ai 抓页；serper = Google 结果（只有摘要）。"
+            "真实联网检索后端：duckduckgo（默认，免费无需 Key）/ jina / serper / none。"
+            "搜索通道的 LLM 本身没有联网能力——设为 none 时参考小说分析只靠模型记忆，"
+            "新书/冷门书会得到「资料未提及」（2026-10-23 实测一本起点连载 605 章的书被判「不存在」）。"
+            "duckduckgo = DDG 结果经 r.jina.ai 匿名额度取回并抓书页；"
+            "jina = s.jina.ai 搜索 + r.jina.ai 抓页（需 Key）；serper = Google 结果（只有摘要，需 Key）。"
         ),
     ),
     SystemConfigDefault(
         key="search.api_key",
         value_getter=lambda _: "",
-        description="检索后端的 API Key（jina 或 serper）。",
+        description="检索后端的 API Key（jina/serper 必填；duckduckgo 可留空，填 Jina Key 可解除匿名限速）。",
     ),
     SystemConfigDefault(
         key="search.max_results",
@@ -308,7 +309,7 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
     SystemConfigDefault(
         key="search.read_pages",
         value_getter=lambda _: "2",
-        description="目录/剧情维度额外抓取正文的页面数（0-4，仅 jina 支持）；卷名、章数在书页里，抓页才拿得到。",
+        description="目录/剧情维度额外抓取正文的页面数（0-4，duckduckgo/jina 支持）；卷名、章数在书页里，抓页才拿得到。",
     ),
     SystemConfigDefault(
         key="rerank.enabled",

@@ -169,9 +169,10 @@
                 <n-tag :type="searchBackendTag.type" size="small">{{ searchBackendTag.text }}</n-tag>
               </div>
               <n-alert :type="searchBackendForm.provider === 'none' ? 'warning' : 'info'" :bordered="false" style="margin-bottom:16px">
-                上面的搜索模型本身<b>没有联网能力</b>：不配检索后端时，参考小说分析只靠模型记忆——名著还行，
-                新书、冷门书会得到「资料未提及」甚至「该书不存在」。配置后，模型只依据真实抓取到的网页资料总结。
-                jina（s.jina.ai 搜索 + r.jina.ai 抓书页，能拿到卷名和章数）或 serper（Google 结果，只有摘要）。
+                上面的搜索模型本身<b>没有联网能力</b>：选 none 时，参考小说分析只靠模型记忆——名著还行，
+                新书、冷门书会得到「资料未提及」甚至「该书不存在」。启用后，模型只依据真实抓取到的网页资料总结。
+                DuckDuckGo（默认，免费无需 Key，结果经 r.jina.ai 匿名额度取回并抓书页；填 Jina Key 可解除限速）、
+                jina（s.jina.ai 搜索 + r.jina.ai 抓书页，需 Key）或 serper（Google 结果，只有摘要，需 Key）。
               </n-alert>
               <n-form label-placement="top">
                 <n-grid :cols="2" :x-gap="16">
@@ -179,12 +180,12 @@
                     <n-select v-model:value="searchBackendForm.provider" :options="searchProviderOptions" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="检索 API Key">
-                    <n-input v-model:value="searchBackendForm.api_key" type="password" show-password-on="click" placeholder="jina 或 serper 的 Key" />
+                    <n-input v-model:value="searchBackendForm.api_key" type="password" show-password-on="click" :placeholder="searchBackendForm.provider === 'duckduckgo' ? '可留空；填 Jina Key 可解除匿名限速' : 'jina 或 serper 的 Key'" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="每次检索条数（1-10）">
                     <n-input-number v-model:value="searchBackendForm.max_results" :min="1" :max="10" style="width:100%" />
                   </n-form-item></n-gi>
-                  <n-gi><n-form-item label="抓取正文页数（0-4，仅 jina）">
+                  <n-gi><n-form-item label="抓取正文页数（0-4，duckduckgo/jina）">
                     <n-input-number v-model:value="searchBackendForm.read_pages" :min="0" :max="4" style="width:100%" />
                   </n-form-item></n-gi>
                 </n-grid>
@@ -455,11 +456,15 @@ const searchBackendForm = reactive({ provider: 'none', api_key: '', max_results:
 const searchBackendSaving = ref(false)
 const searchProviderOptions = [
   { label: '不启用（只靠模型记忆）', value: 'none' },
-  { label: 'Jina（搜索 + 抓页）', value: 'jina' },
-  { label: 'Serper（Google 摘要）', value: 'serper' },
+  { label: 'DuckDuckGo（免费，无需 Key）', value: 'duckduckgo' },
+  { label: 'Jina（搜索 + 抓页，需 Key）', value: 'jina' },
+  { label: 'Serper（Google 摘要，需 Key）', value: 'serper' },
 ]
 const searchBackendTag = computed(() => {
   if (searchBackendForm.provider === 'none') return { type: 'warning' as const, text: '未启用：只靠模型记忆' }
+  if (searchBackendForm.provider === 'duckduckgo') {
+    return { type: 'success' as const, text: searchBackendForm.api_key ? '已启用 duckduckgo（带 Jina Key）' : '已启用 duckduckgo（匿名限速）' }
+  }
   if (!searchBackendForm.api_key) return { type: 'error' as const, text: '已选提供方但未填 Key' }
   return { type: 'success' as const, text: `已启用 ${searchBackendForm.provider}` }
 })
@@ -568,10 +573,10 @@ const saveSearchBackend = async () => {
   searchBackendSaving.value = true
   try {
     const entries = [
-      { key: 'search.provider', value: searchBackendForm.provider || 'none', description: '真实联网检索后端(none/jina/serper)' },
+      { key: 'search.provider', value: searchBackendForm.provider || 'none', description: '真实联网检索后端(duckduckgo/jina/serper/none)' },
       { key: 'search.api_key', value: searchBackendForm.api_key, description: '检索后端 API Key' },
       { key: 'search.max_results', value: String(searchBackendForm.max_results || 8), description: '每次检索条数' },
-      { key: 'search.read_pages', value: String(searchBackendForm.read_pages ?? 2), description: '抓取正文页数(仅 jina)' },
+      { key: 'search.read_pages', value: String(searchBackendForm.read_pages ?? 2), description: '抓取正文页数(duckduckgo/jina)' },
     ]
     for (const entry of entries) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })

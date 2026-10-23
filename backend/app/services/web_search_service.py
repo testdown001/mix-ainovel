@@ -181,8 +181,11 @@ class WebSearchService:
         # 预校验搜索通道配置：未配置时立刻 503，而不是 5 路各自失败
         await self.llm_service._resolve_search_llm_config()
 
+        # 缓存键带上检索提供方：后台从 none 切到 duckduckgo 后，24h 内的「模型记忆版」结果立刻失效
+        provider = await self._search_provider()
+
         async def _one(dim: str) -> tuple[str, str]:
-            cache_key = self._build_dimension_cache_key(novel_name=novel_name, dimension=dim)
+            cache_key = self._build_dimension_cache_key(novel_name=novel_name, dimension=dim, provider=provider)
             cached = await self.cache_service.get(cache_key)
             if isinstance(cached, dict) and isinstance(cached.get("result"), str) and cached["result"].strip():
                 return dim, cached["result"]
@@ -260,10 +263,19 @@ class WebSearchService:
             logger.warning("联网检索证据获取失败(退回模型记忆): %s", exc)
             return ""
 
+    async def _search_provider(self) -> str:
+        try:
+            from .web_evidence_service import resolve_search_backend_config, search_backend_configured
+
+            config = await resolve_search_backend_config(self.session)
+            return str(config.get("provider") or "none") if search_backend_configured(config) else "none"
+        except Exception:  # noqa: BLE001 - 配置读取失败按未配置处理
+            return "none"
+
     @staticmethod
-    def _build_dimension_cache_key(*, novel_name: str, dimension: str) -> str:
+    def _build_dimension_cache_key(*, novel_name: str, dimension: str, provider: str = "none") -> str:
         digest = hashlib.sha1(novel_name.encode("utf-8")).hexdigest()  # noqa: S324 - non-security hash
-        return f"reference_dim_search:v3:{digest}:{dimension}"
+        return f"reference_dim_search:v4:{provider}:{digest}:{dimension}"
 
     @staticmethod
     def combine_dimension_texts(dimension_results: Dict[str, str], *keys: str) -> str:
