@@ -303,6 +303,7 @@ Gateway: `TASK_DISPATCHER_INTERNAL_CALLBACK_SECRET` (accepts `GATEWAY_` prefix a
 - **Never "helpfully" rewrite user-provided values**: auto-appending `/rerank` to the rerank URL breaks users who correctly filled `…/v1/rerank/multimodal`. Multi-vendor scenarios make path inference fail every time.
 - **Adding an env switch requires updating prod compose to pass it through** — otherwise it's silently off in production (happened with `VOLUME_RETROSPECTIVE_ENABLED`).
 - **Production stack commands MUST include `-f docker-compose.prod.yml`** — bare `docker compose` tears down prod stack app replicas.
+- **Release through `deploy/scripts/release_prod.sh`, not a hand-typed `docker compose build`** — the admin 「系统版本与部署」 card reads `/app/release-info.json`, which the Dockerfile fills from build args that only exist after `source deploy/scripts/prepare_release_metadata.sh build`; a bare build bakes an all-null file and the card shows 未知 everywhere (five manual rollouts on 2026-10-23 did exactly this). `release_info_service` now reports such an image as `source=unknown` with a `hint` instead of pretending it is a known image.
 
 **Testing and debugging:**
 - **Never `import app.main` in tests** — it runs `dictConfig` with `propagate=False` at import time, breaking other tests' caplog (broke 3 unrelated tests at once).

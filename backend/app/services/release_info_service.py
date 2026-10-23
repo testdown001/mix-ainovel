@@ -118,6 +118,7 @@ def get_system_information(
 
     deployed_at = _timestamp(env.get("APP_DEPLOYED_AT"))
     deployment_id = _label(env.get("APP_DEPLOYMENT_ID"))
+    hint: str | None = None
     if artifact_present:
         # A persisted event for image A must not label a newly built/rolled-back
         # image B. Restarting the same image preserves the original event.
@@ -125,9 +126,20 @@ def get_system_information(
         if not build_id or env.get("APP_DEPLOYED_BUILD_ID") != build_id:
             deployed_at = deployment_id = None
     sha = _commit(data.get("git_commit"))
+    if source == "image" and not sha and not _label(data.get("build_id")):
+        # The image was built without release build args (a bare `docker compose build`,
+        # 2026-10-23 on the prod host: five manual rollouts in a row, admin card all 未知).
+        # Say so instead of labelling empty data as a known image; still never guess
+        # the host checkout — the running image may not be that commit at all.
+        source = "unknown"
+        hint = (
+            "镜像构建时没有传入发布元数据（构建前未执行 "
+            "`source deploy/scripts/prepare_release_metadata.sh build`）。"
+            "请用 deploy/scripts/release_prod.sh 或 deploy_docker.sh 发布，下次构建即可显示。"
+        )
     return SystemInformation(
         git_commit=sha, git_short_commit=sha[:12] if sha else None,
         git_branch=_label(data.get("git_branch")), git_commit_time=_timestamp(data.get("git_commit_time")),
         git_dirty=_boolean(data.get("git_dirty")), built_at=_timestamp(data.get("built_at")),
-        deployed_at=deployed_at, deployment_id=deployment_id, source=source,
+        deployed_at=deployed_at, deployment_id=deployment_id, source=source, hint=hint,
     )

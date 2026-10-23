@@ -15,3 +15,6 @@ class SystemInformation(BaseModel):
     deployed_at: datetime | None = None
     deployment_id: str | None = None
     source: Literal["image", "environment", "git", "unknown"] = "unknown"
+    # Operator-facing reason when identity is missing (e.g. image built without
+    # release build args). Never configuration, never a secret.
+    hint: str | None = None

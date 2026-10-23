@@ -70,10 +70,19 @@ def test_unreadable_metadata_never_uses_host_checkout(tmp_path, monkeypatch, con
     assert result.source == "unknown" and result.git_commit is None and result.deployed_at is None
 
 
-def test_artifact_without_git_arguments_is_unknown_not_the_hosts_new_commit(tmp_path):
+def test_artifact_without_git_arguments_is_unknown_not_the_hosts_new_commit(tmp_path, monkeypatch):
+    monkeypatch.setattr(release, "_development_git", lambda _: pytest.fail("argless image must not guess host HEAD"))
     result = release.get_system_information(metadata_path=image(tmp_path, git_commit=None, build_id=None),
         environ={"APP_GIT_COMMIT": "b" * 40, "APP_DEPLOYED_AT": "2026-10-17T02:00:00Z"})
-    assert result.source == "image" and result.git_commit is None and result.deployed_at is None
+    # 2026-10-23: a bare `docker compose build` baked an all-null artifact; labelling that
+    # "image" made the admin card show 构建镜像 + 未知 everywhere with no clue why.
+    assert result.source == "unknown" and result.git_commit is None and result.deployed_at is None
+    assert result.hint and "prepare_release_metadata.sh build" in result.hint
+
+
+def test_complete_image_has_no_hint(tmp_path):
+    result = release.get_system_information(metadata_path=image(tmp_path), environ={})
+    assert result.source == "image" and result.hint is None
 
 
 def test_explicit_non_container_environment_supports_sha256(tmp_path, monkeypatch):

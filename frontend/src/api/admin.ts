@@ -109,6 +109,8 @@ export interface SystemInformation {
   deployed_at: string | null
   deployment_id: string | null
   source: 'image' | 'environment' | 'git' | 'unknown'
+  /** 版本缺失时的运维提示（如镜像构建未传发布元数据）；正常发布为 null */
+  hint?: string | null
 }
 
 export interface AdminUser {

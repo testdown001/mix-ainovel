@@ -24,6 +24,10 @@
 
 普通 `docker compose restart`、容器自动重启或无新构建的 recreate 保留原部署事件，不重新采集 Git。数据库恢复脚本 `rollback.sh` 不是代码发布，也不更新该事件。
 
+## 生产栈发布（推荐）
+
+生产栈（`docker-compose.prod.yml`，3×app 副本）在服务器仓库根目录执行 `bash deploy/scripts/release_prod.sh [发布名]`：它按上面的流程采集元数据、只构建并滚动重建 app 副本、登记部署事件、跑迁移并校验三副本。2026-10-23 连续五次手工 `docker compose build` 没有带元数据，后台这张卡全是「未知」，接口现在会对这种镜像返回 `source=unknown` 并附 `hint` 说明原因。
+
 ## 手工 Compose 发布
 
 在仓库根目录执行；生产栈先按原流程设置 `COMPOSE_FILE=docker-compose.prod.yml` 或现有 override 组合：

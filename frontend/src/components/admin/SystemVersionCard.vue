@@ -17,6 +17,9 @@
         </div>
       </n-alert>
       <template v-else-if="information">
+        <n-alert v-if="information.hint" type="warning" :bordered="false" style="margin-bottom: 12px">
+          {{ information.hint }}
+        </n-alert>
         <div class="version-badges">
           <n-tag size="small" :bordered="false">{{ releaseSourceLabel(information.source) }}</n-tag>
           <n-tag
