@@ -233,6 +233,7 @@
               <BlueprintConfirmation
                 :ai-message="confirmationMessage"
                 :project-id="novelStore.currentProject?.id || ''"
+                :resume-task-id="resumeBlueprintTaskId"
                 @blueprint-generated="handleBlueprintGenerated"
                 @back="backToConversation"
               />
@@ -242,6 +243,7 @@
               <BlueprintDisplay
                 :blueprint="completedBlueprint"
                 :ai-message="blueprintMessage"
+                :saving="blueprintSaving"
                 @confirm="handleConfirmBlueprint"
                 @regenerate="handleRegenerateBlueprint"
               />
@@ -339,7 +341,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useNovelStore } from '@/stores/novel'
+import { useNovelStore, BlueprintStillRunningError } from '@/stores/novel'
 import { NovelAPI, type ReferenceNovelSummary, type UIControl, type Blueprint, type MusePersona, type DivergeSeed } from '@/api/novel'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConversationInput from '@/components/ConversationInput.vue'
@@ -375,6 +377,10 @@ const isPreparingConversation = ref(false)
 const preparingStage = ref<'idle' | 'project' | 'reference'>('idle')
 const isInitialLoading = ref(false)
 const showBlueprintConfirmation = ref(false)
+// 刷新后要接着等的蓝图任务 ID（来自 sessionStorage）；传给确认页让它直接进生成中视图
+const resumeBlueprintTaskId = ref<string | null>(null)
+const hasUsableBlueprint = (blueprint: Blueprint | null | undefined): blueprint is Blueprint =>
+  !!blueprint && ((blueprint.chapter_outline?.length ?? 0) > 0 || !!blueprint.title)
 const showBlueprint = ref(false)
 const showUpgrade = ref(false)
 const upgradeKind = ref<UpgradeHintKind>('credits')
@@ -755,7 +761,28 @@ const restoreConversation = async (projectId: string) => {
     currentUIControl.value = { type: 'text_input', placeholder: '继续完善你的构思…' }
     pendingConversation.value = null
     showBlueprintConfirmation.value = false
+    resumeBlueprintTaskId.value = null
     novelStore.currentConversationState = {}
+
+    // 刷新/回来时先看蓝图状态，再决定进哪一页：
+    //  - 后台还有没等完的蓝图任务 → 直接进生成中视图接着等（按钮禁用，不会再提交一次）
+    //  - 已经有蓝图 → 显示蓝图而不是再给一次「生成蓝图」按钮（深度档再点一次就再扣一次）
+    const pending = await novelStore.checkPendingBlueprintTask(projectId)
+    if (pending?.state === 'running') {
+      resumeBlueprintTaskId.value = pending.taskId
+      confirmationMessage.value = '蓝图仍在后台生成，正在接着等待结果…'
+      conversationStarted.value = true
+      showBlueprintConfirmation.value = true
+      return
+    }
+    const restoredProject = pending?.state === 'completed' ? novelStore.currentProject || project : project
+    if (hasUsableBlueprint(restoredProject?.blueprint)) {
+      completedBlueprint.value = restoredProject!.blueprint!
+      blueprintMessage.value = '蓝图已生成。确认后即可进入创作，或重新生成。'
+      conversationStarted.value = true
+      showBlueprint.value = true
+      return
+    }
     if (project && project.conversation_history) {
       conversationStarted.value = true
       chatMessages.value = project.conversation_history.map((item): ChatMessage | null => {
@@ -896,6 +923,13 @@ const handleGenerateBlueprint = async () => {
     await handleBlueprintGenerated(response)
   } catch (error) {
     console.error('生成蓝图失败:', error)
+    if (error instanceof BlueprintStillRunningError) {
+      // 客户端等待超时，任务仍在跑：留在确认页接着等，不走「已退款」文案
+      resumeBlueprintTaskId.value = error.taskId
+      confirmationMessage.value = error.message
+      showBlueprintConfirmation.value = true
+      return
+    }
     const errMessage = error instanceof Error ? error.message : '未知错误'
     const hint = detectUpgradeHint(errMessage)
     if (hint) {
@@ -914,6 +948,7 @@ const handleBlueprintGenerated = async (response: any) => {
   console.log('收到蓝图生成完成事件:', response)
   completedBlueprint.value = response.blueprint
   blueprintMessage.value = response.ai_message
+  resumeBlueprintTaskId.value = null
   showBlueprintConfirmation.value = false
   showBlueprint.value = true
   await scrollToBottom()
@@ -925,11 +960,14 @@ const handleRegenerateBlueprint = () => {
   scrollToBottom()
 }
 
+const blueprintSaving = ref(false)
 const handleConfirmBlueprint = async () => {
   if (!completedBlueprint.value) {
     globalAlert.showError('蓝图数据缺失，请重新生成或稍后重试。', '保存失败')
     return
   }
+  if (blueprintSaving.value) return
+  blueprintSaving.value = true
   try {
     await novelStore.saveBlueprint(completedBlueprint.value)
     if (novelStore.currentProject) {
@@ -938,6 +976,8 @@ const handleConfirmBlueprint = async () => {
   } catch (error) {
     console.error('保存蓝图失败:', error)
     globalAlert.showError(`保存蓝图失败: ${error instanceof Error ? error.message : '未知错误'}`, '保存失败')
+  } finally {
+    blueprintSaving.value = false
   }
 }
 

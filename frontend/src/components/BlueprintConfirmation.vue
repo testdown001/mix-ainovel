@@ -53,6 +53,11 @@
 
     <!-- ═══ 立项书主体 ═══ -->
     <template v-else>
+      <div v-if="stillRunningNotice" class="d-ref-warn">
+        <p class="d-ref-warn-title">蓝图仍在后台生成</p>
+        <p class="d-ref-warn-line">{{ stillRunningNotice }}</p>
+        <p class="d-ref-warn-hint">本页已记住这次任务，刷新或稍后回来会自动接着等待；请不要重新点生成。</p>
+      </div>
       <!-- 无立项书降级：不阻断生成 -->
       <div v-if="!dossier" class="dossier-absent">
         <p class="absent-title">立项书生成未完成</p>
@@ -324,16 +329,20 @@
 
       <!-- ═══ 三动作 ═══ -->
       <div class="dossier-actions">
-        <button class="act-btn act-secondary" @click="$emit('back')">返回对话</button>
+        <button class="act-btn act-secondary" :disabled="saving" @click="backToConversation">返回对话</button>
         <button
           v-if="hasFixSuggestions"
           class="act-btn act-fix"
-          :disabled="applyingFixes"
+          :disabled="applyingFixes || saving"
           @click="applyFixes"
         >
           {{ applyingFixes ? '修订中…' : '采纳修复建议' }}
         </button>
-        <button class="act-btn act-primary" :disabled="isGenerating" @click="generateBlueprint">
+        <button
+          class="act-btn act-primary"
+          :disabled="isGenerating || saving || applyingFixes || novelStore.isLoading"
+          @click="generateBlueprint()"
+        >
           锁定设定并生成蓝图
         </button>
       </div>
@@ -350,7 +359,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useNovelStore } from '@/stores/novel'
+import { useNovelStore, BlueprintStillRunningError } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
@@ -369,9 +378,11 @@ import {
 interface Props {
   aiMessage: string
   projectId: string
+  /** 刷新/回来时后台仍在跑的蓝图任务：挂载后直接进生成中视图接着等，不再提交 */
+  resumeTaskId?: string | null
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), { resumeTaskId: null })
 
 const emit = defineEmits<{
   blueprintGenerated: [response: any]
@@ -582,11 +593,40 @@ const editing = ref<string | null>(null)
 const saving = ref(false)
 const buffer = ref<Record<string, string>>({})
 
-const startEdit = (block: string) => {
+/**
+ * 把当前打开的编辑块先保存掉。切块、采纳修复、返回对话、生成蓝图之前都要调：
+ * 以前这些动作直接覆盖/无视 buffer，用户打了半天的字无声丢掉，生成用的还是旧立项书。
+ * 返回 false 表示保存失败（错误已提示），调用方应中止后续动作。
+ */
+const flushPendingEdit = async (): Promise<boolean> => {
+  const block = editing.value
+  if (!block) return true
+  if (saving.value) return false
+  const b = buffer.value
+  const partial: Record<string, any> | null =
+    block === 'selling' ? { core_selling_line: b.core_selling_line }
+    : block === 'protagonist' ? { protagonist: Object.fromEntries(PROTAGONIST_FIELDS.map((f) => [f.key, b[f.key] || ''])) }
+    : block === 'emotion' ? { emotional_core: Object.fromEntries(EMOTIONAL_FIELDS.map((f) => [f.key, b[f.key] || ''])) }
+    : block === 'conflict' ? { core_conflict: b.core_conflict, conflict_engine: b.conflict_engine }
+    : block === 'golden' ? { golden_finger: Object.fromEntries(GOLDEN_FIELDS.map((f) => [f.key, b[f.key] || ''])) }
+    : block === 'anticipation' ? { anticipation: Object.fromEntries(ANTICIPATION_FIELDS.map((f) => [f.key, b[f.key] || ''])) }
+    : block === 'coolpoints' ? { coolpoint_chain: (b.coolpoint_chain || '').split('\n').map((s) => s.trim()).filter(Boolean) }
+    : null
+  if (!partial) {
+    editing.value = null
+    return true
+  }
+  await saveEdit(partial)
+  return editing.value === null
+}
+
+const startEdit = async (block: string) => {
   if (editing.value === block) {
     editing.value = null
     return
   }
+  // 换到另一块前先把这一块保存掉，而不是直接覆盖 buffer
+  if (editing.value && !(await flushPendingEdit())) return
   const d = dossier.value || {}
   const next: Record<string, string> = {}
   if (block === 'selling') next.core_selling_line = d.core_selling_line || ''
@@ -635,6 +675,7 @@ const saveCoolpoints = () =>
 // ── 采纳修复建议 ──
 const applyingFixes = ref(false)
 const applyFixes = async () => {
+  if (!(await flushPendingEdit())) return
   applyingFixes.value = true
   try {
     const resp = await NovelAPI.applyDossierFixes(props.projectId)
@@ -642,6 +683,9 @@ const applyFixes = async () => {
       dossierResp.value.dossier = resp.dossier
       dossierResp.value.stress_report = resp.stress_report
     }
+    // 修订后的立项书是新内容：关掉任何残留的编辑态，旧 buffer 不能再把修复覆盖回去
+    editing.value = null
+    buffer.value = {}
     globalAlert.showSuccess('修复建议已应用到立项书，可再次检查后生成蓝图。', '立项书已修订')
   } catch (error) {
     globalAlert.showError(
@@ -653,8 +697,16 @@ const applyFixes = async () => {
   }
 }
 
+const backToConversation = async () => {
+  if (!(await flushPendingEdit())) return
+  emit('back')
+}
+
 // ── 生成蓝图（沿用 store 的异步任务优先链路）──
-const generateBlueprint = async () => {
+// resumeTaskId：刷新/回来时接着等后台还在跑的任务，不重新提交
+const generateBlueprint = async (resumeTaskId: string | null = null) => {
+  if (isGenerating.value) return
+  if (!resumeTaskId && !(await flushPendingEdit())) return
   isGenerating.value = true
   genDone.value = false
   genElapsed.value = 0
@@ -664,12 +716,14 @@ const generateBlueprint = async () => {
   }, 250)
   try {
     const depth: BlueprintDepth = deepAvailable.value ? selectedDepth.value : 'fast'
-    try {
-      sessionStorage.setItem(lastDepthKey(), depth)
-    } catch {
-      /* ignore */
+    if (!resumeTaskId) {
+      try {
+        sessionStorage.setItem(lastDepthKey(), depth)
+      } catch {
+        /* ignore */
+      }
     }
-    const response = await novelStore.generateBlueprint(depth)
+    const response = await novelStore.generateBlueprint(depth, { resumeTaskId })
     if (genTimer) {
       clearInterval(genTimer)
       genTimer = null
@@ -687,6 +741,12 @@ const generateBlueprint = async () => {
     }
     isGenerating.value = false
     genDone.value = false
+    if (error instanceof BlueprintStillRunningError) {
+      // 客户端等了 20 分钟放弃，任务仍在跑：这不是服务端超时，更没有退款。
+      // 任务 ID 留在 sessionStorage，回到本页会自动接着等。
+      stillRunningNotice.value = error.message
+      return
+    }
     const errMessage = error instanceof Error ? error.message : '未知错误'
     const hint = detectUpgradeHint(errMessage)
     if (hint) {
@@ -700,6 +760,7 @@ const generateBlueprint = async () => {
     globalAlert.showError(human.message, human.title)
   }
 }
+const stillRunningNotice = ref<string | null>(null)
 
 // ── 判定/毒点配色 ──
 const verdictClass = (verdict?: string) => {
@@ -716,7 +777,17 @@ const severityClass = (severity?: string) => {
   return 'toxic-low'
 }
 
-onMounted(loadDossier)
+onMounted(() => {
+  loadDossier()
+  // 刷新后接着等：生成中视图优先于立项书主体，按钮不会再亮
+  if (props.resumeTaskId) void generateBlueprint(props.resumeTaskId)
+})
+watch(
+  () => props.resumeTaskId,
+  (taskId) => {
+    if (taskId && !isGenerating.value) void generateBlueprint(taskId)
+  },
+)
 onUnmounted(() => {
   if (dossierTimer) clearInterval(dossierTimer)
   if (genTimer) clearInterval(genTimer)

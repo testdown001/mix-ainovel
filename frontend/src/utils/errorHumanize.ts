@@ -36,8 +36,10 @@ export function humanizeGenerationError(
   const billed = options.billed !== false
   const message = raw || '未知错误'
 
-  // 正文校验未通过（后端已做过一次低温硬约束重试仍失败才 502）
-  if (/正文校验未通过|\(502\)/.test(message)) {
+  // 正文校验未通过（后端已做过一次低温硬约束重试仍失败才 502）。
+  // 只认后端 detail 原文：裸 502 多半是 nginx/网关上游不可用，和产出质量无关，
+  // 此前被一并说成「AI 产出未达标，积分已退回」。
+  if (/正文校验未通过/.test(message)) {
     return {
       title: 'AI 产出未达标',
       message: billed
@@ -56,8 +58,20 @@ export function humanizeGenerationError(
     }
   }
 
+  // 网关/上游不可用：裸 502/503/504，或错误体是 HTML 页面（nginx/网关的默认错误页）。
+  // 不断言退款——这类错误可能发生在请求根本没到后端之前。
+  if (/\(50[234]\)|状态码: 50[234]|<!doctype html|<html|bad gateway|service unavailable|gateway time-?out/i.test(message)) {
+    return {
+      title: '服务暂时不可用',
+      message: billed
+        ? '服务暂时不可用，请稍后重试。如已扣费会自动退回，可在「积分明细」核对。'
+        : '服务暂时不可用，请稍后重试。',
+      action: 'wait',
+    }
+  }
+
   // 服务端 500 / 上游超时
-  if (/\(500\)|状态码: 500|超时|timeout|timed out/i.test(message)) {
+  if (/\(500\)|状态码: 500|超时|time-?out|timed out/i.test(message)) {
     return {
       title: '服务端处理超时',
       message: billed

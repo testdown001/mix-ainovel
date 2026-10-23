@@ -162,13 +162,23 @@ export const useAuthStore = defineStore('auth', {
       this.user = null;
       localStorage.removeItem('token');
     },
-    async fetchUser() {
+    /**
+     * 拉取当前用户。只有 401/403 才登出：500、网络抖动、发布重启不能把人踢下线
+     * （2026-10-23 审计：原来 catch 里无条件 logout，一次滚动发布就让所有在线用户掉登录）。
+     * 返回 true=已拿到用户；false=没拿到但 token 保留（调用方按「暂时不可用」处理）。
+     */
+    async fetchUser(): Promise<boolean> {
       if (this.token) {
         try {
           const response = await fetchWithAuth(`${API_URL}/users/me`);
 
+          if (response.status === 401 || response.status === 403) {
+            this.logout();
+            return false;
+          }
           if (!response.ok) {
-            throw new Error('Failed to fetch user');
+            console.warn(`获取用户信息失败(${response.status})，保留登录态稍后重试`);
+            return false;
           }
 
           const userData = await response.json();
@@ -181,10 +191,14 @@ export const useAuthStore = defineStore('auth', {
             plan_tier: userData.plan_tier || 'free',
             effective_tier: userData.effective_tier || 'free',
           };
+          return true;
         } catch (error) {
-          this.logout();
+          // 网络错误 / JSON 解析失败：不是鉴权问题，保留 token
+          console.warn('获取用户信息失败（网络或解析错误），保留登录态稍后重试', error);
+          return false;
         }
       }
+      return false;
     },
   },
 });

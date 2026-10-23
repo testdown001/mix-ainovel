@@ -1440,7 +1440,10 @@ export class NovelAPI {
           detail = JSON.stringify(errorData)
         }
       } else {
-        detail = (await response.text().catch(() => '')).trim()
+        // 非 JSON 错误体是 nginx/网关的 HTML 错误页，贴给用户只会看到一坨标签；
+        // 消费 body 以释放连接，但不把它放进消息。
+        await response.text().catch(() => '')
+        detail = response.status >= 500 ? '服务暂时不可用' : '服务返回了非预期的响应'
       }
       if (detail) {
         const clipped = detail.length > 600 ? `${detail.slice(0, 600)}...` : detail

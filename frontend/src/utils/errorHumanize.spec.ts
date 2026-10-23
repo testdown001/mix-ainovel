@@ -70,3 +70,32 @@ describe('humanizeGenerationError（生成路径错误文案用户化）', () =>
     expect(out.message).toContain('未知错误')
   })
 })
+
+describe('humanizeGenerationError（网关 50x 与正文校验分离，2026-10-23）', () => {
+  it('裸 502（网关上游不可用）不再说成 AI 产出未达标，也不断言已退款', () => {
+    const out = humanizeGenerationError('请求失败(502): 服务暂时不可用')
+    expect(out.title).toBe('服务暂时不可用')
+    expect(out.message).not.toContain('积分已退回')
+    expect(out.message).toContain('积分明细')
+    expect(out.action).toBe('wait')
+  })
+
+  it('503/504 与 HTML 错误页走同一条「服务暂时不可用」', () => {
+    expect(humanizeGenerationError('请求失败(504): 服务暂时不可用').title).toBe('服务暂时不可用')
+    expect(humanizeGenerationError('<html><head><title>502 Bad Gateway</title></head></html>').title).toBe(
+      '服务暂时不可用',
+    )
+    const unbilled = humanizeGenerationError('请求失败(503): 服务暂时不可用', { billed: false })
+    expect(unbilled.message).not.toContain('积分')
+  })
+
+  it('正文校验 502 仍按 detail 原文识别，不依赖状态码', () => {
+    expect(humanizeGenerationError('请求失败(502): 正文校验未通过').title).toBe('AI 产出未达标')
+    expect(humanizeGenerationError('正文校验未通过，已重试仍不合格').title).toBe('AI 产出未达标')
+  })
+
+  it('超时匹配不区分大小写与连字符写法', () => {
+    expect(humanizeGenerationError('Upstream Time-out').title).toBe('服务端处理超时')
+    expect(humanizeGenerationError('request TIMED OUT').title).toBe('服务端处理超时')
+  })
+})

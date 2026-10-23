@@ -72,6 +72,7 @@
             :outline-task="outlineGenerationTask"
             :batch-generating="batchGenerating"
             :batch-progress="batchProgress"
+            :batch-stopping="batchStopping"
             @select-chapter="selectChapter"
             @generate-outline="generateOutline"
             @open-tools="sidebarOpen = true"
@@ -112,6 +113,7 @@
               :open-prediction-tick="openPredictionTick"
               :generating-chapter="generatingChapter"
               :prediction-generating-chapter="predictionGeneratingChapter"
+              :batch-generating="batchGenerating"
               :evaluating-chapter="evaluatingChapter"
               :show-version-selector="showVersionSelector"
               :chapter-generation-result="chapterGenerationResult"
@@ -189,6 +191,7 @@
             :is-rebuilding-rag="isRebuildingRag"
             :batch-generating="batchGenerating"
             :batch-progress="batchProgress"
+            :batch-stopping="batchStopping"
             :selected-preset="selectedPreset"
             :selected-skill-count="selectedGenerationSkills.length"
             :agent-enabled="useAgent"
@@ -991,6 +994,7 @@ const showBatchGenerateModal = ref(false)
 const batchGenerating = ref(false)
 const batchProgress = ref<{ current: number; total: number } | null>(null)
 const batchCancelled = ref(false)
+const batchStopping = ref(false)
 const componentMounted = ref(true)
 
 // 计算属性
@@ -1174,6 +1178,13 @@ const hasChapterInProgress = (chapterNumber: number) => {
   const chapter = project.value.chapters.find((ch) => ch.chapter_number === chapterNumber)
   // waiting_for_confirm状态表示等待选择版本 = 进行中状态
   return chapter && chapter.generation_status === 'waiting_for_confirm'
+}
+
+/** 服务端正在处理这一章（生成/评审/选版）；超过 30 分钟的幽灵 generating 已在读取时被折成 failed。 */
+const isChapterBusyOnServer = (chapterNumber: number) => {
+  const status = project.value?.chapters?.find((ch) => ch.chapter_number === chapterNumber)
+    ?.generation_status
+  return status === 'generating' || status === 'evaluating' || status === 'selecting'
 }
 
 // 可用版本列表 (合并生成结果和已有版本)
@@ -1585,6 +1596,17 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     globalAlert.showAlert('已有章节任务正在进行，请稍候。', 'info', '正在创作')
     return
   }
+  // 刷新页面后 generatingChapter 归零，但服务端可能仍在生成这一章；批量进行中也不能插单——
+  // 两种情况此前都能再点一次「生成」，产生真实的重复上游调用与扣费。
+  if (batchGenerating.value) {
+    globalAlert.showAlert('连续生成进行中，请先停止或等待完成。', 'info', '正在创作')
+    return
+  }
+  if (isChapterBusyOnServer(chapterNumber)) {
+    selectedChapterNumber.value = chapterNumber
+    globalAlert.showAlert('这一章服务端仍在生成，进度会自动刷新，请勿重复发起。', 'info', '正在创作')
+    return
+  }
 
   selectedChapterNumber.value = chapterNumber
   stageOverride.value = 2
@@ -1824,8 +1846,10 @@ const reconcileInterruptedChapter = (chapterNumber: number) => {
     return
   }
 
+  // 这是「既没落库也不在生成」之外所有状态的兜底分支（含 not_generated / 未知状态），
+  // 并没有核对积分流水，不能替后端断言已退款。
   globalAlert.showAlert(
-    '连接中断，本次生成已终止、积分已退回，可直接重新生成',
+    '连接中断，未检测到生成结果。如已扣费会自动退回，可在「积分明细」核对；可直接重新生成。',
     'info',
     '连接已中断',
   )
@@ -2335,8 +2359,23 @@ const openBatchGenerateModal = () => {
   showBatchGenerateModal.value = true
 }
 
-const cancelBatchGenerate = () => {
+const cancelBatchGenerate = async () => {
+  if (batchStopping.value) return
   batchCancelled.value = true
+  // 异步模式下批量任务跑在网关上：只设本地标志等于没停（任务继续生成并扣费）。
+  if (useAsyncMode.value && batchGenerating.value && asyncGen.state.value.taskId) {
+    batchStopping.value = true
+    streamingStage.value = '停止中，等待网关确认…'
+    try {
+      await asyncGen.cancelGeneration()
+    } catch (error) {
+      batchStopping.value = false
+      globalAlert.showError(
+        `停止失败: ${error instanceof Error ? error.message : '未知错误'}，任务仍在后台运行`,
+        '连续生成',
+      )
+    }
+  }
 }
 
 const batchGenerateChapters = async (count: number, writingNotes?: string) => {
@@ -2435,6 +2474,15 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
         } else {
           globalAlert.showSuccess(`批量生成完成，共 ${completedCount} 章`, '连续生成')
         }
+      } else if (result.status === 'cancelled') {
+        const processed = result.checkpoint?.completed_chapters?.length ?? result.checkpoint?.processed
+        globalAlert.showAlert(
+          typeof processed === 'number' && processed > 0
+            ? `已停止连续生成，已完成 ${processed} 章；未开始的章节不会扣费`
+            : '已停止连续生成，未开始的章节不会扣费',
+          'info',
+          '连续生成',
+        )
       }
     } catch (error) {
       console.error('批量异步生成失败:', error)
@@ -2444,6 +2492,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
       )
     } finally {
       batchGenerating.value = false
+      batchStopping.value = false
       batchProgress.value = null
       generatingChapter.value = null
       streamingStage.value = null

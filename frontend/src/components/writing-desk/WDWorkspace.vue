@@ -97,32 +97,34 @@
             <button
               v-if="isChapterCompleted(selectedChapterNumber)"
               @click="confirmRegenerateChapter"
-              :disabled="generatingChapter === selectedChapterNumber"
+              :disabled="generateBlocked"
               class="md-btn md-btn-outlined md-ripple flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
-              title="会覆盖本章现有正文。卡住一句请用选区改写。"
+              :title="generateBlockedReason || '会覆盖本章现有正文。卡住一句请用选区改写。'"
             >
-              <svg v-if="generatingChapter === selectedChapterNumber" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+              <svg v-if="generateBusyLabel" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
               <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingChapter === selectedChapterNumber ? '生成中...' : '重新生成正文' }}
+              {{ generateBusyLabel || '重新生成正文' }}
             </button>
             <button
               v-else
               @click="confirmRegenerateChapter"
-              :disabled="generatingChapter === selectedChapterNumber"
+              :disabled="generateBlocked"
+              :title="generateBlockedReason || undefined"
               class="md-btn md-btn-filled md-ripple flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
             >
-              <svg v-if="generatingChapter === selectedChapterNumber" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
+              <svg v-if="generateBusyLabel" class="w-4 h-4 animate-spin" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
               <svg v-else class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"></path>
               </svg>
-              {{ generatingChapter === selectedChapterNumber ? '生成中...' : '生成本章正文' }}
+              {{ generateBusyLabel || '生成本章正文' }}
             </button>
+            <span v-if="generateBlocked && !generateBusyLabel" class="text-xs text-[#888] self-center">{{ generateBlockedReason }}</span>
           </div>
         </div>
 
@@ -520,6 +522,8 @@ interface Props {
   openPredictionTick?: number
   generatingChapter: number | null
   predictionGeneratingChapter?: number | null
+  /** 连续生成进行中：此时不允许插单生成单章 */
+  batchGenerating?: boolean
   evaluatingChapter: number | null
   showVersionSelector: boolean
   chapterGenerationResult: ChapterGenerationResponse | null
@@ -1062,6 +1066,29 @@ const isChapterCompleted = (chapterNumber: number) => {
   const chapter = props.project.chapters.find(ch => ch.chapter_number === chapterNumber)
   return chapter && chapter.generation_status === 'successful'
 }
+
+/**
+ * 「生成本章正文」为何不可点。此前只看本地 generatingChapter：刷新页面后它归零，
+ * 而服务端仍在生成这一章；异步批量期间它也从不设置——两种情况都能再点一次，重复扣费。
+ */
+const generateBlockedReason = computed<string | null>(() => {
+  if (props.generatingChapter !== null && props.generatingChapter === props.selectedChapterNumber) {
+    return '生成中...'
+  }
+  if (props.batchGenerating) return '连续生成进行中，请先停止或等待完成'
+  const status = selectedChapter.value?.generation_status
+  if (status === 'generating' || status === 'evaluating' || status === 'selecting') {
+    return '服务端仍在生成这一章，进度会自动刷新'
+  }
+  return null
+})
+const generateBlocked = computed(() => generateBlockedReason.value !== null)
+const generateBusyLabel = computed(() => {
+  const status = selectedChapter.value?.generation_status
+  if (props.generatingChapter === props.selectedChapterNumber && props.generatingChapter !== null) return '生成中...'
+  if (status === 'generating' || status === 'evaluating' || status === 'selecting') return '服务端生成中...'
+  return null
+})
 
 watch(
   () => props.selectedChapterNumber,

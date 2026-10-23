@@ -238,11 +238,12 @@
                 v-else
                 type="button"
                 class="tool-action-card is-danger"
+                :disabled="props.batchStopping"
                 @click="$emit('cancelBatch')"
               >
                 <span class="tool-action-icon">■</span>
                 <span>
-                  <strong>停止连续生成</strong>
+                  <strong>{{ props.batchStopping ? '停止中…' : '停止连续生成' }}</strong>
                   <small>{{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }} 章</small>
                 </span>
               </button>
@@ -736,13 +737,14 @@
               <button
                 v-else
                 @click="$emit('cancelBatch')"
-                class="md-btn md-btn-outlined md-ripple w-full flex items-center justify-center gap-2"
+                :disabled="props.batchStopping"
+                class="md-btn md-btn-outlined md-ripple w-full flex items-center justify-center gap-2 disabled:opacity-50"
                 style="border-color: var(--md-error); color: var(--md-error);"
               >
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                   <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
                 </svg>
-                <span>取消连续生成 ({{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }})</span>
+                <span>{{ props.batchStopping ? '停止中…' : '取消连续生成' }} ({{ props.batchProgress?.current || 0 }}/{{ props.batchProgress?.total || 0 }})</span>
               </button>
             </div>
             <div class="mt-3">
@@ -884,6 +886,8 @@ interface Props {
   isRebuildingRag: boolean
   batchGenerating: boolean
   batchProgress: { current: number; total: number } | null
+  /** 已请求停止，等待网关确认；期间停止键不可再点 */
+  batchStopping?: boolean
   selectedPreset?: string
   selectedSkillCount?: number
   agentEnabled?: boolean

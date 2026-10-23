@@ -183,3 +183,55 @@ describe('灵感模式通信失败恢复', () => {
     expect(NovelAPI.createNovel).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------- 蓝图任务恢复（刷新不丢任务、不二次扣费）
+
+vi.mock('@/api/task', () => ({ TaskAPI: { getTaskStatus: vi.fn(), submitBlueprintGenerate: vi.fn(), pollUntilDone: vi.fn() } }))
+
+describe('蓝图生成的刷新恢复', () => {
+  const memory = new Map<string, string>()
+  beforeEach(() => {
+    memory.clear()
+    vi.stubGlobal('sessionStorage', {
+      getItem: (k: string) => memory.get(k) ?? null,
+      setItem: (k: string, v: string) => void memory.set(k, v),
+      removeItem: (k: string) => void memory.delete(k),
+    })
+  })
+
+  it('后台任务仍在跑：直接进确认页的生成中视图并带上任务 ID，不再给「生成蓝图」按钮', async () => {
+    const { TaskAPI } = await import('@/api/task')
+    memory.set('arboris.blueprint_task.existing-idea', 'task-running')
+    vi.mocked(TaskAPI.getTaskStatus).mockResolvedValue({ status: 'running' } as any)
+    navigation.route.query.project_id = 'existing-idea'
+    vi.mocked(NovelAPI.getNovel).mockResolvedValue(project([{ role: 'assistant', content: JSON.stringify(answer) }]))
+    const vm = await mount()
+    expect(vm.showBlueprintConfirmation).toBe(true)
+    expect(vm.resumeBlueprintTaskId).toBe('task-running')
+    expect(vm.showBlueprint).toBe(false)
+  })
+
+  it('项目已有蓝图：恢复时显示蓝图而不是再次出现确认页', async () => {
+    navigation.route.query.project_id = 'existing-idea'
+    vi.mocked(NovelAPI.getNovel).mockResolvedValue({
+      ...project([{ role: 'assistant', content: JSON.stringify({ ...answer, is_complete: true }) }]),
+      blueprint: { title: '渔村往事', chapter_outline: [{ chapter_number: 1, title: '开局', summary: '…' }] },
+    } as any)
+    const vm = await mount()
+    expect(vm.showBlueprint).toBe(true)
+    expect(vm.showBlueprintConfirmation).toBe(false)
+    expect(vm.completedBlueprint.title).toBe('渔村往事')
+  })
+
+  it('记录的任务已失败：清掉记录，按原流程进入确认页', async () => {
+    const { TaskAPI } = await import('@/api/task')
+    memory.set('arboris.blueprint_task.existing-idea', 'task-dead')
+    vi.mocked(TaskAPI.getTaskStatus).mockResolvedValue({ status: 'failed' } as any)
+    navigation.route.query.project_id = 'existing-idea'
+    vi.mocked(NovelAPI.getNovel).mockResolvedValue(project([{ role: 'assistant', content: JSON.stringify({ ...answer, is_complete: true }) }]))
+    const vm = await mount()
+    expect(memory.has('arboris.blueprint_task.existing-idea')).toBe(false)
+    expect(vm.resumeBlueprintTaskId).toBeNull()
+    expect(vm.showBlueprintConfirmation).toBe(true)
+  })
+})

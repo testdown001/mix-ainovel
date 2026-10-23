@@ -69,16 +69,20 @@ type ExtractedFields = Record<string, DisplayField>;
 interface Props {
   blueprint: Blueprint | null
   aiMessage?: string
+  /** 父组件保存中：`emit('confirm')` 不会等父级的 Promise，保存态必须由父级传回来 */
+  saving?: boolean
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), { saving: false })
 
 const emit = defineEmits<{
   confirm: []
   regenerate: []
 }>()
 
-const isSaving = ref(false)
+// 本地只做「点下去立刻锁住」的一拍；真正的保存时长由 props.saving 决定。
+const clickLocked = ref(false)
+const isSaving = computed(() => clickLocked.value || props.saving)
 
 const confirmRegenerate = async () => {
   const confirmed = await globalAlert.showConfirm('重新生成会覆盖当前蓝图，确定继续吗？', '重新生成确认')
@@ -87,13 +91,15 @@ const confirmRegenerate = async () => {
   }
 }
 
-const confirmBlueprint = async () => {
-  isSaving.value = true
-  try {
-    await emit('confirm')
-  } finally {
-    isSaving.value = false
-  }
+const confirmBlueprint = () => {
+  // emit 不返回父级处理函数的 Promise（旧写法 `await emit('confirm')` 立即返回，
+  // isSaving 永远看不见，双击就保存两次）。这里同步锁一拍，等父级把 saving 传回来。
+  if (isSaving.value) return
+  clickLocked.value = true
+  emit('confirm')
+  setTimeout(() => {
+    clickLocked.value = false
+  }, 1500)
 }
 
 const formattedBlueprint = computed(() => {

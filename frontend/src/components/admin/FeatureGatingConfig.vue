@@ -3,6 +3,13 @@
   <div class="feature-gating-config">
     <n-spin :show="loading">
       <n-space vertical :size="20">
+        <!-- 注册表没加载到就保存会写入 "{}"，把所有已有覆写清掉，所以加载成功前禁用保存 -->
+        <n-alert v-if="loadError" type="error" :show-icon="false">
+          <n-space align="center" :size="12">
+            <span>加载能力注册表失败：{{ loadError }}。为避免清空已有覆写，已禁用保存。</span>
+            <n-button size="small" :loading="loading" @click="load">重试</n-button>
+          </n-space>
+        </n-alert>
         <n-alert type="info" :show-icon="false">
           档位映射「代码给默认值、后台配置生效值」：此处保存的覆写写入 SystemConfig
           （feature_gating.min_tier_overrides / feature_gating.flow_override_min_tiers），
@@ -22,7 +29,7 @@
               </tr>
             </tbody>
           </n-table>
-          <n-button type="primary" :loading="saving === 'caps'" style="margin-top:12px" @click="saveCaps">保存能力档位</n-button>
+          <n-button type="primary" :disabled="!loaded || !capabilities.length" :loading="saving === 'caps'" style="margin-top:12px" @click="saveCaps">保存能力档位</n-button>
         </n-card>
 
         <n-card title="流水线开关档位（flow_config 显式覆写门控）" size="small">
@@ -42,7 +49,7 @@
               </tr>
             </tbody>
           </n-table>
-          <n-button type="primary" :loading="saving === 'flow'" style="margin-top:12px" @click="saveFlow">保存开关档位</n-button>
+          <n-button type="primary" :disabled="!loaded || !flowOverrides.length" :loading="saving === 'flow'" style="margin-top:12px" @click="saveFlow">保存开关档位</n-button>
         </n-card>
       </n-space>
     </n-spin>
@@ -58,6 +65,8 @@ import { AdminAPI } from '@/api/admin'
 const message = useMessage()
 const loading = ref(false)
 const saving = ref<string | null>(null)
+const loaded = ref(false)
+const loadError = ref<string | null>(null)
 
 const tierOptions = [
   { label: '免费版', value: 'free' },
@@ -78,7 +87,11 @@ const load = async () => {
     flowOverrides.value = data.flow_overrides || []
     for (const c of capabilities.value) tierMap[c.key] = c.min_tier || c.default_min_tier || 'free'
     for (const s of flowOverrides.value) flowTierMap[s.key] = s.min_tier || s.default_min_tier || 'free'
-  } catch {
+    loaded.value = true
+    loadError.value = null
+  } catch (err) {
+    loaded.value = false
+    loadError.value = err instanceof Error ? err.message : '网络或服务异常'
     message.error('加载能力注册表失败')
   } finally {
     loading.value = false
@@ -95,6 +108,8 @@ const buildOverrides = (items: PlanCapability[], map: Record<string, string>) =>
 }
 
 const saveCaps = async () => {
+  // 空表保存等于写 "{}"：清掉所有覆写
+  if (!loaded.value || !capabilities.value.length) return
   saving.value = 'caps'
   try {
     await AdminAPI.upsertSystemConfig('feature_gating.min_tier_overrides', {
@@ -109,6 +124,7 @@ const saveCaps = async () => {
 }
 
 const saveFlow = async () => {
+  if (!loaded.value || !flowOverrides.value.length) return
   saving.value = 'flow'
   try {
     await AdminAPI.upsertSystemConfig('feature_gating.flow_override_min_tiers', {

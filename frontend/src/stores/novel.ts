@@ -17,7 +17,43 @@ import type {
   ReferenceSearchResponse
 } from '@/api/novel'
 import { NovelAPI } from '@/api/novel'
-import { TaskAPI } from '@/api/task'
+import { TaskAPI, type TaskStatus } from '@/api/task'
+
+/** 客户端等待超时但任务仍在跑：不是失败、没有退款，回到本页会接着等。 */
+export class BlueprintStillRunningError extends Error {
+  readonly taskId: string
+  constructor(taskId: string) {
+    super('蓝图仍在后台生成，可稍后回到本页查看')
+    this.name = 'BlueprintStillRunningError'
+    this.taskId = taskId
+  }
+}
+
+const blueprintTaskKey = (projectId: string) => `arboris.blueprint_task.${projectId}`
+
+export function readPendingBlueprintTask(projectId: string): string | null {
+  try {
+    return sessionStorage.getItem(blueprintTaskKey(projectId))
+  } catch {
+    return null
+  }
+}
+
+function writePendingBlueprintTask(projectId: string, taskId: string) {
+  try {
+    sessionStorage.setItem(blueprintTaskKey(projectId), taskId)
+  } catch {
+    /* 隐私模式等拿不到 storage：只影响刷新后的恢复，不影响本次生成 */
+  }
+}
+
+export function clearPendingBlueprintTask(projectId: string) {
+  try {
+    sessionStorage.removeItem(blueprintTaskKey(projectId))
+  } catch {
+    /* ignore */
+  }
+}
 
 export const useNovelStore = defineStore('novel', () => {
   // State
@@ -201,7 +237,10 @@ export const useNovelStore = defineStore('novel', () => {
     projectReferenceNovels.value = []
   }
 
-  async function generateBlueprint(depth: 'fast' | 'deep' = 'deep'): Promise<BlueprintGenerationResponse> {
+  async function generateBlueprint(
+    depth: 'fast' | 'deep' = 'deep',
+    options: { resumeTaskId?: string | null } = {},
+  ): Promise<BlueprintGenerationResponse> {
     // Generate blueprint from conversation history
     isLoading.value = true
     error.value = null
@@ -214,10 +253,15 @@ export const useNovelStore = defineStore('novel', () => {
       // 优先走 Go 网关异步任务路径（blueprint:generate）：蓝图两段式 LLM 生成可超过
       // 网关/nginx 同步超时，同步直连在生产会被掐断（后端已成功落库但前端看到失败、重试重扣）。
       // 提交失败（dev 直连无网关 / 旧网关不认识该任务类型）时回退原同步端点。
-      let taskId: string | null = null
+      let taskId: string | null = options.resumeTaskId || null
       try {
-        const submitted = await TaskAPI.submitBlueprintGenerate(projectId, depth)
-        taskId = submitted.task_id
+        if (!taskId) {
+          const submitted = await TaskAPI.submitBlueprintGenerate(projectId, depth)
+          taskId = submitted.task_id
+          // 任务 ID 按项目落 sessionStorage：刷新/离开再回来能接着等，而不是把「生成蓝图」
+          // 按钮再亮一次让用户重新提交（同一份蓝图跑两次 LLM、深度档扣两次费）。
+          writePendingBlueprintTask(projectId, taskId)
+        }
       } catch (submitErr: any) {
         // 只在「网关不存在/不认识该任务类型」时回退同步端点（dev 直连、旧网关 400/404、
         // 无响应的网络错误）；402 积分不足、429 限流、5xx 等生产性错误直接抛出——
@@ -242,7 +286,19 @@ export const useNovelStore = defineStore('novel', () => {
       if (taskId) {
         // 任务一旦提交成功就不再回退同步端点（避免同一份蓝图跑两次 LLM），失败直接抛出。
         // 轮询超时给 20 分钟：网关任务超时 15 分钟 + 排队余量。
-        const status = await TaskAPI.pollUntilDone(taskId, undefined, 3000, 1_200_000)
+        let status: TaskStatus
+        try {
+          status = await TaskAPI.pollUntilDone(taskId, undefined, 3000, 1_200_000)
+        } catch (pollErr) {
+          if (pollErr instanceof Error && pollErr.message === '任务超时') {
+            // 这是客户端放弃等待，不是服务端超时：任务可能仍在跑并会落库。
+            // 保留 sessionStorage 里的任务 ID，回到本页会接着等；绝不能说「积分已退回」。
+            throw new BlueprintStillRunningError(taskId)
+          }
+          clearPendingBlueprintTask(projectId)
+          throw pollErr
+        }
+        clearPendingBlueprintTask(projectId)
         const result = status.result as BlueprintGenerationResponse | null
         if (!result || !result.blueprint) {
           throw new Error('蓝图任务已完成但未返回蓝图数据，请刷新页面查看')
@@ -258,6 +314,36 @@ export const useNovelStore = defineStore('novel', () => {
       throw err
     } finally {
       isLoading.value = false
+    }
+  }
+
+  /**
+   * 恢复页检查：这个项目有没有一个还没等完的蓝图任务。
+   * - running：返回 task_id，调用方带 resumeTaskId 调 generateBlueprint 接着等
+   * - completed：清掉记录，刷新项目（蓝图已落库），返回 'completed'
+   * - failed/cancelled/查不到：清掉记录，返回 null
+   */
+  async function checkPendingBlueprintTask(
+    projectId: string,
+  ): Promise<{ state: 'running'; taskId: string } | { state: 'completed' } | null> {
+    const taskId = readPendingBlueprintTask(projectId)
+    if (!taskId) return null
+    try {
+      const status = await TaskAPI.getTaskStatus(taskId)
+      if (status.status === 'completed') {
+        clearPendingBlueprintTask(projectId)
+        await loadProject(projectId, true)
+        return { state: 'completed' }
+      }
+      if (status.status === 'failed' || status.status === 'cancelled') {
+        clearPendingBlueprintTask(projectId)
+        return null
+      }
+      return { state: 'running', taskId }
+    } catch {
+      // 网关查不到（任务已过期/网关重启）：不再假装在跑
+      clearPendingBlueprintTask(projectId)
+      return null
     }
   }
 
@@ -502,6 +588,7 @@ export const useNovelStore = defineStore('novel', () => {
     sendConversation,
     searchReferenceNovels,
     generateBlueprint,
+    checkPendingBlueprintTask,
     saveBlueprint,
     generateChapter,
     evaluateChapter,

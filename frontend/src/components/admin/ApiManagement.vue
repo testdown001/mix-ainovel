@@ -6,6 +6,13 @@
       <!-- ===== Tab 1: API 配置 ===== -->
       <n-tab-pane name="config" tab="API 配置">
         <n-space vertical size="large" style="margin-top: 16px;">
+          <!-- 加载失败时表单是空的：此时保存会把已存的 Key 覆盖成空串，所以所有保存按钮在成功加载前禁用 -->
+          <n-alert v-if="loadError" type="error" :bordered="false">
+            <n-space align="center" :size="12">
+              <span>配置加载失败：{{ loadError }}。为避免把已保存的密钥覆盖成空值，已禁用保存。</span>
+              <n-button size="small" :loading="loading" @click="fetchAllConfigs">重试</n-button>
+            </n-space>
+          </n-alert>
 
           <!-- 默认 LLM -->
           <n-card :bordered="false">
@@ -21,7 +28,7 @@
               </n-alert>
               <n-form label-placement="top">
                 <n-grid :cols="2" :x-gap="16">
-                  <n-gi><n-form-item label="API Key" required>
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变" required>
                     <n-input v-model:value="defaultForm.api_key" type="password" show-password-on="click" placeholder="必填" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="模型名称">
@@ -39,7 +46,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.default" @click="testChannel('default')">测试连接</n-button>
-                  <n-button type="primary" :loading="defaultSaving" @click="saveConfig('default')">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="defaultSaving" @click="saveConfig('default')">保存</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -61,8 +68,8 @@
               </n-alert>
               <n-form label-placement="top">
                 <n-grid :cols="2" :x-gap="16">
-                  <n-gi><n-form-item label="API Key">
-                    <n-input v-model:value="fallbackForm.api_key" type="password" show-password-on="click" placeholder="留空则不启用兜底" />
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变">
+                    <n-input v-model:value="fallbackForm.api_key" type="password" show-password-on="click" placeholder="未配置时不启用兜底；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="模型名称">
                     <n-input v-model:value="fallbackForm.model" placeholder="例：gpt-4o-mini" />
@@ -79,7 +86,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.fallback" @click="testChannel('fallback')">测试连接</n-button>
-                  <n-button type="primary" :loading="fallbackSaving" @click="saveConfig('fallback')">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="fallbackSaving" @click="saveConfig('fallback')">保存</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -101,17 +108,17 @@
               </n-alert>
               <n-form label-placement="top">
                 <n-grid :cols="2" :x-gap="16">
-                  <n-gi><n-form-item label="API Key">
-                    <n-input v-model:value="polishForm.api_key" type="password" show-password-on="click" placeholder="留空使用默认" />
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变">
+                    <n-input v-model:value="polishForm.api_key" type="password" show-password-on="click" placeholder="未配置时使用默认通道；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="模型名称">
-                    <n-input v-model:value="polishForm.model" placeholder="留空使用默认" />
+                    <n-input v-model:value="polishForm.model" placeholder="未配置时使用默认通道；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi :span="2"><n-form-item label="Base URL">
-                    <n-input v-model:value="polishForm.base_url" placeholder="留空使用默认" />
+                    <n-input v-model:value="polishForm.base_url" placeholder="未配置时使用默认通道；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="API 格式">
-                    <n-select v-model:value="polishForm.api_format" :options="apiFormatOptions" placeholder="留空使用默认" clearable />
+                    <n-select v-model:value="polishForm.api_format" :options="apiFormatOptions" placeholder="未配置时使用默认通道；留空保持不变" clearable />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="推理深度 reasoning_effort">
                     <n-select v-model:value="polishForm.reasoning_effort" :options="reasoningEffortOptions" placeholder="仅推理模型生效，留空即可" clearable />
@@ -119,7 +126,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.polish" @click="testChannel('polish')">测试连接</n-button>
-                  <n-button type="primary" :loading="polishSaving" @click="saveConfig('polish')">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="polishSaving" @click="saveConfig('polish')">保存</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -141,8 +148,8 @@
               </n-alert>
               <n-form label-placement="top">
                 <n-grid :cols="2" :x-gap="16">
-                  <n-gi><n-form-item label="API Key">
-                    <n-input v-model:value="searchForm.api_key" type="password" show-password-on="click" placeholder="留空则关闭搜索" />
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变">
+                    <n-input v-model:value="searchForm.api_key" type="password" show-password-on="click" placeholder="未配置时关闭搜索；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="模型名称">
                     <n-input v-model:value="searchForm.model" placeholder="例：grok-3" />
@@ -159,7 +166,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.search" @click="testChannel('search')">测试连接</n-button>
-                  <n-button type="primary" :loading="searchSaving" @click="saveConfig('search')">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="searchSaving" @click="saveConfig('search')">保存</n-button>
                 </n-space>
               </n-form>
 
@@ -179,7 +186,7 @@
                   <n-gi><n-form-item label="检索提供方">
                     <n-select v-model:value="searchBackendForm.provider" :options="searchProviderOptions" />
                   </n-form-item></n-gi>
-                  <n-gi><n-form-item label="检索 API Key">
+                  <n-gi><n-form-item label="检索 API Key" feedback="留空保持已存值不变">
                     <n-input v-model:value="searchBackendForm.api_key" type="password" show-password-on="click" :placeholder="searchBackendForm.provider === 'duckduckgo' ? '可留空；填 Jina Key 可解除匿名限速' : 'jina 或 serper 的 Key'" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="每次检索条数（1-10）">
@@ -190,7 +197,7 @@
                   </n-form-item></n-gi>
                 </n-grid>
                 <n-space justify="end">
-                  <n-button type="primary" :loading="searchBackendSaving" @click="saveSearchBackend">保存检索后端</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="searchBackendSaving" @click="saveSearchBackend">保存检索后端</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -212,8 +219,8 @@
               </n-alert>
               <n-form label-placement="top">
                 <n-grid :cols="2" :x-gap="16">
-                  <n-gi><n-form-item label="API Key">
-                    <n-input v-model:value="graderForm.api_key" type="password" show-password-on="click" placeholder="留空则跳过评分" />
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变">
+                    <n-input v-model:value="graderForm.api_key" type="password" show-password-on="click" placeholder="未配置时跳过评分；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="模型名称">
                     <n-input v-model:value="graderForm.model" placeholder="例：gpt-4o-mini" />
@@ -230,7 +237,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.grader" @click="testChannel('grader')">测试连接</n-button>
-                  <n-button type="primary" :loading="graderSaving" @click="saveConfig('grader')">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="graderSaving" @click="saveConfig('grader')">保存</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -259,7 +266,7 @@
                   <n-gi><n-form-item label="模型名称">
                     <n-input v-model:value="embeddingForm.model" placeholder="例：text-embedding-3-large" />
                   </n-form-item></n-gi>
-                  <n-gi><n-form-item label="API Key">
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变">
                     <n-input v-model:value="embeddingForm.api_key" type="password" show-password-on="click" placeholder="embedding 服务的 API Key" />
                   </n-form-item></n-gi>
                   <n-gi><n-form-item label="向量维度（可选）">
@@ -271,7 +278,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.embedding" @click="testChannel('embedding')">测试连接</n-button>
-                  <n-button type="primary" :loading="embeddingSaving" @click="saveEmbedding">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="embeddingSaving" @click="saveEmbedding">保存</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -303,8 +310,8 @@
                   <n-gi><n-form-item label="模型名称">
                     <n-input v-model:value="rerankForm.model" placeholder="例：jina-reranker-v2-base-multilingual" />
                   </n-form-item></n-gi>
-                  <n-gi><n-form-item label="API Key">
-                    <n-input v-model:value="rerankForm.api_key" type="password" show-password-on="click" placeholder="留空则回退使用 embedding 的 API Key" />
+                  <n-gi><n-form-item label="API Key" feedback="留空保持已存值不变">
+                    <n-input v-model:value="rerankForm.api_key" type="password" show-password-on="click" placeholder="未配置时回退 embedding Key；留空保持不变" />
                   </n-form-item></n-gi>
                   <n-gi :span="2"><n-form-item label="API 地址（完整端点，原样使用）">
                     <n-input v-model:value="rerankForm.api_url" placeholder="例：https://api.jina.ai/v1/rerank —— 填什么就请求什么，不会自动补路径" />
@@ -312,7 +319,7 @@
                 </n-grid>
                 <n-space justify="end">
                   <n-button :loading="testing.rerank" @click="testChannel('rerank')">测试连接</n-button>
-                  <n-button type="primary" :loading="rerankSaving" @click="saveRerank">保存</n-button>
+                  <n-button type="primary" :disabled="!loaded" :loading="rerankSaving" @click="saveRerank">保存</n-button>
                 </n-space>
               </n-form>
             </n-spin>
@@ -427,6 +434,13 @@ const { showAlert } = useAlert()
 
 // ---- shared ----
 const loading = ref(false)
+// 只有成功拉到配置后才允许保存：表单初始值全是空串，加载失败直接保存会把库里的 Key 清空
+const loaded = ref(false)
+const loadError = ref<string | null>(null)
+// 密钥字段：留空 = 保持已存值（不发送该键）；只有填了内容才覆盖。非密钥字段照常原样保存。
+const SECRET_KEY_SUFFIX = '.api_key'
+const dropEmptySecrets = <T extends { key: string; value: string }>(entries: T[]) =>
+  entries.filter((e) => !(e.key.endsWith(SECRET_KEY_SUFFIX) && !e.value))
 const activeTab = ref('config')
 
 const apiFormatOptions = [
@@ -541,14 +555,19 @@ const fetchAllConfigs = async () => {
     searchBackendForm.api_key = map.get('search.api_key') || ''
     searchBackendForm.max_results = Number(map.get('search.max_results') || 8) || 8
     searchBackendForm.read_pages = Number(map.get('search.read_pages') ?? 2)
+    loaded.value = true
+    loadError.value = null
   } catch (err) {
-    showAlert(err instanceof Error ? err.message : '加载配置失败', 'error')
+    loaded.value = false
+    loadError.value = err instanceof Error ? err.message : '加载配置失败'
+    showAlert(loadError.value, 'error')
   } finally {
     loading.value = false
   }
 }
 
 const saveEmbedding = async () => {
+  if (!loaded.value) return
   embeddingSaving.value = true
   try {
     const entries = [
@@ -558,7 +577,7 @@ const saveEmbedding = async () => {
       { key: 'embedding.model', value: embeddingForm.model, description: '向量嵌入 模型名称' },
       { key: 'embedding.model_vector_size', value: embeddingForm.model_vector_size, description: '向量嵌入 维度(可选,留空自动)' },
     ]
-    for (const entry of entries) {
+    for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
     showAlert('向量嵌入配置已保存', 'success')
@@ -570,6 +589,7 @@ const saveEmbedding = async () => {
 }
 
 const saveSearchBackend = async () => {
+  if (!loaded.value) return
   searchBackendSaving.value = true
   try {
     const entries = [
@@ -578,7 +598,7 @@ const saveSearchBackend = async () => {
       { key: 'search.max_results', value: String(searchBackendForm.max_results || 8), description: '每次检索条数' },
       { key: 'search.read_pages', value: String(searchBackendForm.read_pages ?? 2), description: '抓取正文页数(duckduckgo/jina)' },
     ]
-    for (const entry of entries) {
+    for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
     showAlert('检索后端已保存（60 秒内生效）', 'success')
@@ -590,6 +610,7 @@ const saveSearchBackend = async () => {
 }
 
 const saveRerank = async () => {
+  if (!loaded.value) return
   rerankSaving.value = true
   try {
     const entries = [
@@ -598,7 +619,7 @@ const saveRerank = async () => {
       { key: 'rerank.api_key', value: rerankForm.api_key, description: '重排序 API Key(留空回退 embedding.api_key)' },
       { key: 'rerank.model', value: rerankForm.model, description: '重排序 模型名称' },
     ]
-    for (const entry of entries) {
+    for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
     showAlert('重排序配置已保存', 'success')
@@ -613,6 +634,7 @@ const saveConfig = async (type: ConfigKey) => {
   const { prefix, label } = CONFIG_MAP[type]
   const form = getForm(type)
   const saving = getSaving(type)
+  if (!loaded.value) return
   saving.value = true
   try {
     const entries = [
@@ -622,7 +644,7 @@ const saveConfig = async (type: ConfigKey) => {
       { key: `${prefix}.api_format`, value: form.api_format || '', description: `${label} API 格式` },
       { key: `${prefix}.reasoning_effort`, value: form.reasoning_effort || '', description: `${label} 推理深度(reasoning_effort)` },
     ]
-    for (const entry of entries) {
+    for (const entry of dropEmptySecrets(entries)) {
       await AdminAPI.upsertSystemConfig(entry.key, { value: entry.value, description: entry.description })
     }
     showAlert(`${label}已保存`, 'success')

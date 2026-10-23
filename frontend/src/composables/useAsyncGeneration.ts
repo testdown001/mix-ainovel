@@ -51,6 +51,9 @@ export function useAsyncGeneration() {
 
   // 清理函数
   let cleanupWS: (() => void) | null = null
+  // 取消时把挂起的等待 Promise 收口：此前 cancelGeneration 只清监听，submitBatchGeneration
+  // 的 await 永远不返回，批量 UI 停在「生成中」。
+  let settlePending: ((status: TaskStatus) => void) | null = null
 
   /**
    * 提交异步生成任务
@@ -149,6 +152,11 @@ export function useAsyncGeneration() {
         unsubscribe?.()
         unsubscribe = null
         cleanupWS = null
+        settlePending = null
+      }
+      settlePending = (status) => {
+        cleanup()
+        resolve(status)
       }
 
       // 监听 WebSocket 事件
@@ -226,11 +234,36 @@ export function useAsyncGeneration() {
    * 取消当前任务
    */
   async function cancelGeneration(): Promise<void> {
-    if (state.value.taskId) {
-      await TaskAPI.cancelTask(state.value.taskId)
-      state.value.status = 'cancelled'
-      cleanupWS?.()
-      cleanupWS = null
+    const taskId = state.value.taskId
+    if (!taskId) return
+    await TaskAPI.cancelTask(taskId)
+    state.value.status = 'cancelled'
+    cleanupWS?.()
+    cleanupWS = null
+    // 让正在 await 的调用方拿到终态（优先服务端真实状态，取不到就按本地 cancelled 收口）
+    const settle = settlePending
+    settlePending = null
+    if (settle) {
+      let final: TaskStatus | null = null
+      try {
+        final = await TaskAPI.getTaskStatus(taskId)
+      } catch {
+        final = null
+      }
+      settle(
+        final && (final.status === 'completed' || final.status === 'failed' || final.status === 'cancelled')
+          ? final
+          : ({
+              task_id: taskId,
+              type: '',
+              status: 'cancelled',
+              progress: state.value.progress,
+              stage: state.value.stage,
+              message: '已取消',
+              error: '',
+              result: null,
+            } as TaskStatus),
+      )
     }
   }
 

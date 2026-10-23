@@ -143,11 +143,13 @@
 
           <!-- Submit -->
           <button type="submit"
-            class="w-full py-3.5 rounded-xl font-bold text-sm transition-all mt-2"
+            class="w-full py-3.5 rounded-xl font-bold text-sm transition-all mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
             style="background:#FFE500; color:#000;"
+            :disabled="submitting"
+            :aria-busy="submitting"
             @mouseenter="($event.currentTarget as HTMLElement).style.background='#FFF000'"
             @mouseleave="($event.currentTarget as HTMLElement).style.background='#FFE500'">
-            免费注册
+            {{ submitting ? '注册中…' : '免费注册' }}
           </button>
 
           <!-- Terms note -->
@@ -223,7 +225,13 @@ const captchaSiteKey = computed(() => authStore.captchaSiteKey);
 let turnstileScript: HTMLScriptElement | null = null;
 
 const loadTurnstile = () => {
-  if (document.getElementById('turnstile-script') || !captchaSiteKey.value) return;
+  if (!captchaSiteKey.value) return;
+  if (document.getElementById('turnstile-script')) {
+    // 脚本已由上一次访问 /register 加载过，onload 不会再触发：直接渲染，否则回到页面没有验证框，
+    // 提交一直报「请完成人机验证」（2026-10-23 审计）。脚本还在加载中时交给它的 onload。
+    if (window.turnstile) renderWidget();
+    return;
+  }
   const script = document.createElement('script');
   script.id = 'turnstile-script';
   script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -236,8 +244,10 @@ const loadTurnstile = () => {
 const renderWidget = () => {
   if (!window.turnstile || !turnstileRef.value || !captchaSiteKey.value) return;
   if (turnstileWidgetId.value) {
-    window.turnstile.remove(turnstileWidgetId.value);
+    try { window.turnstile.remove(turnstileWidgetId.value); } catch { /* 旧 widget 已随 DOM 消失 */ }
+    turnstileWidgetId.value = null;
   }
+  captchaToken.value = '';
   turnstileWidgetId.value = window.turnstile.render(turnstileRef.value, {
     sitekey: captchaSiteKey.value,
     theme: 'dark',
@@ -308,7 +318,11 @@ const sendCode = async () => {
   }
 };
 
+const submitting = ref(false);
+
 const handleRegister = async () => {
+  // 双击 / 连按两次 Enter 会发两次 POST，第二次报「用户名已存在」盖在成功提示上（2026-10-23 审计）
+  if (submitting.value) return;
   error.value = '';
   success.value = '';
   const validationError = validateInput();
@@ -318,6 +332,7 @@ const handleRegister = async () => {
     error.value = '请完成人机验证';
     return;
   }
+  submitting.value = true;
   try {
     const body: Record<string, string> = {
       username: username.value,
@@ -342,6 +357,7 @@ const handleRegister = async () => {
     }
     success.value = '注册成功！即将跳转到登录页面…';
     setTimeout(() => { router.push('/login'); }, 2000);
+    // 成功后保持 submitting，直到跳转：避免跳转前再点一次
   } catch (err: any) {
     error.value = err.message || '注册失败，请稍后再试。';
     if (turnstileWidgetId.value && window.turnstile) {
@@ -349,6 +365,7 @@ const handleRegister = async () => {
       captchaToken.value = '';
     }
     console.error(err);
+    submitting.value = false;
   }
 };
 </script>

@@ -46,7 +46,9 @@
             <strong>{{ batchCurrent }} / {{ batchTotal }} 章</strong>
           </span>
         </div>
-        <button type="button" class="rail-batch-stop" @click="emit('cancelBatch')">停止</button>
+        <button type="button" class="rail-batch-stop" :disabled="batchStopping" @click="emit('cancelBatch')">
+          {{ batchStopping ? '停止中…' : '停止' }}
+        </button>
         <div class="rail-batch-progress" aria-label="批量生成进度">
           <span :style="{ width: batchProgressPercent + '%' }"></span>
         </div>
@@ -164,6 +166,8 @@ const props = defineProps<{
   outlineTask?: OutlineGenerationTask | null
   batchGenerating: boolean
   batchProgress: { current: number; total: number } | null
+  /** 已请求停止，等待网关确认；期间停止键不可再点 */
+  batchStopping?: boolean
 }>()
 
 const emit = defineEmits<{

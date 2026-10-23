@@ -21,7 +21,10 @@
       </template>
       <n-spin :show="stripeLoading">
         <n-alert v-if="stripeError" type="error" closable @close="stripeError = null" style="margin-bottom:16px">
-          {{ stripeError }}
+          <n-space align="center" :size="12">
+            <span>{{ stripeError }}</span>
+            <n-button v-if="!loaded" size="small" :loading="stripeLoading" @click="loadChannels">重试</n-button>
+          </n-space>
         </n-alert>
         <n-form label-placement="top" :model="stripeForm">
           <n-grid :cols="2" :x-gap="16">
@@ -35,7 +38,7 @@
               </n-form-item>
             </n-gi>
             <n-gi>
-              <n-form-item label="Secret Key（私钥）">
+              <n-form-item label="Secret Key（私钥）" feedback="留空保持已存值不变">
                 <n-input
                   v-model:value="stripeForm.secret_key"
                   type="password"
@@ -48,7 +51,7 @@
           </n-grid>
           <n-grid :cols="2" :x-gap="16">
             <n-gi>
-              <n-form-item label="Webhook Secret">
+              <n-form-item label="Webhook Secret" feedback="留空保持已存值不变">
                 <n-input
                   v-model:value="stripeForm.webhook_secret"
                   type="password"
@@ -88,7 +91,7 @@
             Webhook 地址（在 Stripe 后台配置）：<code>https://你的域名/api/payment/stripe/webhook</code>，事件选 checkout.session.completed。
           </n-alert>
           <n-space justify="end">
-            <n-button type="primary" :loading="stripeSaving" @click="saveChannel('stripe')">
+            <n-button type="primary" :disabled="!loaded" :loading="stripeSaving" @click="saveChannel('stripe')">
               保存配置
             </n-button>
           </n-space>
@@ -117,7 +120,10 @@
       </template>
       <n-spin :show="alipayLoading">
         <n-alert v-if="alipayError" type="error" closable @close="alipayError = null" style="margin-bottom:16px">
-          {{ alipayError }}
+          <n-space align="center" :size="12">
+            <span>{{ alipayError }}</span>
+            <n-button v-if="!loaded" size="small" :loading="alipayLoading" @click="loadChannels">重试</n-button>
+          </n-space>
         </n-alert>
         <n-form label-placement="top" :model="alipayForm">
           <n-grid :cols="2" :x-gap="16">
@@ -131,7 +137,7 @@
               </n-form-item>
             </n-gi>
             <n-gi>
-              <n-form-item label="应用私钥（RSA2）">
+              <n-form-item label="应用私钥（RSA2）" feedback="留空保持已存值不变">
                 <n-input
                   v-model:value="alipayForm.private_key"
                   type="textarea"
@@ -144,7 +150,7 @@
           </n-grid>
           <n-grid :cols="2" :x-gap="16">
             <n-gi>
-              <n-form-item label="支付宝公钥（RSA2）">
+              <n-form-item label="支付宝公钥（RSA2）" feedback="留空保持已存值不变">
                 <n-input
                   v-model:value="alipayForm.alipay_public_key"
                   type="textarea"
@@ -170,7 +176,7 @@
             </n-radio-group>
           </n-form-item>
           <n-space justify="end">
-            <n-button type="primary" :loading="alipaySaving" @click="saveChannel('alipay')">
+            <n-button type="primary" :disabled="!loaded" :loading="alipaySaving" @click="saveChannel('alipay')">
               保存配置
             </n-button>
           </n-space>
@@ -199,7 +205,10 @@
       </template>
       <n-spin :show="wechatLoading">
         <n-alert v-if="wechatError" type="error" closable @close="wechatError = null" style="margin-bottom:16px">
-          {{ wechatError }}
+          <n-space align="center" :size="12">
+            <span>{{ wechatError }}</span>
+            <n-button v-if="!loaded" size="small" :loading="wechatLoading" @click="loadChannels">重试</n-button>
+          </n-space>
         </n-alert>
         <n-form label-placement="top" :model="wechatForm">
           <n-grid :cols="2" :x-gap="16">
@@ -224,7 +233,7 @@
           </n-grid>
           <n-grid :cols="2" :x-gap="16">
             <n-gi>
-              <n-form-item label="API v3 密钥">
+              <n-form-item label="API v3 密钥" feedback="留空保持已存值不变">
                 <n-input
                   v-model:value="wechatForm.api_v3_key"
                   type="password"
@@ -244,7 +253,7 @@
               </n-form-item>
             </n-gi>
           </n-grid>
-          <n-form-item label="商户私钥（PEM）">
+          <n-form-item label="商户私钥（PEM）" feedback="留空保持已存值不变">
             <n-input
               v-model:value="wechatForm.private_key"
               type="textarea"
@@ -275,7 +284,7 @@
             </n-gi>
           </n-grid>
           <n-space justify="end">
-            <n-button type="primary" :loading="wechatSaving" @click="saveChannel('wechat')">
+            <n-button type="primary" :disabled="!loaded" :loading="wechatSaving" @click="saveChannel('wechat')">
               保存配置
             </n-button>
           </n-space>
@@ -347,6 +356,14 @@ const alipayError = ref<string | null>(null)
 const wechatLoading = ref(false)
 const wechatSaving = ref(false)
 const wechatError = ref<string | null>(null)
+// 成功加载过配置才允许保存：表单初始值是空串，加载失败就保存会把已存的私钥清空
+const loaded = ref(false)
+// 密钥/证书字段：留空 = 保持已存值（不发送该键）；只有填了内容才覆盖
+const SECRET_FIELDS: Record<string, Set<string>> = {
+  stripe: new Set(['secret_key', 'webhook_secret']),
+  alipay: new Set(['private_key', 'alipay_public_key']),
+  wechat: new Set(['api_v3_key', 'private_key']),
+}
 
 const onStripeToggle = (val: boolean) => {
   if (val && !stripeForm.publishable_key) {
@@ -380,8 +397,14 @@ const loadChannels = async () => {
         }
       }
     }
-  } catch {
-    // 静默：未配置时表单保持默认
+    loaded.value = true
+    stripeError.value = alipayError.value = wechatError.value = null
+  } catch (err) {
+    // 以前这里静默吞掉：表单空白但「保存」可点，一保存就把已存的私钥覆盖成空串
+    loaded.value = false
+    const reason = err instanceof Error ? err.message : '加载配置失败'
+    const text = `配置加载失败：${reason}。为避免把已保存的密钥覆盖成空值，已禁用保存。`
+    stripeError.value = alipayError.value = wechatError.value = text
   } finally {
     stripeLoading.value = false; alipayLoading.value = false; wechatLoading.value = false
   }
@@ -389,12 +412,14 @@ const loadChannels = async () => {
 
 const saveChannel = async (channel: string) => {
   const savingRef = channel === 'stripe' ? stripeSaving : channel === 'alipay' ? alipaySaving : wechatSaving
+  if (!loaded.value) return
   savingRef.value = true
   try {
     const form = formOf(channel)
     for (const f of channelKeyFields[channel]) {
       const raw = form[f]
       const value = f === 'enabled' ? (raw ? 'true' : 'false') : String(raw ?? '')
+      if (SECRET_FIELDS[channel]?.has(f) && !value) continue  // 留空的密钥不发送，保持库内值
       await AdminAPI.upsertSystemConfig(`pay.${channel}.${f}`, { value })
     }
     message.success(`${channel === 'stripe' ? 'Stripe' : channel === 'alipay' ? '支付宝' : '微信支付'} 配置已保存`)
