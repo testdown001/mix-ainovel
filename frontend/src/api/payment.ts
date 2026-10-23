@@ -65,6 +65,8 @@ export interface Subscription {
   status: string
   plan_tier?: string
   current_period_end?: string | null
+  // 是否付过款（会员或加油包）；由 /api/quota/me 带出，旧后端没有此字段时为 undefined
+  has_paid_order?: boolean
   id?: number
   user_id?: number
   plan_id?: number
@@ -78,6 +80,14 @@ export interface CreateOrderResponse {
   pay_url?: string
   channel: string
   status: string
+}
+
+export type PaymentChannel = 'alipay' | 'wechat' | 'stripe'
+
+// 后台已启用的支付渠道（GET /api/payment/channels，公开）
+export interface PaymentChannelInfo {
+  channel: PaymentChannel
+  label: string
 }
 
 // 积分加油包（一次性充值商品；充值积分入永久池，不随月度重置清零）
@@ -109,6 +119,12 @@ export const paymentApi = {
       return_url: returnUrl,
     })
     return data
+  },
+
+  /** 后台已启用的支付渠道（公开，顺序即默认选中顺序；全部关闭时为空数组）。 */
+  async listChannels(): Promise<PaymentChannelInfo[]> {
+    const { data } = await http.get<PaymentChannelInfo[]>(`${PAYMENT}/channels`)
+    return Array.isArray(data) ? data : []
   },
 
   /** 加油包目录（公开）。 */
@@ -176,12 +192,14 @@ export const paymentApi = {
         is_premium: boolean
         plan_tier?: string
         premium_expires_at?: string | null
+        has_paid_order?: boolean
       }>('/api/quota/me')
       if (!data?.is_premium) return null
       return {
         status: 'active',
         plan_tier: data.plan_tier,
         current_period_end: data.premium_expires_at ?? null,
+        has_paid_order: typeof data.has_paid_order === 'boolean' ? data.has_paid_order : undefined,
       }
     } catch {
       return null

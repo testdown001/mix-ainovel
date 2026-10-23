@@ -75,6 +75,28 @@ class PaymentService:
                 return pack
         return None
 
+    # ------------------------------------------------------------------
+    # 已启用渠道（公开）：前端三处结账只展示后台真正开了的支付方式
+    # ------------------------------------------------------------------
+
+    CHANNEL_LABELS: Dict[str, str] = {
+        "stripe": "Stripe",
+        "alipay": "支付宝",
+        "wechat": "微信支付",
+    }
+
+    async def list_enabled_channels(self) -> List[Dict[str, str]]:
+        """按固定顺序返回 `pay.{channel}.enabled == 'true'` 的渠道。
+
+        只暴露渠道名和展示名，不带任何密钥字段；顺序即前端默认选中顺序。
+        """
+        channels: List[Dict[str, str]] = []
+        for channel, label in self.CHANNEL_LABELS.items():
+            enabled = await self._get_config(f"pay.{channel}.enabled")
+            if (enabled or "").strip().lower() == "true":
+                channels.append({"channel": channel, "label": label})
+        return channels
+
     async def _get_alipay_config(self) -> Dict[str, str]:
         keys = [
             "pay.alipay.enabled", "pay.alipay.app_id",

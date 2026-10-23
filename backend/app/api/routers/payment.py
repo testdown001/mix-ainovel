@@ -75,6 +75,23 @@ class OrderListResponse(BaseModel):
     page_size: int
 
 
+class PaymentChannelItem(BaseModel):
+    channel: str
+    label: str
+
+
+# ------------------------------------------------------------------
+# 已启用渠道（公开，无需登录：定价页未登录也要知道能用什么付）
+# ------------------------------------------------------------------
+
+@router.get("/channels", response_model=list[PaymentChannelItem])
+async def list_payment_channels(
+    service: PaymentService = Depends(get_payment_service),
+):
+    """后台已启用的支付渠道，按前端默认选中顺序返回；全部关闭时返回空数组。"""
+    return await service.list_enabled_channels()
+
+
 # ------------------------------------------------------------------
 # 用户下单
 # ------------------------------------------------------------------

@@ -146,6 +146,7 @@
               @fetch-chapter-status="fetchChapterStatus"
               @edit-chapter="editChapterContent"
               @toggle-codex="codexPanelOpen = !codexPanelOpen"
+              @saved="lastSavedAt = new Date()"
             />
           </div>
 

@@ -31,10 +31,11 @@
     <div class="rounded-xl p-5 mb-5" style="background:#141414; border:1px solid #2A2A2A;">
       <div class="flex items-center justify-between mb-1">
         <span class="text-sm font-semibold text-white">积分加油包</span>
-        <div class="flex items-center gap-1.5">
-          <button v-for="ch in channelOptions" :key="ch.value" @click="packChannel = ch.value"
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span v-if="payChannels.noneEnabled.value" class="text-[11px]" style="color:#FF6B6B;">暂未开通支付方式</span>
+          <button v-for="ch in payChannels.channels.value" :key="ch.channel" @click="payChannels.select(ch.channel)"
             class="px-2.5 py-0.5 rounded-full text-[11px] transition-colors"
-            :style="packChannel === ch.value
+            :style="payChannels.selected.value === ch.channel
               ? 'background:#FFE500;color:#000;font-weight:600;'
               : 'background:#1A1A1A;border:1px solid #2A2A2A;color:#888;'">
             {{ ch.label }}
@@ -118,6 +119,7 @@ import { creditsApi, type CreditLogItem } from '@/api/credits'
 import { ModelCatalogAPI } from '@/api/model_catalog'
 import { paymentApi, type CreditPack } from '@/api/payment'
 import { openPaymentWindow } from '@/utils/paymentWindow'
+import { usePaymentChannels } from '@/composables/usePaymentChannels'
 
 const limit = 20
 const offset = ref(0)
@@ -134,14 +136,8 @@ const totalCredits = computed(() => (balance.value ?? 0) + (purchased.value ?? 0
 
 // 加油包购买
 const packs = ref<CreditPack[]>([])
-// 渠道顺序与默认值和 PricingView / SubscriptionPanel 一致（原来这里默认支付宝、那两处默认 Stripe，
-// 同一个用户在两个页面看到不同的默认支付方式）
-const packChannel = ref<'alipay' | 'wechat' | 'stripe'>('stripe')
-const channelOptions: { value: 'alipay' | 'wechat' | 'stripe'; label: string }[] = [
-  { value: 'stripe', label: 'Stripe' },
-  { value: 'alipay', label: '支付宝' },
-  { value: 'wechat', label: '微信支付' },
-]
+// 可用支付方式以后台「已启用渠道」为准（与 PricingView / SubscriptionPanel 共用一个 composable）
+const payChannels = usePaymentChannels()
 const buyingCode = ref<string | null>(null)
 const packError = ref('')
 const packPayUrl = ref('')
@@ -156,13 +152,18 @@ const fetchPacks = async () => {
 
 const buyPack = async (pack: CreditPack) => {
   if (buyingCode.value) return
+  const channel = payChannels.selected.value
+  if (!channel) {
+    packError.value = '暂未开通任何支付方式，请联系管理员'
+    return
+  }
   buyingCode.value = pack.code
   packError.value = ''
   packPayUrl.value = ''
   // 在 await 之前同步开窗，否则被当成非用户手势拦截
   const payWindow = openPaymentWindow()
   try {
-    const result = await paymentApi.createCreditOrder(pack.code, packChannel.value)
+    const result = await paymentApi.createCreditOrder(pack.code, channel)
     if (result.pay_url) {
       packPayUrl.value = result.pay_url
       payWindow.navigate(result.pay_url)
@@ -269,6 +270,7 @@ onMounted(() => {
   fetchBalance()
   fetchLogs()
   fetchPacks()
+  void payChannels.load()
 })
 </script>
 

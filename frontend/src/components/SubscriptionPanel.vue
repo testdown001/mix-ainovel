@@ -49,12 +49,13 @@
     </div>
 
     <!-- 支付渠道选择 -->
-    <div class="flex items-center gap-2 mb-3">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
       <span class="text-xs" style="color:#888;">支付方式</span>
-      <button v-for="ch in channelOptions" :key="ch.value"
-        @click="selectedChannel = ch.value"
+      <span v-if="payChannels.noneEnabled.value" class="text-xs" style="color:#FF6B6B;">暂未开通任何支付方式，请联系管理员</span>
+      <button v-for="ch in payChannels.channels.value" :key="ch.channel"
+        @click="payChannels.select(ch.channel)"
         class="px-3 py-1 rounded-full text-xs transition-colors"
-        :style="selectedChannel === ch.value
+        :style="payChannels.selected.value === ch.channel
           ? 'background:#FFE500;color:#000;font-weight:600;'
           : 'background:#1A1A1A;border:1px solid #2A2A2A;color:#888;'">
         {{ ch.label }}
@@ -250,6 +251,7 @@
 import { ref, computed, onMounted } from 'vue'
 import CoinIcon from '@/components/shared/CoinIcon.vue'
 import { paymentApi, type Plan, type Subscription as SubType } from '@/api/payment'
+import { usePaymentChannels } from '@/composables/usePaymentChannels'
 import { resolvePlanForTier } from '@/utils/planResolve'
 import { useAuthStore } from '@/stores/auth'
 
@@ -261,12 +263,8 @@ const checkoutLoading = ref(false)
 const checkoutError = ref('')
 const checkoutUrl = ref('')
 const plansRef = ref<HTMLElement | null>(null)
-const selectedChannel = ref<'stripe' | 'alipay' | 'wechat'>('stripe')
-const channelOptions: { value: 'stripe' | 'alipay' | 'wechat'; label: string }[] = [
-  { value: 'stripe', label: 'Stripe' },
-  { value: 'alipay', label: '支付宝' },
-  { value: 'wechat', label: '微信支付' },
-]
+// 可用支付方式以后台「已启用渠道」为准（与 PricingView / CreditLedger 共用一个 composable）
+const payChannels = usePaymentChannels()
 const subscription = ref<SubType | null>(null)
 const selectedPlanDbId = ref<number | null>(null)
 
@@ -276,10 +274,10 @@ const currentPlan = computed(() => {
 })
 // 试用 = 有会员但从未付过款（与后台「试用未转化」的 has_paid_order 口径一致）。
 // 原判定 `is_premium && !subscription` 永远不成立：getSubscription 对任何会员都返回非空。
-// 订单列表拿不到时按「非试用」处理，宁可不显示试用横幅也不乱标。
-const hasPaidOrder = ref<boolean | null>(null)
+// has_paid_order 由 /api/quota/me 直接带出；旧后端没有该字段时按「非试用」处理，
+// 宁可不显示试用横幅也不乱标。
 const isTrialing = computed(() => {
-  return !!subscription.value && hasPaidOrder.value === false
+  return !!subscription.value && subscription.value.has_paid_order === false
 })
 const TIER_NAME: Record<string, string> = { creator: '创作者版', flagship: '旗舰版' }
 const tierName = computed(() => TIER_NAME[subscription.value?.plan_tier || ''] || '会员版')
@@ -468,13 +466,13 @@ const handleUpgrade = async (plan: DisplayPlan) => {
   const popup = window.open('', '_blank')
 
   try {
-    // 后端支持渠道: stripe / alipay / wechat。此处默认走 Stripe（用户指定）。
-    // 如需让用户选择渠道，可在升级弹窗加渠道选择器并把 selectedChannel 传入。
     if (plan.dbId == null) {
       throw new Error('套餐信息加载失败，请刷新页面后重试')
     }
     const planId: number = plan.dbId
-    const result = await paymentApi.createOrder(planId, selectedChannel.value)
+    const channel = payChannels.selected.value
+    if (!channel) throw new Error('暂未开通任何支付方式，请联系管理员')
+    const result = await paymentApi.createOrder(planId, channel)
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
       if (popup) popup.location.href = result.pay_url
@@ -494,6 +492,7 @@ const handleUpgrade = async (plan: DisplayPlan) => {
 // 取消订阅：后端无主动取消端点，会员到期自动降级；故移除取消入口(见模板说明)。
 
 onMounted(async () => {
+  void payChannels.load()
   try {
     backendPlans.value = await paymentApi.listPlans()
   } catch {
@@ -504,14 +503,6 @@ onMounted(async () => {
     trialExpiresAt.value = subscription.value?.current_period_end ?? null
   } catch {
     // not critical — user may not be authenticated
-  }
-  if (subscription.value) {
-    try {
-      const orders = await paymentApi.listOrders(1, 50)
-      hasPaidOrder.value = (orders.items || []).some((o) => o.status === 'paid')
-    } catch {
-      hasPaidOrder.value = null
-    }
   }
 })
 </script>

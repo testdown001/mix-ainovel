@@ -555,7 +555,9 @@ const emit = defineEmits([
   'showEvaluationDetail',
   'fetchChapterStatus',
   'editChapter',
-  'toggleCodex'
+  'toggleCodex',
+  // 章纲 / 本章规划落库成功后通知父级刷新头部「已保存」时间
+  'saved'
 ])
 
 const novelStore = useNovelStore()
@@ -727,6 +729,7 @@ async function persistOutlineText(outline: ChapterOutline, draft: { title: strin
       metadata: invalidatePrediction(outline.metadata),
     })
     globalAlert.showSuccess(`第 ${outline.chapter_number} 章章纲已更新；生成正文时会自动更新情节梳理。`, '大纲已保存')
+    emit('saved')
     return true
   } catch (err) {
     globalAlert.showError(err instanceof Error ? err.message : '保存失败', '章纲')
@@ -751,6 +754,7 @@ async function persistChapterPlanning(outline: ChapterOutline, planning: Chapter
       metadata: { ...metadata, planning },
     })
     globalAlert.showSuccess(`第 ${outline.chapter_number} 章规划已保存；生成正文时会自动更新情节梳理。`, '规划已保存')
+    emit('saved')
     return true
   } catch (err) {
     globalAlert.showError(err instanceof Error ? err.message : '保存失败', '本章规划')

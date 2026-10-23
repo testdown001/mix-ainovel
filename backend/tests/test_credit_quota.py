@@ -139,3 +139,22 @@ async def test_quota_info_has_credit_block(db_session):
     assert "credit" in info
     assert info["credit"]["balance"] == QuotaService.DEFAULT_FREE_MONTHLY_CREDITS
     assert info["credit"]["reset_at"] is not None
+    assert info["has_paid_order"] is False
+
+
+@pytest.mark.asyncio
+async def test_quota_info_has_paid_order_only_counts_paid(db_session):
+    from app.models.payment_order import PaymentOrder
+
+    db_session.add(PaymentOrder(order_no="PENDING_9", user_id=9, plan_id=2, plan_name="创作者版",
+                                amount=68, currency="CNY", channel="alipay", status="pending"))
+    await db_session.commit()
+    svc = QuotaService(db_session)
+    assert (await svc.get_quota_info(9))["has_paid_order"] is False
+
+    db_session.add(PaymentOrder(order_no="PAID_9", user_id=9, plan_id=0, plan_name="加油包",
+                                amount=30, currency="CNY", channel="stripe", status="paid"))
+    await db_session.commit()
+    assert (await svc.get_quota_info(9))["has_paid_order"] is True
+    # 别人的已付订单不算
+    assert (await svc.get_quota_info(10))["has_paid_order"] is False

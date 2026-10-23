@@ -273,14 +273,15 @@
           {{ pendingTier === 'flagship' ? '订阅旗舰版' : '订阅创作者版' }}
         </h3>
         <div class="flex items-center justify-center gap-2 mb-4">
-          <button v-for="ch in channelOptions" :key="ch.value" @click="switchChannel(ch.value)"
+          <button v-for="ch in payChannels.channels.value" :key="ch.channel" @click="switchChannel(ch.channel)"
             class="px-3 py-1 rounded-full text-xs transition-colors"
-            :style="selectedChannel === ch.value
+            :style="payChannels.selected.value === ch.channel
               ? 'background:var(--md-primary);color:#000;font-weight:600;'
               : 'background:#1A1A1A;border:1px solid var(--md-outline);color:var(--md-on-surface-variant);'">
             {{ ch.label }}
           </button>
         </div>
+        <p v-if="payChannels.noneEnabled.value" class="text-xs mb-3" style="color:#FF6B6B;">暂未开通任何支付方式，请联系管理员。</p>
         <template v-if="checkoutLoading">
           <div class="flex justify-center my-4">
             <div class="w-6 h-6 border-2 rounded-full animate-spin"
@@ -314,7 +315,8 @@ import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import CoinIcon from '@/components/shared/CoinIcon.vue'
 import { plansApi, type PlanCapability } from '@/api/plans'
-import { paymentApi, type Plan } from '@/api/payment'
+import { paymentApi, type Plan, type PaymentChannel } from '@/api/payment'
+import { usePaymentChannels } from '@/composables/usePaymentChannels'
 import { resolvePlanForTier } from '@/utils/planResolve'
 import { useAuthStore } from '@/stores/auth'
 import { useModalA11y } from '@/composables/useModalA11y'
@@ -332,14 +334,8 @@ const checkoutLoading = ref(false)
 const checkoutError = ref('')
 const checkoutUrl = ref('')
 const pendingTier = ref<'creator' | 'flagship' | null>(null)
-// 渠道顺序与默认值和 SubscriptionPanel / CreditLedger 保持一致（后端没有「已启用渠道」公开接口，
-// 三处都用同一份静态清单；改默认渠道请三处一起改）
-const selectedChannel = ref<'stripe' | 'alipay' | 'wechat'>('stripe')
-const channelOptions: { value: 'stripe' | 'alipay' | 'wechat'; label: string }[] = [
-  { value: 'stripe', label: 'Stripe' },
-  { value: 'alipay', label: '支付宝' },
-  { value: 'wechat', label: '微信支付' },
-]
+// 可用支付方式以后台「已启用渠道」为准（与 SubscriptionPanel / CreditLedger 共用一个 composable）
+const payChannels = usePaymentChannels()
 const backendPlans = ref<Plan[]>([])
 const checkoutDialogEl = ref<HTMLElement | null>(null)
 useModalA11y({
@@ -360,6 +356,7 @@ const planCredits = (planId: string): number => {
 }
 
 onMounted(async () => {
+  void payChannels.load()
   try {
     const publicPlans = await plansApi.listPublic()
     const map: Record<string, PlanCapability[]> = {}
@@ -533,7 +530,9 @@ const createCheckoutOrder = async () => {
     }
     const dbId = resolvePlanDbId(pendingTier.value)
     if (dbId == null) throw new Error('套餐信息加载失败，请刷新页面后重试')
-    const result = await paymentApi.createOrder(dbId, selectedChannel.value)
+    const channel = payChannels.selected.value
+    if (!channel) throw new Error('暂未开通任何支付方式，请联系管理员')
+    const result = await paymentApi.createOrder(dbId, channel)
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
       payWindow.navigate(result.pay_url)
@@ -548,9 +547,9 @@ const createCheckoutOrder = async () => {
   }
 }
 
-const switchChannel = async (ch: 'stripe' | 'alipay' | 'wechat') => {
-  if (selectedChannel.value === ch) return
-  selectedChannel.value = ch
+const switchChannel = async (ch: PaymentChannel) => {
+  if (payChannels.selected.value === ch) return
+  payChannels.select(ch)
   if (showCheckout.value && !checkoutLoading.value) await createCheckoutOrder()
 }
 

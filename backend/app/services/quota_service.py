@@ -518,17 +518,32 @@ class QuotaService:
         logger.info(f"降级为普通用户: user_id={user_id}")
         return quota
 
+    async def has_paid_order(self, user_id: int) -> bool:
+        """该用户是否有过已支付订单（会员订单或加油包均算）。"""
+        from ..models.payment_order import PaymentOrder
+
+        result = await self.session.execute(
+            select(PaymentOrder.id)
+            .where(PaymentOrder.user_id == user_id, PaymentOrder.status == "paid")
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is not None
+
     async def get_quota_info(self, user_id: int) -> dict:
         """获取用户配额信息"""
         quota = await self.get_or_create_quota(user_id)
         quota = await self.check_and_reset_daily_quota(quota)
         quota = await self.check_and_reset_monthly_quota(quota)
         quota = await self.check_and_reset_credit(quota)
+        has_paid_order = await self.has_paid_order(user_id)
 
         return {
             "user_id": user_id,
             "is_premium": quota.is_premium_active,
             "plan_tier": quota.effective_tier,
+            # 「试用中」= 有会员但从未付过款，与后台「即将到期」视图的 has_paid_order 同口径。
+            # 前端以前要再拉一次订单列表自己判断，这里一并带出。
+            "has_paid_order": has_paid_order,
             "credit": {
                 "balance": quota.credit_balance,
                 "purchased": quota.credit_purchased or 0,
