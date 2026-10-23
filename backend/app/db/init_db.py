@@ -413,20 +413,24 @@ async def _sync_system_config_defaults(session: AsyncSession) -> None:
     （2026-10-23 上线 blueprint.backbone_enabled 时三副本之一实测如此）。
     这里显式 flush 并吞掉 IntegrityError：输家回滚后按赢家写入的值继续，不影响启动。
     """
+    # description 列是 VARCHAR(255)：超长描述在 MySQL 上报 1406，整个 lifespan 失败、三副本一起 502
+    # （2026-10-23 search.provider 的说明写到 265 字实发）。这里按列长截断，说明文字永远不许打挂启动。
+    max_len = getattr(SystemConfig.description.type, "length", None) or 255
     for entry in SYSTEM_CONFIG_DEFAULTS:
         value = entry.value_getter(settings)
         if value is None:
             continue
+        description = (entry.description or "")[:max_len] or None
         existing = await session.get(SystemConfig, entry.key)
         if existing:
-            if entry.description and existing.description != entry.description:
-                existing.description = entry.description
+            if description and existing.description != description:
+                existing.description = description
             continue
         session.add(
             SystemConfig(
                 key=entry.key,
                 value=value,
-                description=entry.description,
+                description=description,
             )
         )
     try:

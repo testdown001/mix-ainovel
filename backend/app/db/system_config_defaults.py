@@ -288,12 +288,11 @@ SYSTEM_CONFIG_DEFAULTS: list[SystemConfigDefault] = [
     SystemConfigDefault(
         key="search.provider",
         value_getter=lambda _: "duckduckgo",
+        # 注意：description 列是 VARCHAR(255)，超长会让启动同步直接报 1406 把三副本全打挂（2026-10-23 实发）
         description=(
             "真实联网检索后端：duckduckgo（默认，免费无需 Key）/ jina / serper / none。"
-            "搜索通道的 LLM 本身没有联网能力——设为 none 时参考小说分析只靠模型记忆，"
-            "新书/冷门书会得到「资料未提及」（2026-10-23 实测一本起点连载 605 章的书被判「不存在」）。"
-            "duckduckgo = DDG 结果经 r.jina.ai 匿名额度取回并抓书页；"
-            "jina = s.jina.ai 搜索 + r.jina.ai 抓页（需 Key）；serper = Google 结果（只有摘要，需 Key）。"
+            "搜索通道的 LLM 本身没有联网能力，设为 none 时参考小说分析只靠模型记忆，新书/冷门书会被判「不存在」。"
+            "duckduckgo = DDG 结果经 r.jina.ai 匿名额度取回并抓书页；jina/serper 需 Key。"
         ),
     ),
     SystemConfigDefault(
