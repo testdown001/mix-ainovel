@@ -1,13 +1,13 @@
 <!-- AIMETA P=编辑章节弹窗_章节信息编辑|R=章节编辑表单_AI推演|NR=不含内容生成|E=component:WDEditChapterModal|X=ui|A=编辑弹窗|D=vue|S=dom,net|RD=./README.ai -->
 <template>
-  <div v-if="show" class="md-dialog-overlay" @click.self="$emit('close')">
+  <div v-if="show" class="md-dialog-overlay" @click.self="requestClose">
     <div class="md-dialog w-full max-w-lg m3-edit-dialog" :class="show ? 'scale-100 opacity-100' : 'scale-95 opacity-0'" style="overflow: visible;">
       <!-- 内部滚动容器 -->
       <div class="m3-edit-dialog-inner">
       <!-- 固定头部 -->
       <div class="flex justify-between items-center px-8 pt-8 pb-4">
         <h2 class="md-headline-small font-semibold">编辑章节大纲</h2>
-        <button @click="$emit('close')" class="md-icon-btn md-ripple">
+        <button @click="requestClose" class="md-icon-btn md-ripple" aria-label="关闭">
           <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
             <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"></path>
           </svg>
@@ -164,7 +164,7 @@
 
       <!-- 底部按钮 -->
       <div class="flex justify-end gap-4 px-8 pt-4 pb-8" style="border-top: 1px solid var(--md-outline-variant);">
-        <button @click="$emit('close')" class="md-btn md-btn-outlined md-ripple">
+        <button @click="requestClose" class="md-btn md-btn-outlined md-ripple">
           取消
         </button>
         <button @click="saveChanges" class="md-btn md-btn-filled md-ripple disabled:opacity-50" :disabled="!isChanged">
@@ -181,6 +181,7 @@ import { ref, watch, computed } from 'vue'
 import { NovelAPI } from '@/api/novel'
 import type { ChapterOutline, ChapterPrediction } from '@/api/novel'
 import { useNovelStore } from '@/stores/novel'
+import { useUnsavedGuard } from '@/composables/useUnsavedGuard'
 
 const beatColorMap: Record<string, string> = {
   setup: '#6B7280', provoke: '#F59E0B', twist: '#8B5CF6', payoff: '#EF4444', hook: '#3B82F6'
@@ -240,6 +241,15 @@ const isChanged = computed(() => {
   }
   return props.chapter.title !== editableChapter.value.title || props.chapter.summary !== editableChapter.value.summary
 })
+
+// 点遮罩 / × / 取消 以前都直接 emit('close')，改到一半的标题摘要无声丢掉（2026-10-23 审计）
+const unsavedGuard = useUnsavedGuard({
+  isDirty: () => isChanged.value,
+  message: '章节标题或摘要有尚未保存的修改，关闭将丢失。确定放弃吗？',
+})
+const requestClose = async () => {
+  if (await unsavedGuard.confirmDiscard()) emit('close')
+}
 
 const prediction = computed<ChapterPrediction | null>(
   () => editableChapter.value?.metadata?.prediction ?? null

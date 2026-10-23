@@ -27,6 +27,17 @@
       <p class="mt-4 text-sm" style="color: #888;">加载中...</p>
     </div>
 
+    <!-- ==================== Load error（网络/服务异常，不是链接失效） ==================== -->
+    <div v-else-if="loadError" class="flex-1 flex flex-col items-center justify-center px-5 py-24 text-center">
+      <h1 class="text-xl font-bold text-white mb-2">加载失败</h1>
+      <p class="text-sm leading-6 mb-8" style="color: #888;">网络或服务暂时不可用，链接本身没有问题，稍后重试即可。</p>
+      <button type="button" @click="loadOverview"
+        class="px-6 py-3 rounded-xl text-sm font-semibold transition-all hover:opacity-90"
+        style="background: #FFE500; color: #000;">
+        重试
+      </button>
+    </div>
+
     <!-- ==================== Invalid Link ==================== -->
     <div v-else-if="isInvalid" class="flex-1 flex flex-col items-center justify-center px-5 py-24 text-center">
       <div class="w-16 h-16 rounded-full flex items-center justify-center mb-5" style="background: rgba(255, 229, 0, 0.12);">
@@ -65,6 +76,15 @@
 
       <div v-if="isChapterLoading" class="flex justify-center py-16">
         <div class="w-7 h-7 border-2 rounded-full animate-spin" style="border-color: #2A2A2A; border-top-color: #FFE500;"></div>
+      </div>
+      <!-- 章节加载失败：留在本章并给重试，原来会无声退回目录 -->
+      <div v-else-if="chapterError" class="py-12 text-center">
+        <p class="text-sm mb-4" style="color: #888;">{{ chapterError }}</p>
+        <button type="button" @click="openChapter(currentChapter.chapter_number)"
+          class="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all hover:opacity-90"
+          style="background: #FFE500; color: #000;">
+          重试
+        </button>
       </div>
       <!-- 正文：17px/2 行高在 390px 宽下约 22 字/行，游客长读不费眼 -->
       <article v-else class="space-y-5">
@@ -165,6 +185,9 @@ const router = useRouter()
 
 const isLoading = ref(true)
 const isInvalid = ref(false)
+// 网络/5xx 与 404 分开：原来任何错误都说「链接已失效…作者已经关闭了分享」
+const loadError = ref(false)
+const chapterError = ref('')
 const overview = ref<SharedNovelOverview | null>(null)
 const currentChapter = ref<SharedChapterContent | null>(null)
 const isChapterLoading = ref(false)
@@ -202,6 +225,7 @@ const openChapter = async (chapterNumber: number) => {
       ai_assisted: overview.value?.ai_assisted,
     }
   }
+  chapterError.value = ''
   try {
     currentChapter.value = await shareApi.getSharedChapter(props.token, chapterNumber)
     // 章号进 query：手机上转发/刷新能回到同一章
@@ -209,9 +233,14 @@ const openChapter = async (chapterNumber: number) => {
     window.scrollTo({ top: 0 })
   } catch (error) {
     if (error instanceof ShareNotFoundError) {
-      isInvalid.value = true
+      // 单章 404：这一章未完稿或已下线，回目录即可；整本 404 由 loadOverview 判定
+      currentChapter.value = null
+      chapterError.value = ''
+    } else {
+      // 网络/服务异常：留在本章占位并给重试，不退回目录
+      chapterError.value = '本章加载失败，网络或服务暂时不可用。'
+      console.error('加载分享章节失败:', error)
     }
-    currentChapter.value = null
   } finally {
     isChapterLoading.value = false
   }
@@ -223,7 +252,10 @@ const backToToc = () => {
   window.scrollTo({ top: 0 })
 }
 
-onMounted(async () => {
+const loadOverview = async () => {
+  isLoading.value = true
+  loadError.value = false
+  isInvalid.value = false
   try {
     overview.value = await shareApi.getSharedNovel(props.token)
     const initialChapter = Number(route.query.c)
@@ -234,14 +266,15 @@ onMounted(async () => {
     if (error instanceof ShareNotFoundError) {
       isInvalid.value = true
     } else {
-      // 网络类错误也走失效页兜底：游客页没有更好的重试入口
-      isInvalid.value = true
+      loadError.value = true
       console.error('加载分享内容失败:', error)
     }
   } finally {
     isLoading.value = false
   }
-})
+}
+
+onMounted(loadOverview)
 </script>
 
 <style scoped>

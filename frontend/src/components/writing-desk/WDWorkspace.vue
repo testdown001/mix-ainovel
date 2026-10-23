@@ -640,15 +640,73 @@ function togglePlanningEdit() {
   planningEditing.value = true
 }
 
+/** 章纲/规划的行内编辑是否有未保存的改动（相对于给定的章纲对象）。 */
+function outlineDraftDirty(outline: ChapterOutline | null | undefined): boolean {
+  if (!outline || !outlineEditing.value) return false
+  return (
+    outlineDraft.value.title.trim() !== (outline.title || '').trim()
+    || outlineDraft.value.summary.trim() !== (outline.summary || '').trim()
+  )
+}
+
+function planningDraftDirty(outline: ChapterOutline | null | undefined): boolean {
+  if (!outline || !planningEditing.value) return false
+  const planning: ChapterPlanning = outline.metadata?.planning || {}
+  const current: ChapterPlanning = {
+    ...planningDraft.value,
+    must_not_include: mustNotText.value.split('\n').map((s) => s.trim()).filter(Boolean),
+  }
+  return JSON.stringify(normalizePlanning(current)) !== JSON.stringify(normalizePlanning(planning))
+}
+
+function normalizePlanning(planning: ChapterPlanning): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(planning || {})) {
+    if (Array.isArray(value)) {
+      if (value.length) out[key] = value
+    } else if (typeof value === 'string') {
+      if (value.trim()) out[key] = value.trim()
+    } else if (value !== null && value !== undefined) {
+      out[key] = value
+    }
+  }
+  return out
+}
+
+// 切章时父组件直接换 selectedChapterNumber，这里拦不住切换；但能在切走之前把上一章
+// 未保存的行内编辑问一句「要保存吗」，而不是无声丢掉（2026-10-23 审计）。
 watch(
   () => selectedChapterOutline.value,
-  (outline) => {
+  async (outline, previous) => {
+    if (previous && previous !== outline && (previous.chapter_number !== outline?.chapter_number)) {
+      await offerToSaveDrafts(previous)
+    }
     resetPlanningDraft()
     outlineDraft.value = { title: outline?.title || '', summary: outline?.summary || '' }
     outlineEditing.value = false
+    planningEditing.value = false
   },
   { immediate: true },
 )
+
+async function offerToSaveDrafts(previous: ChapterOutline) {
+  const outlineDirty = outlineDraftDirty(previous)
+  const planningDirty = planningDraftDirty(previous)
+  if (!outlineDirty && !planningDirty) return
+  const what = [outlineDirty ? '章纲' : '', planningDirty ? '本章规划' : ''].filter(Boolean).join('和')
+  const save = await globalAlert.showConfirm(
+    `第 ${previous.chapter_number} 章的${what}有未保存的修改。要先保存再切换吗？选「取消」将放弃这些修改。`,
+    '有未保存的修改',
+  )
+  if (!save) return
+  if (outlineDirty) await persistOutlineText(previous, { ...outlineDraft.value })
+  if (planningDirty) {
+    await persistChapterPlanning(previous, {
+      ...planningDraft.value,
+      must_not_include: mustNotText.value.split('\n').map((s) => s.trim()).filter(Boolean),
+    })
+  }
+}
 
 function startOutlineEdit() {
   briefOpen.value = true
@@ -657,47 +715,59 @@ function startOutlineEdit() {
   outlineEditing.value = true
 }
 
-async function saveOutlineText() {
-  const outline = selectedChapterOutline.value
-  if (!outline) return
+async function persistOutlineText(outline: ChapterOutline, draft: { title: string; summary: string }): Promise<boolean> {
   outlineSaving.value = true
   try {
     await novelStore.updateChapterOutline({
       ...outline,
-      title: outlineDraft.value.title.trim() || outline.title,
-      summary: outlineDraft.value.summary.trim() || outline.summary,
+      title: draft.title.trim() || outline.title,
+      summary: draft.summary.trim() || outline.summary,
       metadata: invalidatePrediction(outline.metadata),
     })
-    outlineEditing.value = false
-    globalAlert.showSuccess('章纲已更新；生成正文时会自动更新情节梳理。', '大纲已保存')
+    globalAlert.showSuccess(`第 ${outline.chapter_number} 章章纲已更新；生成正文时会自动更新情节梳理。`, '大纲已保存')
+    return true
   } catch (err) {
     globalAlert.showError(err instanceof Error ? err.message : '保存失败', '章纲')
+    return false
   } finally {
     outlineSaving.value = false
+  }
+}
+
+async function saveOutlineText() {
+  const outline = selectedChapterOutline.value
+  if (!outline) return
+  if (await persistOutlineText(outline, { ...outlineDraft.value })) outlineEditing.value = false
+}
+
+async function persistChapterPlanning(outline: ChapterOutline, planning: ChapterPlanning): Promise<boolean> {
+  planningSaving.value = true
+  try {
+    const metadata = invalidatePrediction(outline.metadata)
+    await novelStore.updateChapterOutline({
+      ...outline,
+      metadata: { ...metadata, planning },
+    })
+    globalAlert.showSuccess(`第 ${outline.chapter_number} 章规划已保存；生成正文时会自动更新情节梳理。`, '规划已保存')
+    return true
+  } catch (err) {
+    globalAlert.showError(err instanceof Error ? err.message : '保存失败', '本章规划')
+    return false
+  } finally {
+    planningSaving.value = false
   }
 }
 
 async function saveChapterPlanning() {
   const outline = selectedChapterOutline.value
   if (!outline) return
-  planningSaving.value = true
-  try {
-    const planning: ChapterPlanning = {
-      ...planningDraft.value,
-      must_not_include: mustNotText.value.split('\n').map((s) => s.trim()).filter(Boolean),
-    }
-    const metadata = invalidatePrediction(outline.metadata)
-    await novelStore.updateChapterOutline({
-      ...outline,
-      metadata: { ...metadata, planning },
-    })
+  const planning: ChapterPlanning = {
+    ...planningDraft.value,
+    must_not_include: mustNotText.value.split('\n').map((s) => s.trim()).filter(Boolean),
+  }
+  if (await persistChapterPlanning(outline, planning)) {
     planningEditing.value = false
     planningDetailsOpen.value = true
-    globalAlert.showSuccess('本章规划已保存；生成正文时会自动更新情节梳理。', '规划已保存')
-  } catch (err) {
-    globalAlert.showError(err instanceof Error ? err.message : '保存失败', '本章规划')
-  } finally {
-    planningSaving.value = false
   }
 }
 

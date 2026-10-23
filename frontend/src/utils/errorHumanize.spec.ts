@@ -99,3 +99,22 @@ describe('humanizeGenerationError（网关 50x 与正文校验分离，2026-10-2
     expect(humanizeGenerationError('request TIMED OUT').title).toBe('服务端处理超时')
   })
 })
+
+describe('humanizeGenerationError 接受错误对象 / 409', () => {
+  it('ApiError 按 status 判定，兜底文案去掉「请求失败(NNN):」前缀', async () => {
+    const { ApiError } = await import('./apiError')
+    const gw = humanizeGenerationError(new ApiError('请求失败(502): Bad Gateway', 502, 'Bad Gateway'))
+    expect(gw.title).toBe('服务暂时不可用')
+    const conflict = humanizeGenerationError(new ApiError('请求失败(409): 本章正在生成中', 409, '本章正在生成中'))
+    expect(conflict.title).toBe('当前状态不允许此操作')
+    expect(conflict.message).toContain('本章正在生成中')
+    expect(conflict.message).not.toContain('退回')
+    const other = humanizeGenerationError(new ApiError('请求失败(400): 章节大纲缺失', 400, '章节大纲缺失'))
+    expect(other.message.startsWith('章节大纲缺失')).toBe(true)
+    expect(other.message).not.toContain('请求失败(400)')
+  })
+
+  it('字符串 409 也识别', () => {
+    expect(humanizeGenerationError('请求失败(409): 蓝图已锁定').title).toBe('当前状态不允许此操作')
+  })
+})

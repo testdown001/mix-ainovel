@@ -587,6 +587,7 @@ import WDCodexPanel from '@/components/writing-desk/WDCodexPanel.vue'
 import ArchiveViewer from '@/components/writing-desk/ArchiveViewer.vue'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import { detectUpgradeHint } from '@/utils/upgradeHint'
+import { userFacingMessage } from '@/utils/apiError'
 import { isStreamInterruption } from '@/utils/streamInterruption'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { resolveStage } from '@/utils/generationStages'
@@ -1461,7 +1462,7 @@ const confirmPredictionRequest = async () => {
     predictionTargetChapter.value = targetChapter
     showPredictionRequestModal.value = true
     globalAlert.showError(
-      `情节梳理失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      `情节梳理失败: ${userFacingMessage(error)}`,
       '梳理失败',
     )
   } finally {
@@ -1572,7 +1573,7 @@ const preparePredictionForGeneration = async (chapterNumber: number): Promise<bo
   } catch (error) {
     console.error('自动情节梳理失败:', error)
     globalAlert.showError(
-      `生成正文前的情节梳理失败：${error instanceof Error ? error.message : '未知错误'}。未开始正文生成，您可以直接重试。`,
+      `生成正文前的情节梳理失败：${userFacingMessage(error)}。未开始正文生成，您可以直接重试。`,
       '暂未开始生成',
     )
     return false
@@ -1777,7 +1778,7 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
     if (runningNode) runningNode.status = 'failed'
     isAgentRunning.value = false
 
-    const errMessage = error instanceof Error ? error.message : '未知错误'
+    const errMessage = userFacingMessage(error)
     // 连接中断而非生成失败：中断后由 finally 里的对账决定说法，这里既不本地标失败
     // （否则会闪一下「生成失败」界面），也不弹红——含糊报失败会让用户以为积分白扣，
     // 于是刷新 + 再点一次生成，我们白烧一次上游调用。
@@ -1792,14 +1793,14 @@ const generateChapter = async (chapterNumber: number, writingNotes?: string) => 
       }
     }
 
-    const upgradeKind = interrupted ? null : detectUpgradeHint(errMessage)
+    const upgradeKind = interrupted ? null : detectUpgradeHint(error)
     if (upgradeKind) {
       // 402 积分不足 / 403 档位不足：给升级动线而不是裸报错（卷级规划同款模式）
       upgradePrompt.value = { show: true, kind: upgradeKind, message: errMessage }
     } else if (!interrupted) {
       // 剩余错误转用户语言（502 正文校验/500 超时/503 搜索未配置/429 限流），
       // 讲清「积分已退回、可再点一次」——不做自动重试，重试与否留给用户决定
-      const human = humanizeGenerationError(errMessage)
+      const human = humanizeGenerationError(error)
       globalAlert.showError(human.message, human.title)
     }
   } finally {
@@ -1897,7 +1898,7 @@ const selectVersion = async (versionIndex: number) => {
       }
     }
     globalAlert.showError(
-      `选择章节版本失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      `选择章节版本失败: ${userFacingMessage(error)}`,
       '选择失败',
     )
   }
@@ -1912,9 +1913,10 @@ const selectVersionFromDetail = async () => {
 
 // 从对比分屏中选用版本（选定即确认为本章正文）
 const handleCompareSelect = async (index: number) => {
-  showVersionCompare.value = false
+  // 先选版本再关对比层：失败时用户还留在对比视图里看到错误，而不是弹层已关、正文没换
   selectedVersionIndex.value = index
   await selectVersion(index)
+  showVersionCompare.value = false
 }
 
 const confirmVersionSelection = async () => {
@@ -1933,7 +1935,7 @@ const saveChapterChanges = async (updatedChapter: ChapterOutline) => {
   } catch (error) {
     console.error('更新章节大纲失败:', error)
     globalAlert.showError(
-      `更新章节大纲失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      `更新章节大纲失败: ${userFacingMessage(error)}`,
       '保存失败',
     )
   } finally {
@@ -1984,7 +1986,7 @@ const evaluateChapter = async () => {
       }
 
       globalAlert.showError(
-        `评审章节失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        `评审章节失败: ${userFacingMessage(error)}`,
         '评审失败',
       )
     }
@@ -2009,7 +2011,7 @@ const deleteChapter = async (chapterNumbers: number | number[]) => {
     } catch (error) {
       console.error('删除章节失败:', error)
       globalAlert.showError(
-        `删除章节失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        `删除章节失败: ${userFacingMessage(error)}`,
         '删除失败',
       )
     }
@@ -2128,7 +2130,7 @@ const cancelOutlineGenerationTask = async () => {
     const updated = await NovelAPI.cancelOutlineGenerationTask(project.value.id, task.id)
     await applyOutlineTaskUpdate(updated, false)
   } catch (error) {
-    globalAlert.showError(error instanceof Error ? error.message : '停止任务失败', '章纲生成')
+    globalAlert.showError(userFacingMessage(error, '停止任务失败'), '章纲生成')
   }
 }
 
@@ -2145,7 +2147,7 @@ const retryOutlineGenerationTask = async () => {
     globalAlert.showSuccess(`正在重试 ${retryTask.total_chapters} 个失败章节`, '任务已进入后台')
     startOutlineTaskPolling()
   } catch (error) {
-    globalAlert.showError(error instanceof Error ? error.message : '重试任务失败', '章纲生成')
+    globalAlert.showError(userFacingMessage(error, '重试任务失败'), '章纲生成')
   }
 }
 
@@ -2168,7 +2170,7 @@ const editChapterContent = async (data: { chapterNumber: number; content: string
   } catch (error) {
     console.error('编辑章节内容失败:', error)
     globalAlert.showError(
-      `编辑章节内容失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      `编辑章节内容失败: ${userFacingMessage(error)}`,
       '保存失败',
     )
     return false
@@ -2241,7 +2243,7 @@ const handleGenerateOutline = async (
     }
     console.error('生成大纲失败:', error)
     globalAlert.showError(
-      `生成大纲失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      `生成大纲失败: ${userFacingMessage(error)}`,
       '生成失败',
     )
   } finally {
@@ -2270,7 +2272,7 @@ const regenerateOutlines = async () => {
       '大纲已重排',
     )
   } catch (error) {
-    globalAlert.showError(error instanceof Error ? error.message : '重排失败', '大纲重排')
+    globalAlert.showError(userFacingMessage(error, '重排失败'), '大纲重排')
   } finally {
     isGeneratingOutline.value = false
   }
@@ -2295,7 +2297,7 @@ const rebuildRag = async (forceFull: boolean = false) => {
   } catch (error) {
     console.error('刷新知识库失败:', error)
     globalAlert.showError(
-      `刷新知识库失败: ${error instanceof Error ? error.message : '未知错误'}`,
+      `刷新知识库失败: ${userFacingMessage(error)}`,
       '刷新失败',
     )
   } finally {
@@ -2371,7 +2373,7 @@ const cancelBatchGenerate = async () => {
     } catch (error) {
       batchStopping.value = false
       globalAlert.showError(
-        `停止失败: ${error instanceof Error ? error.message : '未知错误'}，任务仍在后台运行`,
+        `停止失败: ${userFacingMessage(error)}，任务仍在后台运行`,
         '连续生成',
       )
     }
@@ -2487,7 +2489,7 @@ const batchGenerateChapters = async (count: number, writingNotes?: string) => {
     } catch (error) {
       console.error('批量异步生成失败:', error)
       globalAlert.showError(
-        `批量生成失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        `批量生成失败: ${userFacingMessage(error)}`,
         '连续生成',
       )
     } finally {

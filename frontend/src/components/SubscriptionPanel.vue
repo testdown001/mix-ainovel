@@ -21,7 +21,7 @@
           </div>
           <div class="font-semibold text-white text-sm">{{ currentPlanName }}</div>
           <div class="text-xs mt-0.5" :style="isTrialing ? 'color:#FFE500;' : 'color:#888888;'">
-            {{ isTrialing ? `试用还剩 ${trialDaysLeft} 天，到期自动降为免费版` : '免费版 · 每月自动发放体验积分' }}
+            {{ isTrialing ? (trialDaysLeft !== null ? `试用还剩 ${trialDaysLeft} 天，到期自动降为免费版` : '试用中，到期自动降为免费版') : '免费版 · 每月自动发放体验积分' }}
           </div>
         </div>
       </div>
@@ -81,7 +81,7 @@
     </div>
 
     <!-- Plan cards -->
-    <div class="grid grid-cols-3 gap-4 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
       <div v-for="plan in plans" :key="plan.id"
         class="relative rounded-xl flex flex-col transition-all"
         :style="getPlanCardStyle(plan)">
@@ -153,7 +153,8 @@
 
           <!-- CTA -->
           <button @click="handleUpgrade(plan)"
-            :disabled="plan.id === currentPlan && !isTrialing"
+            :disabled="(plan.id === currentPlan && !isTrialing) || plan.id === 'free'"
+            :title="plan.id === 'free' && (isTrialing || currentPlan !== 'free') ? '无需操作：会员到期后自动降为免费版' : undefined"
             class="w-full py-2.5 rounded-lg text-sm font-semibold transition-all"
             :style="getCtaStyle(plan)">
             {{ getCtaLabel(plan) }}
@@ -276,7 +277,15 @@ const currentPlan = computed(() => {
 const isTrialing = computed(() => {
   return authStore.user?.is_premium && !subscription.value
 })
-const trialDaysLeft = ref(2)
+// 试用剩余天数按真实到期时间算；拿不到到期时间就不显示天数（原来写死 2 天，人人都是「还剩 2 天」）
+const trialExpiresAt = ref<string | null>(null)
+const trialDaysLeft = computed<number | null>(() => {
+  const raw = trialExpiresAt.value || subscription.value?.current_period_end
+  if (!raw) return null
+  const end = new Date(raw).getTime()
+  if (!Number.isFinite(end)) return null
+  return Math.max(0, Math.ceil((end - Date.now()) / 86_400_000))
+})
 const currentPlanName = computed(() => isTrialing.value ? '创作者版（试用中）' : (currentPlan.value === 'premium' ? '订阅中' : '免费版'))
 
 const scrollToPlans = () => {
@@ -417,7 +426,7 @@ const isCurrentPremiumPlan = (plan: DisplayPlan): boolean =>
 
 const getCtaLabel = (plan: DisplayPlan) => {
   if (plan.id === 'free' && currentPlan.value === 'free' && !isTrialing.value) return '当前套餐'
-  if (plan.id === 'free') return '降级'
+  if (plan.id === 'free') return '到期自动降级'
   if (isCurrentPremiumPlan(plan)) return '当前套餐'
   return '立即订阅'
 }
@@ -458,6 +467,9 @@ const handleUpgrade = async (plan: DisplayPlan) => {
     if (result.pay_url) {
       checkoutUrl.value = result.pay_url
       window.open(result.pay_url, '_blank')
+    } else {
+      // 原来这里没有 else：弹窗停在「即将跳转到支付页面」，既无按钮也无报错
+      checkoutError.value = '支付渠道未返回支付链接，请换一个支付方式或稍后重试'
     }
   } catch (err: any) {
     checkoutError.value = err?.message || '创建订单失败，请稍后重试'
@@ -476,6 +488,7 @@ onMounted(async () => {
   }
   try {
     subscription.value = await paymentApi.getSubscription()
+    trialExpiresAt.value = subscription.value?.current_period_end ?? null
   } catch {
     // not critical — user may not be authenticated
   }

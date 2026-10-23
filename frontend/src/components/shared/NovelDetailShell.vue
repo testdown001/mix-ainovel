@@ -349,6 +349,8 @@ import { shareApi } from '@/api/share'
 import { getProjectAnalysis, type ProjectAnalysis } from '@/api/gatekeeperReview'
 import type { CoverGenerationOptions, GenerateCoverPayload, NovelCoverInfo, NovelProject, NovelSectionResponse, NovelSectionType, AllSectionType } from '@/api/novel'
 import { formatDateTime } from '@/utils/date'
+import { userFacingMessage } from '@/utils/apiError'
+import { globalAlert } from '@/composables/useAlert'
 import BlueprintEditModal from '@/components/BlueprintEditModal.vue'
 import OverviewSection from '@/components/novel-detail/OverviewSection.vue'
 import WorldSettingSection from '@/components/novel-detail/WorldSettingSection.vue'
@@ -537,6 +539,8 @@ const exportBook = async (format: 'txt' | 'markdown' | 'docx') => {
     await NovelAPI.exportManuscript(projectId, format)
   } catch (err) {
     console.error(err)
+    // 以前只进 console，用户看到按钮恢复原样以为没点上（2026-10-23 审计）
+    globalAlert.showError(`导出失败：${userFacingMessage(err, '请稍后重试')}`, '导出')
   } finally {
     exportBusy.value = false
   }
@@ -876,7 +880,7 @@ const handleRegenerate = async (payload: { chapterNumbers?: number[]; totalChapt
     sectionData.chapters = null
   } catch (error) {
     console.error('重新生成大纲失败:', error)
-    alert(error instanceof Error ? error.message : '重新生成大纲失败')
+    globalAlert.showError(userFacingMessage(error, '重新生成大纲失败'), '重新生成大纲')
   } finally {
     sectionRef.value?.setRegenerating?.(false)
   }

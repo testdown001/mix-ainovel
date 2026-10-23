@@ -363,6 +363,7 @@ import { useNovelStore, BlueprintStillRunningError } from '@/stores/novel'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
+import { userFacingMessage } from '@/utils/apiError'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 import StoryVoiceTrial from '@/components/StoryVoiceTrial.vue'
 import StoryBackboneCard from '@/components/StoryBackboneCard.vue'
@@ -650,7 +651,7 @@ const saveEdit = async (partial: Record<string, any>) => {
     if (dossierResp.value) dossierResp.value.dossier = resp.dossier
     editing.value = null
   } catch (error) {
-    globalAlert.showError(`保存失败: ${error instanceof Error ? error.message : '请稍后重试'}`, '立项书')
+    globalAlert.showError(`保存失败: ${userFacingMessage(error, '请稍后重试')}`, '立项书')
   } finally {
     saving.value = false
   }
@@ -689,7 +690,7 @@ const applyFixes = async () => {
     globalAlert.showSuccess('修复建议已应用到立项书，可再次检查后生成蓝图。', '立项书已修订')
   } catch (error) {
     globalAlert.showError(
-      `采纳修复失败: ${error instanceof Error ? error.message : '请稍后重试'}`,
+      `采纳修复失败: ${userFacingMessage(error, '请稍后重试')}`,
       '立项书'
     )
   } finally {
@@ -747,8 +748,8 @@ const generateBlueprint = async (resumeTaskId: string | null = null) => {
       stillRunningNotice.value = error.message
       return
     }
-    const errMessage = error instanceof Error ? error.message : '未知错误'
-    const hint = detectUpgradeHint(errMessage)
+    const errMessage = userFacingMessage(error)
+    const hint = detectUpgradeHint(error)
     if (hint) {
       upgradeKind.value = hint
       upgradeMessage.value = errMessage
@@ -756,7 +757,7 @@ const generateBlueprint = async (resumeTaskId: string | null = null) => {
       return
     }
     // 402 从未开跑，不提退款；已扣费的深度打磨失败才说「积分已退回」
-    const human = humanizeGenerationError(errMessage, { billed: deepWillBill.value })
+    const human = humanizeGenerationError(error, { billed: deepWillBill.value })
     globalAlert.showError(human.message, human.title)
   }
 }

@@ -5,10 +5,11 @@
     <!-- 全局导航（与入口页一致，替代此前孤立的「返回」条） -->
     <AppTopNav />
 
-    <div class="flex max-w-5xl mx-auto px-6 py-8 gap-7">
+    <!-- 手机端纵向堆叠：原来固定 w-56 侧栏 + flex 行把内容区压到约 75px 宽 -->
+    <div class="flex flex-col md:flex-row max-w-5xl mx-auto px-4 md:px-6 py-6 md:py-8 gap-5 md:gap-7">
 
-      <!-- Sidebar -->
-      <aside class="w-56 flex-shrink-0">
+      <!-- Sidebar（md 以下变成横向标签条） -->
+      <aside class="w-full md:w-56 flex-shrink-0">
         <!-- User Card -->
         <div class="rounded-xl p-4 mb-4 flex items-center gap-3" style="background: #141414; border: 1px solid #2A2A2A;">
           <div class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-bold" style="background: #FFE500; color: #000;">
@@ -22,11 +23,11 @@
           </div>
         </div>
 
-        <nav class="flex flex-col gap-1">
+        <nav class="flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-visible -mx-1 px-1 pb-1 md:pb-0">
           <button
             v-for="tab in tabs" :key="tab.id"
             @click="activeTab = tab.id"
-            class="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-left w-full transition-all"
+            class="flex items-center gap-2 md:gap-3 px-3 py-2 md:py-2.5 rounded-lg text-sm font-medium text-left whitespace-nowrap flex-shrink-0 md:w-full transition-all"
             :style="activeTab === tab.id
               ? 'background-color:#2A2600; color:#FFE500;'
               : 'background-color:transparent; color:#888888;'"

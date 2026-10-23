@@ -353,6 +353,7 @@ import ReferenceNovelInput from '@/components/ReferenceNovelInput.vue'
 import { globalAlert } from '@/composables/useAlert'
 import { humanizeGenerationError } from '@/utils/errorHumanize'
 import { detectUpgradeHint, type UpgradeHintKind } from '@/utils/upgradeHint'
+import { userFacingMessage } from '@/utils/apiError'
 import UpgradePrompt from '@/components/UpgradePrompt.vue'
 
 interface ChatMessage {
@@ -601,7 +602,7 @@ const bindReferencesIfNeeded = async (referenceNovelIds = selectedReferenceNovel
     await novelStore.bindProjectReferenceNovels(projectId, ids)
   } catch (err) {
     globalAlert.showError(
-      `绑定参考小说失败: ${err instanceof Error ? err.message : '请稍后重试'}`,
+      `绑定参考小说失败: ${userFacingMessage(err, '请稍后重试')}`,
       '参考小说'
     )
   }
@@ -731,7 +732,7 @@ const startConversation = async () => {
     }
   } catch (error) {
     console.error('启动灵感模式失败:', error)
-    globalAlert.showError(`无法开始灵感模式: ${error instanceof Error ? error.message : '未知错误'}`, '启动失败')
+    globalAlert.showError(`无法开始灵感模式: ${userFacingMessage(error)}`, '启动失败')
     if (novelStore.currentProject) {
       conversationStarted.value = true
       isInitialLoading.value = false
@@ -831,7 +832,7 @@ const restoreConversation = async (projectId: string) => {
     }
   } catch (error) {
     console.error('恢复对话失败:', error)
-    globalAlert.showError(`无法恢复对话: ${error instanceof Error ? error.message : '未知错误'}`, '加载失败')
+    globalAlert.showError(`无法恢复对话: ${userFacingMessage(error)}`, '加载失败')
     restoreFailed.value = true
     conversationError.value = '暂时无法加载当前构思。项目地址已保留，请重试加载。'
   } finally {
@@ -909,7 +910,7 @@ const handleUserInput = async (
     if (isInitialLoading.value) {
       isInitialLoading.value = false
     }
-    globalAlert.showError(`抱歉，与AI连接时遇到问题: ${error instanceof Error ? error.message : '未知错误'}`, '通信失败')
+    globalAlert.showError(`抱歉，与AI连接时遇到问题: ${userFacingMessage(error)}`, '通信失败')
     conversationStarted.value = true
     pendingConversation.value = { input: userInput, options: mergedOptions }
     conversationError.value = '本轮回复暂未收到，当前构思和对话已保留。可以重试，也可以继续补充想法。'
@@ -930,8 +931,8 @@ const handleGenerateBlueprint = async () => {
       showBlueprintConfirmation.value = true
       return
     }
-    const errMessage = error instanceof Error ? error.message : '未知错误'
-    const hint = detectUpgradeHint(errMessage)
+    const errMessage = userFacingMessage(error)
+    const hint = detectUpgradeHint(error)
     if (hint) {
       upgradeKind.value = hint
       upgradeMessage.value = errMessage
@@ -939,7 +940,7 @@ const handleGenerateBlueprint = async () => {
       return
     }
     // 此自动路径默认 deep，但免费档会降级为免费快速成书；不臆测已扣费
-    const human = humanizeGenerationError(errMessage, { billed: false })
+    const human = humanizeGenerationError(error, { billed: false })
     globalAlert.showError(human.message, human.title)
   }
 }
@@ -975,7 +976,7 @@ const handleConfirmBlueprint = async () => {
     }
   } catch (error) {
     console.error('保存蓝图失败:', error)
-    globalAlert.showError(`保存蓝图失败: ${error instanceof Error ? error.message : '未知错误'}`, '保存失败')
+    globalAlert.showError(`保存蓝图失败: ${userFacingMessage(error)}`, '保存失败')
   } finally {
     blueprintSaving.value = false
   }
@@ -1038,7 +1039,7 @@ async function handleDiverge() {
       globalAlert.showError('这次没发散出可用种子，换个点子或稍后再试。', '提示')
     }
   } catch (error) {
-    globalAlert.showError(`发散失败：${error instanceof Error ? error.message : '未知错误'}`, '失败')
+    globalAlert.showError(`发散失败：${userFacingMessage(error)}`, '失败')
   } finally {
     isDiverging.value = false
   }

@@ -12,6 +12,8 @@
  * 文案告诉用户「积分已退回、可以再点一次」即可，重试的决定权留给用户。
  */
 
+import { errorStatus, userFacingMessage } from './apiError'
+
 export interface HumanizedError {
   title: string
   message: string
@@ -28,13 +30,26 @@ export interface HumanizeOptions {
   billed?: boolean
 }
 
-/** 消息形态（与 upgradeHint 同源）：http.ts 包装的 `请求失败(502): …`、SSE/任务透传的后端 detail 原文。 */
+/**
+ * 消息形态（与 upgradeHint 同源）：http.ts 包装的 `请求失败(502): …`、SSE/任务透传的后端 detail 原文。
+ * 也接受错误对象：ApiError 带 status 时优先按状态码判定，正则只做字符串兜底。
+ */
 export function humanizeGenerationError(
-  raw: string,
+  raw: unknown,
   options: HumanizeOptions = {},
 ): HumanizedError {
   const billed = options.billed !== false
-  const message = raw || '未知错误'
+  const status = typeof raw === 'object' && raw !== null ? errorStatus(raw) : errorStatus(typeof raw === 'string' ? raw : '')
+  const message = (typeof raw === 'string' ? raw : raw instanceof Error ? raw.message : '') || '未知错误'
+
+  // 409：章节状态冲突（正在生成 / 已被修改 / 蓝图已锁定）。不是失败，也没有扣费。
+  if (status === 409 || /\(409\)|状态码: 409/.test(message)) {
+    return {
+      title: '当前状态不允许此操作',
+      message: `${userFacingMessage(raw, '本章正在生成或已被修改')}。请刷新页面后再试。`,
+      action: 'wait',
+    }
+  }
 
   // 正文校验未通过（后端已做过一次低温硬约束重试仍失败才 502）。
   // 只认后端 detail 原文：裸 502 多半是 nginx/网关上游不可用，和产出质量无关，
@@ -60,7 +75,7 @@ export function humanizeGenerationError(
 
   // 网关/上游不可用：裸 502/503/504，或错误体是 HTML 页面（nginx/网关的默认错误页）。
   // 不断言退款——这类错误可能发生在请求根本没到后端之前。
-  if (/\(50[234]\)|状态码: 50[234]|<!doctype html|<html|bad gateway|service unavailable|gateway time-?out/i.test(message)) {
+  if ((status !== null && [502, 503, 504].includes(status)) || /\(50[234]\)|状态码: 50[234]|<!doctype html|<html|bad gateway|service unavailable|gateway time-?out/i.test(message)) {
     return {
       title: '服务暂时不可用',
       message: billed
@@ -71,7 +86,7 @@ export function humanizeGenerationError(
   }
 
   // 服务端 500 / 上游超时
-  if (/\(500\)|状态码: 500|超时|time-?out|timed out/i.test(message)) {
+  if (status === 500 || /\(500\)|状态码: 500|超时|time-?out|timed out/i.test(message)) {
     return {
       title: '服务端处理超时',
       message: billed
@@ -82,7 +97,7 @@ export function humanizeGenerationError(
   }
 
   // 网关/后端限流（网关任务并发上限的定制文案不在此列，走兜底保留原文）
-  if (/\(429\)|限流|太频繁|操作过于频繁|too many requests|rate ?limit/i.test(message)) {
+  if (status === 429 || /\(429\)|限流|太频繁|操作过于频繁|too many requests|rate ?limit/i.test(message)) {
     return {
       title: '操作太频繁',
       message: '操作太频繁，稍等几秒再试。',
@@ -90,10 +105,10 @@ export function humanizeGenerationError(
     }
   }
 
-  // 兜底：保留原文（后端 detail 常常已是可读中文），补一句求助出口
+  // 兜底：保留后端 detail（常常已是可读中文，去掉「请求失败(NNN):」前缀），补一句求助出口
   return {
     title: '生成失败',
-    message: `${message}（如反复出现请联系管理员）`,
+    message: `${userFacingMessage(raw, message)}（如反复出现请联系管理员）`,
     action: 'contact_admin',
   }
 }

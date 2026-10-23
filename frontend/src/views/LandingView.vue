@@ -65,14 +65,25 @@ function goStart() {
   }
 }
 
+const plansError = ref(false)
+// 定价页同款判定：没有年付套餐时不展示「按年 省20%」开关，否则首页会承诺结账时兑现不了的折扣
+const hasYearlyPlans = computed(() =>
+  plans.value.some((p: any) => p?.is_active !== false && (p?.period === 'yearly' || p?.period === 'annual')),
+)
+
 async function fetchPlans() {
+  plansLoading.value = true
+  plansError.value = false
   try {
     const res = await fetch('/api/plans/public')
     if (res.ok) {
       plans.value = await res.json()
+    } else {
+      plansError.value = true
     }
   } catch {
     plans.value = []
+    plansError.value = true
   } finally {
     plansLoading.value = false
   }
@@ -387,8 +398,8 @@ const stats = [
             从免费版开始，随时升级；注册即享创作者版 3 天完整试用，积分不够可随时购买加油包。
           </p>
 
-          <!-- Billing toggle -->
-          <div class="inline-flex items-center gap-3 px-4 py-2 rounded-full border text-sm"
+          <!-- Billing toggle（仅在确有年付套餐时显示） -->
+          <div v-if="hasYearlyPlans" class="inline-flex items-center gap-3 px-4 py-2 rounded-full border text-sm"
             style="background:#0D0D0D; border-color:var(--md-outline);">
             <span :style="!annual ? 'color:#fff; font-weight:600;' : 'color:#666;'" class="transition-colors">按月付费</span>
             <button @click="annual = !annual"
@@ -408,6 +419,20 @@ const stats = [
         <!-- Loading skeleton -->
         <div v-if="plansLoading" class="grid grid-cols-1 md:grid-cols-3 gap-5">
           <div v-for="i in 3" :key="i" class="rounded-2xl border h-96 animate-pulse" style="background:#0D0D0D; border-color:#1E1E1E;"></div>
+        </div>
+
+        <!-- 加载失败 / 暂无套餐：原来这里是一片空白，连去定价页的入口都没有 -->
+        <div v-else-if="plansError || plans.length === 0" class="rounded-2xl border px-6 py-12 text-center" style="background:#0D0D0D; border-color:#1E1E1E;">
+          <p class="text-sm mb-4" style="color:#888;">
+            {{ plansError ? '套餐信息暂时加载不出来，请稍后再试。' : '套餐信息整理中，稍后再来看看。' }}
+          </p>
+          <div class="flex items-center justify-center gap-3">
+            <button v-if="plansError" type="button" @click="fetchPlans"
+              class="px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              style="background:#1A1A1A; border:1px solid var(--md-outline); color:#fff;">重试</button>
+            <router-link to="/pricing" class="px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+              style="background:var(--md-primary); color:#000;">查看定价页</router-link>
+          </div>
         </div>
 
         <!-- Plan cards -->

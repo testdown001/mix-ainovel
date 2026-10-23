@@ -84,6 +84,7 @@
                   @keyup.escape="cancelAdd"
                 />
                 <div class="add-form-actions">
+                  <p v-if="createError" class="inline-error">{{ createError }}</p>
                   <button class="btn-primary" @click="handleCreate" :disabled="!newTitle.trim() || creating">
                     {{ creating ? '添加中...' : '确认添加' }}
                   </button>
@@ -99,6 +100,12 @@
                     <span></span><span></span><span></span>
                   </div>
                   <p>加载中...</p>
+                </div>
+
+                <!-- Load error -->
+                <div v-else-if="listError && !filteredNovels.length" class="list-empty">
+                  <p class="inline-error">{{ listError }}</p>
+                  <button class="btn-primary" @click="loadNovels">重试</button>
                 </div>
 
                 <!-- Empty -->
@@ -135,8 +142,8 @@
                         <span v-if="novel.genre"> · {{ novel.genre }}</span>
                       </p>
                     </div>
-                    <span class="status-badge" :class="`status-${novel.status}`">
-                      {{ statusLabel(novel.status) }}
+                    <span class="status-badge" :class="`status-${statusKey(novel)}`">
+                      {{ statusLabel(novel) }}
                     </span>
                   </div>
                   <div class="card-actions">
@@ -225,6 +232,9 @@ const selectedNovelId = ref<number | null>(null)
 const loading = ref(false)
 const creating = ref(false)
 const loadingAnalyze = ref<number | null>(null)
+// 列表加载 / 新增 / 触发分析的错误原来只进 console（甚至 try/finally 没有 catch 直接冒泡）
+const listError = ref('')
+const createError = ref('')
 const showAddForm = ref(false)
 const addTitleInputEl = ref<HTMLInputElement | null>(null)
 
@@ -268,6 +278,7 @@ const isNovelSelected = (novelId: number) => props.selectedNovelIds.includes(nov
 
 const loadNovels = async () => {
   loading.value = true
+  listError.value = ''
   try {
     novels.value = await NovelAPI.listReferenceNovelLibrary({
       search: searchTerm.value,
@@ -276,6 +287,7 @@ const loadNovels = async () => {
     })
   } catch (err) {
     console.error(err)
+    listError.value = err instanceof Error && err.message ? `参考小说列表加载失败：${err.message}` : '参考小说列表加载失败'
   } finally {
     loading.value = false
   }
@@ -297,6 +309,7 @@ const handleCreate = async () => {
     genre: newGenre.value.trim() || undefined
   }
   creating.value = true
+  createError.value = ''
   try {
     const created = await NovelAPI.createReferenceNovel(payload)
     newTitle.value = ''
@@ -307,10 +320,15 @@ const handleCreate = async () => {
     // 造成“书库里只能存在一本”的错觉。
     searchTerm.value = ''
     await loadNovels()
+    // 新书创建即触发后台分析（1-4 分钟）：绑定到本书但保持弹窗打开、停在它的详情页，
+    // 让用户看见「分析中」的进度；原来 selectNovel 顺手关了弹窗，用户什么都看不到。
     selectedNovelId.value = created.id
     if (!isNovelSelected(created.id)) {
-      selectNovel(created)
+      emit('select', created)
     }
+  } catch (err) {
+    console.error(err)
+    createError.value = err instanceof Error && err.message ? `添加失败：${err.message}` : '添加失败，请稍后重试'
   } finally {
     creating.value = false
   }
@@ -334,9 +352,13 @@ const handleRemove = (novel: ReferenceNovelSummary) => {
 
 const handleAnalyze = async (novelId: number) => {
   loadingAnalyze.value = novelId
+  listError.value = ''
   try {
     await NovelAPI.analyzeReferenceNovel(novelId)
     loadNovels()
+  } catch (err) {
+    console.error(err)
+    listError.value = err instanceof Error && err.message ? `触发分析失败：${err.message}` : '触发分析失败，请稍后重试'
   } finally {
     loadingAnalyze.value = null
   }
@@ -347,10 +369,16 @@ const selectNovel = (novel: ReferenceNovelSummary) => {
   visible.value = false
 }
 
-const statusLabel = (status: string) => {
-  if (status === 'ready') return '已就绪'
-  if (status === 'analyzing') return '分析中'
-  if (status === 'failed') return '失败'
+// 「部分」= 就绪但带 error_message（六路抽取有一路失败，后端仍标 ready）；原来列表里和完全就绪长得一样
+type SummaryWithError = ReferenceNovelSummary & { error_message?: string | null }
+const statusKey = (novel: SummaryWithError) =>
+  novel.status === 'ready' && novel.error_message ? 'partial' : novel.status
+const statusLabel = (novel: SummaryWithError) => {
+  const key = statusKey(novel)
+  if (key === 'ready') return '已就绪'
+  if (key === 'partial') return '部分完成'
+  if (key === 'analyzing') return '分析中'
+  if (key === 'failed') return '失败'
   return '待分析'
 }
 </script>
@@ -673,6 +701,8 @@ const statusLabel = (status: string) => {
 }
 
 .status-ready    { background: rgba(46,213,115,0.15); color: #2ED573; }
+.status-partial  { background: rgba(255,165,2,0.15); color: #FFA502; }
+.inline-error    { color: #FF6B6B; font-size: 12px; line-height: 1.5; margin: 0 0 8px; }
 .status-analyzing { background: rgba(255,229,0,0.15); color: #FFE500; }
 .status-failed   { background: rgba(255,71,87,0.15); color: #FF4757; }
 .status-pending  { background: rgba(136,136,136,0.15); color: #888; }

@@ -11,6 +11,7 @@
         </svg>
         <h3 class="text-sm font-semibold text-white">版本对比</h3>
         <span class="text-xs hidden sm:block" style="color: #666;">左右独立滚动 · 选定即确认为本章正文</span>
+        <span class="text-xs sm:hidden" style="color: #666;">选定即确认为本章正文</span>
       </div>
       <button @click="$emit('close')" class="p-2 rounded-lg transition-colors compare-close" title="关闭(Esc)">
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -38,7 +39,7 @@
           <span v-if="isCurrent(indices[side])" class="compare-tag" style="color: #2ed573; border-color: #2ed57340;">当前选中</span>
           <span class="flex-1"></span>
           <button class="compare-use-btn" :disabled="isCurrent(indices[side]) || selecting"
-            @click="$emit('select', indices[side])">
+            @click="requestSelect(indices[side])">
             {{ selecting ? '确认中…' : isCurrent(indices[side]) ? '当前版本' : '选用此版本' }}
           </button>
         </div>
@@ -58,6 +59,7 @@
 import { onBeforeUnmount, onMounted, reactive, watch } from 'vue'
 import type { ChapterVersion } from '@/api/novel'
 import { cleanVersionContent } from '@/utils/versionContent'
+import { globalAlert } from '@/composables/useAlert'
 
 const props = defineProps<{
   show: boolean
@@ -94,6 +96,21 @@ const isCurrent = (i: number): boolean => {
 
 const onPick = (side: Side, e: Event) => {
   indices[side] = Number((e.target as HTMLSelectElement).value)
+}
+
+// 本章已有正文时，一点「选用此版本」就覆盖——这是写作场景里最不可逆的动作，先确认一次
+// （2026-10-23 审计）。没有正文时（首次选版）不打扰。
+const requestSelect = async (index: number) => {
+  if (props.selecting) return
+  const hasExisting = Boolean(props.currentContent && cleanVersionContent(props.currentContent).trim())
+  if (hasExisting) {
+    const ok = await globalAlert.showConfirm(
+      `选用版本 ${index + 1} 将替换本章现有正文，已改过的段落也会丢掉。确定替换吗？`,
+      '替换本章正文',
+    )
+    if (!ok) return
+  }
+  emit('select', index)
 }
 
 // 打开时初始化：左 = AI 推荐（或版本1），右 = 另一个版本

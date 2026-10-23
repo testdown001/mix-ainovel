@@ -135,7 +135,7 @@
                   <p class="text-sm font-medium text-white">{{ novel.title }}</p>
                   <p class="text-xs text-[#555]">{{ novel.author || '未知作者' }} <span v-if="novel.genre"> · {{ novel.genre }}</span><span v-if="!novel.genre"> · 未设定题材</span></p>
                 </div>
-                <span class="reference-panel-tag" :data-status="novel.status">{{ novel.status }}</span>
+                <span class="reference-panel-tag" :data-status="referenceStatusKey(novel)">{{ referenceStatusLabel(novel) }}</span>
               </div>
             </div>
             <div v-else class="reference-panel-empty">
@@ -847,7 +847,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, nextTick, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { globalAlert } from '@/composables/useAlert'
 import { NovelAPI, type NovelProject, type ChapterOutline, type ChapterPrediction, type QualityLoopsResponse, type ReferenceNovelSummary } from '@/api/novel'
@@ -1291,6 +1291,50 @@ const refreshReferenceNovels = async () => {
     console.error('加载参考小说失败:', err)
   }
 }
+
+// 参考书状态：原来直接渲染英文 status（analyzing/ready/failed）且永不刷新。
+// partial = 就绪但带 error_message（六路抽取有一路失败，后端保留 ready）。
+type ReferenceSummaryWithError = ReferenceNovelSummary & { error_message?: string | null }
+const referenceStatusKey = (novel: ReferenceSummaryWithError) =>
+  novel.status === 'ready' && novel.error_message ? 'partial' : novel.status
+const referenceStatusLabel = (novel: ReferenceSummaryWithError) => {
+  const key = referenceStatusKey(novel)
+  if (key === 'analyzing') return '分析中'
+  if (key === 'ready') return '就绪'
+  if (key === 'partial') return '部分完成'
+  if (key === 'failed') return '失败'
+  return '待分析'
+}
+
+// 有书在分析中就每 5 秒刷新一次，直到没有 analyzing 的书；离开页面清掉定时器
+let referencePollTimer: ReturnType<typeof setInterval> | null = null
+const stopReferencePolling = () => {
+  if (referencePollTimer) {
+    clearInterval(referencePollTimer)
+    referencePollTimer = null
+  }
+}
+const hasAnalyzingReference = computed(() =>
+  boundReferenceNovels.value.some((novel) => novel.status === 'analyzing'),
+)
+watch(
+  hasAnalyzingReference,
+  (analyzing) => {
+    if (analyzing && !referencePollTimer) {
+      referencePollTimer = setInterval(() => {
+        if (!hasAnalyzingReference.value) {
+          stopReferencePolling()
+          return
+        }
+        refreshReferenceNovels()
+      }, 5000)
+    } else if (!analyzing) {
+      stopReferencePolling()
+    }
+  },
+  { immediate: true },
+)
+onUnmounted(stopReferencePolling)
 
 watch(
   () => props.project?.id,

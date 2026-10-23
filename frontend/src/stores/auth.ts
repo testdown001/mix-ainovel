@@ -101,7 +101,9 @@ export const useAuthStore = defineStore('auth', {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to login');
+        // 带上状态码和后端 detail：登录页据此区分「密码错」「被限流」「账号禁用」「服务异常」
+        const { readFetchError } = await import('@/utils/apiError');
+        throw await readFetchError(response, '登录失败');
       }
 
       const data = await response.json();

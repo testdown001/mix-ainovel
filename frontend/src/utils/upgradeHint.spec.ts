@@ -30,3 +30,13 @@ describe('detectUpgradeHint（402/403 升级引导判定）', () => {
     expect(detectUpgradeHint('')).toBeNull()
   })
 })
+
+describe('detectUpgradeHint 接受错误对象', () => {
+  it('ApiError status=402 直接判定积分不足，即使 detail 不含关键字', async () => {
+    const { ApiError } = await import('./apiError')
+    expect(detectUpgradeHint(new ApiError('请求失败(402): Payment Required', 402, 'Payment Required'))).toBe('credits')
+    expect(detectUpgradeHint(new ApiError('请求失败(403): 无权访问该项目', 403, '无权访问该项目'))).toBeNull()
+    expect(detectUpgradeHint(new Error('「标准模式」需要创作者版（当前：免费版）'))).toBe('tier')
+    expect(detectUpgradeHint(null)).toBeNull()
+  })
+})

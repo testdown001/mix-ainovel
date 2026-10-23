@@ -52,7 +52,10 @@
 
             <!-- Email -->
             <div>
-              <label class="block text-xs font-medium mb-1.5" style="color:#888;">注册邮箱</label>
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="block text-xs font-medium" style="color:#888;">注册邮箱</label>
+                <button v-if="codeSent" type="button" class="text-xs underline" style="color:#FFE500;" @click="changeEmail">修改邮箱</button>
+              </div>
               <input v-model="email" type="email" required :disabled="codeSent"
                 class="w-full px-4 py-3 rounded-xl text-sm transition-all outline-none"
                 style="background:#1A1A1A; border:1px solid #2A2A2A; color:#fff;"
@@ -150,6 +153,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue';
+import { readFetchError, userFacingMessage } from '@/utils/apiError';
 import { useRouter } from 'vue-router';
 
 const router = useRouter();
@@ -163,6 +167,15 @@ const loading = ref(false);
 const error = ref('');
 const successTip = ref('');
 const codeSent = ref(false);
+
+/** 发码后邮箱被锁定（防止改邮箱后用旧码），打错了要能改：解锁并清掉验证码与倒计时。 */
+const changeEmail = () => {
+  codeSent.value = false;
+  code.value = '';
+  countdown.value = 0;
+  successTip.value = '';
+  error.value = '';
+};
 const resetDone = ref(false);
 
 const sendCode = async () => {
@@ -175,15 +188,14 @@ const sendCode = async () => {
   try {
     const res = await fetch(`/api/auth/send-reset-code?email=${encodeURIComponent(email.value)}`, { method: 'POST' });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || '发送失败');
+      throw await readFetchError(res, '发送失败');
     }
     codeSent.value = true;
     successTip.value = '验证码已发送，请查收邮箱（5分钟内有效）';
     countdown.value = 60;
     const timer = setInterval(() => { countdown.value--; if (countdown.value <= 0) clearInterval(timer); }, 1000);
   } catch (err: any) {
-    error.value = err.message;
+    error.value = userFacingMessage(err, '发送失败');
   } finally {
     sending.value = false;
   }
@@ -202,12 +214,11 @@ const handleReset = async () => {
       body: JSON.stringify({ email: email.value, code: code.value, new_password: newPassword.value })
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || '重置失败');
+      throw await readFetchError(res, '重置失败');
     }
     resetDone.value = true;
   } catch (err: any) {
-    error.value = err.message;
+    error.value = userFacingMessage(err, '重置失败');
   } finally {
     loading.value = false;
   }

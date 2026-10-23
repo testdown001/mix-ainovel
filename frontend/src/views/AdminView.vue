@@ -80,6 +80,7 @@ import {
   type MenuOption
 } from 'naive-ui'
 import { useRoute, useRouter } from 'vue-router'
+import { anyRegisteredDirty, useUnsavedGuard } from '@/composables/useUnsavedGuard'
 
 const themeOverrides: GlobalThemeOverrides = {
   common: {
@@ -242,8 +243,15 @@ const syncActiveKeyWithRoute = () => {
   }
 }
 
-const handleMenuSelect = (key: string) => {
-  if (!isMenuKey(key)) {
+// 面板经 <component :is> 动态挂载，切菜单即卸载；面板里没保存的表单会无声丢掉
+// （2026-10-23 审计）。面板通过 useRegisteredDirtyChecker 登记自己的 dirty 检查，这里切换前统一问一句。
+const menuGuard = useUnsavedGuard({ isDirty: anyRegisteredDirty, message: '当前页面有尚未保存的修改，切换后将丢失。确定离开吗？' })
+
+const handleMenuSelect = async (key: string) => {
+  if (!isMenuKey(key) || key === activeKey.value) {
+    return
+  }
+  if (!(await menuGuard.confirmDiscard())) {
     return
   }
   activeKey.value = key

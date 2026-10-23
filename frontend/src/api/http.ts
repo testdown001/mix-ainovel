@@ -1,5 +1,8 @@
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router'
+import { ApiError, formatValidationDetail } from '@/utils/apiError'
+
+export { ApiError }
 
 interface ApiRequestOptions<T> extends RequestInit {
   notFoundValue?: T
@@ -38,13 +41,19 @@ const extractErrorDetail = async (response: Response): Promise<string> => {
     if (typeof errorData?.error?.message === 'string' && errorData.error.message.trim()) {
       return errorData.error.message.trim()
     }
-    if (errorData) {
-      return JSON.stringify(errorData)
+    // FastAPI 422：detail 是 [{loc,msg,type}] 数组——以前整段 JSON.stringify 给用户看
+    if (Array.isArray(errorData?.detail)) {
+      return formatValidationDetail(errorData.detail)
+    }
+    if (typeof errorData?.detail === 'object' && errorData?.detail !== null && typeof errorData.detail.message === 'string') {
+      return String(errorData.detail.message).trim()
     }
     return ''
   }
 
-  return (await response.text().catch(() => '')).trim()
+  // 非 JSON（nginx/网关的 HTML 错误页、纯文本）：读掉但不进消息，交给状态码兜底文案
+  await response.text().catch(() => '')
+  return ''
 }
 
 const REQUEST_OPTION_KEYS = [
@@ -125,7 +134,7 @@ export const requestJson = async <T = any>(url: string, options: ApiRequestOptio
     const authStore = useAuthStore()
     authStore.logout()
     router.push('/login')
-    throw new Error('会话已过期，请重新登录')
+    throw new ApiError('会话已过期，请重新登录', 401, '会话已过期，请重新登录')
   }
 
   if (response.status === 404 && typeof notFoundValue !== 'undefined') {
@@ -137,15 +146,17 @@ export const requestJson = async <T = any>(url: string, options: ApiRequestOptio
       return errorFallbackValue
     }
 
+    // message 形态保持不变（upgradeHint / errorHumanize 的正则认 `(NNN)` 前缀）；
+    // 给用户看的文案走 utils/apiError.userFacingMessage()，它读 status/detail 而不是 message。
     const detail = await extractErrorDetail(response)
     if (errorMessage) {
-      throw new Error(detail ? `${errorMessage}: ${detail}` : errorMessage)
+      throw new ApiError(detail ? `${errorMessage}: ${detail}` : errorMessage, response.status, detail || errorMessage)
     }
     if (detail) {
       const clipped = detail.length > 600 ? `${detail.slice(0, 600)}...` : detail
-      throw new Error(`请求失败(${response.status}): ${clipped}`)
+      throw new ApiError(`请求失败(${response.status}): ${clipped}`, response.status, clipped)
     }
-    throw new Error(`请求失败，状态码: ${response.status}`)
+    throw new ApiError(`请求失败，状态码: ${response.status}`, response.status, '')
   }
 
   if (response.status === 204) {

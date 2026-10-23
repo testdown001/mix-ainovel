@@ -189,6 +189,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { readFetchError, userFacingMessage } from '@/utils/apiError';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
@@ -305,14 +306,13 @@ const sendCode = async () => {
   try {
     const res = await fetch(`/api/auth/send-code?email=${encodeURIComponent(email.value)}`, { method: 'POST' });
     if (!res.ok) {
-      const errMsg = await res.json();
-      throw new Error(errMsg.detail || '发送验证码失败');
+      throw await readFetchError(res, '发送验证码失败');
     }
     success.value = '验证码已发送，请查收邮箱';
     countdown.value = 60;
     const timer = setInterval(() => { countdown.value--; if (countdown.value <= 0) clearInterval(timer); }, 1000);
   } catch (err: any) {
-    error.value = err.message;
+    error.value = userFacingMessage(err, '发送验证码失败');
   } finally {
     sending.value = false;
   }
@@ -352,14 +352,13 @@ const handleRegister = async () => {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const errMsg = await res.json();
-      throw new Error(errMsg.detail || '注册失败');
+      throw await readFetchError(res, '注册失败');
     }
     success.value = '注册成功！即将跳转到登录页面…';
     setTimeout(() => { router.push('/login'); }, 2000);
     // 成功后保持 submitting，直到跳转：避免跳转前再点一次
   } catch (err: any) {
-    error.value = err.message || '注册失败，请稍后再试。';
+    error.value = userFacingMessage(err, '注册失败，请稍后再试。');
     if (turnstileWidgetId.value && window.turnstile) {
       window.turnstile.reset(turnstileWidgetId.value);
       captchaToken.value = '';

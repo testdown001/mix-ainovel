@@ -4,19 +4,40 @@
     <div class="d-block-head">
       <span class="d-block-tag">故事去向</span>
       <div class="bb-head-actions">
-        <span v-if="resp?.stale" class="bb-stale" title="立项书在骨架生成后被改过；点「重新倒推」按最新立项书重算，你改过的节点会保留">立项书已变动</span>
-        <button class="d-edit-btn" :disabled="regenerating || loading || altLoading || isApplying" @click="loadAlternatives(true)">
+        <span v-if="resp?.stale" class="bb-stale">立项书已变动</span>
+        <button
+          class="d-edit-btn"
+          :disabled="regenerating || loading || altLoading || isApplying || isEditingLocked"
+          :title="isEditingLocked ? '请先保存或取消当前编辑' : ''"
+          @click="loadAlternatives(true)"
+        >
           {{ altLoading ? '构思中…' : '换个结局' }}
         </button>
-        <button class="d-edit-btn" :disabled="regenerating || loading || isApplying" @click="regenerate">
+        <button
+          class="d-edit-btn"
+          :disabled="regenerating || loading || isApplying || isEditingLocked"
+          :title="isEditingLocked ? '请先保存或取消当前编辑' : ''"
+          @click="regenerate"
+        >
           {{ regenerating ? '倒推中…' : '重新倒推' }}
         </button>
       </div>
     </div>
 
+    <!-- 「已变动」只放在 title 里触屏看不到；改成可见的一行提示（2026-10-23 审计） -->
+    <p v-if="resp?.stale && !loading" class="bb-stale-hint">
+      立项书在骨架生成后被改过，当前骨架可能已不对应。点「重新倒推」按最新立项书重算，你改过的节点会保留。
+    </p>
+    <p v-if="isEditingLocked && !loading" class="bb-edit-hint">正在编辑节点：保存或取消后才能重新倒推 / 换结局。</p>
+
     <div v-if="loading" class="bb-loading">
       <span class="bb-spinner"></span>
       正在从终局倒推各卷高潮与前置条件…首次约 30-60 秒
+    </div>
+
+    <div v-else-if="failed" class="bb-failed">
+      <span>故事骨架加载失败{{ loadError ? `：${loadError}` : '' }}。不影响生成蓝图，但章纲将没有倒推的高潮与伏笔约束。</span>
+      <button class="d-edit-btn" @click="load">重试</button>
     </div>
 
     <template v-else-if="backbone">
@@ -130,9 +151,17 @@ const resp = ref<BackboneResponse | null>(null)
 const loading = ref(false)
 const regenerating = ref(false)
 const failed = ref(false)
+const loadError = ref('')
 const backbone = computed<StoryBackbone | null>(() => resp.value?.backbone ?? null)
-// 无立项书 / 开关关闭 / 生成失败时整卡不显示，流程照旧
-const visible = computed(() => loading.value || (!failed.value && !!backbone.value))
+// 无立项书 / 开关关闭时整卡不显示，流程照旧；加载失败则显示一行错误和「重试」，不再悄悄消失
+const visible = computed(() => loading.value || failed.value || !!backbone.value)
+
+/** 去掉 http.ts 包装的「请求失败(409): 」前缀，用户只需要看后端的那句话。 */
+const humanError = (error: unknown, fallback = '请稍后重试'): string => {
+  const raw = error instanceof Error ? error.message : ''
+  const stripped = raw.replace(/^请求失败\(\d{3}\):\s*/, '').replace(/^请求失败，状态码:\s*\d{3}$/, '').trim()
+  return stripped || fallback
+}
 
 const ENDGAME_FIELDS = [
   { key: 'final_confrontation', label: '最后一战' },
@@ -176,6 +205,8 @@ const nodes = computed<NodeView[]>(() => {
 const expanded = ref<string | null>(null)
 const editing = ref<string | null>(null)
 const saving = ref(false)
+// 编辑中 / 保存中禁用「重新倒推」「换个结局」：两者都会把 editing 清空，正在改的节点会无声丢掉
+const isEditingLocked = computed(() => editing.value !== null || saving.value)
 const buffer = ref<Record<string, any>>({})
 
 const toggleEdit = (key: string) => {
@@ -202,7 +233,7 @@ const applyPatch = async (partial: Record<string, any>) => {
     resp.value = await NovelAPI.patchStoryBackbone(props.projectId, partial)
     editing.value = null
   } catch (error) {
-    globalAlert.showError(`保存失败: ${error instanceof Error ? error.message : '请稍后重试'}`, '故事去向')
+    globalAlert.showError(`保存失败: ${humanError(error)}`, '故事去向')
   } finally {
     saving.value = false
   }
@@ -233,7 +264,7 @@ const loadAlternatives = async (generate: boolean) => {
       : await NovelAPI.listBackboneAlternatives(props.projectId)
     alternatives.value = res.alternatives || []
   } catch (error) {
-    if (generate) globalAlert.showError(`生成备选方向失败: ${error instanceof Error ? error.message : '请稍后重试'}`, '故事去向')
+    if (generate) globalAlert.showError(`生成备选方向失败: ${humanError(error)}`, '故事去向')
   } finally {
     altLoading.value = false
   }
@@ -248,7 +279,7 @@ const applyAlternative = async (alt: BackboneAlternative) => {
     expanded.value = null
     globalAlert.showSuccess(`已按「${alt.label || alt.id}」重新倒推，各卷高潮与前置条件已更新。`, '故事去向')
   } catch (error) {
-    globalAlert.showError(`采用失败: ${error instanceof Error ? error.message : '请稍后重试'}`, '故事去向')
+    globalAlert.showError(`采用失败: ${humanError(error)}`, '故事去向')
   } finally {
     applying.value = null
   }
@@ -257,12 +288,14 @@ const applyAlternative = async (alt: BackboneAlternative) => {
 const load = async () => {
   loading.value = true
   failed.value = false
+  loadError.value = ''
   try {
     resp.value = await NovelAPI.getStoryBackbone(props.projectId)
     if (resp.value?.backbone) void loadAlternatives(false)
   } catch (error) {
     console.error('拉取故事骨架失败:', error)
     failed.value = true
+    loadError.value = humanError(error, '')
   } finally {
     loading.value = false
   }
@@ -275,7 +308,7 @@ const regenerate = async () => {
     editing.value = null
     globalAlert.showSuccess('已按最新立项书重新倒推，你改过的节点已保留。', '故事去向')
   } catch (error) {
-    globalAlert.showError(`重算失败: ${error instanceof Error ? error.message : '请稍后重试'}`, '故事去向')
+    globalAlert.showError(`重算失败: ${humanError(error)}`, '故事去向')
   } finally {
     regenerating.value = false
   }
@@ -319,6 +352,12 @@ const SetupList = defineComponent({
 .d-block-tag { font-size: 12px; font-weight: 600; color: #ffe500; letter-spacing: 0.05em; }
 .bb-head-actions { display: flex; align-items: center; gap: 10px; }
 .bb-stale { font-size: 11px; color: #ffb800; background: rgba(255, 184, 0, 0.1); border-radius: 999px; padding: 2px 9px; }
+.bb-stale-hint { font-size: 12px; color: #ffb800; line-height: 1.6; margin: 0 0 10px; }
+.bb-edit-hint { font-size: 12px; color: #888; line-height: 1.6; margin: 0 0 10px; }
+.bb-failed {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  font-size: 12px; color: #ff8a80; line-height: 1.6; padding: 8px 0;
+}
 .d-edit-btn {
   background: transparent; border: 1px solid #333; color: #888; font-size: 12px;
   border-radius: 6px; padding: 3px 10px; cursor: pointer; transition: all 0.15s;

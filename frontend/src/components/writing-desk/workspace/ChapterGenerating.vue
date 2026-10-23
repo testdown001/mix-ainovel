@@ -93,7 +93,7 @@
         <!-- 底部提示 -->
         <div class="md-card md-card-filled p-3 text-left" style="border-radius: var(--md-radius-lg);">
           <p class="md-body-small md-on-surface-variant">
-            生成过程通常需要 2-4 分钟，请耐心等待。您可以随时离开此页面，生成完成后再回来查看。
+            生成过程通常需要 2-6 分钟，请耐心等待。您可以随时离开此页面，生成完成后再回来查看。
           </p>
         </div>
       </div>

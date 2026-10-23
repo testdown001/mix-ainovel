@@ -1,12 +1,14 @@
 <!-- AIMETA P=根组件_应用根节点|R=全局布局_RouterView|NR=不含页面逻辑|E=component:App|X=ui|A=RouterView|D=vue-router|S=dom|RD=./README.ai -->
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import { NMessageProvider } from 'naive-ui'
+import { NConfigProvider, NMessageProvider, dateZhCN, zhCN } from 'naive-ui'
 import CustomAlert from '@/components/CustomAlert.vue'
 import { globalAlert } from '@/composables/useAlert'
 </script>
 
 <template>
+  <!-- 全站中文 locale：popconfirm 的 Cancel/Confirm、空表 No Data、分页与日期选择器此前全是英文 -->
+  <n-config-provider :locale="zhCN" :date-locale="dateZhCN">
   <n-message-provider>
     <div>
       <RouterView />
@@ -28,6 +30,7 @@ import { globalAlert } from '@/composables/useAlert'
       />
     </div>
   </n-message-provider>
+  </n-config-provider>
 </template>
 
 <style scoped>

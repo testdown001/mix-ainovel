@@ -1,6 +1,11 @@
 <!-- AIMETA P=模型选择器_前台选模型+润色+积分余额|R=按档展示可选模型并v-model回传|NR=不含计费逻辑(后端)|E=component:WDModelPicker|X=ui|A=组件|D=vue,naive-ui|S=net -->
 <template>
-  <div v-if="models.length" class="model-picker">
+  <div v-if="loadError" class="model-picker">
+    <span class="mp-label">模型</span>
+    <span class="mp-dim">模型列表加载失败</span>
+    <button type="button" class="mp-retry" :disabled="loading" @click="load">{{ loading ? '重试中…' : '重试' }}</button>
+  </div>
+  <div v-else-if="models.length" class="model-picker">
     <span class="mp-label">模型</span>
     <n-select
       size="tiny"
@@ -39,6 +44,9 @@ const emit = defineEmits<{
 const models = ref<AvailableModel[]>([])
 const polishPrice = ref(5)
 const balance = ref<number | string>('—')
+// 原来拉取失败静默，弹层只剩一个标题；现在给出错误与重试（生成本身不受影响：缺省走默认通道、不计费）
+const loadError = ref(false)
+const loading = ref(false)
 
 const options = computed(() =>
   models.value.map((m) => ({
@@ -51,6 +59,8 @@ const options = computed(() =>
 )
 
 async function load() {
+  loading.value = true
+  loadError.value = false
   try {
     const r = await ModelCatalogAPI.getAvailable()
     models.value = r.models || []
@@ -63,7 +73,10 @@ async function load() {
       if (first) emit('update:modelCode', first.code)
     }
   } catch {
-    // 静默：拉取失败不阻断生成（后端 model_code 缺省时按默认通道、不计费）
+    // 拉取失败不阻断生成（后端 model_code 缺省时按默认通道、不计费），但要让用户看见并能重试
+    loadError.value = true
+  } finally {
+    loading.value = false
   }
 }
 
@@ -97,6 +110,19 @@ onMounted(load)
 }
 .mp-spacer {
   flex: 1;
+}
+.mp-retry {
+  background: transparent;
+  border: 1px solid var(--md-outline-variant, #2a2a2a);
+  color: #ffe500;
+  border-radius: 6px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.mp-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .mp-balance {
   display: inline-flex;

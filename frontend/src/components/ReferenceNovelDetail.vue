@@ -19,9 +19,12 @@
         <span class="status-badge" :class="`status-${novel.status}`">{{ statusLabel }}</span>
       </div>
 
-      <div v-if="novel.status === 'analyzing'" class="hint-bar hint-analyzing">
+      <div v-if="novel.status === 'analyzing' && analysisTimedOut" class="hint-bar hint-error">
+        分析超时：已等待超过 5 分钟仍未完成（可能是服务重启导致任务中断）。可点下方「重新分析」再试。
+      </div>
+      <div v-else-if="novel.status === 'analyzing'" class="hint-bar hint-analyzing">
         <span class="hint-pulse"></span>
-        正在联网检索并提取档案，约需 1-2 分钟，每 5 秒自动刷新
+        正在联网检索并提取档案，约需 1-4 分钟，每 5 秒自动刷新
       </div>
       <div v-if="novel.status === 'failed' && novel.error_message" class="hint-bar hint-error">
         分析失败：{{ novel.error_message }}
@@ -162,7 +165,7 @@
         </button>
         <button class="btn-ghost" @click="refresh" :disabled="loading">刷新</button>
         <button
-          v-if="novel.status === 'failed' || novel.status === 'ready'"
+          v-if="novel.status === 'failed' || novel.status === 'ready' || analysisTimedOut"
           class="btn-warn"
           @click="retryAnalyze"
           :disabled="retrying"
@@ -182,6 +185,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
 import { NovelAPI, type MemoryCard, type ReferenceNovelDetail, type ReferenceNovelUpdatePayload } from '@/api/novel'
+import { globalAlert } from '@/composables/useAlert'
 
 const props = defineProps<{ novelId?: number }>()
 const emit = defineEmits<{
@@ -275,10 +279,22 @@ const statusLabel = computed(() => {
   return map[novel.value.status] || novel.value.status
 })
 
+// 卡在 analyzing 的任务（服务重启后没有人把它置回 failed）原来会被无限轮询，且重试按钮一直隐藏
+const ANALYZING_TIMEOUT_MS = 5 * 60 * 1000
+const analysisTimedOut = ref(false)
+let analyzingSince: number | null = null
+
 function startPolling() {
   stopPolling()
+  analysisTimedOut.value = false
+  analyzingSince = Date.now()
   pollTimer = setInterval(() => {
     if (props.novelId && novel.value?.status === 'analyzing') {
+      if (analyzingSince && Date.now() - analyzingSince > ANALYZING_TIMEOUT_MS) {
+        analysisTimedOut.value = true
+        stopPolling()
+        return
+      }
       loadDetail(props.novelId, true)
     } else {
       stopPolling()
@@ -362,8 +378,18 @@ const refresh = () => {
 
 const retryAnalyze = async () => {
   if (!novel.value) return
+  // 已有档案时重新分析会整本覆盖（含手工编辑过的大纲/样本），先确认
+  const hasArchive = Boolean(novel.value.outline_content || novel.value.style_samples_content)
+  if (hasArchive) {
+    const confirmed = await globalAlert.showConfirm(
+      `重新分析会重新联网检索并覆盖《${novel.value.title}》现有的大纲、写法样本、记忆卡与桥段库，手工修改也会丢失。确定继续？`,
+      '重新分析确认',
+    )
+    if (!confirmed) return
+  }
   retrying.value = true
   message.value = ''
+  analysisTimedOut.value = false
   try {
     await NovelAPI.analyzeReferenceNovel(novel.value.id)
     message.value = '已重新触发分析'

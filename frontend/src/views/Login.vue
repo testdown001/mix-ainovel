@@ -171,8 +171,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { errorStatus, userFacingMessage } from '@/utils/apiError';
 
 const username = ref('');
 const password = ref('');
@@ -183,6 +184,17 @@ const phoneCode = ref('');
 const codeCountdown = ref(0);
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
 const router = useRouter();
+const route = useRoute();
+
+/** 登录后去向：路由守卫带来的 ?redirect=（只认站内相对路径），否则 /home。 */
+const postLoginTarget = (): string => {
+  const raw = route.query.redirect;
+  const target = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') && !/^\/(login|register)\b/.test(target)) {
+    return target;
+  }
+  return '/home';
+};
 const authStore = useAuthStore();
 const allowRegistration = computed(() => authStore.allowRegistration);
 const enableLinuxdoLogin = computed(() => authStore.enableLinuxdoLogin);
@@ -224,7 +236,7 @@ const handlePhoneLogin = async () => {
   isLoading.value = true;
   try {
     await authStore.phoneLogin(phone.value, phoneCode.value.trim());
-    router.push('/home');
+    router.push(postLoginTarget());
   } catch (err) {
     error.value = err instanceof Error ? err.message : '手机号登录失败';
   } finally {
@@ -247,10 +259,20 @@ const handleLogin = async () => {
     if (user?.is_admin && (authStore.mustChangePassword || mustChange)) {
       router.push({ name: 'admin', query: { tab: 'password' } });
     } else {
-      router.push('/home');
+      router.push(postLoginTarget());
     }
   } catch (err) {
-    error.value = '登录失败，请检查用户名和密码。';
+    // 以前所有失败都说「请检查用户名和密码」——限流、禁用、500、离线一样（2026-10-23 审计）
+    const status = errorStatus(err);
+    if (status === 401) {
+      error.value = '用户名或密码错误。';
+    } else if (status === 403 || status === 429) {
+      error.value = userFacingMessage(err, status === 429 ? '操作太频繁，请稍后再试' : '账号暂不可登录');
+    } else if (status !== null && status >= 400 && status < 500) {
+      error.value = userFacingMessage(err, '登录失败，请检查输入');
+    } else {
+      error.value = '网络或服务异常，请稍后重试。';
+    }
     console.error(err);
   } finally {
     isLoading.value = false;

@@ -127,7 +127,8 @@ router.beforeEach(async (to, from, next) => {
   const mustChangePassword = authStore.user?.is_admin && authStore.mustChangePassword
 
   if (requiresAuth && !isAuthenticated) {
-    next('/')
+    // 未登录打开深链：去登录页并记住目标，登录后回到原页（以前落到营销页、登录后固定 /home）
+    next({ name: 'login', query: { redirect: to.fullPath } })
   } else if (requiresAdmin && !isAdmin) {
     next('/home')
   } else if (isAuthenticated && mustChangePassword) {

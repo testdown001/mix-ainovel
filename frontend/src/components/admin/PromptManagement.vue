@@ -23,11 +23,19 @@
       <n-spin :show="loading">
         <div :class="['prompt-layout', { mobile: isMobile }]">
           <div class="prompt-sidebar">
+            <n-input
+              v-model:value="searchKeyword"
+              size="small"
+              clearable
+              placeholder="搜索名称 / 标题 / 标签"
+              class="prompt-search"
+            />
             <n-scrollbar class="prompt-scroll">
               <n-empty v-if="!prompts.length && !loading" description="暂无提示词" />
+              <n-empty v-else-if="!filteredPrompts.length" description="没有匹配的提示词" />
               <n-space v-else vertical size="small">
                 <n-button
-                  v-for="prompt in prompts"
+                  v-for="prompt in filteredPrompts"
                   :key="prompt.id"
                   type="primary"
                   :ghost="selectedPrompt?.id !== prompt.id"
@@ -156,7 +164,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import {
   NAlert,
   NButton,
@@ -176,6 +184,7 @@ import {
 
 import { AdminAPI, type PromptCreatePayload, type PromptItem } from '@/api/admin'
 import { useAlert } from '@/composables/useAlert'
+import { useRegisteredDirtyChecker, useUnsavedGuard } from '@/composables/useUnsavedGuard'
 
 const { showAlert } = useAlert()
 
@@ -208,7 +217,34 @@ const updateLayout = () => {
   isMobile.value = window.innerWidth < 920
 }
 
+const searchKeyword = ref('')
+const filteredPrompts = computed(() => {
+  const keyword = searchKeyword.value.trim().toLowerCase()
+  if (!keyword) return prompts.value
+  return prompts.value.filter((prompt) =>
+    prompt.name.toLowerCase().includes(keyword)
+    || (prompt.title || '').toLowerCase().includes(keyword)
+    || (prompt.tags || []).some((tag) => tag.toLowerCase().includes(keyword)),
+  )
+})
+
+/** 编辑区相对已选提示词是否有未保存改动（54 条长 prompt，切错一下就全丢——2026-10-23 审计）。 */
+const isDirty = computed(() => {
+  const current = selectedPrompt.value
+  if (!current) return false
+  const tagsEqual = JSON.stringify(editForm.tags) === JSON.stringify(current.tags || [])
+  return editForm.title !== (current.title || '') || editForm.content !== current.content || !tagsEqual
+})
+const unsavedGuard = useUnsavedGuard({
+  isDirty: () => isDirty.value,
+  message: '当前提示词有尚未保存的修改，切换后将丢失。确定放弃吗？',
+  beforeUnload: true,
+})
+// 后台切菜单时由 AdminView 统一询问
+useRegisteredDirtyChecker(() => isDirty.value)
+
 const fetchPrompts = async () => {
+  if (!(await unsavedGuard.confirmDiscard())) return
   loading.value = true
   error.value = null
   try {
@@ -216,12 +252,12 @@ const fetchPrompts = async () => {
     if (selectedPrompt.value) {
       const refreshed = prompts.value.find((item) => item.id === selectedPrompt.value?.id)
       if (refreshed) {
-        selectPrompt(refreshed)
+        applyPrompt(refreshed)
       } else {
         resetSelection()
       }
     } else if (prompts.value.length) {
-      selectPrompt(prompts.value[0])
+      applyPrompt(prompts.value[0])
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : '获取提示词列表失败'
@@ -238,12 +274,20 @@ const resetSelection = () => {
   editForm.tags = []
 }
 
-const selectPrompt = (prompt: PromptItem) => {
+/** 无条件装载（保存后刷新、列表初始化等内部调用）。 */
+const applyPrompt = (prompt: PromptItem) => {
   selectedPrompt.value = prompt
   editForm.name = prompt.name
   editForm.title = prompt.title || ''
   editForm.content = prompt.content
   editForm.tags = prompt.tags ? [...prompt.tags] : []
+}
+
+/** 用户点列表切换：有未保存改动先问一句。 */
+const selectPrompt = async (prompt: PromptItem) => {
+  if (selectedPrompt.value?.id === prompt.id) return
+  if (!(await unsavedGuard.confirmDiscard())) return
+  applyPrompt(prompt)
 }
 
 const savePrompt = async () => {
@@ -259,7 +303,7 @@ const savePrompt = async () => {
       content: editForm.content,
       tags: editForm.tags
     })
-    selectPrompt(updated)
+    applyPrompt(updated)
     const index = prompts.value.findIndex((item) => item.id === updated.id)
     if (index !== -1) {
       prompts.value.splice(index, 1, updated)
@@ -277,7 +321,7 @@ const resetPrompt = async () => {
   resetting.value = true
   try {
     const updated = await AdminAPI.resetPromptToDefault(selectedPrompt.value.id)
-    selectPrompt(updated)
+    applyPrompt(updated)
     const index = prompts.value.findIndex((item) => item.id === updated.id)
     if (index !== -1) {
       prompts.value.splice(index, 1, updated)
@@ -331,7 +375,7 @@ const createPrompt = async () => {
       tags: createForm.tags?.length ? [...createForm.tags] : undefined
     })
     prompts.value.unshift(created)
-    selectPrompt(created)
+    applyPrompt(created)
     showAlert('创建成功', 'success')
     closeCreateModal()
   } catch (err) {
@@ -391,6 +435,10 @@ onBeforeUnmount(() => {
 .prompt-layout.mobile .prompt-sidebar {
   width: 100%;
   max-height: 220px;
+}
+
+.prompt-search {
+  margin-bottom: 8px;
 }
 
 .prompt-scroll {
