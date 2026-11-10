@@ -76,6 +76,8 @@ export interface TaskSubmitResponse {
 }
 
 export interface TaskStatus {
+  task_key?: string
+  chapter_number?: number
   task_id: string
   type: string
   project_id?: string
@@ -223,7 +225,7 @@ export class TaskAPI {
     return taskRequest(`${TASK_BASE}/${taskId}/cancel`, { method: 'POST' })
   }
 
-  /** 从失败检查点创建新任务；批量任务只会提交失败章节。 */
+  /** 从失败检查点重新执行原任务；批量任务只会提交失败章节。 */
   static async retryTask(
     taskId: string,
   ): Promise<TaskSubmitResponse> {

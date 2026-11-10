@@ -80,6 +80,7 @@ const (
 
 // Task 任务定义
 type Task struct {
+	TaskKey      string            `json:"task_key,omitempty"`
 	ID           string            `json:"id"`
 	Type         TaskType          `json:"type"`
 	Priority     Priority          `json:"priority"`
