@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"time"
 
@@ -53,6 +54,18 @@ func taskChapterNumber(task *Task) int {
 	}
 	_ = json.Unmarshal(task.Payload, &payload)
 	return payload.ChapterNumber
+}
+
+func taskProgressURL(task *Task) string {
+	base := fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID)
+	if execution := task.Metadata["execution_id"]; execution != "" {
+		return base + "?execution_id=" + url.QueryEscape(execution)
+	}
+	return base
+}
+
+func matchesTaskExecution(task *Task, execution string) bool {
+	return task.Metadata["execution_id"] == execution
 }
 
 // Keep old attempts for diagnostics, but expose only one current record per work item.
@@ -129,6 +142,7 @@ func (d *Dispatcher) SubmitCurrent(ctx context.Context, task *Task) error {
 	if task.Metadata == nil {
 		task.Metadata = map[string]string{}
 	}
+	task.Metadata["execution_id"] = uuid.New().String()
 	data, err := json.Marshal(task)
 	if err != nil {
 		return err

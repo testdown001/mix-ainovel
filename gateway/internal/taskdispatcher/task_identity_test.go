@@ -2,8 +2,26 @@ package taskdispatcher
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
+
+func TestExecutionSeparatesProgressFromStableTaskIdentity(t *testing.T) {
+	task := identityTask("stable", 2, StatusRunning)
+	if !matchesTaskExecution(task, "") {
+		t.Fatal("legacy progress must still work")
+	}
+	task.Metadata = map[string]string{"execution_id": "new-attempt"}
+	if matchesTaskExecution(task, "") || matchesTaskExecution(task, "old-attempt") {
+		t.Fatal("stale progress accepted")
+	}
+	if !matchesTaskExecution(task, "new-attempt") {
+		t.Fatal("current progress rejected")
+	}
+	if !strings.Contains(taskProgressURL(task), "/stable/progress?execution_id=new-attempt") {
+		t.Fatal(taskProgressURL(task))
+	}
+}
 
 func identityTask(id string, chapter int, status TaskStatus) *Task {
 	payload, _ := json.Marshal(ChapterGeneratePayload{ChapterNumber: chapter})

@@ -177,6 +177,7 @@ func (p *WorkerPool) markWorkerHealthy(w *WorkerInfo) {
 
 // WorkerTaskRequest 发送给 Python Worker 的任务请求
 type WorkerTaskRequest struct {
+	ExecutionID    string          `json:"execution_id,omitempty"`
 	TaskID         string          `json:"task_id"`
 	TaskType       string          `json:"task_type"`
 	ProjectID      string          `json:"project_id"`
@@ -220,13 +221,14 @@ func (p *WorkerPool) executeChapterGenerate(ctx context.Context, worker *WorkerI
 	})
 
 	workerReq := &WorkerTaskRequest{
+		ExecutionID:   task.Metadata["execution_id"],
 		TaskID:        task.ID,
 		TaskType:      string(task.Type),
 		ProjectID:     payload.ProjectID,
 		ChapterNumber: payload.ChapterNumber,
 		UserID:        payload.UserID,
 		Config:        configData,
-		CallbackURL:   fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
+		CallbackURL:   taskProgressURL(task),
 	}
 
 	return p.callWorker(ctx, worker, "/execute", workerReq)
@@ -248,13 +250,14 @@ func (p *WorkerPool) executeBatchGenerate(ctx context.Context, worker *WorkerInf
 	})
 
 	workerReq := &WorkerTaskRequest{
+		ExecutionID:    task.Metadata["execution_id"],
 		TaskID:         task.ID,
 		TaskType:       string(task.Type),
 		ProjectID:      payload.ProjectID,
 		ChapterNumbers: payload.ChapterNumbers,
 		UserID:         payload.UserID,
 		Config:         configData,
-		CallbackURL:    fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
+		CallbackURL:    taskProgressURL(task),
 	}
 
 	return p.callWorker(ctx, worker, "/execute", workerReq)
@@ -277,12 +280,13 @@ func (p *WorkerPool) executeBlueprintGenerate(ctx context.Context, worker *Worke
 	}
 
 	workerReq := &WorkerTaskRequest{
+		ExecutionID: task.Metadata["execution_id"],
 		TaskID:      task.ID,
 		TaskType:    string(task.Type),
 		ProjectID:   payload.ProjectID,
 		UserID:      payload.UserID,
 		Config:      json.RawMessage(configJSON),
-		CallbackURL: fmt.Sprintf("http://gateway:3000/internal/tasks/%s/progress", task.ID),
+		CallbackURL: taskProgressURL(task),
 	}
 
 	return p.callWorker(ctx, worker, "/execute", workerReq)

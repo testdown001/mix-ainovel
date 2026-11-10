@@ -411,6 +411,9 @@ func (h *Handler) UpdateProgress(c *fiber.Ctx) error {
 	if err != nil {
 		return c.Status(404).JSON(fiber.Map{"error": err.Error()})
 	}
+	if !matchesTaskExecution(task, c.Query("execution_id")) {
+		return c.JSON(fiber.Map{"status": "ignored", "message": "进度回调属于旧执行批次"})
+	}
 	if task.Status == StatusCancelled || task.Status == StatusCompleted || task.Status == StatusFailed ||
 		h.dispatcher.isTaskCancelled(c.Context(), taskID) {
 		// Worker 可能在取消请求到达后才送出最后一个进度回调；不能让旧快照覆盖终态。

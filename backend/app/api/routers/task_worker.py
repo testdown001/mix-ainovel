@@ -96,6 +96,7 @@ class TaskConfig(BaseModel):
 
 class WorkerTaskRequest(BaseModel):
     task_id: str
+    execution_id: Optional[str] = Field(default=None, max_length=64)
     task_type: str
     project_id: str
     chapter_number: Optional[int] = None
@@ -103,6 +104,11 @@ class WorkerTaskRequest(BaseModel):
     user_id: int
     config: TaskConfig = Field(default_factory=TaskConfig)
     callback_url: Optional[str] = None
+
+    @property
+    def billing_ref_key(self) -> str:
+        # Stable task identity is for UI/cancellation; explicit reruns are separate charges.
+        return self.execution_id or self.task_id
 
 
 class WorkerTaskResponse(BaseModel):
@@ -327,7 +333,7 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
                     await ensure_model_allowed(gate_session, model_code, tier)
                     await charge_generation(
                         gate_session, req.user_id, model_code, enable_polish,
-                        ref_key=req.task_id, chapters=chapters,
+                        ref_key=req.billing_ref_key, chapters=chapters,
                     )
                 except HTTPException as exc:
                     # 403 档位/模型不够、402 积分不足：均不应重试
@@ -355,7 +361,7 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
                 async with AsyncSessionLocal() as gate_session:
                     if await should_charge_blueprint_deep(gate_session, req.user_id, depth):
                         charged = await charge_blueprint_deep(
-                            gate_session, req.user_id, ref_key=req.task_id
+                            gate_session, req.user_id, ref_key=req.billing_ref_key
                         )
                         blueprint_paid = charged > 0
             except HTTPException as exc:
@@ -372,7 +378,7 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
                 try:
                     async with AsyncSessionLocal() as _refund_session:
                         await asyncio.shield(
-                            refund_generation(_refund_session, req.user_id, ref_key=req.task_id)
+                            refund_generation(_refund_session, req.user_id, ref_key=req.billing_ref_key)
                         )
                 except BaseException:  # noqa: BLE001
                     pass
@@ -397,7 +403,7 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
             try:
                 async with AsyncSessionLocal() as _refund_session:
                     refunded = await asyncio.shield(
-                        refund_generation(_refund_session, req.user_id, ref_key=req.task_id)
+                        refund_generation(_refund_session, req.user_id, ref_key=req.billing_ref_key)
                     )
                 result["degraded"] = True
                 if refunded:
@@ -419,7 +425,7 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
                         await asyncio.shield(
                             refund_polish_surcharge(
                                 _refund_session, req.user_id,
-                                ref_key=req.task_id, chapters=unpolished,
+                                ref_key=req.billing_ref_key, chapters=unpolished,
                             )
                         )
             except Exception:
@@ -453,7 +459,7 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         # 失败/取消退还已扣积分（按 task_id 幂等；未扣过则 no-op）
         try:
             async with AsyncSessionLocal() as _refund_session:
-                await asyncio.shield(refund_generation(_refund_session, req.user_id, ref_key=req.task_id))
+                await asyncio.shield(refund_generation(_refund_session, req.user_id, ref_key=req.billing_ref_key))
         except BaseException:  # noqa: BLE001
             pass
 
