@@ -20,7 +20,7 @@
       <p v-if="error" class="task-center__error">{{ error }}</p>
       <div v-if="loading && !tasks.length" class="task-center__empty">正在同步任务状态…</div>
       <div v-else-if="!visibleTasks.length" class="task-center__empty">暂无近期任务</div>
-      <article v-for="task in visibleTasks" :key="task.task_id" class="task-row">
+      <article v-for="task in visibleTasks" :key="taskWorkKey(task)" class="task-row">
         <div class="task-row__top">
           <span class="task-row__name">{{ taskName(task) }}</span>
           <span class="task-row__status" :class="`is-${task.status}`">{{ statusName(task) }}</span>
@@ -34,7 +34,7 @@
             v-if="canRetry(task)"
             type="button"
             class="retry"
-            :disabled="retrying === task.task_id"
+            :disabled="retrying !== null"
             @click="retry(task)"
           >
             {{ retrying === task.task_id ? '提交中…' : retryLabel(task) }}
@@ -52,6 +52,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { TaskAPI, type TaskStatus } from '@/api/task'
 import { useAuthStore } from '@/stores/auth'
+import { currentProjectTasks, isTaskActive, taskWorkKey } from '@/utils/currentTasks'
 
 const props = defineProps<{ projectId: string }>()
 const emit = defineEmits<{ (e: 'updated'): void; (e: 'resumed', task: TaskStatus): void }>()
@@ -64,12 +65,14 @@ const tasks = ref<TaskStatus[]>([])
 const retrying = ref<string | null>(null)
 let timer: ReturnType<typeof setInterval> | null = null
 
-const visibleTasks = computed(() => tasks.value.filter((task) => task.project_id === props.projectId).slice(0, 8))
-const activeCount = computed(() => visibleTasks.value.filter((task) => ['pending', 'queued', 'running', 'retrying'].includes(task.status)).length)
+const currentTasks = computed(() => currentProjectTasks(tasks.value, props.projectId))
+const visibleTasks = computed(() => currentTasks.value.slice(0, 8))
+const activeCount = computed(() => currentTasks.value.filter(isTaskActive).length)
+let loadVersion = 0
 
 function taskName(task: TaskStatus) {
   if (task.type === 'chapter:batch_generate') return '批量生成章节正文'
-  if (task.type === 'chapter:generate') return '生成单章正文'
+  if (task.type === 'chapter:generate') return task.chapter_number ? `生成第 ${task.chapter_number} 章正文` : '生成单章正文'
   if (task.type === 'blueprint:generate') return '生成全书蓝图'
   return '创作任务'
 }
@@ -91,25 +94,39 @@ function retryLabel(task: TaskStatus) {
 async function loadTasks() {
   const userId = authStore.user?.id
   if (!userId || !props.projectId) return
+  const version = ++loadVersion
+  const projectId = props.projectId
   loading.value = true
   error.value = ''
   try {
     const response = await TaskAPI.getUserTasks(userId)
+    if (version !== loadVersion || projectId !== props.projectId) return
     tasks.value = response.tasks || []
   } catch (err) {
+    if (version !== loadVersion) return
     error.value = err instanceof Error ? err.message : '任务状态同步失败'
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 
 async function retry(task: TaskStatus) {
+  if (retrying.value !== null || !canRetry(task)) return
   retrying.value = task.task_id
+  const projectId = props.projectId
   try {
-    await TaskAPI.retryTask(task.task_id)
-    await loadTasks()
-    emit('resumed', task)
+    const response = await TaskAPI.retryTask(task.task_id)
+    if (projectId !== props.projectId) return
+    ++loadVersion // Older polling responses must not restore the failed state.
+    loading.value = false
+    const resumed: TaskStatus = { ...task, task_id: response.task_id,
+      status: response.status as TaskStatus['status'], progress: 0, stage: 'queued',
+      message: response.message, error: '', result: null, checkpoint: null,
+      created_at: response.created_at, started_at: null, completed_at: null, retry_count: 0 }
+    tasks.value = [...tasks.value.filter((item) => taskWorkKey(item) !== taskWorkKey(task)), resumed]
+    emit('resumed', resumed)
     emit('updated')
+    await loadTasks()
   } catch (err) {
     error.value = err instanceof Error ? err.message : '续跑任务提交失败'
   } finally {
@@ -117,7 +134,7 @@ async function retry(task: TaskStatus) {
   }
 }
 
-watch(() => props.projectId, loadTasks)
+watch(() => props.projectId, () => { ++loadVersion; tasks.value = []; loadTasks() })
 onMounted(() => {
   loadTasks()
   timer = setInterval(loadTasks, 5000)

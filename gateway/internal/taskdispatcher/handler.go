@@ -91,6 +91,9 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 
 	switch taskType {
 	case TaskGenerateChapter:
+		if req.ChapterNumber <= 0 {
+			return c.Status(400).JSON(fiber.Map{"error": "章节编号必须大于 0"})
+		}
 		payload = ChapterGeneratePayload{
 			ProjectID:      req.ProjectID,
 			ChapterNumber:  req.ChapterNumber,
@@ -154,7 +157,7 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 		Timeout:   timeout,
 	}
 
-	if err := h.dispatcher.Submit(c.Context(), task); err != nil {
+	if err := h.dispatcher.SubmitCurrent(c.Context(), task); err != nil {
 		return c.Status(429).JSON(fiber.Map{"error": err.Error()})
 	}
 
@@ -168,21 +171,23 @@ func (h *Handler) SubmitTask(c *fiber.Ctx) error {
 
 // TaskStatusResponse 任务状态响应
 type TaskStatusResponse struct {
-	TaskID       string          `json:"task_id"`
-	Type         string          `json:"type"`
-	ProjectID    string          `json:"project_id"`
-	ParentTaskID string          `json:"parent_task_id,omitempty"`
-	Status       string          `json:"status"`
-	Progress     int             `json:"progress"`
-	Stage        string          `json:"stage,omitempty"`
-	Message      string          `json:"message,omitempty"`
-	Error        string          `json:"error,omitempty"`
-	Result       json.RawMessage `json:"result,omitempty"`
-	Checkpoint   json.RawMessage `json:"checkpoint,omitempty"`
-	CreatedAt    time.Time       `json:"created_at"`
-	StartedAt    *time.Time      `json:"started_at,omitempty"`
-	CompletedAt  *time.Time      `json:"completed_at,omitempty"`
-	RetryCount   int             `json:"retry_count"`
+	TaskKey       string          `json:"task_key,omitempty"`
+	ChapterNumber int             `json:"chapter_number,omitempty"`
+	TaskID        string          `json:"task_id"`
+	Type          string          `json:"type"`
+	ProjectID     string          `json:"project_id"`
+	ParentTaskID  string          `json:"parent_task_id,omitempty"`
+	Status        string          `json:"status"`
+	Progress      int             `json:"progress"`
+	Stage         string          `json:"stage,omitempty"`
+	Message       string          `json:"message,omitempty"`
+	Error         string          `json:"error,omitempty"`
+	Result        json.RawMessage `json:"result,omitempty"`
+	Checkpoint    json.RawMessage `json:"checkpoint,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	StartedAt     *time.Time      `json:"started_at,omitempty"`
+	CompletedAt   *time.Time      `json:"completed_at,omitempty"`
+	RetryCount    int             `json:"retry_count"`
 }
 
 // GetTaskStatus 查询任务状态
@@ -199,25 +204,27 @@ func (h *Handler) GetTaskStatus(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(TaskStatusResponse{
-		TaskID:       task.ID,
-		Type:         string(task.Type),
-		ProjectID:    task.ProjectID,
-		ParentTaskID: task.ParentTaskID,
-		Status:       string(task.Status),
-		Progress:     task.Progress,
-		Stage:        task.Stage,
-		Message:      task.Message,
-		Error:        task.Error,
-		Result:       task.Result,
-		Checkpoint:   task.Checkpoint,
-		CreatedAt:    task.CreatedAt,
-		StartedAt:    task.StartedAt,
-		CompletedAt:  task.CompletedAt,
-		RetryCount:   task.RetryCount,
+		TaskKey:       taskIdentity(task),
+		ChapterNumber: taskChapterNumber(task),
+		TaskID:        task.ID,
+		Type:          string(task.Type),
+		ProjectID:     task.ProjectID,
+		ParentTaskID:  task.ParentTaskID,
+		Status:        string(task.Status),
+		Progress:      task.Progress,
+		Stage:         task.Stage,
+		Message:       task.Message,
+		Error:         task.Error,
+		Result:        task.Result,
+		Checkpoint:    task.Checkpoint,
+		CreatedAt:     task.CreatedAt,
+		StartedAt:     task.StartedAt,
+		CompletedAt:   task.CompletedAt,
+		RetryCount:    task.RetryCount,
 	})
 }
 
-// RetryTask 从原任务创建新的子任务。批量任务只携带失败章节；如果原任务在
+// RetryTask 更新原任务状态。批量任务只携带失败章节；如果原任务在
 // 汇总结果前中断，则沿用原章节集合，worker 会按数据库检查点复用已完成章节。
 func (h *Handler) RetryTask(c *fiber.Ctx) error {
 	source, err := h.dispatcher.GetTask(c.Context(), c.Params("id"))
@@ -234,6 +241,7 @@ func (h *Handler) RetryTask(c *fiber.Ctx) error {
 	}
 	task := &Task{
 		ID:           uuid.New().String(),
+		TaskKey:      taskIdentity(source),
 		Type:         source.Type,
 		Priority:     source.Priority,
 		Payload:      payload,
@@ -245,7 +253,7 @@ func (h *Handler) RetryTask(c *fiber.Ctx) error {
 			"resume_mode": "failed_only",
 		},
 	}
-	if err := h.dispatcher.Submit(c.Context(), task); err != nil {
+	if err := h.dispatcher.SubmitCurrent(c.Context(), task); err != nil {
 		return c.Status(429).JSON(fiber.Map{"error": err.Error()})
 	}
 	return c.Status(201).JSON(SubmitTaskResponse{
@@ -338,23 +346,25 @@ func (h *Handler) GetUserTasks(c *fiber.Ctx) error {
 	}
 
 	responses := make([]TaskStatusResponse, 0, len(tasks))
-	for _, t := range tasks {
+	for _, t := range currentTasks(tasks) {
 		responses = append(responses, TaskStatusResponse{
-			TaskID:       t.ID,
-			Type:         string(t.Type),
-			ProjectID:    t.ProjectID,
-			ParentTaskID: t.ParentTaskID,
-			Status:       string(t.Status),
-			Progress:     t.Progress,
-			Stage:        t.Stage,
-			Message:      t.Message,
-			Error:        t.Error,
-			Result:       t.Result,
-			Checkpoint:   t.Checkpoint,
-			CreatedAt:    t.CreatedAt,
-			StartedAt:    t.StartedAt,
-			CompletedAt:  t.CompletedAt,
-			RetryCount:   t.RetryCount,
+			TaskKey:       taskIdentity(t),
+			ChapterNumber: taskChapterNumber(t),
+			TaskID:        t.ID,
+			Type:          string(t.Type),
+			ProjectID:     t.ProjectID,
+			ParentTaskID:  t.ParentTaskID,
+			Status:        string(t.Status),
+			Progress:      t.Progress,
+			Stage:         t.Stage,
+			Message:       t.Message,
+			Error:         t.Error,
+			Result:        t.Result,
+			Checkpoint:    t.Checkpoint,
+			CreatedAt:     t.CreatedAt,
+			StartedAt:     t.StartedAt,
+			CompletedAt:   t.CompletedAt,
+			RetryCount:    t.RetryCount,
 		})
 	}
 
