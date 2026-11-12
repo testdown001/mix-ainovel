@@ -48,6 +48,7 @@
 
     <!-- ==================== Main Content ==================== -->
     <div class="max-w-7xl mx-auto px-6 pb-16">
+      <GenerationDiagnostics v-if="isAdmin" :project-id="projectId" />
 
       <!-- Breadcrumb (User Mode) -->
       <div v-if="!isAdmin" class="flex items-center gap-2 text-sm pt-8 mb-6">
@@ -339,6 +340,7 @@
 </template>
 
 <script setup lang="ts">
+import GenerationDiagnostics from '@/components/admin/GenerationDiagnostics.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNovelStore } from '@/stores/novel'

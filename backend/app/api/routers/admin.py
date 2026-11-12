@@ -59,6 +59,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
 
+@router.get("/novels/{project_id}/generation-diagnostics")
+async def generation_diagnostics(
+    project_id: uuid.UUID,
+    _: User = Depends(get_current_admin),
+    session: AsyncSession = Depends(get_session),
+) -> Dict[str, Any]:
+    from ...services.generation_diagnostics_service import list_failures
+
+    if await session.get(NovelProject, str(project_id)) is None:
+        raise HTTPException(404, "小说不存在")
+    try:
+        records = await list_failures(str(project_id))
+    except Exception:
+        raise HTTPException(503, "诊断存储暂不可用，请稍后重试或查看服务器日志")
+    return {"records": records, "retention_days": 30, "limit": 100}
+
+
 class AdminUserSummary(UserSchema):
     current_plan_name: str = "免费版"
     premium_expires_at: Optional[str] = None
