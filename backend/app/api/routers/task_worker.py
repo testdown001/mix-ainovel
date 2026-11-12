@@ -33,6 +33,7 @@ from ...models.novel import Chapter
 from ...services.blueprint_generation_service import generate_blueprint_for_project
 from ...services.batch_generation_service import BatchGenerationService
 from ...services.cache_service import CacheService
+from ...services.generation_diagnostics_service import record_failure
 from ...services.generation_billing_service import (
     charge_blueprint_deep,
     charge_generation,
@@ -130,10 +131,12 @@ class ProgressReporter:
     def __init__(self, callback_url: Optional[str], task_id: str):
         self.callback_url = callback_url
         self.task_id = task_id
+        self.stage = "starting"
         self._client: Optional[httpx.AsyncClient] = None
 
     async def report(self, progress: int, stage: str, message: str, checkpoint: Optional[Dict[str, Any]] = None):
         """报告进度"""
+        self.stage = stage
         if not self.callback_url:
             return
 
@@ -444,6 +447,10 @@ async def execute_task(req: WorkerTaskRequest, x_internal_secret: Optional[str] 
         duration_ms = int((time.time() - start_time) * 1000)
         err_label = f"{type(e).__name__}: {e}".strip() or type(e).__name__
         logger.error(f"任务执行失败: {err_label}\n{traceback.format_exc()}")
+        try:
+            await asyncio.shield(record_failure(req, e, getattr(reporter, "stage", "")))
+        except (Exception, asyncio.CancelledError):
+            logger.warning("Unable to record generation diagnostic")
 
         # 把仍卡在 generating 的章节回写 failed。用 shield 确保即便本任务正被取消
         # (CancelledError)，复位也能跑完；并吞掉取消导致的二次抛出——否则在已取消的
@@ -673,6 +680,7 @@ async def _execute_batch_generate(
         single_extra["skip_history_summary_backfill"] = True
         single_req = WorkerTaskRequest(
             task_id=req.task_id,
+            execution_id=req.execution_id,
             task_type="chapter:generate",
             project_id=req.project_id,
             chapter_number=chapter_number,
@@ -680,6 +688,7 @@ async def _execute_batch_generate(
             config=req.config.model_copy(update={"extra": single_extra}),
             callback_url=None,
         )
+        single_reporter = ProgressReporter(None, req.task_id)
         try:
             # 网关重试的是同一个批次。前一次尝试已经选版成功的章节必须直接复用，
             # 不能重置为 generating 后再跑一遍，更不能因后续章节失败而降级。
@@ -692,7 +701,6 @@ async def _execute_batch_generate(
                     "result": existing,
                 }
 
-            single_reporter = ProgressReporter(None, req.task_id)
             result = await _execute_chapter_generate(single_req, single_reporter)
             selected_version_id = await _select_batch_generated_chapter(
                 req,
@@ -720,6 +728,7 @@ async def _execute_batch_generate(
             raise
         except Exception as e:
             logger.error(f"章节 {chapter_number} 生成失败: {e}")
+            await record_failure(single_req, e, getattr(single_reporter, "stage", ""))
             # 每章独立提交失败状态，批量结果只做汇总，不反向覆盖其它章节。
             await _reset_generating_chapters_to_failed(single_req)
             return {
