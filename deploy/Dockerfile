@@ -58,6 +58,10 @@ COPY backend/requirements.txt .
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Upgrade the application-side proxy too, not just the public load balancer.
+COPY deploy/scripts/install-nginx.sh /tmp/install-nginx.sh
+RUN sh /tmp/install-nginx.sh && rm /tmp/install-nginx.sh
+
 # 复制后端应用代码
 COPY backend/ ./
 

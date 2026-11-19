@@ -5,7 +5,7 @@
 services:
   # Nginx 负载均衡器
   nginx:
-    image: nginx:alpine
+    image: nginx:1.31.9-alpine
     container_name: arboris-nginx
     ports:
       - "80:80"
